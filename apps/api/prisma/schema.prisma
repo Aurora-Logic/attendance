@@ -1,0 +1,681 @@
+// Phase 1 data model. The API currently serves from an in-memory store with
+// exactly these shapes (src/store.ts) because Docker/Postgres is not available
+// on the dev machine; swapping the store for Prisma repositories is a
+// mechanical change, not a redesign.
+//
+// Structural rules this schema enforces (see DECISIONS.md):
+//  A1  punches are append-only; attendance_days is derived and rebuildable
+//  A2  punches carry resolvedDate — the business date, not the calendar date
+//  A8  a payroll run REQUIRES an attendance month lock (non-null FK)
+//  A9  company_id on every tenant table
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: the connection URL lives in prisma.config.ts, not here.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------- org
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  logoUrl   String?
+  timezone  String   @default("Asia/Kolkata")
+  createdAt DateTime @default(now())
+
+  branches  Branch[]
+  employees Employee[]
+  users     User[]
+
+  @@map("companies")
+}
+
+model Branch {
+  id              String  @id @default(cuid())
+  companyId       String
+  name            String
+  stateCode       String // drives PT slabs and the holiday calendar
+  geofenceLat     Float?
+  geofenceLng     Float?
+  geofenceRadiusM Int     @default(200)
+
+  company   Company    @relation(fields: [companyId], references: [id])
+  employees Employee[]
+
+  @@index([companyId])
+  @@map("branches")
+}
+
+model Department {
+  id        String @id @default(cuid())
+  companyId String
+  name      String
+
+  @@unique([companyId, name])
+  @@map("departments")
+}
+
+model Designation {
+  id        String @id @default(cuid())
+  companyId String
+  name      String
+
+  @@unique([companyId, name])
+  @@map("designations")
+}
+
+// ---------------------------------------------------------------- identity
+
+enum Role {
+  ADMIN
+  HR
+  OPERATIONS
+  EMPLOYEE
+}
+
+enum Scope {
+  NONE
+  SELF
+  OWN_TEAM
+  OWN_BRANCH
+  ALL
+  VIEW
+}
+
+model User {
+  id           String   @id @default(cuid())
+  companyId    String
+  email        String   @unique
+  passwordHash String
+  role         Role
+  employeeId   String?  @unique
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  company  Company   @relation(fields: [companyId], references: [id])
+  employee Employee? @relation(fields: [employeeId], references: [id])
+
+  @@map("users")
+}
+
+/// §2: the permission matrix is data. One row per (permission, role).
+model RolePermission {
+  id            String @id @default(cuid())
+  companyId     String
+  permissionKey String
+  role          Role
+  scope         Scope
+
+  @@unique([companyId, permissionKey, role])
+  @@map("role_permissions")
+}
+
+enum EmployeeStatus {
+  PROBATION
+  CONFIRMED
+  NOTICE
+  EXITED
+}
+
+model Employee {
+  id              String         @id @default(cuid())
+  companyId       String
+  branchId        String
+  code            String
+  name            String
+  email           String
+  departmentId    String?
+  designationId   String?
+  managerId       String? // "own team" resolves down this edge
+  defaultShiftId  String?
+  status          EmployeeStatus @default(PROBATION)
+  isFieldEmployee Boolean        @default(false) // geofence exempt
+  joinedOn        DateTime
+  confirmedOn     DateTime?
+  resignedOn      DateTime?
+  lastWorkingDay  DateTime?
+  deletedAt       DateTime? // soft delete; ex-employees stay reportable
+
+  branch       Branch             @relation(fields: [branchId], references: [id])
+  company      Company            @relation(fields: [companyId], references: [id])
+  manager      Employee?          @relation("Reporting", fields: [managerId], references: [id])
+  reports      Employee[]         @relation("Reporting")
+  user         User?
+  punches      Punch[]
+  days         AttendanceDay[]
+  ledger       LeaveLedgerEntry[]
+  salaries     SalaryStructure[]
+  consents     Consent[]
+
+  @@unique([companyId, code])
+  @@index([companyId, branchId])
+  @@index([managerId])
+  @@map("employees")
+}
+
+/// Maintained on manager change so "own team" is a join, not a recursive CTE.
+model EmployeeClosure {
+  ancestorId   String
+  descendantId String
+  depth        Int
+
+  @@id([ancestorId, descendantId])
+  @@map("employee_closure")
+}
+
+// ---------------------------------------------------------------- calendar
+
+model Shift {
+  id             String  @id @default(cuid())
+  companyId      String
+  name           String
+  short          String
+  startMin       Int // minutes since midnight; endMin <= startMin crosses midnight
+  endMin         Int
+  breakMin       Int     @default(0)
+  otMultiplier   Float   @default(1.5)
+  /// Per-shift overrides of the settings chain (JSON of AttendanceSettings keys)
+  settingsJson   Json?
+
+  assignments ShiftAssignment[]
+
+  @@map("shifts")
+}
+
+model WeeklyOffPattern {
+  id                 String @id @default(cuid())
+  companyId          String
+  name               String
+  fixedDays          Int[] // 0 = Sunday
+  alternateSaturdays Int[] // 1-based occurrences
+
+  @@map("weekly_off_patterns")
+}
+
+model EmployeeWeeklyOff {
+  id            String    @id @default(cuid())
+  employeeId    String
+  patternId     String
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+
+  @@index([employeeId, effectiveFrom])
+  @@map("employee_weekly_offs")
+}
+
+model ShiftAssignment {
+  id         String   @id @default(cuid())
+  employeeId String
+  shiftId    String
+  date       DateTime @db.Date
+  source     String   @default("RULE") // RULE | ROTATION | MANUAL
+
+  shift Shift @relation(fields: [shiftId], references: [id])
+
+  @@unique([employeeId, date])
+  @@map("shift_assignments")
+}
+
+model HolidayCalendar {
+  id        String    @id @default(cuid())
+  companyId String
+  name      String
+  stateCode String?
+
+  holidays Holiday[]
+
+  @@map("holiday_calendars")
+}
+
+model Holiday {
+  id         String   @id @default(cuid())
+  calendarId String
+  date       DateTime @db.Date
+  name       String
+  isFloating Boolean  @default(false)
+
+  calendar HolidayCalendar @relation(fields: [calendarId], references: [id])
+
+  @@unique([calendarId, date])
+  @@map("holidays")
+}
+
+// ---------------------------------------------------------------- attendance
+
+enum PunchType {
+  IN
+  OUT
+  BREAK_OUT
+  BREAK_IN
+}
+
+enum PunchSource {
+  DEVICE
+  KIOSK
+  ADMIN // regularisation writes a NEW punch — nothing is edited in place
+  SYSTEM
+}
+
+model Punch {
+  id             String      @id @default(cuid())
+  companyId      String
+  employeeId     String
+  type           PunchType
+  source         PunchSource @default(DEVICE)
+  at             DateTime // server time, UTC — the only trusted clock
+  resolvedDate   DateTime    @db.Date // A2: the business date
+  offsetMin      Int
+  lat            Float?
+  lng            Float?
+  accuracyM      Float?
+  deviceHash     String?
+  ip             String?
+  dayPart        String      @default("FULL")
+  flags          String[]
+  selfieThumbKey String? // object-storage keys, never blobs
+  selfieViewKey  String?
+  selfieHash     String? // repeated-hash anti-spoof check
+  faceDetected   Boolean?
+  idempotencyKey String      @unique
+  syncDeltaSec   Int? // OFFLINE_SYNCED: device-to-server lag, visible to HR
+  createdAt      DateTime    @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, resolvedDate])
+  @@map("punches")
+}
+
+enum DayStatus {
+  PRESENT
+  HALF_DAY
+  ABSENT
+  WEEKLY_OFF
+  HOLIDAY
+  ON_LEAVE
+  ON_LEAVE_HALF
+  WFH
+  ON_DUTY
+  PENDING_APPROVAL
+}
+
+/// A1: derived, one row per employee per day, rebuilt idempotently from
+/// punches + shift + leave + holiday until the month is locked.
+model AttendanceDay {
+  id             String    @id @default(cuid())
+  companyId      String
+  employeeId     String
+  date           DateTime  @db.Date
+  shiftId        String?
+  status         DayStatus
+  payableUnits   Float // 0 | 0.5 | 1 — the only number payroll reads
+  halfDayReason  String?
+  workedMinutes  Int       @default(0)
+  lateMinutes    Int       @default(0)
+  otMinutes      Int       @default(0)
+  flags          String[]
+  penaltyApplied String    @default("NONE")
+  needsApproval  Boolean   @default(false)
+  explanation    String    @default("")
+  version        Int       @default(1) // corrections append a new version
+  computedAt     DateTime  @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, date, version])
+  @@index([companyId, date])
+  @@map("attendance_days")
+}
+
+model AttendanceMonthLock {
+  id        String   @id @default(cuid())
+  companyId String
+  month     String // "2026-08"
+  lockedBy  String
+  lockedAt  DateTime @default(now())
+
+  payrollRuns PayrollRun[]
+
+  @@unique([companyId, month])
+  @@map("attendance_month_locks")
+}
+
+// ---------------------------------------------------------------- approvals
+
+enum ApprovalKind {
+  LEAVE
+  REGULARISATION
+  OVERTIME
+  COMP_OFF
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+model ApprovalRequest {
+  id         String         @id @default(cuid())
+  companyId  String
+  kind       ApprovalKind
+  employeeId String
+  subject    String
+  detail     String         @default("")
+  dateFrom   DateTime       @db.Date
+  dateTo     DateTime       @db.Date
+  units      Float          @default(0)
+  metaJson   Json?
+  status     ApprovalStatus @default(PENDING)
+  level      Int            @default(1) // auto-escalates to 2 after N days
+
+  actions ApprovalAction[]
+
+  @@index([companyId, status])
+  @@map("approval_requests")
+}
+
+/// Append-only. This table IS the §7 turnaround report.
+model ApprovalAction {
+  id        String   @id @default(cuid())
+  requestId String
+  actorId   String
+  action    String // APPROVE | REJECT | ESCALATE | WITHDRAW
+  remarks   String   @default("")
+  at        DateTime @default(now())
+
+  request ApprovalRequest @relation(fields: [requestId], references: [id])
+
+  @@map("approval_actions")
+}
+
+// ---------------------------------------------------------------- leave
+
+model LeaveType {
+  id                 String  @id @default(cuid())
+  companyId          String
+  code               String // CL, SL, EL, LOP, CO…
+  name               String
+  isPaid             Boolean @default(true)
+  annualQuota        Float   @default(0)
+  accrual            String  @default("ANNUAL") // MONTHLY | QUARTERLY | ANNUAL | ON_JOINING
+  carryForwardCap    Float   @default(0)
+  encashable         Boolean @default(false)
+  maxConsecutiveDays Int?
+  minNoticeDays      Int     @default(0)
+  requiresDocAfter   Int? // e.g. SL > 2 days
+  negativeAllowed    Boolean @default(false)
+
+  @@unique([companyId, code])
+  @@map("leave_types")
+}
+
+/// Immutable — balances are a projection of this table.
+model LeaveLedgerEntry {
+  id         String   @id @default(cuid())
+  companyId  String
+  employeeId String
+  typeCode   String
+  txnType    String // OPENING | ACCRUAL | AVAIL | ADJUST | LAPSE | COMP_OFF_CREDIT
+  units      Float
+  date       DateTime @db.Date
+  remarks    String   @default("")
+  requestId  String?
+  createdAt  DateTime @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, typeCode])
+  @@map("leave_ledger")
+}
+
+model CompOff {
+  id         String    @id @default(cuid())
+  companyId  String
+  employeeId String
+  earnedOn   DateTime  @db.Date
+  expiresOn  DateTime  @db.Date
+  usedOn     DateTime? @db.Date
+
+  @@index([employeeId])
+  @@map("comp_offs")
+}
+
+// ---------------------------------------------------------------- payroll
+
+model SalaryComponent {
+  id        String  @id @default(cuid())
+  companyId String
+  code      String // BASIC, HRA, CONV, SPECIAL, PF, ESI, PT, TDS…
+  name      String
+  isEarning Boolean
+
+  @@unique([companyId, code])
+  @@map("salary_components")
+}
+
+/// Effective-dated (A5): a March rerun in June uses March's structure.
+model SalaryStructure {
+  id            String    @id @default(cuid())
+  employeeId    String
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  rateBasis     String    @default("FIXED_26") // CALENDAR_DAYS | WORKING_DAYS | FIXED_26
+
+  items    SalaryStructureItem[]
+  employee Employee              @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, effectiveFrom])
+  @@map("employee_salary_structures")
+}
+
+model SalaryStructureItem {
+  id            String @id @default(cuid())
+  structureId   String
+  componentCode String
+  amountPaise   BigInt // A4: integer paise, never float
+
+  structure SalaryStructure @relation(fields: [structureId], references: [id])
+
+  @@map("employee_salary_structure_items")
+}
+
+model StatutoryConfig {
+  id            String    @id @default(cuid())
+  companyId     String
+  kind          String // PF | ESI | PT | TDS
+  enabled       Boolean   @default(true)
+  configJson    Json // rates + ceilings, editable — these change
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime?
+
+  @@map("statutory_configs")
+}
+
+model PtSlab {
+  id             String @id @default(cuid())
+  stateCode      String
+  monthlyFromPaise BigInt
+  monthlyToPaise   BigInt?
+  taxPaise         BigInt
+
+  @@map("pt_slabs")
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  CALCULATED
+  APPROVED
+  RELEASED
+}
+
+model PayrollRun {
+  id        String           @id @default(cuid())
+  companyId String
+  month     String
+  runType   String           @default("REGULAR") // REGULAR | ADJUSTMENT | FNF
+  version   Int              @default(1)
+  status    PayrollRunStatus @default(DRAFT)
+  /// A8: NON-NULL — payroll cannot exist without a locked month.
+  lockId    String
+  createdAt DateTime         @default(now())
+
+  lock  AttendanceMonthLock @relation(fields: [lockId], references: [id])
+  items PayrollRunItem[]
+
+  @@unique([companyId, month, runType, version])
+  @@map("payroll_runs")
+}
+
+model PayrollRunItem {
+  id              String @id @default(cuid())
+  runId           String
+  employeeId      String
+  payableDays     Float
+  grossPaise      BigInt
+  deductionsPaise BigInt
+  netPaise        BigInt
+
+  run        PayrollRun               @relation(fields: [runId], references: [id])
+  components PayrollRunItemComponent[]
+
+  @@unique([runId, employeeId])
+  @@map("payroll_run_items")
+}
+
+/// Each component's amount AND what it was computed from — the audit trail an
+/// accountant asks for, and the fixture §11 unit tests assert against.
+model PayrollRunItemComponent {
+  id            String @id @default(cuid())
+  itemId        String
+  componentCode String
+  amountPaise   BigInt
+  basisJson     Json?
+
+  item PayrollRunItem @relation(fields: [itemId], references: [id])
+
+  @@map("payroll_run_item_components")
+}
+
+model Payslip {
+  id         String   @id @default(cuid())
+  runId      String
+  employeeId String
+  pdfKey     String // object storage, emailed on release
+  createdAt  DateTime @default(now())
+
+  @@unique([runId, employeeId])
+  @@map("payslips")
+}
+
+model AdvanceLoan {
+  id               String  @id @default(cuid())
+  companyId        String
+  employeeId       String
+  principalPaise   BigInt
+  installmentPaise BigInt
+  balancePaise     BigInt
+  isActive         Boolean @default(true)
+
+  @@map("advances_loans")
+}
+
+// ---------------------------------------------------------------- platform
+
+model Setting {
+  id        String  @id @default(cuid())
+  companyId String
+  scope     String // COMPANY | BRANCH | SHIFT | EMPLOYEE — A6 resolution chain
+  scopeId   String?
+  key       String
+  valueJson Json
+
+  @@unique([companyId, scope, scopeId, key])
+  @@map("settings")
+}
+
+/// Append-only. There is no update or delete path to this table — not in the
+/// API, not in the UI.
+model AuditLog {
+  id         String   @id @default(cuid())
+  companyId  String
+  actorId    String
+  action     String
+  entity     String
+  entityId   String
+  beforeJson Json?
+  afterJson  Json?
+  ip         String?
+  at         DateTime @default(now())
+
+  @@index([companyId, at])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id         String    @id @default(cuid())
+  companyId  String
+  employeeId String
+  channel    String    @default("IN_APP") // IN_APP | EMAIL | WHATSAPP | SMS
+  templateId String?
+  payload    Json
+  sentAt     DateTime?
+  readAt     DateTime?
+
+  @@index([employeeId, readAt])
+  @@map("notifications")
+}
+
+model ExportJob {
+  id          String   @id @default(cuid())
+  companyId   String
+  reportKey   String
+  paramsJson  Json
+  status      String   @default("QUEUED") // QUEUED | RUNNING | READY | FAILED
+  fileKey     String?
+  rowCount    Int?
+  requestedBy String
+  createdAt   DateTime @default(now())
+
+  @@map("export_jobs")
+}
+
+model ImportBatch {
+  id          String   @id @default(cuid())
+  companyId   String
+  kind        String // EMPLOYEES | ROSTER | LEAVE_OPENING | SALARY
+  status      String   @default("VALIDATING")
+  totalRows   Int      @default(0)
+  errorRows   Int      @default(0)
+  errorFileKey String?
+  createdAt   DateTime @default(now())
+
+  @@map("import_batches")
+}
+
+/// DPDP-friendly: explicit, revocable consent for location + photograph capture.
+model Consent {
+  id         String    @id @default(cuid())
+  employeeId String
+  kind       String // LOCATION | PHOTOGRAPH
+  grantedAt  DateTime
+  revokedAt  DateTime?
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("consents")
+}
+
+model IdempotencyKey {
+  key       String   @id
+  companyId String
+  endpoint  String
+  createdAt DateTime @default(now())
+
+  @@map("idempotency_keys")
+}

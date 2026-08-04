@@ -43,6 +43,8 @@ export const attendanceSettingsSchema = z.object({
   // --- day computation -----------------------------------------------------
   halfDayMinHours: z.number().nonnegative().default(4),
   fullDayMinHours: z.number().nonnegative().default(8),
+  /** §5 sandwich rule: charge a holiday/weekly-off sitting between leave days. */
+  sandwichLeave: z.boolean().default(false),
 
   // --- geofence & duplicates ----------------------------------------------
   geofenceRadiusM: z.number().int().positive().default(200),
