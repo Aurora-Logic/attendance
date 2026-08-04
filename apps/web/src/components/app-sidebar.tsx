@@ -80,9 +80,14 @@ export function AppSidebar() {
                   {items.map((item) => (
                     <SidebarMenuItem key={item.url}>
                       <SidebarMenuButton asChild tooltip={item.title}>
-                        <NavLink to={item.url} end={item.url === "/"}>
+                        <NavLink to={item.url} end={item.url === "/"} className="relative">
                           {({ isActive }) => (
                             <>
+                              {/* Active marker: a dot in the button's left
+                                  padding, so nothing shifts when it appears. */}
+                              {isActive ? (
+                                <span className="bg-primary absolute top-1/2 left-0.5 size-1 -translate-y-1/2 rounded-full" />
+                              ) : null}
                               <item.icon data-active={isActive} />
                               <span>{item.title}</span>
                             </>

@@ -177,7 +177,7 @@ export function PunchPage() {
             {/* A ring rather than a 2px border, so this card keeps the same
                 1px outline as every other card and the punctuality colour
                 reads as emphasis instead of a different component. */}
-            <Card className={cn("flex flex-col ring-1 ring-inset", mood.ring)}>
+            <Card className={cn("flex flex-col", mood.ring)}>
               <CardContent className="flex flex-1 flex-col gap-5 pt-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
