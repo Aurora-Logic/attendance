@@ -399,6 +399,26 @@ export function VendorsPage() {
                 }
               : undefined
           }
+          renderMobileCard={(vendor) => (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{vendor.name}</span>
+                {vendor.active ? (
+                  <Badge variant="success">Active</Badge>
+                ) : (
+                  <Badge variant="outline">Inactive</Badge>
+                )}
+              </div>
+              <span className="text-muted-foreground text-xs">
+                {vendor.code} · Net {vendor.paymentTermsDays} · {vendor.leadTimeDays} d lead
+              </span>
+              {(vendor.contact || vendor.phone) && (
+                <span className="text-muted-foreground text-xs">
+                  {[vendor.contact, vendor.phone].filter(Boolean).join(" · ")}
+                </span>
+              )}
+            </div>
+          )}
         />
       </PageBodyFixed>
       <VendorSheet vendor={editing} open={open} onOpenChange={setOpen} />

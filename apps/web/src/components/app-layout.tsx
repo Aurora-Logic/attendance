@@ -4,7 +4,7 @@ import { Search } from "lucide-react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CommandPaletteProvider, useCommandPalette } from "@/components/command-palette"
 import { ModeToggle } from "@/components/mode-toggle"
-import { NAV_GROUPS } from "@/lib/nav"
+import { resolveCrumbs } from "@/lib/nav"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -21,12 +21,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 
 function useCrumbs() {
   const { pathname } = useLocation()
-  for (const group of NAV_GROUPS) {
-    const match = group.items.find((item) => item.url === pathname)
-    if (match) return { group: group.label, page: match.title }
-  }
-  if (pathname.startsWith("/employees/")) return { group: "People", page: "Employee" }
-  return { group: null, page: "Not found" }
+  return resolveCrumbs(pathname)
 }
 
 function SearchTrigger() {

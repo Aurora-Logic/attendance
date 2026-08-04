@@ -1,6 +1,7 @@
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 
+import { useAuditRows } from "@/lib/queries"
 import { seedAudit, type AuditRow } from "@/lib/seed"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
@@ -63,13 +64,19 @@ const columns: ColumnDef<AuditRow>[] = [
 ]
 
 export function AuditPage() {
-  const rows = React.useMemo(() => seedAudit(), [])
+  const { rows: apiRows, source, isLoading } = useAuditRows()
+  const seedRows = React.useMemo(() => seedAudit(), [])
+  const rows = (source === "api" && apiRows ? apiRows : seedRows) as AuditRow[]
 
   return (
     <Page>
       <PageHeader
         title="Audit Log"
-        description="Append-only. Attendance and payroll rows are never hard-deleted — corrections write a new version with a reason."
+        description={
+          source === "api" && apiRows
+            ? "Append-only rows served from Postgres — the first table on the real database."
+            : "Append-only. Seeded preview — audit rows stream from Postgres on an API session."
+        }
       />
       <PageBodyFixed>
         <Alert>
@@ -81,6 +88,7 @@ export function AuditPage() {
         </Alert>
         <DataTable
           columns={columns}
+          isLoading={isLoading}
           data={rows}
           searchColumn="actor"
           searchPlaceholder="Search by actor…"

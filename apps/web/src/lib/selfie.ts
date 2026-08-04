@@ -17,8 +17,8 @@ export interface SelfieDerivatives {
 interface StampContext {
   name: string
   at: Date
-  lat: number
-  lng: number
+  lat?: number
+  lng?: number
 }
 
 function drawStamped(
@@ -56,7 +56,9 @@ function drawStamped(
     const when = `${two(stamp.at.getDate())}-${two(stamp.at.getMonth() + 1)}-${stamp.at.getFullYear()} ${two(stamp.at.getHours())}:${two(stamp.at.getMinutes())}`
     context.fillText(`${stamp.name} · ${when}`, 8, height - barHeight + line + 2)
     context.fillText(
-      `${stamp.lat.toFixed(4)}, ${stamp.lng.toFixed(4)}`,
+      stamp.lat !== undefined && stamp.lng !== undefined
+        ? `${stamp.lat.toFixed(4)}, ${stamp.lng.toFixed(4)}`
+        : "location unavailable",
       8,
       height - barHeight + line * 2 + 6
     )

@@ -38,7 +38,45 @@ const SHIFT_START_MINUTES = 9 * 60
 const SHIFT_END_MINUTES = 18 * 60
 
 const BRANCH: LatLng = { lat: 19.076, lng: 72.8777 }
-const DEVICE: LatLng = { lat: 19.0771, lng: 72.8781 }
+
+interface DevicePosition {
+  coords: LatLng | null
+  accuracyM: number
+  state: "locating" | "ready" | "denied"
+}
+
+/**
+ * Live device position via watchPosition, so the fence verdict tracks the
+ * phone as it moves. Denial is a state, not an error — the punch still
+ * records, server-flagged OUT_OF_GEOFENCE for approval.
+ */
+function useDevicePosition(): DevicePosition {
+  const [position, setPosition] = React.useState<DevicePosition>({
+    coords: null,
+    accuracyM: 0,
+    state: "locating",
+  })
+
+  React.useEffect(() => {
+    if (!navigator.geolocation) {
+      setPosition({ coords: null, accuracyM: 0, state: "denied" })
+      return
+    }
+    const watchId = navigator.geolocation.watchPosition(
+      (result) =>
+        setPosition({
+          coords: { lat: result.coords.latitude, lng: result.coords.longitude },
+          accuracyM: Math.round(result.coords.accuracy),
+          state: "ready",
+        }),
+      () => setPosition({ coords: null, accuracyM: 0, state: "denied" }),
+      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 10_000 }
+    )
+    return () => navigator.geolocation.clearWatch(watchId)
+  }, [])
+
+  return position
+}
 
 const TODAY_PUNCHES: Array<{
   at: string
@@ -211,7 +249,10 @@ export function PunchPage() {
     (priorLateMarks / Math.max(settings.lateMarksAllowed, 1)) * 100,
     100
   )
-  const geo = checkGeofence(DEVICE, BRANCH, settings.geofenceRadiusM, 12)
+  const position = useDevicePosition()
+  const geo = position.coords
+    ? checkGeofence(position.coords, BRANCH, settings.geofenceRadiusM, position.accuracyM)
+    : null
 
   const offsetLabel =
     minutesFromStart < 0
@@ -236,7 +277,7 @@ export function PunchPage() {
           setLastShot(
             captureSelfie(
               videoRef.current,
-              { name: user.name, at: now, lat: DEVICE.lat, lng: DEVICE.lng },
+              { name: user.name, at: now, ...(position.coords ?? {}) },
               settings
             )
           )
@@ -259,7 +300,7 @@ export function PunchPage() {
       try {
         selfie = captureSelfie(
           videoRef.current,
-          { name: user.name, at: now, lat: DEVICE.lat, lng: DEVICE.lng },
+          { name: user.name, at: now, ...(position.coords ?? {}) },
           settings
         )
         setLastShot(selfie)
@@ -272,9 +313,10 @@ export function PunchPage() {
       employeeId: user.employeeId,
       type: punchedIn ? "OUT" : "IN",
       at,
-      lat: DEVICE.lat,
-      lng: DEVICE.lng,
-      accuracyM: 12,
+      // No location → the server records the punch and flags it (§3).
+      ...(position.coords
+        ? { lat: position.coords.lat, lng: position.coords.lng, accuracyM: position.accuracyM }
+        : {}),
       dayPart,
       idempotencyKey: crypto.randomUUID(),
       ...(selfie ? { selfieThumb: selfie.thumb, selfieView: selfie.view } : {}),
@@ -522,11 +564,27 @@ export function PunchPage() {
                   <CaptureCheck
                     icon={MapPin}
                     label="Geofence"
-                    value={geo.explanation}
-                    tone={geo.inside ? "success" : geo.uncertain ? "warning" : "outline"}
+                    value={
+                      position.state === "locating"
+                        ? "Locating…"
+                        : position.state === "denied"
+                          ? "Location denied — punches will be flagged for approval"
+                          : (geo?.explanation ?? "")
+                    }
+                    tone={
+                      position.state === "ready" && geo?.inside
+                        ? "success"
+                        : position.state === "locating"
+                          ? "outline"
+                          : "warning"
+                    }
                     action={
                       <Button variant="ghost" size="icon-sm" asChild aria-label="Open in Maps">
-                        <a href={mapsLinkFor(DEVICE)} target="_blank" rel="noreferrer">
+                        <a
+                          href={mapsLinkFor(position.coords ?? BRANCH)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
                           <ExternalLink />
                         </a>
                       </Button>

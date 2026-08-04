@@ -37,6 +37,34 @@ export interface NavGroup {
 }
 
 /**
+ * Breadcrumb for a pathname. Exact nav matches win; nested screens (detail
+ * pages, builders) resolve to their section's entry by longest URL prefix, so
+ * /purchase-orders/po2 reads "Procurement › Purchase Orders" and
+ * /employees/e1 reads "People › Employees". "Not found" only appears for a
+ * path no nav entry owns.
+ */
+export function resolveCrumbs(pathname: string): { group: string | null; page: string } {
+  for (const group of NAV_GROUPS) {
+    const match = group.items.find((item) => item.url === pathname)
+    if (match) return { group: group.label, page: match.title }
+  }
+  let best: { group: string; page: string; length: number } | null = null
+  for (const group of NAV_GROUPS) {
+    for (const item of group.items) {
+      if (
+        item.url !== "/" &&
+        pathname.startsWith(`${item.url}/`) &&
+        (!best || item.url.length > best.length)
+      ) {
+        best = { group: group.label, page: item.title, length: item.url.length }
+      }
+    }
+  }
+  if (best) return { group: best.group, page: best.page }
+  return { group: null, page: "Not found" }
+}
+
+/**
  * One group per module, ordered by how often each is opened: Overview (the
  * analysis surfaces), then the two operational modules — Attendance and
  * Procurement — then People (masters + money), then System config.

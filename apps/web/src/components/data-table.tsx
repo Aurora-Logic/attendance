@@ -67,6 +67,12 @@ interface DataTableProps<TData, TValue> {
   fill?: boolean
   /** Makes rows navigable. Clicks on controls inside a row are ignored. */
   onRowClick?: (row: TData) => void
+  /**
+   * Phone rendering: below `sm` the table becomes a card list, one card per
+   * row, rendered by this function. Sorting, search, filters and pagination
+   * keep working — only the row presentation changes. Opt-in per screen.
+   */
+  renderMobileCard?: (row: TData) => React.ReactNode
 }
 
 /**
@@ -93,6 +99,7 @@ export function DataTable<TData, TValue>({
   pageSize = 25,
   fill = true,
   onRowClick,
+  renderMobileCard,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
@@ -166,10 +173,46 @@ export function DataTable<TData, TValue>({
         </div>
       ) : null}
 
+      {renderMobileCard ? (
+        <div className={cn("flex flex-col gap-2 overflow-y-auto sm:hidden", fill && "min-h-0 flex-1")}>
+          {isLoading ? (
+            Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={index} className="h-20 w-full rounded-md" />
+            ))
+          ) : table.getRowModel().rows.length ? (
+            table.getRowModel().rows.map((row) => (
+              <div
+                key={row.id}
+                className={cn("rounded-md border p-3", onRowClick && "active:bg-muted/50")}
+                onClick={
+                  onRowClick
+                    ? (event) => {
+                        if ((event.target as HTMLElement).closest("button,a,input,[role=checkbox]"))
+                          return
+                        onRowClick(row.original)
+                      }
+                    : undefined
+                }
+              >
+                {renderMobileCard(row.original)}
+              </div>
+            ))
+          ) : (
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>{emptyTitle}</EmptyTitle>
+                <EmptyDescription>{emptyDescription}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </div>
+      ) : null}
+
       <div
         className={cn(
           "overflow-auto rounded-md border",
-          fill ? "min-h-0 flex-1" : "max-h-[70svh]"
+          fill ? "min-h-0 flex-1" : "max-h-[70svh]",
+          renderMobileCard && "max-sm:hidden"
         )}
       >
         <Table>

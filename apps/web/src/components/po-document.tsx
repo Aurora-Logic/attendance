@@ -88,6 +88,22 @@ function Lbl({ children, className }: { children: React.ReactNode; className?: s
 
 const selectOnFocus = (event: React.FocusEvent<HTMLInputElement>) => event.currentTarget.select()
 
+/**
+ * Print the sheet with a meaningful PDF filename. Browsers name a printed PDF
+ * after `document.title`, so it is swapped to "PO-2026-0003 - Vendor - date"
+ * for the duration of the print dialog and restored afterwards.
+ */
+export function printPoDocument(title: string) {
+  const previous = document.title
+  const restore = () => {
+    document.title = previous
+    window.removeEventListener("afterprint", restore)
+  }
+  window.addEventListener("afterprint", restore)
+  document.title = title
+  window.print()
+}
+
 const fromISO = (iso: string) => new Date(`${iso}T00:00:00`)
 const printDate = (iso: string) => format(fromISO(iso), "d MMM yyyy")
 

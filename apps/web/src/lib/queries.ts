@@ -345,6 +345,52 @@ export function useMyLeaveRequests(): MyLeaveRequestView[] | null {
   return enabled ? (query.data ?? []) : null
 }
 
+// ---------------------------------------------------------------- audit
+
+interface ApiAuditRow {
+  id: string
+  at: string
+  actor: string
+  action: string
+  entity: string
+  entityId: string
+  before: unknown
+  after: unknown
+  ip: string | null
+}
+
+/** §8.1 served from Postgres — the first screen backed by the real database. */
+export function useAuditRows() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+
+  const query = useQuery({
+    queryKey: ["audit"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<{ rows: ApiAuditRow[] }>("/audit"),
+    select: (payload) =>
+      payload.rows.map((row) => ({
+        id: row.id,
+        at: new Date(row.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "medium" }),
+        actor: row.actor,
+        action: row.action,
+        entity: row.entity,
+        entityId: row.entityId,
+        before: row.before === null ? "—" : JSON.stringify(row.before, null, 1),
+        after: row.after === null ? "—" : JSON.stringify(row.after, null, 1),
+        ip: row.ip ?? "—",
+      })),
+  })
+
+  if (!enabled) return { rows: null, source: "demo" as DataSource, isLoading: false }
+  return {
+    rows: query.isError ? null : (query.data ?? []),
+    source: "api" as DataSource,
+    isLoading: query.isLoading,
+  }
+}
+
 // ---------------------------------------------------------------- fallbacks
 
 /** Demo approvals list, memo-free (deterministic seed). */

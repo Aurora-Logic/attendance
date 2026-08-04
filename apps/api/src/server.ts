@@ -21,6 +21,7 @@ import {
   type Scope,
 } from "@attendance/shared"
 
+import { auditPage, recordAudit } from "./db"
 import { registerProcurementRoutes } from "./procurement"
 import { id, seedStore, type Store, type StoredEmployee } from "./store"
 
@@ -47,8 +48,8 @@ const punchBodySchema = z.object({
   type: z.enum(["IN", "OUT", "BREAK_OUT", "BREAK_IN"]),
   /** Local wall time — "2026-08-04T09:05". Server time takes over in Phase 3. */
   at: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
-  lat: z.number(),
-  lng: z.number(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
   accuracyM: z.number().nonnegative().default(0),
   dayPart: z.enum(["FULL", "FIRST_HALF", "SECOND_HALF"]).default("FULL"),
   idempotencyKey: z.string().min(8),
@@ -247,6 +248,14 @@ export function buildServer(store: Store = seedStore()) {
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
       const employee: StoredEmployee = { id: id(store, "e"), managerId: null, ...parsed.data }
       store.employees.push(employee)
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "employee.create",
+        entity: "employees",
+        entityId: employee.id,
+        after: employee,
+        ip: request.ip,
+      })
       return reply.code(201).send({ employee })
     }
   )
@@ -260,7 +269,17 @@ export function buildServer(store: Store = seedStore()) {
     async (request, reply) => {
       const merged = attendanceSettingsSchema.safeParse({ ...store.settings, ...(request.body as object) })
       if (!merged.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: merged.error.issues })
+      const before = store.settings
       store.settings = merged.data
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "settings.update",
+        entity: "settings",
+        entityId: "company",
+        before,
+        after: store.settings,
+        ip: request.ip,
+      })
       return { settings: store.settings }
     }
   )
@@ -278,12 +297,48 @@ export function buildServer(store: Store = seedStore()) {
       const matrixSchema = z.record(z.string(), z.record(z.string(), scopeSchema))
       const parsed = matrixSchema.safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+      const beforeMatrix = store.matrix
       store.matrix = parsed.data as typeof store.matrix
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "permissions.update",
+        entity: "role_permissions",
+        entityId: "matrix",
+        before: beforeMatrix,
+        after: store.matrix,
+        ip: request.ip,
+      })
       return { matrix: store.matrix }
     }
   )
 
   app.get("/branding", async () => ({ branding: store.branding }))
+
+  // §8.1 — served from Postgres. There is no update or delete route.
+  app.get(
+    "/audit",
+    { preHandler: [authenticate, requirePermission("audit.view")] },
+    async (_request, reply) => {
+      const rows = await auditPage(200).catch(() => null)
+      if (rows === null) return reply.code(503).send({ error: "DB_UNAVAILABLE" })
+      const actorName = (actorId: string) =>
+        store.users.find((candidate) => candidate.id === actorId)?.name ?? actorId
+      return {
+        rows: rows.map((row) => ({
+          id: row.id,
+          at: row.at,
+          actorId: row.actorId,
+          actor: actorName(row.actorId),
+          action: row.action,
+          entity: row.entity,
+          entityId: row.entityId,
+          before: row.beforeJson,
+          after: row.afterJson,
+          ip: row.ip,
+        })),
+      }
+    }
+  )
 
   // White-label is admin-only ("that can only be done by admin" — enforced via
   // config.manage, which only ADMIN holds at write scope).
@@ -293,7 +348,17 @@ export function buildServer(store: Store = seedStore()) {
     async (request, reply) => {
       const parsed = brandingSchema.safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+      const beforeBranding = store.branding
       store.branding = parsed.data
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "branding.update",
+        entity: "companies",
+        entityId: "co_delta",
+        before: { companyName: beforeBranding.companyName },
+        after: { companyName: store.branding.companyName },
+        ip: request.ip,
+      })
       return { branding: store.branding }
     }
   )
@@ -344,13 +409,19 @@ export function buildServer(store: Store = seedStore()) {
       if (windowFlag !== "ON_TIME") flags.push(windowFlag)
 
       if (!employee.isFieldEmployee) {
-        const geofence = checkGeofence(
-          { lat: body.lat, lng: body.lng },
-          { lat: branch.lat, lng: branch.lng },
-          store.settings.geofenceRadiusM,
-          body.accuracyM
-        )
-        if (!geofence.inside) flags.push("OUT_OF_GEOFENCE")
+        if (body.lat === undefined || body.lng === undefined) {
+          // Location denied or unavailable: the punch stands, the location
+          // claim doesn't — same approval route as a fence breach.
+          flags.push("OUT_OF_GEOFENCE")
+        } else {
+          const geofence = checkGeofence(
+            { lat: body.lat, lng: body.lng },
+            { lat: branch.lat, lng: branch.lng },
+            store.settings.geofenceRadiusM,
+            body.accuracyM
+          )
+          if (!geofence.inside) flags.push("OUT_OF_GEOFENCE")
+        }
       }
 
       // §3: the hard block exists only as an explicit, off-by-default toggle.
@@ -392,6 +463,14 @@ export function buildServer(store: Store = seedStore()) {
         syncDeltaSec,
       }
       store.punches.push(punch)
+      recordAudit({
+        actorId: request.auth.userId,
+        action: `punch.${body.type.toLowerCase()}`,
+        entity: "punches",
+        entityId: punch.id,
+        after: { businessDate, offsetMin, flags, dayPart: body.dayPart },
+        ip: request.ip,
+      })
 
       const needsApproval = flags.some((flag) => flag !== "ON_TIME")
       if (needsApproval) {
@@ -586,9 +665,19 @@ export function buildServer(store: Store = seedStore()) {
       return reply.code(403).send({ error: "CANNOT_DECIDE_OWN" })
     }
 
+    const beforeApproval = { status: approval.status }
     approval.status = parsed.data.action === "APPROVE" ? "APPROVED" : "REJECTED"
     approval.decidedBy = request.auth.userId
     approval.remarks = parsed.data.remarks
+    recordAudit({
+      actorId: request.auth.userId,
+      action: `approval.${parsed.data.action.toLowerCase()}`,
+      entity: "approval_requests",
+      entityId: approval.id,
+      before: beforeApproval,
+      after: { status: approval.status, remarks: approval.remarks },
+      ip: request.ip,
+    })
 
     if (approval.status === "APPROVED" && approval.kind === "LEAVE" && approval.leaveType) {
       store.ledger.push({

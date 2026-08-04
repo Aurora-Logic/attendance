@@ -14,7 +14,7 @@ import { useSession } from "@/lib/session"
 import { exportPoExcel } from "@/lib/po-export"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
 import { PO_STATUS_LABEL, PoStatusBadge, ScheduleStatusBadge } from "@/components/po-status-badge"
-import { PoDocument, type DocLine } from "@/components/po-document"
+import { PoDocument, printPoDocument, type DocLine } from "@/components/po-document"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -99,7 +99,15 @@ export function PurchaseOrderDetailPage() {
         <FileDown />
         Excel
       </Button>
-      <Button variant="outline" size="sm" onClick={() => window.print()}>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() =>
+          printPoDocument(
+            [po.number, vendor?.name, po.orderDate].filter(Boolean).join(" - ")
+          )
+        }
+      >
         <Printer />
         Print / PDF
       </Button>
@@ -195,37 +203,56 @@ export function PurchaseOrderDetailPage() {
                 <CardTitle>Receipt progress</CardTitle>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Item</TableHead>
-                      <TableHead className="text-right">Ordered</TableHead>
-                      <TableHead className="text-right">Accepted</TableHead>
-                      <TableHead className="text-right">Rejected</TableHead>
-                      <TableHead className="text-right">Pending</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {progress.map((line) => (
-                      <TableRow key={line.poLineId}>
-                        <TableCell className="font-medium">
-                          {lineItemName(line.poLineId)}
-                          {line.overReceivedQty > 0 ? (
-                            <Badge variant="warning" className="ml-2">
-                              +{line.overReceivedQty} over
-                            </Badge>
-                          ) : null}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{line.orderedQty}</TableCell>
-                        <TableCell className="text-right tabular-nums">{line.acceptedQty}</TableCell>
-                        <TableCell className="text-right tabular-nums">{line.rejectedQty}</TableCell>
-                        <TableCell className="text-right font-medium tabular-nums">
-                          {line.pendingQty}
-                        </TableCell>
+                {/* Phones read this as cards; the table needs sm+. */}
+                <div className="flex flex-col gap-2 sm:hidden">
+                  {progress.map((line) => (
+                    <div key={line.poLineId} className="rounded-md border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{lineItemName(line.poLineId)}</span>
+                        {line.overReceivedQty > 0 ? (
+                          <Badge variant="warning">+{line.overReceivedQty} over</Badge>
+                        ) : null}
+                      </div>
+                      <p className="text-muted-foreground mt-1 text-xs tabular-nums">
+                        Ordered {line.orderedQty} · Accepted {line.acceptedQty} · Rejected{" "}
+                        {line.rejectedQty} · Pending {line.pendingQty}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="max-sm:hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item</TableHead>
+                        <TableHead className="text-right">Ordered</TableHead>
+                        <TableHead className="text-right">Accepted</TableHead>
+                        <TableHead className="text-right">Rejected</TableHead>
+                        <TableHead className="text-right">Pending</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {progress.map((line) => (
+                        <TableRow key={line.poLineId}>
+                          <TableCell className="font-medium">
+                            {lineItemName(line.poLineId)}
+                            {line.overReceivedQty > 0 ? (
+                              <Badge variant="warning" className="ml-2">
+                                +{line.overReceivedQty} over
+                              </Badge>
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">{line.orderedQty}</TableCell>
+                          <TableCell className="text-right tabular-nums">{line.acceptedQty}</TableCell>
+                          <TableCell className="text-right tabular-nums">{line.rejectedQty}</TableCell>
+                          <TableCell className="text-right font-medium tabular-nums">
+                            {line.pendingQty}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
 
@@ -237,36 +264,56 @@ export function PurchaseOrderDetailPage() {
                 {tranches.length === 0 ? (
                   <p className="text-muted-foreground text-sm">No delivery schedule on this PO.</p>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Due</TableHead>
-                        <TableHead className="text-right">Qty</TableHead>
-                        <TableHead className="text-right">Received</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                  <>
+                    <div className="flex flex-col gap-2 sm:hidden">
                       {tranches.map((tranche) => (
-                        <TableRow key={tranche.schedule.id}>
-                          <TableCell className="font-medium">
-                            {lineItemName(tranche.schedule.poLineId)}
-                          </TableCell>
-                          <TableCell>{tranche.schedule.dueDate}</TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {tranche.schedule.qty}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {tranche.allocatedQty}
-                          </TableCell>
-                          <TableCell>
+                        <div key={tranche.schedule.id} className="rounded-md border p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium">
+                              {lineItemName(tranche.schedule.poLineId)}
+                            </span>
                             <ScheduleStatusBadge status={tranche.status} />
-                          </TableCell>
-                        </TableRow>
+                          </div>
+                          <p className="text-muted-foreground mt-1 text-xs tabular-nums">
+                            Due {tranche.schedule.dueDate} · {tranche.allocatedQty}/
+                            {tranche.schedule.qty} received
+                          </p>
+                        </div>
                       ))}
-                    </TableBody>
-                  </Table>
+                    </div>
+                    <div className="max-sm:hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Item</TableHead>
+                            <TableHead>Due</TableHead>
+                            <TableHead className="text-right">Qty</TableHead>
+                            <TableHead className="text-right">Received</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {tranches.map((tranche) => (
+                            <TableRow key={tranche.schedule.id}>
+                              <TableCell className="font-medium">
+                                {lineItemName(tranche.schedule.poLineId)}
+                              </TableCell>
+                              <TableCell>{tranche.schedule.dueDate}</TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {tranche.schedule.qty}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {tranche.allocatedQty}
+                              </TableCell>
+                              <TableCell>
+                                <ScheduleStatusBadge status={tranche.status} />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -279,35 +326,60 @@ export function PurchaseOrderDetailPage() {
               <CardTitle>Goods receipts</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>GRN</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Invoice</TableHead>
-                    <TableHead>Lines</TableHead>
-                    <TableHead>Remarks</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {poGrns.map((grn) => (
-                    <TableRow key={grn.id}>
-                      <TableCell className="font-medium">{grn.number}</TableCell>
-                      <TableCell>{grn.receivedDate}</TableCell>
-                      <TableCell>{grn.invoiceNo || "—"}</TableCell>
-                      <TableCell>
-                        {grn.lines
-                          .map(
-                            (line) =>
-                              `${lineItemName(line.poLineId)}: ${line.qtyAccepted}${line.qtyRejected ? ` (+${line.qtyRejected} rej)` : ""}`
-                          )
-                          .join(", ")}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{grn.remarks || "—"}</TableCell>
+              <div className="flex flex-col gap-2 sm:hidden">
+                {poGrns.map((grn) => (
+                  <div key={grn.id} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium">{grn.number}</span>
+                      <span className="text-muted-foreground text-xs">{grn.receivedDate}</span>
+                    </div>
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      {grn.lines
+                        .map(
+                          (line) =>
+                            `${lineItemName(line.poLineId)}: ${line.qtyAccepted}${line.qtyRejected ? ` (+${line.qtyRejected} rej)` : ""}`
+                        )
+                        .join(", ")}
+                    </p>
+                    {(grn.invoiceNo || grn.remarks) && (
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        {[grn.invoiceNo, grn.remarks].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="max-sm:hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>GRN</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Invoice</TableHead>
+                      <TableHead>Lines</TableHead>
+                      <TableHead>Remarks</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {poGrns.map((grn) => (
+                      <TableRow key={grn.id}>
+                        <TableCell className="font-medium">{grn.number}</TableCell>
+                        <TableCell>{grn.receivedDate}</TableCell>
+                        <TableCell>{grn.invoiceNo || "—"}</TableCell>
+                        <TableCell>
+                          {grn.lines
+                            .map(
+                              (line) =>
+                                `${lineItemName(line.poLineId)}: ${line.qtyAccepted}${line.qtyRejected ? ` (+${line.qtyRejected} rej)` : ""}`
+                            )
+                            .join(", ")}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{grn.remarks || "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         ) : null}
@@ -455,26 +527,24 @@ function RecordGrnDialog({
               />
             </Field>
           </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Item</TableHead>
-                <TableHead className="text-right">Pending</TableHead>
-                <TableHead className="w-24 text-right">Accepted</TableHead>
-                <TableHead className="w-24 text-right">Rejected</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {lines.map((line) => (
-                <TableRow key={line.poLineId}>
-                  <TableCell className="font-medium">{line.itemName}</TableCell>
-                  <TableCell className="text-right tabular-nums">{line.pendingQty}</TableCell>
-                  <TableCell>
+          {/* Phones: one labelled card per line; sm+: the compact table. */}
+          <div className="flex flex-col gap-2 sm:hidden">
+            {lines.map((line) => (
+              <div key={line.poLineId} className="rounded-md border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{line.itemName}</span>
+                  <span className="text-muted-foreground text-xs tabular-nums">
+                    {line.pendingQty} pending
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <Field>
+                    <FieldLabel htmlFor={`grn-acc-${line.poLineId}`}>Accepted</FieldLabel>
                     <Input
+                      id={`grn-acc-${line.poLineId}`}
                       type="number"
                       min={0}
                       step="any"
-                      aria-label={`${line.itemName} accepted quantity`}
                       value={quantities[line.poLineId]?.accepted ?? 0}
                       onChange={(event) =>
                         setQuantities((prev) => ({
@@ -487,13 +557,14 @@ function RecordGrnDialog({
                       }
                       className="h-8 text-right"
                     />
-                  </TableCell>
-                  <TableCell>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor={`grn-rej-${line.poLineId}`}>Rejected</FieldLabel>
                     <Input
+                      id={`grn-rej-${line.poLineId}`}
                       type="number"
                       min={0}
                       step="any"
-                      aria-label={`${line.itemName} rejected quantity`}
                       value={quantities[line.poLineId]?.rejected ?? 0}
                       onChange={(event) =>
                         setQuantities((prev) => ({
@@ -506,11 +577,69 @@ function RecordGrnDialog({
                       }
                       className="h-8 text-right"
                     />
-                  </TableCell>
+                  </Field>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="max-sm:hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead className="text-right">Pending</TableHead>
+                  <TableHead className="w-24 text-right">Accepted</TableHead>
+                  <TableHead className="w-24 text-right">Rejected</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {lines.map((line) => (
+                  <TableRow key={line.poLineId}>
+                    <TableCell className="font-medium">{line.itemName}</TableCell>
+                    <TableCell className="text-right tabular-nums">{line.pendingQty}</TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="any"
+                        aria-label={`${line.itemName} accepted quantity`}
+                        value={quantities[line.poLineId]?.accepted ?? 0}
+                        onChange={(event) =>
+                          setQuantities((prev) => ({
+                            ...prev,
+                            [line.poLineId]: {
+                              accepted: Number(event.target.value),
+                              rejected: prev[line.poLineId]?.rejected ?? 0,
+                            },
+                          }))
+                        }
+                        className="h-8 text-right"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="any"
+                        aria-label={`${line.itemName} rejected quantity`}
+                        value={quantities[line.poLineId]?.rejected ?? 0}
+                        onChange={(event) =>
+                          setQuantities((prev) => ({
+                            ...prev,
+                            [line.poLineId]: {
+                              accepted: prev[line.poLineId]?.accepted ?? 0,
+                              rejected: Number(event.target.value),
+                            },
+                          }))
+                        }
+                        className="h-8 text-right"
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
           <Field>
             <FieldLabel htmlFor="grn-remarks">Remarks</FieldLabel>
             <Textarea

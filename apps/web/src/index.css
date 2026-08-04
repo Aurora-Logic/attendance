@@ -232,16 +232,29 @@
 /*
   A4 print isolation for the PO document (components/po-document.tsx).
 
-  window.print() on the builder/detail page must output ONLY the sheet: the
-  app chrome (sidebar, header, action bars, screen-only cards) is hidden via
-  visibility so the document keeps its in-flow position, then the sheet is
-  lifted to the page origin. The sheet itself is deliberately untokened white —
-  it prints identically from either app theme.
+  window.print() must output ONLY the sheet, exactly as the preview shows it.
+  Three things fight that and are each neutralised here:
+  1. The app shell is h-svh overflow-hidden with nested scroll regions — left
+     alone, print clips to one screenful. Heights and overflow are forced open.
+  2. The sheet sits inside positioned ancestors — position is flattened so the
+     document anchors to the page origin and paginates naturally.
+  3. Browsers strip background colour by default — print-color-adjust keeps the
+     ruled header band and field tints, while edit-mode input fills are made
+     transparent so an edit-mode Cmd+P still prints like paper.
 */
 @media print {
   @page {
     size: A4;
     margin: 12mm;
+  }
+  html,
+  body {
+    height: auto !important;
+  }
+  * {
+    overflow: visible !important;
+    position: static !important;
+    height: auto !important;
   }
   body * {
     visibility: hidden;
@@ -250,13 +263,44 @@
   .po-document * {
     visibility: visible;
   }
+  /*
+    Remove the hidden chrome's boxes entirely — visibility alone keeps their
+    layout space, which used to add a blank trailing page. Everything that is
+    not the sheet, inside it, or an ancestor of it collapses to nothing, so
+    the printed height is exactly the sheet's height.
+  */
+  body *:not(.po-document):not(.po-document *):not(:has(.po-document)) {
+    display: none !important;
+  }
   .po-document {
-    position: absolute;
+    position: absolute !important;
     top: 0;
     left: 0;
     width: 100%;
     max-width: none;
-    border: none;
     box-shadow: none;
+  }
+  /* Print every rule and tint exactly as the preview shows them — browsers
+     otherwise lighten or drop borders and backgrounds to save ink. */
+  .po-document,
+  .po-document * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  /* Edit-mode fillable blanks print as plain text. */
+  .po-document input,
+  .po-document textarea,
+  .po-document button {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+  .po-document svg {
+    display: none !important;
+  }
+  /* The wildcard height reset would let the logo blow up to natural size. */
+  .po-document img {
+    height: 2rem !important;
+    width: auto !important;
   }
 }

@@ -47,7 +47,11 @@ const browser = await chromium.launch({
 })
 
 for (const viewport of VIEWPORTS) {
-  const context = await browser.newContext({ viewport })
+  const context = await browser.newContext({
+    viewport,
+    geolocation: { latitude: 19.0761, longitude: 72.8778, accuracy: 12 },
+    permissions: ["geolocation"],
+  })
   const page = await context.newPage()
 
   page.on("console", (message) => {

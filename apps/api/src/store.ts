@@ -57,8 +57,8 @@ export interface StoredPunch {
   businessDate: string
   offsetMin: number
   at: string
-  lat: number
-  lng: number
+  lat?: number
+  lng?: number
   accuracyM: number
   dayPart: "FULL" | "FIRST_HALF" | "SECOND_HALF"
   flags: PunchFlag[]

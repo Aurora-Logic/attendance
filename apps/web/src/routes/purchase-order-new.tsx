@@ -7,7 +7,7 @@ import { formatDocNumber, formatPaise, poTotals, type PoLine } from "@attendance
 import { defaultDueDate, todayISO, useProcurement } from "@/lib/procurement"
 import { useSession } from "@/lib/session"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
-import { PoDocument, type DocLine } from "@/components/po-document"
+import { PoDocument, printPoDocument, type DocLine } from "@/components/po-document"
 import { Button } from "@/components/ui/button"
 
 /**
@@ -115,7 +115,15 @@ export function PurchaseOrderNewPage() {
               )}
             </Button>
             {preview ? (
-              <Button variant="outline" size="sm" onClick={() => window.print()}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  printPoDocument(
+                    [number, vendor?.name ?? "Draft", orderDate].filter(Boolean).join(" - ")
+                  )
+                }
+              >
                 <Printer />
                 Print / PDF
               </Button>

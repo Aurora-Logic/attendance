@@ -7,6 +7,7 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env.DATABASE_URL ?? "postgresql://attendance:attendance@localhost:5432/attendance",
+    // Host port 5433 — the dev Mac runs its own Postgres on 5432.
+    url: process.env.DATABASE_URL ?? "postgresql://attendance:attendance@localhost:5433/attendance",
   },
 })

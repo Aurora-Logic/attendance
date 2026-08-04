@@ -203,6 +203,31 @@ export function PurchaseOrdersPage() {
           emptyTitle="No purchase orders"
           emptyDescription="Raise the first PO from the New PO button."
           onRowClick={(row) => navigate(`/purchase-orders/${row.po.id}`)}
+          renderMobileCard={(row) => (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{row.po.number}</span>
+                <PoStatusBadge status={row.displayStatus} />
+              </div>
+              <span className="text-muted-foreground text-xs">
+                {row.vendorName} · {row.po.orderDate} · {row.po.lines.length} line
+                {row.po.lines.length === 1 ? "" : "s"}
+              </span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-mono text-sm tabular-nums">
+                  {formatPaise(row.totalPaise)}
+                </span>
+                {row.po.status === "APPROVED" || row.po.status === "CLOSED" ? (
+                  <div className="flex items-center gap-2">
+                    <Progress value={row.receiptPct} className="w-16" />
+                    <span className="text-muted-foreground text-xs tabular-nums">
+                      {row.receiptPct}%
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
           toolbar={
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger size="sm" className="w-44">

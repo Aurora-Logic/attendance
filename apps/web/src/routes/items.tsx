@@ -385,6 +385,21 @@ export function ItemsPage() {
                 }
               : undefined
           }
+          renderMobileCard={(item) => (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{item.name}</span>
+                <span className="font-mono text-sm tabular-nums">
+                  {formatPaise(item.lastPricePaise)}
+                </span>
+              </div>
+              <span className="text-muted-foreground text-xs">
+                {[item.code, item.brand, item.category].filter(Boolean).join(" · ")} · {item.unit}{" "}
+                · GST {item.gstRatePct}%
+              </span>
+              {!item.active ? <Badge variant="outline">Inactive</Badge> : null}
+            </div>
+          )}
         />
       </PageBodyFixed>
       <ItemSheet item={editing} open={open} onOpenChange={setOpen} />

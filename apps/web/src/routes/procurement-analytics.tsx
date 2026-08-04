@@ -295,6 +295,36 @@ export function ProcurementAnalyticsPage() {
               emptyDescription="Vendor metrics appear once POs are raised."
               fill={false}
               pageSize={10}
+              renderMobileCard={(row) => (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{row.vendorName}</span>
+                    {row.onTimeRate !== null ? (
+                      <Badge
+                        variant={
+                          row.onTimeRate >= 80
+                            ? "success"
+                            : row.onTimeRate >= 50
+                              ? "warning"
+                              : "destructive"
+                        }
+                      >
+                        {row.onTimeRate}% on-time
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <span className="text-muted-foreground text-xs">
+                    {row.poCount} POs · {formatPaise(row.totalSpendPaise)}
+                    {row.avgLeadDays !== null ? ` · ${row.avgLeadDays} d lead` : ""}
+                    {row.fillRate !== null ? ` · fill ${row.fillRate}%` : ""}
+                  </span>
+                  {row.overdueTrancheCount > 0 ? (
+                    <Badge variant="destructive" className="w-fit">
+                      {row.overdueTrancheCount} overdue
+                    </Badge>
+                  ) : null}
+                </div>
+              )}
             />
           </CardContent>
         </Card>
