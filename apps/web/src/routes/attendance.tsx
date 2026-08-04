@@ -1,18 +1,22 @@
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
-import { ArrowUpDown, FileSpreadsheet } from "lucide-react"
+import { format } from "date-fns"
+import { ArrowUpDown, CalendarIcon, FileSpreadsheet } from "lucide-react"
 import { toast } from "sonner"
 import { punchFlagTone, type AttendanceDay } from "@attendance/shared"
 
 import { useAppConfig } from "@/lib/app-config"
 import { exportDailyRegisterExcel } from "@/lib/attendance-export"
+import { useAttendanceDays } from "@/lib/queries"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { StatusBadge, StatusLegend } from "@/components/status-badge"
-import { seedAttendanceDays } from "@/lib/seed"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Calendar } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -165,33 +169,74 @@ export function AttendancePage() {
     () => makeColumns(settings.lateGraceMinutes),
     [settings.lateGraceMinutes]
   )
-  const data = React.useMemo(() => seedAttendanceDays(), [])
+  // API mode defaults to the real today so a punch shows up immediately;
+  // demo mode keeps the seeded reference day.
+  const [date, setDate] = React.useState<Date>(() => new Date())
+  const dateISO = format(date, "yyyy-MM-dd")
+  const { rows, source, isLoading } = useAttendanceDays(dateISO)
+  const data = rows
+  const dateLabel = source === "api" ? dateISO : "2026-08-03"
   const [branch, setBranch] = React.useState("all")
+  const [datePickerOpen, setDatePickerOpen] = React.useState(false)
 
   return (
     <Page>
       <PageHeader
         title="Daily Register"
-        description="Monday, 3 August 2026 · all branches · live counts arrive with the attendance engine in Phase 3"
+        description={
+          source === "api"
+            ? `${format(date, "EEEE, d MMMM yyyy")} · computed live by the attendance engine`
+            : "Monday, 3 August 2026 · seeded demo data — sign in with the API running for live days"
+        }
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              void exportDailyRegisterExcel(data, "2026-08-03").then(() =>
-                toast.success("Daily register exported", {
-                  description: `${data.length} rows → Delta_DailyRegister_2026-08-03.xlsx`,
-                })
-              )
-            }
-          >
-            <FileSpreadsheet />
-            Export .xlsx
-          </Button>
+          <>
+            {source === "api" ? (
+              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <CalendarIcon />
+                    {format(date, "d MMM yyyy")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={(picked) => {
+                      if (picked) setDate(picked)
+                      setDatePickerOpen(false)
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={data.length === 0}
+              onClick={() =>
+                void exportDailyRegisterExcel(data, dateLabel).then(() =>
+                  toast.success("Daily register exported", {
+                    description: `${data.length} rows → Delta_DailyRegister_${dateLabel}.xlsx`,
+                  })
+                )
+              }
+            >
+              <FileSpreadsheet />
+              Export .xlsx
+            </Button>
+          </>
         }
       />
       <PageBodyFixed>
         <StatusLegend className="shrink-0" />
+        {isLoading ? (
+          <div className="flex flex-col gap-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={index} className="h-10 w-full" />
+            ))}
+          </div>
+        ) : null}
         <DataTable
           columns={columns}
           data={data}

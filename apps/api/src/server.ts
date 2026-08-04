@@ -10,6 +10,7 @@ import {
   computeAttendanceDay,
   countLeaveUnits,
   evaluateLate,
+  minutesToClock,
   offsetFromShiftStart,
   punchWindowFlag,
   reduceLedger,
@@ -69,6 +70,10 @@ const decideSchema = z.object({
 const brandingSchema = z.object({
   companyName: z.string().min(1).max(80),
   logoDataUrl: z.string().startsWith("data:image/").max(300_000).nullable(),
+  address: z.string().max(300).default(""),
+  gstin: z.string().max(15).default(""),
+  phone: z.string().max(20).default(""),
+  email: z.string().max(120).default(""),
 })
 
 /** Does the actor's scope reach this employee? VIEW is read-only reach-all. */
@@ -208,7 +213,15 @@ export function buildServer(store: Store = seedStore()) {
   app.get(
     "/employees",
     { preHandler: [authenticate, requirePermission("employee.manage")] },
-    async () => ({ employees: store.employees })
+    async () => ({
+      employees: store.employees.map((employee) => ({
+        ...employee,
+        shiftName:
+          store.shifts.find((shift) => shift.id === employee.shiftId)?.name ?? employee.shiftId,
+        managerName:
+          store.employees.find((candidate) => candidate.id === employee.managerId)?.name ?? null,
+      })),
+    })
   )
 
   const employeeCreateSchema = z.object({
@@ -373,6 +386,8 @@ export function buildServer(store: Store = seedStore()) {
           dateTo: businessDate,
           units: 0,
           status: "PENDING",
+          level: 1,
+          createdAt: new Date().toISOString(),
         })
       }
 
@@ -430,7 +445,19 @@ export function buildServer(store: Store = seedStore()) {
             settings: store.settings,
           })
 
-          return { employeeId: employee.id, code: employee.code, name: employee.name, ...result }
+          const inPunch = punches.find((punch) => punch.type === "IN")
+          const outPunches = punches.filter((punch) => punch.type === "OUT")
+          const toClock = (offset: number) => minutesToClock(shift.startMin + offset)
+          return {
+            employeeId: employee.id,
+            code: employee.code,
+            name: employee.name,
+            department: employee.department,
+            shiftName: shift.name,
+            firstInAt: inPunch ? toClock(inPunch.offsetMin) : null,
+            lastOutAt: outPunches.length > 0 ? toClock(outPunches.at(-1)!.offsetMin) : null,
+            ...result,
+          }
         })
 
       return { date: targetDate, rows }
@@ -480,6 +507,8 @@ export function buildServer(store: Store = seedStore()) {
         leaveType: body.type,
         leavePart: body.part,
         status: "PENDING" as const,
+        level: 1 as const,
+        createdAt: new Date().toISOString(),
       }
       store.approvals.push(approval)
       return reply.code(201).send({ approval, units })
@@ -497,7 +526,16 @@ export function buildServer(store: Store = seedStore()) {
       const scope = approval.kind === "LEAVE" ? leaveScope : attendanceScope
       return scopeReaches(scope, employee, request.auth, false)
     })
-    return { approvals: pending }
+    const enriched = pending.map((approval) => {
+      const employee = employeeById(approval.employeeId)
+      return {
+        ...approval,
+        employeeName: employee?.name ?? approval.employeeId,
+        employeeCode: employee?.code ?? "",
+        department: employee?.department ?? "",
+      }
+    })
+    return { approvals: enriched }
   })
 
   app.post("/approvals/:id/decide", { preHandler: [authenticate] }, async (request, reply) => {

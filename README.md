@@ -3,6 +3,7 @@
 Employee attendance, leave and payroll system for a small-to-mid Indian company.
 Build brief: [attendance-system-claude-code-prompt.md](attendance-system-claude-code-prompt.md).
 Business rules and their defaults: [DECISIONS.md](DECISIONS.md).
+Where this is heading — the full ERP module map and wave plan: [ECOSYSTEM.md](ECOSYSTEM.md).
 
 **Current state:** UI for every module, a Fastify API with auth + RBAC serving the
 shared domain engine from an in-memory store, a validated Prisma schema for the

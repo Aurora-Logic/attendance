@@ -62,6 +62,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   })
   const matrix = DEFAULT_MATRIX
 
+  // An API session lives in httpOnly cookies; on boot, confirm it is still
+  // valid. 401 → the cookie expired, back to login. Unreachable → keep the
+  // stored session so the UI works offline in demo terms.
+  React.useEffect(() => {
+    if (!user || user.source !== "api") return
+    void apiFetch("/auth/me").catch((error) => {
+      if (error instanceof ApiError && error.status === 401) {
+        setUser(null)
+        localStorage.removeItem(STORAGE_KEY)
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const value = React.useMemo<SessionValue>(() => {
     const scopeFor = (permissionKey: string): Scope =>
       user ? (matrix[permissionKey]?.[user.role] ?? "NONE") : "NONE"

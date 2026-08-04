@@ -10,6 +10,7 @@ import {
   type AttendanceSettings,
 } from "@attendance/shared"
 
+import { ApiError, ApiUnreachable, apiFetch } from "@/lib/api"
 import { useAppConfig } from "@/lib/app-config"
 import { useSession } from "@/lib/session"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
@@ -218,8 +219,27 @@ function StoragePreview({ settings }: { settings: AttendanceSettings }) {
 
 export function SettingsPage() {
   const { settings, setSetting: set, resetSettings } = useAppConfig()
-  const { scopeFor } = useSession()
+  const { scopeFor, user } = useSession()
   const isAdmin = scopeFor("config.manage") === "ALL"
+
+  const save = async () => {
+    if (!(isAdmin && user?.source === "api")) {
+      toast.success("Settings saved", { description: "Stored locally (demo session)." })
+      return
+    }
+    try {
+      await apiFetch("/settings", { method: "PUT", body: JSON.stringify(settings) })
+      toast.success("Settings saved to the server", {
+        description: "Every punch and day computation now uses these values.",
+      })
+    } catch (error) {
+      if (error instanceof ApiUnreachable) {
+        toast.warning("API unreachable — saved locally only")
+      } else if (error instanceof ApiError) {
+        toast.error("Server rejected the settings", { description: `HTTP ${error.status}` })
+      }
+    }
+  }
 
   return (
     <Page>
@@ -239,7 +259,7 @@ export function SettingsPage() {
               <RotateCcw />
               Reset
             </Button>
-            <Button size="sm" onClick={() => toast.success("Settings saved")}>
+            <Button size="sm" onClick={() => void save()}>
               Save changes
             </Button>
           </>

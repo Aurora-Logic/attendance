@@ -41,6 +41,11 @@ export interface Branding {
   branchLabel: string
   /** Data URL for now; object storage takes over in Phase 3. */
   logoDataUrl: string | null
+  /** Printed on document mastheads (PO today; estimates/invoices later). */
+  address: string
+  gstin: string
+  phone: string
+  email: string
 }
 
 export interface RosterConfig {
@@ -87,6 +92,10 @@ const DEFAULT_BRANDING: Branding = {
   companyName: "Delta Attendance",
   branchLabel: "Mumbai HO",
   logoDataUrl: null,
+  address: "",
+  gstin: "",
+  phone: "",
+  email: "",
 }
 
 interface AppConfigValue {

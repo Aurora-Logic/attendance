@@ -77,6 +77,8 @@ export interface StoredApproval {
   leaveType?: string
   leavePart?: "FULL" | "FIRST_HALF" | "SECOND_HALF"
   status: "PENDING" | "APPROVED" | "REJECTED"
+  level: 1 | 2
+  createdAt: string
   decidedBy?: string
   remarks?: string
 }
@@ -95,6 +97,11 @@ export interface Branding {
   companyName: string
   /** Data URL; object storage takes over in Phase 3. */
   logoDataUrl: string | null
+  /** Printed on document mastheads (PO today; estimates/invoices later). */
+  address: string
+  gstin: string
+  phone: string
+  email: string
 }
 
 export interface Store {
@@ -159,7 +166,7 @@ export function seedStore(): Store {
     holidays: { "2026-08-15": "Independence Day" },
     settings: { ...DEFAULT_ATTENDANCE_SETTINGS },
     matrix: structuredClone(DEFAULT_MATRIX),
-    branding: { companyName: "Delta Attendance", logoDataUrl: null },
+    branding: { companyName: "Delta Attendance", logoDataUrl: null, address: "", gstin: "", phone: "", email: "" },
     vendors: [
       { id: "v1", code: "VND001", name: "Shree Steel Traders", gstin: "27AABCS1429B1ZP", contact: "Mahesh Kulkarni", email: "sales@shreesteel.in", phone: "+91 98200 11223", address: "Kalbadevi Road", city: "Mumbai", state: "Maharashtra", paymentTermsDays: 30, leadTimeDays: 7, active: true },
       { id: "v2", code: "VND002", name: "Om Packaging Co", gstin: null, contact: "Sunita Shah", email: "om.pack@gmail.com", phone: "+91 98111 44556", address: "MIDC Phase II", city: "Pune", state: "Maharashtra", paymentTermsDays: 15, leadTimeDays: 4, active: true },

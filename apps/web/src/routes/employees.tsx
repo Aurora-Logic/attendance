@@ -1,3 +1,4 @@
+import * as React from "react"
 import { useNavigate } from "react-router"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Controller, useForm } from "react-hook-form"
@@ -6,7 +7,10 @@ import * as z from "zod"
 import type { ColumnDef } from "@tanstack/react-table"
 import { ArrowUpDown, Plus, Upload } from "lucide-react"
 
-import { BRANCHES, DEPARTMENTS, EMPLOYEES, type Employee } from "@/lib/seed"
+import { ApiError } from "@/lib/api"
+import { useCreateEmployee, useEmployeesList } from "@/lib/queries"
+import { useSession } from "@/lib/session"
+import { BRANCHES, DEPARTMENTS, type Employee } from "@/lib/seed"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -55,6 +59,9 @@ type EmployeeForm = z.infer<typeof employeeSchema>
  * `form` component — see DECISIONS.md F5.
  */
 function EmployeeSheet() {
+  const { user } = useSession()
+  const [open, setOpen] = React.useState(false)
+  const createEmployee = useCreateEmployee()
   const form = useForm<EmployeeForm>({
     resolver: zodResolver(employeeSchema),
     defaultValues: {
@@ -68,12 +75,33 @@ function EmployeeSheet() {
   })
 
   const onSubmit = (values: EmployeeForm) => {
-    toast.success("Employee created", { description: `${values.name} · ${values.code}` })
+    if (user?.source === "api") {
+      createEmployee.mutate(
+        { ...values, shiftId: "gen" },
+        {
+          onSuccess: () => {
+            toast.success("Employee created", { description: `${values.name} · ${values.code}` })
+            form.reset()
+            setOpen(false)
+          },
+          onError: (error) =>
+            toast.error("Could not create employee", {
+              description:
+                error instanceof ApiError && error.status === 403
+                  ? "Your role lacks employee.manage at write scope."
+                  : String(error),
+            }),
+        }
+      )
+      return
+    }
+    toast.success("Employee created (demo)", { description: `${values.name} · ${values.code}` })
     form.reset()
+    setOpen(false)
   }
 
   return (
-    <Sheet>
+    <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button size="sm">
           <Plus />
@@ -278,12 +306,17 @@ const columns: ColumnDef<Employee>[] = [
 
 export function EmployeesPage() {
   const navigate = useNavigate()
+  const { employees, source, isLoading } = useEmployeesList()
 
   return (
     <Page>
       <PageHeader
         title="Employees"
-        description={`${EMPLOYEES.length} active · Mumbai HO, Pune Plant, Bengaluru Office`}
+        description={
+          source === "api"
+            ? `${employees.length} on the live roll — new joiners persist to the API`
+            : `${employees.length} seeded · sign in with the API running for the live roll`
+        }
         actions={
           <>
             <Button variant="outline" size="sm" onClick={() => toast("Import template downloaded")}>
@@ -297,7 +330,8 @@ export function EmployeesPage() {
       <PageBodyFixed>
         <DataTable
           columns={columns}
-          data={EMPLOYEES}
+          isLoading={isLoading}
+          data={employees}
           searchColumn="name"
           searchPlaceholder="Search name or code…"
           emptyTitle="No employees match"

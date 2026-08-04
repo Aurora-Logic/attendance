@@ -243,7 +243,22 @@ export function PoDocument({
             <img src={branding.logoDataUrl} alt="" className="mb-1 h-8 w-auto" />
           ) : null}
           <p className="text-base font-bold tracking-tight sm:text-lg">{branding.companyName}</p>
-          <p className="mt-0.5 text-[10px] leading-snug text-neutral-500">{branding.branchLabel}</p>
+          <p className="mt-0.5 text-[10px] leading-snug text-neutral-500">
+            {branding.address || branding.branchLabel}
+            {branding.gstin ? (
+              <>
+                <br />
+                GSTIN{" "}
+                <span className="font-mono font-semibold text-neutral-800">{branding.gstin}</span>
+              </>
+            ) : null}
+            {branding.phone || branding.email ? (
+              <>
+                <br />
+                {[branding.phone, branding.email].filter(Boolean).join(" · ")}
+              </>
+            ) : null}
+          </p>
         </div>
         <div className="flex w-32 shrink-0 flex-col items-end justify-center border-l border-neutral-800 px-3 text-right sm:w-44 sm:px-5">
           <p className="text-sm font-bold tracking-[0.2em] sm:text-lg">PURCHASE ORDER</p>
@@ -333,7 +348,17 @@ export function PoDocument({
         <div className="px-4 py-3 sm:px-5">
           <Lbl>Deliver to</Lbl>
           <p className="mt-1 text-[15px] font-bold">{branding.companyName}</p>
-          <p className="mt-0.5 text-xs text-neutral-600">{branding.branchLabel}</p>
+          <p className="mt-0.5 text-xs text-neutral-600">
+            {branding.address || branding.branchLabel}
+          </p>
+          {branding.gstin ? (
+            <p className="mt-0.5 text-xs text-neutral-600">
+              <span className="text-[10px] text-neutral-400">GSTIN </span>
+              <span className="font-mono text-[11px] font-semibold text-neutral-800">
+                {branding.gstin}
+              </span>
+            </p>
+          ) : null}
           {vendor ? (
             <p className="mt-2 text-xs text-neutral-600">
               <span className="text-[10px] text-neutral-400">Payment </span>

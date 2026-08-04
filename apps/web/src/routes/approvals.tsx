@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import { Check, X } from "lucide-react"
 import { DEFAULT_ATTENDANCE_SETTINGS } from "@attendance/shared"
 
+import { useApprovals, useDecideApprovals } from "@/lib/queries"
 import { seedApprovals, type ApprovalRequest, type RequestKind } from "@/lib/seed"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import {
@@ -99,7 +100,10 @@ function BulkDecision({
 }
 
 export function ApprovalsPage() {
-  const [requests, setRequests] = React.useState<ApprovalRequest[]>(() => seedApprovals())
+  const { requests: apiRequests, source, isLoading } = useApprovals()
+  const decideMutation = useDecideApprovals()
+  const [localRequests, setLocalRequests] = React.useState<ApprovalRequest[]>(() => seedApprovals())
+  const requests = source === "api" ? (apiRequests ?? []) : localRequests
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [tab, setTab] = React.useState<RequestKind | "ALL">("ALL")
 
@@ -116,15 +120,36 @@ export function ApprovalsPage() {
     })
 
   const decide = (intent: "APPROVE" | "REJECT", ids: string[], remarks: string) => {
-    setRequests((prev) =>
+    setSelected(new Set())
+    if (source === "api") {
+      // Server truth: each decision writes the approval trail (and, for
+      // approved leave, the ledger). Partial failures are reported, not hidden.
+      decideMutation.mutate(
+        { ids, action: intent, remarks },
+        {
+          onSuccess: ({ done, failed }) => {
+            if (failed > 0) {
+              toast.warning(`${done} ${intent.toLowerCase()}d · ${failed} failed`, {
+                description: "Failures are usually scope: OWN_TEAM only reaches your reports.",
+              })
+            } else {
+              toast.success(`${done} request${done === 1 ? "" : "s"} ${intent.toLowerCase()}d`, {
+                description: remarks || "No reason given",
+              })
+            }
+          },
+        }
+      )
+      return
+    }
+    setLocalRequests((prev) =>
       prev.map((request) =>
         ids.includes(request.id)
           ? { ...request, status: intent === "APPROVE" ? "APPROVED" : "REJECTED" }
           : request
       )
     )
-    setSelected(new Set())
-    toast.success(`${ids.length} request${ids.length === 1 ? "" : "s"} ${intent.toLowerCase()}d`, {
+    toast.success(`${ids.length} request${ids.length === 1 ? "" : "s"} ${intent.toLowerCase()}d (demo)`, {
       description: remarks || "No reason given",
     })
   }
@@ -194,7 +219,13 @@ export function ApprovalsPage() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto rounded-md border">
-              {visible.length === 0 ? (
+              {isLoading ? (
+                <div className="flex flex-col gap-2 p-4">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <div key={index} className="bg-muted h-14 animate-pulse rounded-md" />
+                  ))}
+                </div>
+              ) : visible.length === 0 ? (
                 <Empty className="h-full border-0">
                   <EmptyHeader>
                     <EmptyTitle>Inbox zero</EmptyTitle>

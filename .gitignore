@@ -45,3 +45,4 @@ docker-data/
 # Prisma local artifacts (from Phase 1 onward)
 prisma/*.db
 prisma/*.db-journal
+apps/api/.data/

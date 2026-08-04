@@ -5,6 +5,7 @@ import { ArrowLeft, Crown, ExternalLink, MapPin } from "lucide-react"
 import type { DayStatus } from "@attendance/shared"
 
 import { EMPLOYEES, BRANCHES } from "@/lib/seed"
+import { useEmployeesList } from "@/lib/queries"
 import { buildEmployeeAnalytics } from "@/lib/analytics"
 import { mapsLinkFor } from "@/lib/geo"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
@@ -59,14 +60,21 @@ const weekdayConfig = {
 export function EmployeeDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const employee = EMPLOYEES.find((entry) => entry.id === id)
+  const { employees: liveEmployees } = useEmployeesList()
+  const employee =
+    EMPLOYEES.find((entry) => entry.id === id) ??
+    liveEmployees.find((entry) => entry.id === id) ??
+    null
 
+  // Seeded employees carry three months of synthetic history; a live-API
+  // employee has only what has actually been punched, so charts wait.
+  const hasHistory = Boolean(EMPLOYEES.find((entry) => entry.id === id))
   const analytics = React.useMemo(
-    () => (employee ? buildEmployeeAnalytics(employee) : null),
-    [employee]
+    () => (employee && hasHistory ? buildEmployeeAnalytics(employee) : null),
+    [employee, hasHistory]
   )
 
-  if (!employee || !analytics) {
+  if (!employee) {
     return (
       <Page>
         <PageHeader title="Employee" />
@@ -119,7 +127,7 @@ export function EmployeeDetailPage() {
                 {employee.isFieldEmployee ? (
                   <Badge variant="info">Field · geofence exempt</Badge>
                 ) : null}
-                {analytics.hasCrown ? (
+                {analytics?.hasCrown ? (
                   <Badge variant="warning" className="gap-1">
                     <Crown />
                     Punctuality crown · July
@@ -145,6 +153,20 @@ export function EmployeeDetailPage() {
           </CardContent>
         </Card>
 
+        {!analytics ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No history yet</EmptyTitle>
+              <EmptyDescription>
+                Analytics build from punched days. This employee is on the live API — charts fill
+                in as attendance accrues.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : null}
+
+        {analytics ? (
+          <>
         {/* ---- KPI strip ---- */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
           {analytics.kpis.map((kpi) => (
@@ -327,6 +349,7 @@ export function EmployeeDetailPage() {
         </div>
 
         {/* ---- recent punches ---- */}
+        
         <Card className="gap-0 py-0">
           <CardHeader className="py-4">
             <CardTitle>Recent punches</CardTitle>
@@ -389,6 +412,8 @@ export function EmployeeDetailPage() {
             </Table>
           </div>
         </Card>
+          </>
+        ) : null}
       </PageBody>
     </Page>
   )

@@ -13,6 +13,8 @@ import {
   type Scope,
 } from "@attendance/shared"
 
+import { ApiUnreachable, apiFetch } from "@/lib/api"
+import { useSession } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -46,10 +48,37 @@ const scopeToneClass: Record<Scope, string> = {
 }
 
 export function RolesPage() {
+  const { user } = useSession()
   const [matrix, setMatrix] = React.useState<PermissionMatrix>(() =>
     structuredClone(DEFAULT_MATRIX)
   )
   const [dirty, setDirty] = React.useState(false)
+
+  // API mode: the matrix the guards actually enforce.
+  React.useEffect(() => {
+    if (user?.source !== "api") return
+    void apiFetch<{ matrix: PermissionMatrix }>("/permissions")
+      .then((payload) => setMatrix(payload.matrix))
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.source])
+
+  const persist = async () => {
+    if (user?.source !== "api") {
+      toast.success("Permission matrix saved", { description: "Stored locally (demo session)." })
+      return
+    }
+    try {
+      await apiFetch("/permissions", { method: "PUT", body: JSON.stringify(matrix) })
+      toast.success("Permission matrix saved to the server", {
+        description: "Route guards enforce the new scopes immediately.",
+      })
+    } catch (error) {
+      toast.error(
+        error instanceof ApiUnreachable ? "API unreachable — saved locally only" : String(error)
+      )
+    }
+  }
 
   const setGrant = (permissionKey: string, role: Role, scope: Scope) => {
     setMatrix((prev) => ({
@@ -94,9 +123,7 @@ export function RolesPage() {
               disabled={!dirty}
               onClick={() => {
                 setDirty(false)
-                toast.success("Permission matrix saved", {
-                  description: "Change written to role_permissions and the audit log.",
-                })
+                void persist()
               }}
             >
               Save matrix

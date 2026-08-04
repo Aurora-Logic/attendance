@@ -6,8 +6,11 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { Cell, Pie, PieChart } from "recharts"
 import { countLeaveUnits } from "@attendance/shared"
 
+import { ApiError } from "@/lib/api"
 import { useAppConfig } from "@/lib/app-config"
-import { LEAVE_BALANCES, seedApprovals, seedLeaveLedger, type LeaveLedgerRow } from "@/lib/seed"
+import { useApplyLeave, useLeaveBalances, useMyLeaveRequests } from "@/lib/queries"
+import { useSession } from "@/lib/session"
+import { seedApprovals, seedLeaveLedger, type LeaveBalance, type LeaveLedgerRow } from "@/lib/seed"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -84,13 +87,14 @@ const ledgerColumns: ColumnDef<LeaveLedgerRow>[] = [
 ]
 
 /** Donut input: where the year's availed leave went, coloured by chart tokens. */
-const availedSplit = LEAVE_BALANCES.filter((balance) => balance.availed > 0).map(
-  (balance, index) => ({
-    name: balance.code,
-    availed: balance.availed,
-    fill: `var(--chart-${(index % 5) + 1})`,
-  })
-)
+const splitOf = (balances: LeaveBalance[]) =>
+  balances
+    .filter((balance) => balance.availed > 0)
+    .map((balance, index) => ({
+      name: balance.code,
+      availed: balance.availed,
+      fill: `var(--chart-${(index % 5) + 1})`,
+    }))
 
 const availedConfig = {
   availed: { label: "Days" },
@@ -156,8 +160,16 @@ function DateField({
  * the nightly job use — sandwich setting included — so what this preview says
  * is exactly what the balance will be debited.
  */
-function ApplyLeaveSheet({ onSubmit }: { onSubmit: (request: MyRequest) => void }) {
+function ApplyLeaveSheet({
+  balances,
+  onSubmit,
+}: {
+  balances: LeaveBalance[]
+  onSubmit: (request: MyRequest) => void
+}) {
   const { settings, roster } = useAppConfig()
+  const { user } = useSession()
+  const applyLeave = useApplyLeave()
   const [open, setOpen] = React.useState(false)
   const [type, setType] = React.useState("CL")
   const [from, setFrom] = React.useState<Date | undefined>(new Date(2026, 7, 7))
@@ -185,22 +197,51 @@ function ApplyLeaveSheet({ onSubmit }: { onSubmit: (request: MyRequest) => void 
       )
     : 0
 
-  const balance = LEAVE_BALANCES.find((entry) => entry.code === type)?.balance ?? 0
+  const balance = balances.find((entry) => entry.code === type)?.balance ?? 0
   const insufficient = type !== "LOP" && units > balance
   const canSubmit = Boolean(rangeValid) && units > 0 && !insufficient && reason.trim().length >= 3
 
   const submit = () => {
-    onSubmit({
+    const request: MyRequest = {
       id: `req_${Date.now()}`,
       type,
       from: toISO(from!),
       to: toISO(to!),
-      part: singleDay ? part : "FULL",
+      part: (singleDay ? part : "FULL") as MyRequest["part"],
       units,
       reason: reason.trim(),
       status: "PENDING",
-    })
-    toast.success(`Leave applied — ${units} day(s) of ${type}`, {
+    }
+
+    if (user?.source === "api") {
+      applyLeave.mutate(
+        { type, from: request.from, to: request.to, part: request.part as "FULL" | "FIRST_HALF" | "SECOND_HALF", reason: request.reason },
+        {
+          onSuccess: ({ units: serverUnits }) => {
+            toast.success(`Leave applied — ${serverUnits} day(s) of ${type}`, {
+              description: "Recorded on the server and sent to your reporting manager (L1).",
+            })
+            setOpen(false)
+            setReason("")
+          },
+          onError: (error) => {
+            const body = error instanceof ApiError ? (error.body as { error?: string }) : null
+            toast.error("Application refused", {
+              description:
+                body?.error === "INSUFFICIENT_BALANCE"
+                  ? `Not enough ${type} balance on the server ledger.`
+                  : body?.error === "NO_WORKING_DAYS_IN_RANGE"
+                    ? "The range contains no working days."
+                    : String(error),
+            })
+          },
+        }
+      )
+      return
+    }
+
+    onSubmit(request)
+    toast.success(`Leave applied — ${units} day(s) of ${type} (demo)`, {
       description: "Sent to your reporting manager (L1). You will be notified on decision.",
     })
     setOpen(false)
@@ -233,7 +274,7 @@ function ApplyLeaveSheet({ onSubmit }: { onSubmit: (request: MyRequest) => void 
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {LEAVE_BALANCES.map((entry) => (
+                  {balances.map((entry) => (
                     <SelectItem key={entry.code} value={entry.code}>
                       {entry.name}
                       {entry.entitled > 0 ? ` · ${entry.balance} left` : ""}
@@ -334,6 +375,9 @@ function ApplyLeaveSheet({ onSubmit }: { onSubmit: (request: MyRequest) => void 
 }
 
 export function LeavePage() {
+  const { balances } = useLeaveBalances()
+  const apiMyRequests = useMyLeaveRequests()
+  const availedSplit = React.useMemo(() => splitOf(balances), [balances])
   const ledger = React.useMemo(() => seedLeaveLedger(), [])
   const teamLeave = React.useMemo(
     () => seedApprovals().filter((request) => request.kind === "LEAVE").slice(0, 8),
@@ -348,7 +392,10 @@ export function LeavePage() {
         title="Leave"
         description="Balances are a projection of the ledger — every number here is explainable to a row."
         actions={
-          <ApplyLeaveSheet onSubmit={(request) => setMyRequests((prev) => [request, ...prev])} />
+          <ApplyLeaveSheet
+            balances={balances}
+            onSubmit={(request) => setMyRequests((prev) => [request, ...prev])}
+          />
         }
       />
       <PageBodyFixed>
@@ -374,7 +421,7 @@ export function LeavePage() {
                     <CardDescription>Balance against this year&rsquo;s entitlement</CardDescription>
                   </CardHeader>
                   <div className="divide-y border-t">
-                    {LEAVE_BALANCES.map((balance) => {
+                    {balances.map((balance) => {
                       const isQuota = balance.entitled > 0
                       const pct = isQuota
                         ? Math.round((balance.availed / balance.entitled) * 100)
@@ -460,14 +507,14 @@ export function LeavePage() {
                 </Card>
               </div>
 
-              {myRequests.length > 0 ? (
+              {(apiMyRequests ?? myRequests).length > 0 ? (
                 <Card className="gap-0 py-0">
                   <CardHeader className="py-4">
                     <CardTitle className="text-base">My requests</CardTitle>
                     <CardDescription>Submitted from this device</CardDescription>
                   </CardHeader>
                   <div className="divide-y border-t">
-                    {myRequests.map((request) => (
+                    {(apiMyRequests ?? myRequests).map((request) => (
                       <div key={request.id} className="flex items-center gap-3 px-4 py-2.5">
                         <Badge variant="outline">{request.type}</Badge>
                         <div className="min-w-0 flex-1">
@@ -479,7 +526,17 @@ export function LeavePage() {
                           </p>
                           <p className="text-muted-foreground truncate text-xs">{request.reason}</p>
                         </div>
-                        <Badge variant="warning">{request.status}</Badge>
+                        <Badge
+                          variant={
+                            request.status === "APPROVED"
+                              ? "success"
+                              : request.status === "REJECTED"
+                                ? "destructive"
+                                : "warning"
+                          }
+                        >
+                          {request.status}
+                        </Badge>
                       </div>
                     ))}
                   </div>

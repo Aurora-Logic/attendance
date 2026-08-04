@@ -189,6 +189,27 @@ routes in `apps/api/src/procurement.ts`; web store mirrors those routes 1:1 in
 | D8 | Creator ≠ approver, enforced in the API and mirrored in the UI | Raising and approving the same PO is never one person's job — same rule as attendance's CANNOT_DECIDE_OWN. |
 | D9 | Procurement capabilities are four matrix rows (`procurement.manage`, `po.approve`, `grn.record`, `procurement.view`) | F11/F16 carry over: nav, buttons and routes gate on `can()`, and the Roles grid edits procurement access like everything else. |
 
+## 10. Ecosystem architecture
+
+This system grows into an ecosystem — estimates/quotations, invoicing,
+inventory and more will land over time. The architecture is a **modular
+monolith on TypeScript end-to-end**, decided 4 Aug 2026.
+
+| # | Decision | Rationale |
+|---|---|---|
+| E1 | Stay on Node/TypeScript + Fastify; no backend language shift | The workload is DB-bound CRUD at tens of req/s peak — Fastify clears it by two orders of magnitude. The deciding factor is `packages/shared`: one implementation of every business rule serving the API, jobs and web previews only works with one language on both ends. A rewrite buys speed nobody needs at the cost of the drift-prevention the whole design is built on. |
+| E2 | Modular monolith, not microservices | 1–2 person team; services multiply deploys, auth and failure modes for zero benefit at this scale. Module boundaries (E4) are the extraction insurance if one hot spot ever needs independent scaling. |
+| E3 | A named **platform core** owns the cross-module primitives | Auth + RBAC matrix, the polymorphic approval engine (A7), document series (`PO-2026-0042` → `EST-`, `INV-`…), the type-on-template document sheet (D6), the Excel/print export layer, masters (items, vendors, customers), audit, settings resolution, money-in-paise. A new module consumes these; it never rebuilds them. |
+| E4 | Every module is the same three thin layers | Pure domain in `packages/shared/src/<module>.ts` (worked-example tests), routes in `apps/api/src/<module>.ts`, screens + provider in `apps/web`, one nav group, capabilities as matrix rows. Modules never import each other's internals — they meet through the platform core and ids only. Attendance and procurement already conform; this is now the rule, not a coincidence. |
+| E5 | One Postgres; each module owns its tables; `company_id` on all (A9) | Cross-module truth stays in one transactional store. Schema ownership per module keeps the extraction path (E2) honest. |
+| E6 | CPU-heavy work never runs on the request thread | Image derivatives, big exports, nightly computation → BullMQ workers on Redis. This, plus Postgres constraints (A8-style), is what actually keeps an ERP fast and correct — not the language. |
+| E7 | Language shift is reconsidered only on evidence | Sustained multi-thousand req/s, heavy request-path compute, or massive real-time fan-out — none plausible for this domain. If it happens, extract the one hot module behind the existing route boundary. |
+
+Next modules ride the core: the **estimate creator** is customers (≈ vendors
+master) + `salePricePaise` on items + an Estimate document sheet (the PO sheet's
+skeleton) + the same draft → approve → fulfil lifecycle with derived statuses
+and append-only fulfilment — mostly assembly, not construction.
+
 ## 4. Open items
 
 - **Phase 7b** (PF/ESI/PT/TDS, payslip PDF, bank upload) deferred until after Phase 8, per decision on 4 Aug 2026. Schema tables are created in Phase 1 and left empty so no migration is needed later.
