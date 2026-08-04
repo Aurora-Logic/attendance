@@ -6,6 +6,7 @@ import { BrowserRouter } from "react-router"
 import App from "@/App"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AppConfigProvider } from "@/lib/app-config"
+import { ProcurementProvider } from "@/lib/procurement"
 import { SessionProvider } from "@/lib/session"
 import "@/index.css"
 
@@ -22,7 +23,9 @@ createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
           <AppConfigProvider>
             <SessionProvider>
-              <App />
+              <ProcurementProvider>
+                <App />
+              </ProcurementProvider>
             </SessionProvider>
           </AppConfigProvider>
         </BrowserRouter>

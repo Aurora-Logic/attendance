@@ -228,3 +228,35 @@
     overflow-y: hidden;
   }
 }
+
+/*
+  A4 print isolation for the PO document (components/po-document.tsx).
+
+  window.print() on the builder/detail page must output ONLY the sheet: the
+  app chrome (sidebar, header, action bars, screen-only cards) is hidden via
+  visibility so the document keeps its in-flow position, then the sheet is
+  lifted to the page origin. The sheet itself is deliberately untokened white —
+  it prints identically from either app theme.
+*/
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .po-document,
+  .po-document * {
+    visibility: visible;
+  }
+  .po-document {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    border: none;
+    box-shadow: none;
+  }
+}

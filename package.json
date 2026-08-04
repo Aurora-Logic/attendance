@@ -12,5 +12,8 @@
     "infra:down": "docker compose down",
     "test": "pnpm -r --if-present test",
     "dev:api": "pnpm --filter @attendance/api dev"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }

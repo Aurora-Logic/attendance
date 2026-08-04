@@ -22,6 +22,9 @@ import {
 export interface ProcurementState {
   vendors: Vendor[]
   items: Item[]
+  /** Master lists for the item form's pickers — grown inline, never typo'd. */
+  brands: string[]
+  categories: string[]
   pos: PurchaseOrder[]
   grns: Grn[]
   seq: { po: number; grn: number; entity: number }
@@ -47,6 +50,8 @@ export interface PoDraft {
 interface ProcurementValue extends ProcurementState {
   upsertVendor: (vendor: Omit<Vendor, "id"> & { id?: string }) => Vendor
   upsertItem: (item: Omit<Item, "id"> & { id?: string }) => Item
+  addBrand: (brand: string) => void
+  addCategory: (category: string) => void
   createPo: (draft: PoDraft, createdBy: string) => PurchaseOrder
   submitPo: (poId: string) => void
   decidePo: (poId: string, action: "APPROVE" | "REJECT", decidedBy: string, reason?: string) => void
@@ -75,12 +80,14 @@ function seedState(): ProcurementState {
     { id: "v3", code: "VND003", name: "Bharat Electricals", gstin: "27AACCB2230C1ZK", contact: "Ramesh Iyer", email: "sales@bharatelec.in", phone: "+91 99670 77889", address: "Lamington Road", city: "Mumbai", state: "Maharashtra", paymentTermsDays: 45, leadTimeDays: 10, active: true },
   ]
   const items: Item[] = [
-    { id: "i1", code: "ITM001", name: "MS Sheet 2mm", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, active: true },
-    { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, active: true },
-    { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, active: true },
-    { id: "i4", code: "ITM004", name: "Nitrile Gloves (100)", category: "Safety", unit: "BOX", hsn: "4015", gstRatePct: 12, lastPricePaise: 45_000, active: true },
-    { id: "i5", code: "ITM005", name: "MCB 32A C-Curve", category: "Electrical", unit: "PCS", hsn: "8536", gstRatePct: 18, lastPricePaise: 21_500, active: true },
+    { id: "i1", code: "ITM001", name: "MS Sheet 2mm", brand: "Tata Steel", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, active: true },
+    { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", brand: "", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, active: true },
+    { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", brand: "Castrol", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, active: true },
+    { id: "i4", code: "ITM004", name: "Nitrile Gloves (100)", brand: "3M", category: "Safety", unit: "BOX", hsn: "4015", gstRatePct: 12, lastPricePaise: 45_000, active: true },
+    { id: "i5", code: "ITM005", name: "MCB 32A C-Curve", brand: "Havells", category: "Electrical", unit: "PCS", hsn: "8536", gstRatePct: 18, lastPricePaise: 21_500, active: true },
   ]
+  const brands = ["Tata Steel", "Castrol", "3M", "Havells"]
+  const categories = ["Raw Material", "Packaging", "Consumables", "Safety", "Electrical"]
   const pos: PurchaseOrder[] = [
     {
       id: "po1", number: "PO-2026-0001", vendorId: "v1", orderDate: "2026-07-06", status: "APPROVED",
@@ -124,14 +131,27 @@ function seedState(): ProcurementState {
       lines: [{ poLineId: "pol2", qtyAccepted: 1000, qtyRejected: 0, remarks: "" }],
     },
   ]
-  return { vendors, items, pos, grns, seq: { po: 3, grn: 3, entity: 1 } }
+  return { vendors, items, brands, categories, pos, grns, seq: { po: 3, grn: 3, entity: 1 } }
+}
+
+/** A blob saved before a field existed must never brick the app. */
+function normalizeState(raw: ProcurementState): ProcurementState {
+  const items = raw.items.map((item) => ({ ...item, brand: item.brand ?? "" }))
+  const fromItems = (pick: (item: Item) => string) =>
+    [...new Set(items.map(pick).filter(Boolean))]
+  return {
+    ...raw,
+    items,
+    brands: raw.brands ?? fromItems((item) => item.brand),
+    categories: raw.categories ?? fromItems((item) => item.category),
+  }
 }
 
 export function ProcurementProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = React.useState<ProcurementState>(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) return JSON.parse(raw) as ProcurementState
+      if (raw) return normalizeState(JSON.parse(raw) as ProcurementState)
     } catch {
       localStorage.removeItem(STORAGE_KEY)
     }
@@ -150,6 +170,9 @@ export function ProcurementProvider({ children }: { children: React.ReactNode })
       ...state,
       seq: { ...state.seq, entity: state.seq.entity + 1 },
     })
+
+    const register = (list: string[], value: string) =>
+      value.trim() && !list.includes(value.trim()) ? [...list, value.trim()] : list
 
     const patchPo = (poId: string, patch: (po: PurchaseOrder) => Partial<PurchaseOrder>) =>
       setState((prev) => ({
@@ -181,10 +204,19 @@ export function ProcurementProvider({ children }: { children: React.ReactNode })
             items: item.id
               ? prev.items.map((candidate) => (candidate.id === item.id ? saved : candidate))
               : [...prev.items, { ...saved, id: `i_${prev.seq.entity}` }],
+            // A brand/category typed fresh on the form joins the master list.
+            brands: register(prev.brands, saved.brand),
+            categories: register(prev.categories, saved.category),
           })
         )
         return saved
       },
+
+      addBrand: (brand) =>
+        setState((prev) => ({ ...prev, brands: register(prev.brands, brand) })),
+
+      addCategory: (category) =>
+        setState((prev) => ({ ...prev, categories: register(prev.categories, category) })),
 
       createPo: (draft, createdBy) => {
         const year = Number(draft.orderDate.slice(0, 4))

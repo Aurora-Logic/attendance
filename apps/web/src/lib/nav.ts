@@ -1,14 +1,18 @@
 import {
   BarChart3,
+  Boxes,
   CalendarDays,
   ClipboardCheck,
   Fingerprint,
   LayoutDashboard,
+  Package,
   Plane,
   ScanFace,
   ScrollText,
   Settings,
   ShieldCheck,
+  ShoppingCart,
+  TrendingUp,
   Users,
   Wallet,
 } from "lucide-react"
@@ -32,11 +36,28 @@ export interface NavGroup {
   items: NavItem[]
 }
 
+/**
+ * One group per module, ordered by how often each is opened: Overview (the
+ * analysis surfaces), then the two operational modules — Attendance and
+ * Procurement — then People (masters + money), then System config.
+ */
 export const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Overview",
+    items: [
+      { title: "Dashboard", url: "/", icon: LayoutDashboard, phase: 0 },
+      {
+        title: "Reports",
+        url: "/reports",
+        icon: BarChart3,
+        phase: 6,
+        permission: "reports.view",
+      },
+    ],
+  },
   {
     label: "Attendance",
     items: [
-      { title: "Dashboard", url: "/", icon: LayoutDashboard, phase: 0 },
       { title: "Punch", url: "/punch", icon: ScanFace, phase: 3, permission: "punch.self" },
       {
         title: "Daily Register",
@@ -59,6 +80,40 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 3.5,
         permission: "attendance.approve",
       },
+      { title: "Leave", url: "/leave", icon: Plane, phase: 5 },
+    ],
+  },
+  {
+    label: "Procurement",
+    items: [
+      {
+        title: "Purchase Orders",
+        url: "/purchase-orders",
+        icon: ShoppingCart,
+        phase: 4,
+        permission: "procurement.view",
+      },
+      {
+        title: "Vendors",
+        url: "/vendors",
+        icon: Package,
+        phase: 4,
+        permission: "procurement.view",
+      },
+      {
+        title: "Items",
+        url: "/items",
+        icon: Boxes,
+        phase: 4,
+        permission: "procurement.view",
+      },
+      {
+        title: "Procurement Analytics",
+        url: "/procurement-analytics",
+        icon: TrendingUp,
+        phase: 4,
+        permission: "procurement.view",
+      },
     ],
   },
   {
@@ -70,19 +125,6 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Users,
         phase: 1,
         permission: "employee.manage",
-      },
-      { title: "Leave", url: "/leave", icon: Plane, phase: 5 },
-    ],
-  },
-  {
-    label: "Output",
-    items: [
-      {
-        title: "Reports",
-        url: "/reports",
-        icon: BarChart3,
-        phase: 6,
-        permission: "reports.view",
       },
       {
         title: "Payroll",

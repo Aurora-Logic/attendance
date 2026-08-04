@@ -15,6 +15,7 @@ import {
 
 import { useProcurement } from "@/lib/procurement"
 import { useSession } from "@/lib/session"
+import { ComboboxCreate } from "@/components/combobox-create"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { Badge } from "@/components/ui/badge"
@@ -44,7 +45,8 @@ const GST_SLABS = [0, 5, 12, 18, 28] as const
 const itemFormSchema = z.object({
   code: z.string().min(3, "Item code is required."),
   name: z.string().min(2, "Name must be at least 2 characters."),
-  category: z.string().min(1, "Category is required."),
+  brand: z.string(),
+  category: z.string().min(1, "Pick or create a category."),
   unit: z.enum(ITEM_UNITS),
   hsn: z.string(),
   gstRatePct: z.number(),
@@ -56,7 +58,8 @@ type ItemForm = z.infer<typeof itemFormSchema>
 const EMPTY: ItemForm = {
   code: "",
   name: "",
-  category: "General",
+  brand: "",
+  category: "",
   unit: "PCS",
   hsn: "",
   gstRatePct: 18,
@@ -73,7 +76,7 @@ function ItemSheet({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { upsertItem } = useProcurement()
+  const { upsertItem, brands, categories, addBrand, addCategory } = useProcurement()
   const form = useForm<ItemForm>({ resolver: zodResolver(itemFormSchema), defaultValues: EMPTY })
 
   React.useEffect(() => {
@@ -138,16 +141,45 @@ function ItemSheet({
               />
               <div className="grid grid-cols-2 gap-4">
                 <Controller
+                  name="brand"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Field>
+                      <FieldLabel htmlFor="item-brand">Brand</FieldLabel>
+                      <ComboboxCreate
+                        id="item-brand"
+                        value={field.value ?? ""}
+                        options={brands}
+                        placeholder="No brand"
+                        searchPlaceholder="Search or create brand…"
+                        allowClear
+                        onChange={field.onChange}
+                        onCreate={addBrand}
+                      />
+                    </Field>
+                  )}
+                />
+                <Controller
                   name="category"
                   control={form.control}
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
                       <FieldLabel htmlFor="item-category">Category</FieldLabel>
-                      <Input {...field} id="item-category" aria-invalid={fieldState.invalid} />
+                      <ComboboxCreate
+                        id="item-category"
+                        value={field.value ?? ""}
+                        options={categories}
+                        placeholder="Pick category"
+                        searchPlaceholder="Search or create category…"
+                        onChange={field.onChange}
+                        onCreate={addCategory}
+                      />
                       {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
                     </Field>
                   )}
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 <Controller
                   name="unit"
                   control={form.control}
@@ -268,6 +300,11 @@ export function ItemsPage() {
             <span className="text-muted-foreground text-xs">{row.original.code}</span>
           </div>
         ),
+      },
+      {
+        accessorKey: "brand",
+        header: "Brand",
+        cell: ({ row }) => row.original.brand || "—",
       },
       { accessorKey: "category", header: "Category" },
       { accessorKey: "unit", header: "Unit" },

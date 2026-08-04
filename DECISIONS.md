@@ -170,6 +170,25 @@ everyone crowns nobody rather than rewarding the least-bad; and the score is
 share-of-days-within-grace, not earliest arrival — rewarding earliest arrival
 just encourages people to sit in the car park.
 
+## 9. Procurement (parallel module)
+
+Vendors, items, purchase orders with delivery schedules, goods receipts (GRN)
+and vendor analytics. Domain in `packages/shared/src/procurement.ts`; API
+routes in `apps/api/src/procurement.ts`; web store mirrors those routes 1:1 in
+`apps/web/src/lib/procurement.tsx` (localStorage until the Phase-3 wiring).
+
+| # | Decision | Rationale |
+|---|---|---|
+| D1 | GRNs are append-only — a wrong receipt is corrected by a new GRN, never an UPDATE | A1's rule applied to material. The receipt trail is the evidence in any vendor dispute. |
+| D2 | Receipt state (`PARTIALLY_RECEIVED` / `RECEIVED`) is derived from GRNs, never stored | A stored copy could disagree with the receipts it summarises. `poDisplayStatus()` is the only source. |
+| D3 | Delivery schedules are per-line tranches; receipts allocate to tranches oldest-due-first in GRN date order | One `scheduleProgress()` implementation drives both the schedule badges and vendor on-time analytics — the % on the analytics screen is traceable to specific receipts. |
+| D4 | Over-receipt is flagged, never blocked | §3's punch principle: the truck at the gate is a fact; whether to accept it is a review question. |
+| D5 | GST rate and price are copied onto the PO line at order time; approval writes the agreed price back as the item default | History cannot be repriced by a later master edit (poor man's effective-dating until A5 lands), and the next PO opens at the last agreed rate. |
+| D6 | The PO builder is type-on-the-template (OCC estimate design): the page IS the A4 document | Every value is edited where it prints, preview is the same sheet without affordances, and `window.print()` + an `@media print` block that isolates `.po-document` is the whole PDF pipeline. The sheet is deliberately untokened white — it is paper. |
+| D7 | Excel exports are real `.xlsx` — typed cells, ₹ formats, SUM formulas; exceljs lazy-loads on click | The accountant verifies rather than trusts; the 250 KB library never loads until someone exports. |
+| D8 | Creator ≠ approver, enforced in the API and mirrored in the UI | Raising and approving the same PO is never one person's job — same rule as attendance's CANNOT_DECIDE_OWN. |
+| D9 | Procurement capabilities are four matrix rows (`procurement.manage`, `po.approve`, `grn.record`, `procurement.view`) | F11/F16 carry over: nav, buttons and routes gate on `can()`, and the Roles grid edits procurement access like everything else. |
+
 ## 4. Open items
 
 - **Phase 7b** (PF/ESI/PT/TDS, payslip PDF, bank upload) deferred until after Phase 8, per decision on 4 Aug 2026. Schema tables are created in Phase 1 and left empty so no migration is needed later.

@@ -45,6 +45,8 @@ export const itemSchema = z.object({
   id: z.string(),
   code: z.string().min(1),
   name: z.string().min(2),
+  /** Free-form master lists maintained by the store: pick or create inline. */
+  brand: z.string().default(""),
   category: z.string().default("General"),
   unit: itemUnitSchema.default("PCS"),
   /** HSN/SAC code for the GST invoice line. */

@@ -127,7 +127,21 @@ export function registerProcurementRoutes(app: FastifyInstance, store: Store, gu
   })
 
   // ---- items --------------------------------------------------------------
-  app.get("/items", { preHandler: read }, async () => ({ items: store.items }))
+  app.get("/items", { preHandler: read }, async () => ({
+    items: store.items,
+    brands: store.brands,
+    categories: store.categories,
+  }))
+
+  // A brand/category first seen on an item joins its master list.
+  const registerMasters = (item: { brand: string; category: string }) => {
+    if (item.brand.trim() && !store.brands.includes(item.brand.trim())) {
+      store.brands.push(item.brand.trim())
+    }
+    if (item.category.trim() && !store.categories.includes(item.category.trim())) {
+      store.categories.push(item.category.trim())
+    }
+  }
 
   app.post("/items", { preHandler: manage }, async (request, reply) => {
     const parsed = itemBodySchema.safeParse(request.body)
@@ -137,6 +151,7 @@ export function registerProcurementRoutes(app: FastifyInstance, store: Store, gu
     }
     const item = { id: id(store, "i"), ...parsed.data }
     store.items.push(item)
+    registerMasters(item)
     return reply.code(201).send({ item })
   })
 
@@ -147,6 +162,7 @@ export function registerProcurementRoutes(app: FastifyInstance, store: Store, gu
     const parsed = itemBodySchema.partial().safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
     Object.assign(item, parsed.data)
+    registerMasters(item)
     return { item }
   })
 

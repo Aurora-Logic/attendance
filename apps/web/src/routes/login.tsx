@@ -31,7 +31,7 @@ export function LoginPage() {
               key={account.email}
               type="button"
               className="hover:bg-muted flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors"
-              onClick={() => login(account.email, DEMO_PASSWORDS[account.role])}
+              onClick={() => void login(account.email, DEMO_PASSWORDS[account.role])}
             >
               <span className="truncate">{account.email}</span>
               <Badge variant="outline">{ROLE_LABEL[account.role]}</Badge>

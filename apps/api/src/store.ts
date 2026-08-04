@@ -111,6 +111,9 @@ export interface Store {
   branding: Branding
   vendors: Vendor[]
   items: Item[]
+  /** Master lists behind the item form's pickers — grown inline, never typo'd. */
+  brands: string[]
+  categories: string[]
   pos: PurchaseOrder[]
   grns: Grn[]
   /** Per-year document sequences (PO-2026-0042); year rollover resets in Prisma. */
@@ -162,10 +165,12 @@ export function seedStore(): Store {
       { id: "v2", code: "VND002", name: "Om Packaging Co", gstin: null, contact: "Sunita Shah", email: "om.pack@gmail.com", phone: "+91 98111 44556", address: "MIDC Phase II", city: "Pune", state: "Maharashtra", paymentTermsDays: 15, leadTimeDays: 4, active: true },
     ],
     items: [
-      { id: "i1", code: "ITM001", name: "MS Sheet 2mm", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, active: true },
-      { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, active: true },
-      { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, active: true },
+      { id: "i1", code: "ITM001", name: "MS Sheet 2mm", brand: "Tata Steel", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, active: true },
+      { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", brand: "", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, active: true },
+      { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", brand: "Castrol", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, active: true },
     ],
+    brands: ["Tata Steel", "Castrol"],
+    categories: ["Raw Material", "Packaging", "Consumables"],
     pos: [],
     grns: [],
     seq: { po: 0, grn: 0 },

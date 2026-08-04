@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import { format } from "date-fns"
 import { CalendarIcon, CalendarPlus, Send } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
+import { Cell, Pie, PieChart } from "recharts"
 import { countLeaveUnits } from "@attendance/shared"
 
 import { useAppConfig } from "@/lib/app-config"
@@ -15,6 +16,12 @@ import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -75,6 +82,19 @@ const ledgerColumns: ColumnDef<LeaveLedgerRow>[] = [
   },
   { accessorKey: "remarks", header: "Remarks", meta: { label: "Remarks" } },
 ]
+
+/** Donut input: where the year's availed leave went, coloured by chart tokens. */
+const availedSplit = LEAVE_BALANCES.filter((balance) => balance.availed > 0).map(
+  (balance, index) => ({
+    name: balance.code,
+    availed: balance.availed,
+    fill: `var(--chart-${(index % 5) + 1})`,
+  })
+)
+
+const availedConfig = {
+  availed: { label: "Days" },
+} satisfies ChartConfig
 
 interface MyRequest {
   id: string
@@ -341,49 +361,103 @@ export function LeavePage() {
 
           <TabsContent value="balances" className="min-h-0 flex-1 overflow-y-auto">
             <div className="flex flex-col gap-4">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                {LEAVE_BALANCES.map((balance) => {
-                  const isQuota = balance.entitled > 0
-                  const pct = isQuota
-                    ? Math.round((balance.availed / balance.entitled) * 100)
-                    : 0
-                  return (
-                    <Card key={balance.code} className="gap-3">
-                      <CardHeader className="gap-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <CardDescription className="text-foreground truncate font-medium">
-                            {balance.name}
-                          </CardDescription>
-                          <Badge variant={balance.isPaid ? "outline" : "destructive"}>
-                            {balance.isPaid ? balance.code : "Unpaid"}
+              {/*
+                Wallet layout, third iteration on this surface: one list where
+                the eye scans down a single column of numbers, plus a donut of
+                where the year's leave actually went. No repeated card chrome,
+                no advice badges.
+              */}
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+                <Card className="gap-0 py-0">
+                  <CardHeader className="py-4">
+                    <CardTitle className="text-base">Leave wallet</CardTitle>
+                    <CardDescription>Balance against this year&rsquo;s entitlement</CardDescription>
+                  </CardHeader>
+                  <div className="divide-y border-t">
+                    {LEAVE_BALANCES.map((balance) => {
+                      const isQuota = balance.entitled > 0
+                      const pct = isQuota
+                        ? Math.round((balance.availed / balance.entitled) * 100)
+                        : 0
+                      return (
+                        <div key={balance.code} className="flex items-center gap-4 px-4 py-3">
+                          <Badge
+                            variant={balance.isPaid ? "outline" : "destructive"}
+                            className="w-12 justify-center font-mono"
+                          >
+                            {balance.code}
                           </Badge>
-                        </div>
-                        <CardTitle className="flex items-baseline gap-1 text-3xl tabular-nums">
-                          {isQuota ? balance.balance : balance.availed}
-                          {isQuota ? (
-                            <span className="text-muted-foreground text-sm font-normal">
-                              / {balance.entitled}
-                            </span>
-                          ) : null}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="flex flex-col gap-1.5">
-                        {isQuota ? (
-                          <>
-                            <Progress value={pct} />
+                          <div className="w-40 min-w-0 shrink-0">
+                            <p className="truncate text-sm font-medium">{balance.name}</p>
                             <p className="text-muted-foreground text-xs">
-                              {balance.availed} used · {pct}%
+                              {isQuota
+                                ? `${balance.availed} of ${balance.entitled} used`
+                                : "No quota — deducts from salary"}
                             </p>
-                          </>
-                        ) : (
-                          <p className="text-muted-foreground text-xs">
-                            Days deducted from salary this year.
-                          </p>
-                        )}
-                      </CardContent>
-                    </Card>
-                  )
-                })}
+                          </div>
+                          <div className="hidden min-w-0 flex-1 sm:block">
+                            {isQuota ? <Progress value={pct} /> : null}
+                          </div>
+                          <div className="ml-auto text-right">
+                            <p
+                              className={
+                                isQuota
+                                  ? "text-xl font-semibold tabular-nums"
+                                  : "text-destructive text-xl font-semibold tabular-nums"
+                              }
+                            >
+                              {isQuota ? balance.balance : balance.availed}
+                            </p>
+                            <p className="text-muted-foreground text-xs">
+                              {isQuota ? "left" : "days taken"}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Year so far</CardTitle>
+                    <CardDescription>Leave availed, by type</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer config={availedConfig} className="mx-auto h-44 w-full">
+                      <PieChart>
+                        <ChartTooltip
+                          content={<ChartTooltipContent nameKey="name" hideLabel />}
+                        />
+                        <Pie
+                          data={availedSplit}
+                          dataKey="availed"
+                          nameKey="name"
+                          innerRadius={42}
+                          strokeWidth={4}
+                        >
+                          {availedSplit.map((entry) => (
+                            <Cell key={entry.name} fill={entry.fill} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ChartContainer>
+                    <div className="mt-1 flex flex-wrap justify-center gap-x-3 gap-y-1">
+                      {availedSplit.map((entry) => (
+                        <span
+                          key={entry.name}
+                          className="text-muted-foreground flex items-center gap-1.5 text-xs"
+                        >
+                          <span
+                            className="size-2 rounded-full"
+                            style={{ background: entry.fill }}
+                          />
+                          {entry.name} {entry.availed}
+                        </span>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
 
               {myRequests.length > 0 ? (

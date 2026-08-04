@@ -27,9 +27,13 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
   const [password, setPassword] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
 
-  const submit = (event: React.FormEvent) => {
+  const [busy, setBusy] = React.useState(false)
+
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    const result = login(email, password)
+    setBusy(true)
+    const result = await login(email, password)
+    setBusy(false)
     if (!result.ok) setError(result.error ?? "Sign-in failed.")
   }
 
@@ -86,7 +90,9 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
             <FieldDescription>Locked for 15 minutes after 5 failed attempts.</FieldDescription>
           </Field>
           <Field>
-            <Button type="submit">Sign in</Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Signing in…" : "Sign in"}
+            </Button>
           </Field>
         </FieldGroup>
       </form>

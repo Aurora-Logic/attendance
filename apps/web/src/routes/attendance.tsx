@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { punchFlagTone, type AttendanceDay } from "@attendance/shared"
 
 import { useAppConfig } from "@/lib/app-config"
+import { exportDailyRegisterExcel } from "@/lib/attendance-export"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { StatusBadge, StatusLegend } from "@/components/status-badge"
@@ -173,7 +174,17 @@ export function AttendancePage() {
         title="Daily Register"
         description="Monday, 3 August 2026 · all branches · live counts arrive with the attendance engine in Phase 3"
         actions={
-          <Button variant="outline" size="sm" onClick={() => toast.success("Export queued")}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              void exportDailyRegisterExcel(data, "2026-08-03").then(() =>
+                toast.success("Daily register exported", {
+                  description: `${data.length} rows → Delta_DailyRegister_2026-08-03.xlsx`,
+                })
+              )
+            }
+          >
             <FileSpreadsheet />
             Export .xlsx
           </Button>

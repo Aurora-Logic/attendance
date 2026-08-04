@@ -24,7 +24,9 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
+import { ApiError, ApiUnreachable, apiFetch } from "@/lib/api"
 import { useAppConfig } from "@/lib/app-config"
+import { useSession } from "@/lib/session"
 
 const SHIFT_START_MINUTES = 9 * 60
 const SHIFT_END_MINUTES = 18 * 60
@@ -63,19 +65,19 @@ const PUNCTUALITY: Record<
 > = {
   EARLY: {
     clock: "text-status-present",
-    ring: "ring-status-present/35",
+    ring: "border-status-present/50",
     label: "Early",
     badge: "success",
   },
   ON_TIME: {
     clock: "text-status-wfh",
-    ring: "ring-status-wfh/35",
+    ring: "border-status-wfh/50",
     label: "On time",
     badge: "info",
   },
   LATE: {
     clock: "text-status-absent",
-    ring: "ring-status-absent/35",
+    ring: "border-status-absent/50",
     label: "Late",
     badge: "destructive",
   },
@@ -112,6 +114,7 @@ function CaptureCheck({
 export function PunchPage() {
   // Live settings: change the grace in Settings and this screen follows.
   const { settings } = useAppConfig()
+  const { user } = useSession()
   const now = useServerClock()
   const [dayPart, setDayPart] = React.useState("FULL")
   const [punchedIn, setPunchedIn] = React.useState(false)
@@ -147,14 +150,77 @@ export function PunchPage() {
         ? "Exactly at shift start"
         : `${minutesFromStart} min after shift start`
 
-  const handlePunch = () => {
-    setPunchedIn((prev) => !prev)
-    toast[punctuality === "LATE" ? "warning" : "success"](
-      punchedIn ? "Punched out" : "Punched in",
-      {
-        description: `${two(now.getHours())}:${two(now.getMinutes())}:${two(now.getSeconds())} server time · ${mood.label.toLowerCase()}`,
+  const [posting, setPosting] = React.useState(false)
+
+  /**
+   * With an API session this is a real POST /punches — idempotency key, GPS,
+   * server-side window/geofence evaluation. The demo fallback keeps the local
+   * behaviour so the screen still demonstrates without the API.
+   */
+  const handlePunch = async () => {
+    const stamp = `${two(now.getHours())}:${two(now.getMinutes())}:${two(now.getSeconds())}`
+
+    if (user?.source !== "api") {
+      setPunchedIn((prev) => !prev)
+      toast[punctuality === "LATE" ? "warning" : "success"](
+        punchedIn ? "Punched out (demo)" : "Punched in (demo)",
+        { description: `${stamp} · ${mood.label.toLowerCase()} · start the API for real punches` }
+      )
+      return
+    }
+
+    setPosting(true)
+    try {
+      const at = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}T${two(now.getHours())}:${two(now.getMinutes())}`
+      const result = await apiFetch<{
+        punch: { flags: string[]; businessDate: string }
+        needsApproval: boolean
+        evaluation: { explanation: string }
+        idempotent?: boolean
+      }>("/punches", {
+        method: "POST",
+        body: JSON.stringify({
+          employeeId: user.employeeId,
+          type: punchedIn ? "OUT" : "IN",
+          at,
+          lat: DEVICE.lat,
+          lng: DEVICE.lng,
+          accuracyM: 12,
+          dayPart,
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      })
+      setPunchedIn((prev) => !prev)
+      const flagged = result.punch.flags.filter((flag) => flag !== "ON_TIME")
+      if (result.needsApproval) {
+        toast.warning(punchedIn ? "Punched out — flagged" : "Punched in — flagged", {
+          description: `${flagged.join(", ")} · sent for L1 approval. ${result.evaluation.explanation}`,
+        })
+      } else {
+        toast.success(punchedIn ? "Punched out" : "Punched in", {
+          description: `${stamp} server time · on time · ${result.punch.businessDate}`,
+        })
       }
-    )
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        toast.warning("Duplicate punch", {
+          description: `Within the ${settings.minPunchGapMinutes}-minute gap — the first punch stands.`,
+        })
+      } else if (error instanceof ApiError && error.status === 422) {
+        toast.error("Punch refused: outside the window", {
+          description: "The hard block is ON in Settings. Turn it off to record-and-flag instead.",
+        })
+      } else if (error instanceof ApiUnreachable) {
+        toast.warning("API unreachable — punch queued locally (demo)", {
+          description: "Offline sync writes it with the OFFLINE_SYNCED flag in Phase 3.",
+        })
+        setPunchedIn((prev) => !prev)
+      } else {
+        toast.error("Punch failed", { description: String(error) })
+      }
+    } finally {
+      setPosting(false)
+    }
   }
 
   return (
@@ -163,9 +229,14 @@ export function PunchPage() {
         title="Punch"
         description="Server time is authoritative — the device clock is never trusted."
         actions={
-          <Badge variant={punchedIn ? "success" : "outline"} className="h-7 px-3">
-            {punchedIn ? "Currently in" : "Not punched in"}
-          </Badge>
+          <>
+            <Badge variant={user?.source === "api" ? "info" : "outline"} className="h-7 px-3">
+              {user?.source === "api" ? "Live API" : "Demo mode"}
+            </Badge>
+            <Badge variant={punchedIn ? "success" : "outline"} className="h-7 px-3">
+              {punchedIn ? "Currently in" : "Not punched in"}
+            </Badge>
+          </>
         }
       />
       <PageBody>
@@ -252,7 +323,7 @@ export function PunchPage() {
                       </ToggleGroup>
                     </div>
                     {/* Width is layout; height stays a registry token. */}
-                    <Button size="lg" className="w-full" onClick={handlePunch}>
+                    <Button size="lg" className="w-full" disabled={posting} onClick={() => void handlePunch()}>
                       {punchedIn ? <LogOut /> : <LogIn />}
                       {punchedIn ? "Punch out" : "Punch in"}
                     </Button>

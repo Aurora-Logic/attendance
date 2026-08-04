@@ -325,7 +325,7 @@ export function DashboardPage() {
           <div className="flex flex-col gap-4">
             {/* Monthly punctuality crown — earliest, most consistent arrivals. */}
             {podium.length > 0 ? (
-              <Card className="ring-status-half-day/40">
+              <Card className="border-status-half-day/50">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Crown className="text-status-half-day size-4" />

@@ -62,6 +62,10 @@ import the same Zod schemas; there is no hand-maintained type duplication.
 - Daily Register: the shared `DataTable` with sort, search, column visibility,
   row selection, pagination, skeleton loading and an empty state
 - Every planned route resolves, labelled with the phase that delivers it
+- **Procurement**: vendor & item masters, a type-on-the-template PO builder
+  (the page is the A4 document — see DECISIONS.md §9), delivery schedules per
+  line, approval flow, goods receipts with over-receipt flagging, vendor
+  analytics (lead time, on-time %, fill rate), Excel export and print-to-PDF
 
 ## What is stubbed
 
