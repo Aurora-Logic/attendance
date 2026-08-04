@@ -42,7 +42,9 @@ const VIEWPORTS = [
 const IGNORE = [/React DevTools/, /\[vite\]/]
 
 const findings = []
-const browser = await chromium.launch()
+const browser = await chromium.launch({
+  args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+})
 
 for (const viewport of VIEWPORTS) {
   const context = await browser.newContext({ viewport })

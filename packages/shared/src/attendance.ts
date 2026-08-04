@@ -86,6 +86,10 @@ export const attendanceDaySchema = z.object({
   /** 1.0 | 0.5 | 0 — what payroll multiplies by. */
   payableUnits: z.number().min(0).max(1),
   isLocked: z.boolean(),
+  /** Stamped WebP derivatives from the first IN punch, when captured. */
+  selfieThumb: z.string().nullish(),
+  selfieView: z.string().nullish(),
+  syncDeltaSec: z.number().nullish(),
 })
 export type AttendanceDay = z.infer<typeof attendanceDaySchema>
 

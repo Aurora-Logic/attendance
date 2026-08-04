@@ -24,7 +24,13 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
+import { useQueryClient } from "@tanstack/react-query"
+import { format } from "date-fns"
+
 import { ApiError, ApiUnreachable, apiFetch } from "@/lib/api"
+import { enqueuePunch, flushQueue, queuedCount } from "@/lib/offline-queue"
+import { useAttendanceDays } from "@/lib/queries"
+import { captureSelfie, type SelfieDerivatives } from "@/lib/selfie"
 import { useAppConfig } from "@/lib/app-config"
 import { useSession } from "@/lib/session"
 
@@ -116,6 +122,70 @@ export function PunchPage() {
   const { settings } = useAppConfig()
   const { user } = useSession()
   const now = useServerClock()
+  const queryClient = useQueryClient()
+
+  // ---- live camera -------------------------------------------------------
+  const videoRef = React.useRef<HTMLVideoElement>(null)
+  const [cameraState, setCameraState] = React.useState<"starting" | "live" | "denied">("starting")
+  const [lastShot, setLastShot] = React.useState<SelfieDerivatives | null>(null)
+
+  React.useEffect(() => {
+    let stream: MediaStream | null = null
+    let cancelled = false
+    navigator.mediaDevices
+      ?.getUserMedia({ video: { facingMode: "user" }, audio: false })
+      .then((mediaStream) => {
+        if (cancelled) {
+          mediaStream.getTracks().forEach((track) => track.stop())
+          return
+        }
+        stream = mediaStream
+        if (videoRef.current) videoRef.current.srcObject = mediaStream
+        setCameraState("live")
+      })
+      .catch(() => setCameraState("denied"))
+    return () => {
+      cancelled = true
+      stream?.getTracks().forEach((track) => track.stop())
+    }
+  }, [])
+
+  // ---- offline queue -----------------------------------------------------
+  const [pendingSync, setPendingSync] = React.useState(0)
+  const refreshQueueCount = React.useCallback(() => {
+    void queuedCount().then(setPendingSync).catch(() => {})
+  }, [])
+  React.useEffect(refreshQueueCount, [refreshQueueCount])
+
+  const syncNow = React.useCallback(async () => {
+    const { sent, kept } = await flushQueue((body) =>
+      apiFetch("/punches", { method: "POST", body: JSON.stringify(body) })
+    )
+    refreshQueueCount()
+    void queryClient.invalidateQueries({ queryKey: ["attendance-days"] })
+    if (sent > 0) {
+      toast.success(`${sent} queued punch${sent === 1 ? "" : "es"} synced`, {
+        description: "Flagged OFFLINE_SYNCED with the delay visible to HR.",
+      })
+    }
+    if (kept > 0) toast.warning(`${kept} still queued — connection not back yet`)
+  }, [refreshQueueCount, queryClient])
+
+  React.useEffect(() => {
+    const onOnline = () => {
+      if (user?.source === "api") void syncNow()
+    }
+    window.addEventListener("online", onOnline)
+    return () => window.removeEventListener("online", onOnline)
+  }, [syncNow, user?.source])
+
+  // ---- today's real day (API mode) ---------------------------------------
+  const todayISO = format(new Date(), "yyyy-MM-dd")
+  const { rows: todayRows, source: daySource } = useAttendanceDays(todayISO)
+  const ownDay =
+    daySource === "api"
+      ? todayRows.find((row) => row.employeeId === user?.employeeId)
+      : undefined
   const [dayPart, setDayPart] = React.useState("FULL")
   const [punchedIn, setPunchedIn] = React.useState(false)
   const [priorLateMarks] = React.useState(1)
@@ -161,6 +231,19 @@ export function PunchPage() {
     const stamp = `${two(now.getHours())}:${two(now.getMinutes())}:${two(now.getSeconds())}`
 
     if (user?.source !== "api") {
+      if (cameraState === "live" && videoRef.current && user) {
+        try {
+          setLastShot(
+            captureSelfie(
+              videoRef.current,
+              { name: user.name, at: now, lat: DEVICE.lat, lng: DEVICE.lng },
+              settings
+            )
+          )
+        } catch {
+          /* capture is best-effort in demo mode */
+        }
+      }
       setPunchedIn((prev) => !prev)
       toast[punctuality === "LATE" ? "warning" : "success"](
         punchedIn ? "Punched out (demo)" : "Punched in (demo)",
@@ -170,27 +253,41 @@ export function PunchPage() {
     }
 
     setPosting(true)
+    // Capture happens at punch time — in-app only, gallery has no path in.
+    let selfie: SelfieDerivatives | null = null
+    if (cameraState === "live" && videoRef.current) {
+      try {
+        selfie = captureSelfie(
+          videoRef.current,
+          { name: user.name, at: now, lat: DEVICE.lat, lng: DEVICE.lng },
+          settings
+        )
+        setLastShot(selfie)
+      } catch {
+        selfie = null
+      }
+    }
+    const at = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}T${two(now.getHours())}:${two(now.getMinutes())}`
+    const punchPayload = {
+      employeeId: user.employeeId,
+      type: punchedIn ? "OUT" : "IN",
+      at,
+      lat: DEVICE.lat,
+      lng: DEVICE.lng,
+      accuracyM: 12,
+      dayPart,
+      idempotencyKey: crypto.randomUUID(),
+      ...(selfie ? { selfieThumb: selfie.thumb, selfieView: selfie.view } : {}),
+    }
     try {
-      const at = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}T${two(now.getHours())}:${two(now.getMinutes())}`
       const result = await apiFetch<{
         punch: { flags: string[]; businessDate: string }
         needsApproval: boolean
         evaluation: { explanation: string }
         idempotent?: boolean
-      }>("/punches", {
-        method: "POST",
-        body: JSON.stringify({
-          employeeId: user.employeeId,
-          type: punchedIn ? "OUT" : "IN",
-          at,
-          lat: DEVICE.lat,
-          lng: DEVICE.lng,
-          accuracyM: 12,
-          dayPart,
-          idempotencyKey: crypto.randomUUID(),
-        }),
-      })
+      }>("/punches", { method: "POST", body: JSON.stringify(punchPayload) })
       setPunchedIn((prev) => !prev)
+      void queryClient.invalidateQueries({ queryKey: ["attendance-days"] })
       const flagged = result.punch.flags.filter((flag) => flag !== "ON_TIME")
       if (result.needsApproval) {
         toast.warning(punchedIn ? "Punched out — flagged" : "Punched in — flagged", {
@@ -211,10 +308,17 @@ export function PunchPage() {
           description: "The hard block is ON in Settings. Turn it off to record-and-flag instead.",
         })
       } else if (error instanceof ApiUnreachable) {
-        toast.warning("API unreachable — punch queued locally (demo)", {
-          description: "Offline sync writes it with the OFFLINE_SYNCED flag in Phase 3.",
+        // The real §3 queue: IndexedDB, selfie included, replayed on reconnect.
+        await enqueuePunch({
+          id: punchPayload.idempotencyKey as string,
+          body: punchPayload,
+          queuedAt: new Date().toISOString(),
         })
+        refreshQueueCount()
         setPunchedIn((prev) => !prev)
+        toast.warning("Offline — punch queued on this device", {
+          description: "It will sync automatically when the connection returns.",
+        })
       } else {
         toast.error("Punch failed", { description: String(error) })
       }
@@ -292,13 +396,35 @@ export function PunchPage() {
 
                 {/* Camera fills the remaining height rather than leaving a gap. */}
                 <div className="grid flex-1 gap-4 sm:grid-cols-[minmax(0,1fr)_200px]">
-                  <div className="bg-muted flex min-h-44 flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-4 text-center">
-                    <Camera className="text-muted-foreground size-8" />
-                    <p className="text-sm font-medium">Camera preview</p>
-                    <p className="text-muted-foreground max-w-xs text-xs">
-                      In-app capture only. Gallery upload is blocked, and the selfie is stamped
-                      server-side with date, time, name and location.
-                    </p>
+                  <div className="bg-muted relative min-h-44 flex-1 overflow-hidden rounded-lg border">
+                    {/* Mirrored preview, un-mirrored capture — like every phone camera. */}
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="absolute inset-0 size-full -scale-x-100 object-cover"
+                    />
+                    {cameraState !== "live" ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center">
+                        <Camera className="text-muted-foreground size-8" />
+                        <p className="text-sm font-medium">
+                          {cameraState === "starting" ? "Starting camera…" : "Camera unavailable"}
+                        </p>
+                        <p className="text-muted-foreground max-w-xs text-xs">
+                          {cameraState === "denied"
+                            ? "Allow camera access to punch with a selfie. Gallery upload is never an option."
+                            : "In-app capture only — the stamped selfie stores two small WebP derivatives."}
+                        </p>
+                      </div>
+                    ) : null}
+                    {lastShot ? (
+                      <img
+                        src={lastShot.thumb}
+                        alt="Last punch selfie"
+                        className="absolute right-2 bottom-2 size-14 rounded-md border-2 border-white/80 object-cover shadow-sm"
+                      />
+                    ) : null}
                   </div>
 
                   <div className="flex flex-col justify-between gap-3">
@@ -415,8 +541,19 @@ export function PunchPage() {
                   <CaptureCheck
                     icon={WifiOff}
                     label="Offline queue"
-                    value="Nothing pending — punches sync on reconnect"
-                    tone="outline"
+                    value={
+                      pendingSync > 0
+                        ? `${pendingSync} punch${pendingSync === 1 ? "" : "es"} waiting to sync`
+                        : "Nothing pending — punches sync on reconnect"
+                    }
+                    tone={pendingSync > 0 ? "warning" : "outline"}
+                    action={
+                      pendingSync > 0 ? (
+                        <Button variant="outline" size="sm" onClick={() => void syncNow()}>
+                          Sync now
+                        </Button>
+                      ) : undefined
+                    }
                   />
                 </CardContent>
               </Card>
@@ -428,7 +565,48 @@ export function PunchPage() {
                   <CardDescription>Append-only — corrections add a row</CardDescription>
                 </CardHeader>
                 <CardContent className="min-h-0 flex-1 overflow-y-auto">
-                  {TODAY_PUNCHES.length === 0 ? (
+                  {ownDay?.firstInAt ? (
+                    <ol className="flex flex-col">
+                      {[
+                        {
+                          at: ownDay.firstInAt,
+                          label: "Punch in",
+                          detail: ownDay.flags.filter((flag) => flag !== "ON_TIME").join(", ") || "On time",
+                          tone: ownDay.lateMinutes > settings.lateGraceMinutes ? "warning" : "success",
+                        },
+                        ...(ownDay.lastOutAt
+                          ? [{ at: ownDay.lastOutAt, label: "Punch out", detail: `Worked ${Math.floor(ownDay.workedMinutes / 60)}h ${String(ownDay.workedMinutes % 60).padStart(2, "0")}m`, tone: "muted" as const }]
+                          : []),
+                      ].map((entry, index, list) => (
+                        <li key={entry.at} className="flex gap-3">
+                          <div className="flex flex-col items-center">
+                            <span
+                              className={cn(
+                                "mt-1.5 size-2 shrink-0 rounded-full",
+                                entry.tone === "success"
+                                  ? "bg-status-present"
+                                  : entry.tone === "warning"
+                                    ? "bg-status-half-day"
+                                    : "bg-muted-foreground"
+                              )}
+                            />
+                            {index < list.length - 1 ? <span className="bg-border w-px flex-1" /> : null}
+                          </div>
+                          <div className="flex-1 pb-4">
+                            <p className="flex items-center gap-2 text-sm font-medium">
+                              <span className="tabular-nums">{entry.at}</span>
+                              <span className="text-muted-foreground font-normal">{entry.label}</span>
+                            </p>
+                            <p className="text-muted-foreground text-xs">{entry.detail}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : daySource === "api" ? (
+                    <p className="text-muted-foreground text-sm">
+                      No punches yet today. Your first punch in starts the day.
+                    </p>
+                  ) : TODAY_PUNCHES.length === 0 ? (
                     <p className="text-muted-foreground text-sm">
                       No punches yet today. Your first punch in starts the day.
                     </p>

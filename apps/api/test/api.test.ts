@@ -275,6 +275,64 @@ describe("punches — §3 core flow", () => {
     expect(store.punches).toHaveLength(0)
   })
 
+  it("stores the selfie derivatives and serves the thumb on the day row", async () => {
+    const employee = await asEmployee()
+    const response = await app.inject({
+      method: "POST",
+      url: "/punches",
+      headers: { cookie: employee.cookies },
+      payload: punchBody({
+        at: "2026-08-04T09:00",
+        idempotencyKey: "key-selfie-01",
+        selfieThumb: "data:image/webp;base64,dGh1bWI=",
+        selfieView: "data:image/webp;base64,dmlldw==",
+      }),
+    })
+    expect(response.statusCode).toBe(201)
+
+    const admin = await asAdmin()
+    const days = await app.inject({
+      method: "GET",
+      url: "/attendance/days?date=2026-08-04",
+      headers: { cookie: admin.cookies },
+    })
+    const row = days.json().rows.find((entry: { code: string }) => entry.code === "DLT0004")
+    expect(row.selfieThumb).toBe("data:image/webp;base64,dGh1bWI=")
+  })
+
+  it("rejects an oversized selfie instead of storing a raw camera frame", async () => {
+    const employee = await asEmployee()
+    const response = await app.inject({
+      method: "POST",
+      url: "/punches",
+      headers: { cookie: employee.cookies },
+      payload: punchBody({
+        idempotencyKey: "key-selfie-02",
+        selfieThumb: `data:image/webp;base64,${"A".repeat(40_000)}`,
+      }),
+    })
+    expect(response.statusCode).toBe(400)
+    expect(store.punches).toHaveLength(0)
+  })
+
+  it("an offline-queued punch is flagged OFFLINE_SYNCED with the sync delay recorded", async () => {
+    const employee = await asEmployee()
+    const response = await app.inject({
+      method: "POST",
+      url: "/punches",
+      headers: { cookie: employee.cookies },
+      payload: punchBody({
+        at: "2026-08-04T09:00",
+        idempotencyKey: "key-offline-01",
+        queuedOffline: true,
+      }),
+    })
+    expect(response.statusCode).toBe(201)
+    expect(response.json().punch.flags).toContain("OFFLINE_SYNCED")
+    expect(response.json().punch.syncDeltaSec).toBeGreaterThanOrEqual(0)
+    expect(response.json().needsApproval).toBe(true)
+  })
+
   it("a 01:05 punch on a night shift lands on the previous business date", async () => {
     store.users.push({
       id: "u6",

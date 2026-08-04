@@ -47,6 +47,9 @@ interface ApiDayRow {
   otMinutes: number
   flags: AttendanceDay["flags"]
   needsApproval: boolean
+  selfieThumb: string | null
+  selfieView: string | null
+  syncDeltaSec: number | null
 }
 
 export function useAttendanceDays(dateISO: string) {
@@ -78,6 +81,9 @@ export function useAttendanceDays(dateISO: string) {
         halfDayReason: row.halfDayReason,
         payableUnits: row.payableUnits,
         isLocked: false,
+        selfieThumb: row.selfieThumb,
+        selfieView: row.selfieView,
+        syncDeltaSec: row.syncDeltaSec,
       })),
   })
 

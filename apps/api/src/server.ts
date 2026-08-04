@@ -52,6 +52,11 @@ const punchBodySchema = z.object({
   accuracyM: z.number().nonnegative().default(0),
   dayPart: z.enum(["FULL", "FIRST_HALF", "SECOND_HALF"]).default("FULL"),
   idempotencyKey: z.string().min(8),
+  /** ~4 KB and ~40 KB WebP targets; the caps stop a raw camera frame sneaking in. */
+  selfieThumb: z.string().startsWith("data:image/").max(30_000).optional(),
+  selfieView: z.string().startsWith("data:image/").max(160_000).optional(),
+  /** True when replayed from the device's IndexedDB queue after reconnect. */
+  queuedOffline: z.boolean().default(false),
 })
 
 const leaveApplySchema = z.object({
@@ -356,6 +361,17 @@ export function buildServer(store: Store = seedStore()) {
         return reply.code(422).send({ error: "OUTSIDE_WINDOW", flag: windowFlag })
       }
 
+      // §3 offline queue: recorded with the device timestamp, flagged, and
+      // the sync delay kept visible to HR.
+      let syncDeltaSec: number | undefined
+      if (body.queuedOffline) {
+        flags.push("OFFLINE_SYNCED")
+        syncDeltaSec = Math.max(
+          0,
+          Math.round((Date.now() - new Date(`${body.at}:00`).getTime()) / 1000)
+        )
+      }
+
       if (flags.length === 0) flags.push("ON_TIME")
 
       const punch = {
@@ -371,6 +387,9 @@ export function buildServer(store: Store = seedStore()) {
         dayPart: body.dayPart,
         flags,
         idempotencyKey: body.idempotencyKey,
+        selfieThumb: body.selfieThumb,
+        selfieView: body.selfieView,
+        syncDeltaSec,
       }
       store.punches.push(punch)
 
@@ -445,6 +464,12 @@ export function buildServer(store: Store = seedStore()) {
             settings: store.settings,
           })
 
+          const inStored = store.punches.find(
+            (punch) =>
+              punch.employeeId === employee.id &&
+              punch.businessDate === targetDate &&
+              punch.type === "IN"
+          )
           const inPunch = punches.find((punch) => punch.type === "IN")
           const outPunches = punches.filter((punch) => punch.type === "OUT")
           const toClock = (offset: number) => minutesToClock(shift.startMin + offset)
@@ -455,6 +480,9 @@ export function buildServer(store: Store = seedStore()) {
             department: employee.department,
             shiftName: shift.name,
             firstInAt: inPunch ? toClock(inPunch.offsetMin) : null,
+            selfieThumb: inStored?.selfieThumb ?? null,
+            selfieView: inStored?.selfieView ?? null,
+            syncDeltaSec: inStored?.syncDeltaSec ?? null,
             lastOutAt: outPunches.length > 0 ? toClock(outPunches.at(-1)!.offsetMin) : null,
             ...result,
           }

@@ -63,6 +63,11 @@ export interface StoredPunch {
   dayPart: "FULL" | "FIRST_HALF" | "SECOND_HALF"
   flags: PunchFlag[]
   idempotencyKey: string
+  /** Stamped WebP derivatives (data URLs). Object storage takes these in Phase 3b. */
+  selfieThumb?: string
+  selfieView?: string
+  /** OFFLINE_SYNCED: device-to-server lag, visible to HR (§3). */
+  syncDeltaSec?: number
 }
 
 export interface StoredApproval {

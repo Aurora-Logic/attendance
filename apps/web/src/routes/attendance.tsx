@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
@@ -66,9 +67,35 @@ const makeColumns = (lateGraceMinutes: number): ColumnDef<AttendanceDay>[] => [
       </Button>
     ),
     cell: ({ row }) => (
-      <div className="flex flex-col">
-        <span className="font-medium">{row.original.employeeName}</span>
-        <span className="text-muted-foreground text-xs">{row.original.employeeCode}</span>
+      <div className="flex items-center gap-2.5">
+        {row.original.selfieThumb ? (
+          // The stamped capture is the §3 human proof — hover for the full view.
+          <HoverCard openDelay={150}>
+            <HoverCardTrigger asChild>
+              <img
+                src={row.original.selfieThumb}
+                alt=""
+                className="size-8 shrink-0 rounded-md border object-cover"
+              />
+            </HoverCardTrigger>
+            <HoverCardContent className="w-auto p-1.5">
+              <img
+                src={row.original.selfieView ?? row.original.selfieThumb}
+                alt={`Punch selfie — ${row.original.employeeName}`}
+                className="max-h-72 rounded-sm"
+              />
+              {row.original.syncDeltaSec ? (
+                <p className="text-muted-foreground mt-1 px-1 text-xs">
+                  Synced {Math.round(row.original.syncDeltaSec / 60)} min after capture
+                </p>
+              ) : null}
+            </HoverCardContent>
+          </HoverCard>
+        ) : null}
+        <div className="flex flex-col">
+          <span className="font-medium">{row.original.employeeName}</span>
+          <span className="text-muted-foreground text-xs">{row.original.employeeCode}</span>
+        </div>
       </div>
     ),
   },
