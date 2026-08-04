@@ -48,8 +48,10 @@ All defined in `packages/shared/src/settings.ts`, all overridable per shift/bran
 | `minPunchGapMinutes` | 2 | Duplicate-punch suppression |
 | `halfDayMinHours` | 4 | Worked hours below full-day but at/above this → `HALF_DAY` |
 | `fullDayMinHours` | 8 | Worked hours for a full day |
+| `selfieThumbMaxPx` / `selfieThumbQuality` | 160 / 45 | Grid thumbnail (~4 KB) |
+| `selfieViewMaxPx` / `selfieViewQuality` | 720 / 55 | The image that opens on click (~40 KB) |
+| `selfieKeepOriginal` | **false** | Camera original is discarded |
 | `selfieRetentionMonths` | 12 | Purge job window |
-| `selfieMaxBytes` | 200000 | WebP compression target |
 | `approvalEscalateAfterDays` | 2 | L1 inaction → auto-escalate to L2 |
 | `timezone` | `Asia/Kolkata` | Storage is UTC; this is the render timezone |
 
@@ -121,7 +123,32 @@ Those punches are flagged uncertain and routed to approval with the doubt on
 record, rather than asserted as violations — the same principle as §3's rule
 that flagging beats rejecting.
 
-## 6. Punctuality crown
+## 6. Selfie storage
+
+**Requirement:** smallest possible on disk, but any image on any date must still
+open.
+
+Those pull in opposite directions only if you store one file. So each punch
+stores **two WebP derivatives and discards the camera original**:
+
+| Derivative | Long edge | Quality | Size | Used by |
+|---|---|---|---|---|
+| `thumb` | 160 px | 45 | ~4 KB | Registers, muster grid, approval rows |
+| `view` | 720 px | 55 | ~40 KB | Opens when a punch is clicked |
+
+At 500 employees × 2 punches × 26 days that is ~1.1 GB a month, or ~13 GB held
+under the 12-month retention window. Keeping originals instead would be roughly
+40× that — a phone selfie is 2–4 MB and **nothing in the system ever reads it**.
+The date/time/name/location overlay is burned into both derivatives server-side,
+and the same values are stored as real columns, so the image is human proof and
+the columns are the logic.
+
+`selfieKeepOriginal` exists as an off-by-default escape hatch for an evidentiary
+requirement, and the Settings screen shows a live storage estimate plus a warning
+when it is on — the cost of that toggle should not be a surprise discovered at
+200 GB.
+
+## 7. Punctuality crown
 
 `apps/web/src/lib/analytics.ts`. The highest on-time share in the month is
 crowned on the dashboard and badged on the employee's own screen.

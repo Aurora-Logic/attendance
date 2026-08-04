@@ -6,6 +6,7 @@ import {
   LATE_PENALTY,
   LATE_PERIOD,
   SETTINGS_SCOPES,
+  estimateSelfieStorage,
   evaluateLate,
   type AttendanceSettings,
 } from "@attendance/shared"
@@ -139,6 +140,76 @@ function LatePreview({ settings }: { settings: AttendanceSettings }) {
             </div>
           )
         })}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Compression is a storage decision, so the storage figure is shown next to the
+ * knobs rather than left for someone to discover at 200 GB.
+ */
+function StoragePreview({ settings }: { settings: AttendanceSettings }) {
+  const [headcount, setHeadcount] = React.useState(500)
+  const estimate = estimateSelfieStorage(settings, headcount)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>What this costs to store</CardTitle>
+        <CardDescription>
+          Two derivatives are kept per punch — a thumbnail for lists and a full-view image that
+          opens on click. Any punch on any date stays viewable; the original is discarded.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <Field className="max-w-xs">
+          <FieldLabel htmlFor="storage-headcount">Estimate for</FieldLabel>
+          <InputGroup>
+            <InputGroupInput
+              id="storage-headcount"
+              type="number"
+              step={50}
+              value={headcount}
+              onChange={(event) => setHeadcount(Math.max(Number(event.target.value), 1))}
+            />
+            <InputGroupAddon align="inline-end">employees</InputGroupAddon>
+          </InputGroup>
+          <FieldDescription>At 2 punches a day over 26 working days.</FieldDescription>
+        </Field>
+
+        <div className="grid gap-3 sm:grid-cols-4">
+          {[
+            { label: "Thumbnail", value: `${estimate.thumbKb} KB`, hint: "per punch" },
+            { label: "Full view", value: `${estimate.viewKb} KB`, hint: "opens on click" },
+            {
+              label: "Per month",
+              value: `${estimate.monthlyGb} GB`,
+              hint: `${estimate.imagesPerMonth.toLocaleString("en-IN")} images`,
+            },
+            {
+              label: "Held at once",
+              value: `${estimate.retainedGb} GB`,
+              hint: `${settings.selfieRetentionMonths}-month retention`,
+            },
+          ].map((tile) => (
+            <div key={tile.label} className="rounded-md border px-3 py-2.5">
+              <p className="text-muted-foreground text-xs">{tile.label}</p>
+              <p className="text-lg font-semibold tabular-nums">{tile.value}</p>
+              <p className="text-muted-foreground text-xs">{tile.hint}</p>
+            </div>
+          ))}
+        </div>
+
+        {settings.selfieKeepOriginal ? (
+          <Alert variant="destructive">
+            <AlertTitle>Originals are being retained</AlertTitle>
+            <AlertDescription>
+              This is roughly 40× the storage of the derivatives and nothing in the system reads
+              the original. Turn it off unless you have a specific evidentiary reason.
+            </AlertDescription>
+          </Alert>
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -438,7 +509,9 @@ export function SettingsPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="capture">
+          <TabsContent value="capture" className="flex flex-col gap-4">
+            <StoragePreview settings={settings} />
+
             <Card>
               <CardHeader>
                 <CardTitle>Selfie capture & retention</CardTitle>
@@ -451,6 +524,42 @@ export function SettingsPage() {
                 <FieldSet>
                   <FieldGroup className="sm:grid sm:grid-cols-2 sm:gap-4">
                     <NumberField
+                      id="thumb-px"
+                      label="Thumbnail size"
+                      unit="px"
+                      step={20}
+                      description="Long edge of the grid thumbnail shown in registers and lists."
+                      value={settings.selfieThumbMaxPx}
+                      onChange={(value) => set("selfieThumbMaxPx", value)}
+                    />
+                    <NumberField
+                      id="thumb-q"
+                      label="Thumbnail quality"
+                      unit="%"
+                      step={5}
+                      description="WebP quality. Below 35 the face stops being recognisable."
+                      value={settings.selfieThumbQuality}
+                      onChange={(value) => set("selfieThumbQuality", value)}
+                    />
+                    <NumberField
+                      id="view-px"
+                      label="Full-view size"
+                      unit="px"
+                      step={40}
+                      description="Long edge of the image that opens when a punch is clicked. This is the one that has to stay legible."
+                      value={settings.selfieViewMaxPx}
+                      onChange={(value) => set("selfieViewMaxPx", value)}
+                    />
+                    <NumberField
+                      id="view-q"
+                      label="Full-view quality"
+                      unit="%"
+                      step={5}
+                      description="WebP quality for the openable image. 50–60 keeps a face clear at a fraction of the original."
+                      value={settings.selfieViewQuality}
+                      onChange={(value) => set("selfieViewQuality", value)}
+                    />
+                    <NumberField
                       id="retention"
                       label="Retention"
                       unit="months"
@@ -458,16 +567,14 @@ export function SettingsPage() {
                       value={settings.selfieRetentionMonths}
                       onChange={(value) => set("selfieRetentionMonths", value)}
                     />
-                    <NumberField
-                      id="max-bytes"
-                      label="Compression target"
-                      unit="bytes"
-                      step={10_000}
-                      description="WebP target size per stored image."
-                      value={settings.selfieMaxBytes}
-                      onChange={(value) => set("selfieMaxBytes", value)}
-                    />
                   </FieldGroup>
+                  <SwitchField
+                    id="keep-original"
+                    label="Keep the camera original"
+                    description="Off by default. A phone selfie is 2–4 MB — roughly 40× the stored derivatives — and nothing in the system reads it."
+                    checked={settings.selfieKeepOriginal}
+                    onChange={(checked) => set("selfieKeepOriginal", checked)}
+                  />
                   <SwitchField
                     id="face"
                     label="Require face detection"

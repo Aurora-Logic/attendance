@@ -48,9 +48,21 @@ export const attendanceSettingsSchema = z.object({
   geofenceRadiusM: z.number().int().positive().default(200),
   minPunchGapMinutes: z.number().int().positive().default(2),
 
-  // --- selfie --------------------------------------------------------------
+  // --- selfie ---------------------------------------------------------------
+  /**
+   * Two derivatives are stored per punch and the camera original is discarded.
+   * A phone selfie is 2–4 MB; at 500 employees × 2 punches × 26 days that is
+   * ~150 GB a month, which is the whole storage problem. The `view` derivative
+   * is what opens when someone clicks a punch, so any image on any date stays
+   * viewable — it is just small.
+   */
+  selfieThumbMaxPx: z.number().int().positive().default(160),
+  selfieThumbQuality: z.number().int().min(1).max(100).default(45),
+  selfieViewMaxPx: z.number().int().positive().default(720),
+  selfieViewQuality: z.number().int().min(1).max(100).default(55),
+  /** Keeping the camera original multiplies storage ~40×. Off by default. */
+  selfieKeepOriginal: z.boolean().default(false),
   selfieRetentionMonths: z.number().int().positive().default(12),
-  selfieMaxBytes: z.number().int().positive().default(200_000),
   requireFaceDetection: z.boolean().default(true),
 
   // --- approvals -----------------------------------------------------------
@@ -71,6 +83,53 @@ export const DEFAULT_ATTENDANCE_SETTINGS: AttendanceSettings =
 
 export const SETTINGS_SCOPES = ["EMPLOYEE", "SHIFT", "BRANCH", "COMPANY"] as const
 export type SettingsScope = (typeof SETTINGS_SCOPES)[number]
+
+/* ---------------------------------------------------------- selfie storage */
+
+export interface StorageEstimate {
+  thumbKb: number
+  viewKb: number
+  perPunchKb: number
+  imagesPerMonth: number
+  monthlyGb: number
+  /** What is actually held at any moment, given the retention window. */
+  retainedGb: number
+}
+
+/**
+ * WebP at a given long edge and quality lands in a predictable range. These
+ * coefficients are conservative (they over-estimate slightly) so the figure
+ * shown to an admin is a ceiling, not a best case.
+ */
+function webpKb(maxPx: number, quality: number): number {
+  const megapixels = (maxPx * maxPx * 0.75) / 1_000_000
+  return Math.max(2, Math.round(megapixels * (18 + quality * 1.5)))
+}
+
+export function estimateSelfieStorage(
+  settings: AttendanceSettings,
+  employees: number,
+  punchesPerDay = 2,
+  workingDays = 26
+): StorageEstimate {
+  const thumbKb = webpKb(settings.selfieThumbMaxPx, settings.selfieThumbQuality)
+  const viewKb = webpKb(settings.selfieViewMaxPx, settings.selfieViewQuality)
+  // A phone original is ~3 MB; only counted when explicitly retained.
+  const originalKb = settings.selfieKeepOriginal ? 3_000 : 0
+  const perPunchKb = thumbKb + viewKb + originalKb
+
+  const imagesPerMonth = employees * punchesPerDay * workingDays
+  const monthlyGb = (perPunchKb * imagesPerMonth) / 1_048_576
+
+  return {
+    thumbKb,
+    viewKb,
+    perPunchKb,
+    imagesPerMonth,
+    monthlyGb: Number(monthlyGb.toFixed(2)),
+    retainedGb: Number((monthlyGb * settings.selfieRetentionMonths).toFixed(2)),
+  }
+}
 
 /* ------------------------------------------------------------ late policy */
 
