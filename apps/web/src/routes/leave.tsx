@@ -1,8 +1,11 @@
 import * as React from "react"
 import { toast } from "sonner"
-import { CalendarPlus } from "lucide-react"
+import { format } from "date-fns"
+import { CalendarIcon, CalendarPlus, Send } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
+import { countLeaveUnits } from "@attendance/shared"
 
+import { useAppConfig } from "@/lib/app-config"
 import { LEAVE_BALANCES, seedApprovals, seedLeaveLedger, type LeaveLedgerRow } from "@/lib/seed"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
@@ -11,19 +14,42 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Progress } from "@/components/ui/progress"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 const ledgerColumns: ColumnDef<LeaveLedgerRow>[] = [
-  { accessorKey: "date", header: "Date" },
+  { accessorKey: "date", header: "Date", meta: { label: "Date" } },
   {
     accessorKey: "type",
     header: "Type",
+    meta: { label: "Type" },
     cell: ({ row }) => <Badge variant="outline">{row.original.type}</Badge>,
   },
   {
     accessorKey: "txnType",
     header: "Transaction",
+    meta: { label: "Transaction" },
     cell: ({ row }) => (
       <Badge variant={row.original.units < 0 ? "secondary" : "default"}>
         {row.original.txnType.replaceAll("_", " ")}
@@ -33,6 +59,7 @@ const ledgerColumns: ColumnDef<LeaveLedgerRow>[] = [
   {
     accessorKey: "units",
     header: "Units",
+    meta: { label: "Units" },
     cell: ({ row }) => (
       <span className={row.original.units < 0 ? "text-destructive tabular-nums" : "tabular-nums"}>
         {row.original.units > 0 ? "+" : ""}
@@ -43,10 +70,248 @@ const ledgerColumns: ColumnDef<LeaveLedgerRow>[] = [
   {
     accessorKey: "balanceAfter",
     header: "Balance after",
+    meta: { label: "Balance after" },
     cell: ({ row }) => <span className="tabular-nums">{row.original.balanceAfter}</span>,
   },
-  { accessorKey: "remarks", header: "Remarks" },
+  { accessorKey: "remarks", header: "Remarks", meta: { label: "Remarks" } },
 ]
+
+interface MyRequest {
+  id: string
+  type: string
+  from: string
+  to: string
+  part: string
+  units: number
+  reason: string
+  status: "PENDING" | "APPROVED" | "REJECTED"
+}
+
+const toISO = (date: Date) => format(date, "yyyy-MM-dd")
+
+function DateField({
+  id,
+  label,
+  value,
+  onChange,
+  disabledBefore,
+}: {
+  id: string
+  label: string
+  value: Date | undefined
+  onChange: (date: Date | undefined) => void
+  disabledBefore?: Date
+}) {
+  const [open, setOpen] = React.useState(false)
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      {/* date-picker is popover + calendar — there is no registry component. */}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button id={id} variant="outline" className="w-full justify-start font-normal">
+            <CalendarIcon />
+            {value ? format(value, "EEE, d MMM yyyy") : "Pick a date"}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            selected={value}
+            defaultMonth={value ?? new Date(2026, 7, 1)}
+            disabled={disabledBefore ? { before: disabledBefore } : undefined}
+            onSelect={(date) => {
+              onChange(date ?? undefined)
+              setOpen(false)
+            }}
+          />
+        </PopoverContent>
+      </Popover>
+    </Field>
+  )
+}
+
+/**
+ * The real Apply flow. Units come from the same countLeaveUnits the API and
+ * the nightly job use — sandwich setting included — so what this preview says
+ * is exactly what the balance will be debited.
+ */
+function ApplyLeaveSheet({ onSubmit }: { onSubmit: (request: MyRequest) => void }) {
+  const { settings, roster } = useAppConfig()
+  const [open, setOpen] = React.useState(false)
+  const [type, setType] = React.useState("CL")
+  const [from, setFrom] = React.useState<Date | undefined>(new Date(2026, 7, 7))
+  const [to, setTo] = React.useState<Date | undefined>(new Date(2026, 7, 10))
+  const [part, setPart] = React.useState("FULL")
+  const [reason, setReason] = React.useState("")
+
+  const calendar = React.useMemo(
+    () => ({
+      isHoliday: (date: string) => Boolean(roster.holidays[date]),
+      isWeeklyOff: (date: string) => new Date(`${date}T00:00:00`).getDay() === 0,
+    }),
+    [roster.holidays]
+  )
+
+  const singleDay = from && to && toISO(from) === toISO(to)
+  const rangeValid = from && to && toISO(from) <= toISO(to)
+  const units = rangeValid
+    ? countLeaveUnits(
+        toISO(from!),
+        toISO(to!),
+        (singleDay ? part : "FULL") as "FULL" | "FIRST_HALF" | "SECOND_HALF",
+        calendar,
+        settings.sandwichLeave
+      )
+    : 0
+
+  const balance = LEAVE_BALANCES.find((entry) => entry.code === type)?.balance ?? 0
+  const insufficient = type !== "LOP" && units > balance
+  const canSubmit = Boolean(rangeValid) && units > 0 && !insufficient && reason.trim().length >= 3
+
+  const submit = () => {
+    onSubmit({
+      id: `req_${Date.now()}`,
+      type,
+      from: toISO(from!),
+      to: toISO(to!),
+      part: singleDay ? part : "FULL",
+      units,
+      reason: reason.trim(),
+      status: "PENDING",
+    })
+    toast.success(`Leave applied — ${units} day(s) of ${type}`, {
+      description: "Sent to your reporting manager (L1). You will be notified on decision.",
+    })
+    setOpen(false)
+    setReason("")
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button size="sm">
+          <CalendarPlus />
+          Apply for leave
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="flex flex-col gap-0 p-0 sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle>Apply for leave</SheetTitle>
+          <SheetDescription>
+            Goes to your reporting manager, then HR if unactioned for{" "}
+            {settings.approvalEscalateAfterDays} days.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="leave-type">Leave type</FieldLabel>
+              <Select value={type} onValueChange={setType}>
+                <SelectTrigger id="leave-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LEAVE_BALANCES.map((entry) => (
+                    <SelectItem key={entry.code} value={entry.code}>
+                      {entry.name}
+                      {entry.entitled > 0 ? ` · ${entry.balance} left` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <DateField id="leave-from" label="From" value={from} onChange={setFrom} />
+              <DateField
+                id="leave-to"
+                label="To"
+                value={to}
+                onChange={setTo}
+                disabledBefore={from}
+              />
+            </div>
+
+            {singleDay ? (
+              <Field>
+                <FieldLabel>Day part</FieldLabel>
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  value={part}
+                  onValueChange={(value) => value && setPart(value)}
+                  className="w-full"
+                >
+                  <ToggleGroupItem value="FULL" className="flex-1">
+                    Full day
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="FIRST_HALF" className="flex-1">
+                    1st half
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="SECOND_HALF" className="flex-1">
+                    2nd half
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
+            ) : null}
+
+            <Field data-invalid={reason.length > 0 && reason.trim().length < 3}>
+              <FieldLabel htmlFor="leave-reason">Reason</FieldLabel>
+              <Textarea
+                id="leave-reason"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="Family function out of town. Handover shared with the shift supervisor."
+              />
+              {reason.length > 0 && reason.trim().length < 3 ? (
+                <FieldError errors={[{ message: "A few words, at least." }]} />
+              ) : null}
+            </Field>
+
+            <div className="rounded-md border px-3 py-2.5 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">This application costs</span>
+                <span className="font-semibold tabular-nums">{units} day(s)</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between">
+                <span className="text-muted-foreground">Balance after approval</span>
+                <span
+                  className={
+                    insufficient ? "text-destructive font-semibold" : "font-semibold tabular-nums"
+                  }
+                >
+                  {type === "LOP" ? "—" : (balance - units).toFixed(1)}
+                </span>
+              </div>
+              <p className="text-muted-foreground mt-1.5 text-xs">
+                {settings.sandwichLeave
+                  ? "Sandwich rule is ON: a weekly off or holiday between leave days is charged."
+                  : "Weekly offs and holidays inside the range are free."}
+              </p>
+              {insufficient ? (
+                <p className="text-destructive mt-1 text-xs font-medium">
+                  Not enough {type} balance — you have {balance}.
+                </p>
+              ) : null}
+            </div>
+          </FieldGroup>
+        </div>
+
+        <SheetFooter>
+          <Button disabled={!canSubmit} onClick={submit}>
+            <Send />
+            Submit application
+          </Button>
+          <SheetClose asChild>
+            <Button variant="outline">Cancel</Button>
+          </SheetClose>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  )
+}
 
 export function LeavePage() {
   const ledger = React.useMemo(() => seedLeaveLedger(), [])
@@ -55,6 +320,7 @@ export function LeavePage() {
     []
   )
   const [month] = React.useState(() => new Date(2026, 7, 3))
+  const [myRequests, setMyRequests] = React.useState<MyRequest[]>([])
 
   return (
     <Page>
@@ -62,82 +328,89 @@ export function LeavePage() {
         title="Leave"
         description="Balances are a projection of the ledger — every number here is explainable to a row."
         actions={
-          <Button size="sm" onClick={() => toast("Leave application opened")}>
-            <CalendarPlus />
-            Apply for leave
-          </Button>
+          <ApplyLeaveSheet onSubmit={(request) => setMyRequests((prev) => [request, ...prev])} />
         }
       />
       <PageBodyFixed>
         <Tabs defaultValue="balances" className="flex min-h-0 flex-1 flex-col gap-4">
-          <TabsList className="shrink-0 w-fit max-w-full justify-start overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <TabsList className="scroll-x-only w-fit max-w-full shrink-0 justify-start">
             <TabsTrigger value="balances">Balances</TabsTrigger>
             <TabsTrigger value="ledger">Ledger</TabsTrigger>
             <TabsTrigger value="calendar">Team calendar</TabsTrigger>
           </TabsList>
 
           <TabsContent value="balances" className="min-h-0 flex-1 overflow-y-auto">
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {LEAVE_BALANCES.map((balance) => {
-                // LOP has no entitlement to draw down, so a quota bar would be
-                // both empty and misleading. It reports a running count instead.
-                const isQuota = balance.entitled > 0
-                const pct = isQuota
-                  ? Math.round((balance.availed / balance.entitled) * 100)
-                  : 0
-                const tone = !isQuota
-                  ? "destructive"
-                  : pct >= 85
-                    ? "warning"
-                    : "success"
-
-                return (
-                  <Card key={balance.code}>
-                    <CardHeader>
-                      <CardDescription className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline">{balance.code}</Badge>
-                        <span className="truncate">{balance.name}</span>
-                        {!balance.isPaid ? <Badge variant="destructive">Unpaid</Badge> : null}
-                      </CardDescription>
-                      <CardTitle className="flex items-baseline gap-2 text-3xl tabular-nums">
-                        {isQuota ? balance.balance : balance.availed}
-                        <span className="text-muted-foreground text-sm font-normal">
-                          {isQuota ? "days left" : "days taken"}
-                        </span>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="flex flex-col gap-2">
-                      {isQuota ? (
-                        <>
-                          <Progress value={pct} />
-                          <p className="text-muted-foreground text-sm">
-                            {balance.availed} of {balance.entitled} used
-                            <span className="mx-1.5">·</span>
-                            <span
-                              className={
-                                pct >= 85 ? "text-warning font-medium" : undefined
-                              }
-                            >
-                              {pct}%
+            <div className="flex flex-col gap-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                {LEAVE_BALANCES.map((balance) => {
+                  const isQuota = balance.entitled > 0
+                  const pct = isQuota
+                    ? Math.round((balance.availed / balance.entitled) * 100)
+                    : 0
+                  return (
+                    <Card key={balance.code} className="gap-3">
+                      <CardHeader className="gap-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <CardDescription className="text-foreground truncate font-medium">
+                            {balance.name}
+                          </CardDescription>
+                          <Badge variant={balance.isPaid ? "outline" : "destructive"}>
+                            {balance.isPaid ? balance.code : "Unpaid"}
+                          </Badge>
+                        </div>
+                        <CardTitle className="flex items-baseline gap-1 text-3xl tabular-nums">
+                          {isQuota ? balance.balance : balance.availed}
+                          {isQuota ? (
+                            <span className="text-muted-foreground text-sm font-normal">
+                              / {balance.entitled}
                             </span>
+                          ) : null}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="flex flex-col gap-1.5">
+                        {isQuota ? (
+                          <>
+                            <Progress value={pct} />
+                            <p className="text-muted-foreground text-xs">
+                              {balance.availed} used · {pct}%
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-muted-foreground text-xs">
+                            Days deducted from salary this year.
                           </p>
-                        </>
-                      ) : (
-                        <p className="text-muted-foreground text-sm">
-                          No quota — every LOP day is a direct deduction from payable days.
-                        </p>
-                      )}
-                      <Badge variant={tone} className="w-fit">
-                        {!isQuota
-                          ? "Reduces salary"
-                          : pct >= 85
-                            ? "Running low"
-                            : "Healthy"}
-                      </Badge>
-                    </CardContent>
-                  </Card>
-                )
-              })}
+                        )}
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+
+              {myRequests.length > 0 ? (
+                <Card className="gap-0 py-0">
+                  <CardHeader className="py-4">
+                    <CardTitle className="text-base">My requests</CardTitle>
+                    <CardDescription>Submitted from this device</CardDescription>
+                  </CardHeader>
+                  <div className="divide-y border-t">
+                    {myRequests.map((request) => (
+                      <div key={request.id} className="flex items-center gap-3 px-4 py-2.5">
+                        <Badge variant="outline">{request.type}</Badge>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {request.from}
+                            {request.to !== request.from ? ` → ${request.to}` : ""} · {request.units}{" "}
+                            day(s)
+                            {request.part !== "FULL" ? " · half day" : ""}
+                          </p>
+                          <p className="text-muted-foreground truncate text-xs">{request.reason}</p>
+                        </div>
+                        <Badge variant="warning">{request.status}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              ) : null}
             </div>
           </TabsContent>
 
@@ -166,8 +439,7 @@ export function LeavePage() {
               </CardContent>
             </Card>
 
-            {/* The list owns its own scroll so the card stops growing with the
-                data instead of stretching the page. */}
+            {/* The list owns its own scroll so the card stops growing with the data. */}
             <Card className="flex min-h-0 flex-col gap-0 py-0">
               <CardHeader className="py-4">
                 <CardTitle>Who is away</CardTitle>

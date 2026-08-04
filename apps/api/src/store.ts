@@ -3,11 +3,15 @@ import {
   DEFAULT_ATTENDANCE_SETTINGS,
   DEFAULT_MATRIX,
   type AttendanceSettings,
+  type Grn,
+  type Item,
   type PermissionMatrix,
   type PunchFlag,
   type PunchType,
+  type PurchaseOrder,
   type Role,
   type ShiftSpec,
+  type Vendor,
 } from "@attendance/shared"
 
 /**
@@ -105,6 +109,12 @@ export interface Store {
   settings: AttendanceSettings
   matrix: PermissionMatrix
   branding: Branding
+  vendors: Vendor[]
+  items: Item[]
+  pos: PurchaseOrder[]
+  grns: Grn[]
+  /** Per-year document sequences (PO-2026-0042); year rollover resets in Prisma. */
+  seq: { po: number; grn: number }
   nextId: number
 }
 
@@ -147,6 +157,18 @@ export function seedStore(): Store {
     settings: { ...DEFAULT_ATTENDANCE_SETTINGS },
     matrix: structuredClone(DEFAULT_MATRIX),
     branding: { companyName: "Delta Attendance", logoDataUrl: null },
+    vendors: [
+      { id: "v1", code: "VND001", name: "Shree Steel Traders", gstin: "27AABCS1429B1ZP", contact: "Mahesh Kulkarni", email: "sales@shreesteel.in", phone: "+91 98200 11223", address: "Kalbadevi Road", city: "Mumbai", state: "Maharashtra", paymentTermsDays: 30, leadTimeDays: 7, active: true },
+      { id: "v2", code: "VND002", name: "Om Packaging Co", gstin: null, contact: "Sunita Shah", email: "om.pack@gmail.com", phone: "+91 98111 44556", address: "MIDC Phase II", city: "Pune", state: "Maharashtra", paymentTermsDays: 15, leadTimeDays: 4, active: true },
+    ],
+    items: [
+      { id: "i1", code: "ITM001", name: "MS Sheet 2mm", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, active: true },
+      { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, active: true },
+      { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, active: true },
+    ],
+    pos: [],
+    grns: [],
+    seq: { po: 0, grn: 0 },
     nextId: 1,
   }
 }

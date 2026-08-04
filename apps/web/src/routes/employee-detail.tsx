@@ -48,6 +48,14 @@ const splitConfig = {
   count: { label: "Days" },
 } satisfies ChartConfig
 
+const workedConfig = {
+  hours: { label: "Worked", color: "var(--chart-2)" },
+} satisfies ChartConfig
+
+const weekdayConfig = {
+  minutes: { label: "Late", color: "var(--chart-3)" },
+} satisfies ChartConfig
+
 export function EmployeeDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -97,8 +105,8 @@ export function EmployeeDetailPage() {
       />
       <PageBody>
         {/* ---- identity strip ---- */}
-        <Card>
-          <CardContent className="flex flex-wrap items-center gap-4 pt-6">
+        <Card className="py-4">
+          <CardContent className="flex flex-wrap items-center gap-4">
             <Avatar className="size-14">
               <AvatarFallback className="text-lg">{employee.initials}</AvatarFallback>
             </Avatar>
@@ -136,6 +144,17 @@ export function EmployeeDetailPage() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* ---- KPI strip ---- */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+          {analytics.kpis.map((kpi) => (
+            <div key={kpi.label} className="rounded-md border px-3 py-2.5">
+              <p className="text-muted-foreground text-xs">{kpi.label}</p>
+              <p className="text-lg font-semibold tabular-nums">{kpi.value}</p>
+              <p className="text-muted-foreground truncate text-xs">{kpi.hint}</p>
+            </div>
+          ))}
+        </div>
 
         {/* ---- punctuality ---- */}
         <div className="grid gap-4 lg:grid-cols-3">
@@ -262,6 +281,47 @@ export function EmployeeDetailPage() {
                   <StatusBadge key={entry.label} status={entry.status as DayStatus} />
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* ---- working pattern ---- */}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Worked hours — last 20 days</CardTitle>
+              <CardDescription>
+                Against the {analytics.graceMinutes >= 0 ? "8h" : ""} full-day threshold
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={workedConfig} className="h-44 w-full">
+                <BarChart data={analytics.workedSeries} accessibilityLayer>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="day" tickLine={false} axisLine={false} tickMargin={8} />
+                  <YAxis tickLine={false} axisLine={false} width={30} unit="h" domain={[0, 10]} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="hours" fill="var(--color-hours)" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Late minutes by weekday</CardTitle>
+              <CardDescription>Where the lateness clusters</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={weekdayConfig} className="h-44 w-full">
+                <BarChart data={analytics.weekdayLate} accessibilityLayer>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="weekday" tickLine={false} axisLine={false} tickMargin={8} />
+                  <YAxis tickLine={false} axisLine={false} width={30} unit="m" />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="minutes" fill="var(--color-minutes)" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
             </CardContent>
           </Card>
         </div>

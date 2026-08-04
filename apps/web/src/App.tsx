@@ -1,5 +1,6 @@
-import { Route, Routes } from "react-router"
+import { Navigate, Route, Routes } from "react-router"
 
+import { useSession } from "@/lib/session"
 import { AppLayout } from "@/components/app-layout"
 import { ApprovalsPage } from "@/routes/approvals"
 import { AttendancePage } from "@/routes/attendance"
@@ -8,6 +9,7 @@ import { DashboardPage } from "@/routes/dashboard"
 import { EmployeeDetailPage } from "@/routes/employee-detail"
 import { EmployeesPage } from "@/routes/employees"
 import { LeavePage } from "@/routes/leave"
+import { LoginPage } from "@/routes/login"
 import { PayrollPage } from "@/routes/payroll"
 import { PlaceholderPage } from "@/routes/placeholder"
 import { PunchPage } from "@/routes/punch"
@@ -17,6 +19,16 @@ import { RosterPage } from "@/routes/roster"
 import { SettingsPage } from "@/routes/settings"
 
 export default function App() {
+  const { user } = useSession()
+
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="*" element={<LoginPage />} />
+      </Routes>
+    )
+  }
+
   return (
     <Routes>
       <Route element={<AppLayout />}>
@@ -33,6 +45,7 @@ export default function App() {
         <Route path="roles" element={<RolesPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="audit" element={<AuditPage />} />
+        <Route path="login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<PlaceholderPage />} />
       </Route>
     </Routes>

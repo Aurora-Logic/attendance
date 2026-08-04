@@ -5,6 +5,7 @@ import { BrowserRouter } from "react-router"
 
 import App from "@/App"
 import { ThemeProvider } from "@/components/theme-provider"
+import { AppConfigProvider } from "@/lib/app-config"
 import { SessionProvider } from "@/lib/session"
 import "@/index.css"
 
@@ -19,9 +20,11 @@ createRoot(document.getElementById("root")!).render(
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <SessionProvider>
-            <App />
-          </SessionProvider>
+          <AppConfigProvider>
+            <SessionProvider>
+              <App />
+            </SessionProvider>
+          </AppConfigProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </ThemeProvider>

@@ -9,6 +9,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "infra:up": "docker compose up -d",
-    "infra:down": "docker compose down"
+    "infra:down": "docker compose down",
+    "test": "pnpm -r --if-present test",
+    "dev:api": "pnpm --filter @attendance/api dev"
   }
 }

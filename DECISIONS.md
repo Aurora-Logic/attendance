@@ -148,7 +148,19 @@ requirement, and the Settings screen shows a live storage estimate plus a warnin
 when it is on — the cost of that toggle should not be a surprise discovered at
 200 GB.
 
-## 7. Punctuality crown
+## 7. Backend shape (Phase 1, first cut)
+
+| # | Decision | Rationale |
+|---|---|---|
+| C1 | The domain is pure functions in `packages/shared`; the API is a thin shell | The nightly job, the API's live view and the web previews all call the same `computeAttendanceDay`/`evaluateLate`/`countLeaveUnits` — three consumers, one implementation, zero drift. |
+| C2 | In-memory store behind every route, Prisma schema committed and validated | Docker/Postgres is unavailable on the dev machine. The store mirrors the schema shapes exactly, so the swap is repositories, not redesign. |
+| C3 | Auth: JWT access (15m) + refresh (30d) in httpOnly cookies, bcrypt | Matches §1. `/auth/me` strips the credential and a test pins it. |
+| C4 | Route guards resolve capability → scope through the matrix | Same data the UI gates on. OWN_TEAM = direct reports; self-approval is forbidden at any scope. |
+| C5 | Web login composes the registry's login-05 block | Password field added (email+password auth), social buttons dropped — accounts are HR-created. Demo accounts listed on the page sign straight in. |
+| C6 | Settings/roster/branding live in one client config context, persisted to localStorage | Editing the grace in Settings changes the punch screen immediately — the same wire /settings will drive. |
+| C7 | White-label (name + logo ≤200 KB data URL) gated on config.manage at ALL | "Admin only" expressed as scope, not a role name; PUT /branding enforces the same. |
+
+## 8. Punctuality crown
 
 `apps/web/src/lib/analytics.ts`. The highest on-time share in the month is
 crowned on the dashboard and badged on the employee's own screen.

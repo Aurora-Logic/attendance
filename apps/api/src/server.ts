@@ -20,6 +20,7 @@ import {
   type Scope,
 } from "@attendance/shared"
 
+import { registerProcurementRoutes } from "./procurement"
 import { id, seedStore, type Store, type StoredEmployee } from "./store"
 
 const ACCESS_TTL_SEC = 15 * 60
@@ -537,6 +538,8 @@ export function buildServer(store: Store = seedStore()) {
 
     return { approval }
   })
+
+  registerProcurementRoutes(app, store, { authenticate, requirePermission })
 
   return app
 }

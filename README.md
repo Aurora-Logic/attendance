@@ -4,9 +4,9 @@ Employee attendance, leave and payroll system for a small-to-mid Indian company.
 Build brief: [attendance-system-claude-code-prompt.md](attendance-system-claude-code-prompt.md).
 Business rules and their defaults: [DECISIONS.md](DECISIONS.md).
 
-**Current state: Phase 0 complete.** UI shell, theme, shared table and seeded demo
-data. No backend yet — Phase 1 brings the schema, auth and RBAC.
-
+**Current state:** UI for every module, a Fastify API with auth + RBAC serving the
+shared domain engine from an in-memory store, a validated Prisma schema for the
+full data model, and 154 tests. Postgres wiring lands when Docker is available.
 ## Requirements
 
 - Node 20+ (developed on 24.15)
@@ -32,7 +32,11 @@ pnpm infra:down
 
 ```
 apps/web              React 19 + Vite 8 + TypeScript, shadcn/ui
-packages/shared       Zod schemas, status enums, settings defaults, money helpers
+apps/api              Fastify 5 — JWT auth, permission matrix, punches/leave/approvals
+                      (+ procurement). In-memory store now; prisma/schema.prisma is
+                      the real model, validated with Prisma 7.
+packages/shared       The domain: day-computation engine, late policy, leave maths,
+                      payroll paise maths, geofencing, RBAC matrix, procurement
 docker-compose.yml    Postgres 17 + Redis 7 + MinIO, with the selfie bucket seeded
 ```
 
@@ -46,6 +50,8 @@ import the same Zod schemas; there is no hand-maintained type duplication.
 | `pnpm dev` | Web app in dev mode |
 | `pnpm build` | Build every workspace package |
 | `pnpm typecheck` | `tsc --noEmit` across the workspace |
+| `pnpm test` | 154 tests: 110 shared · 12 web · 32 api |
+| `pnpm dev:api` | API on :3000 (demo logins: admin@delta.dev / Admin@123 …) |
 | `pnpm lint` | oxlint |
 | `pnpm infra:up` / `infra:down` | Docker services |
 

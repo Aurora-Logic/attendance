@@ -2,7 +2,6 @@ import * as React from "react"
 import { toast } from "sonner"
 import { RotateCcw } from "lucide-react"
 import {
-  DEFAULT_ATTENDANCE_SETTINGS,
   LATE_PENALTY,
   LATE_PERIOD,
   SETTINGS_SCOPES,
@@ -11,7 +10,11 @@ import {
   type AttendanceSettings,
 } from "@attendance/shared"
 
+import { useAppConfig } from "@/lib/app-config"
+import { useSession } from "@/lib/session"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
+import { BrandingSettings } from "@/components/settings-branding"
+import { RosterSettings } from "@/components/settings-roster"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,8 +38,6 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-
-type Setter = <K extends keyof AttendanceSettings>(key: K, value: AttendanceSettings[K]) => void
 
 function NumberField({
   id,
@@ -216,10 +217,9 @@ function StoragePreview({ settings }: { settings: AttendanceSettings }) {
 }
 
 export function SettingsPage() {
-  const [settings, setSettings] = React.useState<AttendanceSettings>(
-    DEFAULT_ATTENDANCE_SETTINGS
-  )
-  const set: Setter = (key, value) => setSettings((prev) => ({ ...prev, [key]: value }))
+  const { settings, setSetting: set, resetSettings } = useAppConfig()
+  const { scopeFor } = useSession()
+  const isAdmin = scopeFor("config.manage") === "ALL"
 
   return (
     <Page>
@@ -232,7 +232,7 @@ export function SettingsPage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                setSettings(DEFAULT_ATTENDANCE_SETTINGS)
+                resetSettings()
                 toast("Reset to system defaults")
               }}
             >
@@ -253,6 +253,8 @@ export function SettingsPage() {
             <TabsTrigger value="day">Day computation</TabsTrigger>
             <TabsTrigger value="capture">Capture</TabsTrigger>
             <TabsTrigger value="approvals">Approvals & OT</TabsTrigger>
+            <TabsTrigger value="roster">Roster & shifts</TabsTrigger>
+            {isAdmin ? <TabsTrigger value="branding">Branding</TabsTrigger> : null}
           </TabsList>
 
           <TabsContent value="late" className="flex flex-col gap-4">
@@ -505,6 +507,15 @@ export function SettingsPage() {
                     onChange={(value) => set("geofenceRadiusM", value)}
                   />
                 </FieldGroup>
+                <div className="mt-4">
+                  <SwitchField
+                    id="sandwich"
+                    label="Sandwich leave"
+                    description="A holiday or weekly off sitting between two leave days is charged as leave. Off: only working days are charged."
+                    checked={settings.sandwichLeave}
+                    onChange={(checked) => set("sandwichLeave", checked)}
+                  />
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -652,6 +663,13 @@ export function SettingsPage() {
                 </FieldSet>
               </CardContent>
             </Card>
+          </TabsContent>
+          <TabsContent value="roster">
+            <RosterSettings />
+          </TabsContent>
+
+          <TabsContent value="branding">
+            <BrandingSettings />
           </TabsContent>
         </Tabs>
       </PageBody>

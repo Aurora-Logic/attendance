@@ -110,6 +110,30 @@ export const PERMISSIONS: PermissionDef[] = [
     label: "Punch in/out, apply leave, raise regularisation",
     description: "The employee-facing actions everyone has.",
   },
+  {
+    key: "procurement.manage",
+    group: "Procurement",
+    label: "Vendors, items & purchase orders",
+    description: "Maintain the vendor and item masters and raise purchase orders.",
+  },
+  {
+    key: "po.approve",
+    group: "Procurement",
+    label: "Approve purchase orders",
+    description: "Act on submitted POs; only approved POs can be sent or received against.",
+  },
+  {
+    key: "grn.record",
+    group: "Procurement",
+    label: "Record goods receipts",
+    description: "Book material against an approved PO, including rejections.",
+  },
+  {
+    key: "procurement.view",
+    group: "Procurement",
+    label: "Procurement reports & analytics",
+    description: "Vendor lead times, on-time delivery, fill rate and spend.",
+  },
 ]
 
 export type PermissionMatrix = Record<string, Record<Role, Scope>>
@@ -128,6 +152,10 @@ export const DEFAULT_MATRIX: PermissionMatrix = {
   "reports.view": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "OWN_TEAM", EMPLOYEE: "SELF" },
   "audit.view": { ADMIN: "ALL", HR: "VIEW", OPERATIONS: "NONE", EMPLOYEE: "NONE" },
   "punch.self": { ADMIN: "SELF", HR: "SELF", OPERATIONS: "SELF", EMPLOYEE: "SELF" },
+  "procurement.manage": { ADMIN: "ALL", HR: "NONE", OPERATIONS: "ALL", EMPLOYEE: "NONE" },
+  "po.approve": { ADMIN: "ALL", HR: "NONE", OPERATIONS: "NONE", EMPLOYEE: "NONE" },
+  "grn.record": { ADMIN: "ALL", HR: "NONE", OPERATIONS: "ALL", EMPLOYEE: "NONE" },
+  "procurement.view": { ADMIN: "ALL", HR: "VIEW", OPERATIONS: "ALL", EMPLOYEE: "NONE" },
 }
 
 /** Which scopes make sense for a given capability. */

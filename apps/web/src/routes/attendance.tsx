@@ -2,12 +2,9 @@ import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { ArrowUpDown, FileSpreadsheet } from "lucide-react"
 import { toast } from "sonner"
-import {
-  DEFAULT_ATTENDANCE_SETTINGS,
-  punchFlagTone,
-  type AttendanceDay,
-} from "@attendance/shared"
+import { punchFlagTone, type AttendanceDay } from "@attendance/shared"
 
+import { useAppConfig } from "@/lib/app-config"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { StatusBadge, StatusLegend } from "@/components/status-badge"
@@ -26,7 +23,7 @@ import {
 const formatDuration = (minutes: number) =>
   minutes === 0 ? "—" : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`
 
-const columns: ColumnDef<AttendanceDay>[] = [
+const makeColumns = (lateGraceMinutes: number): ColumnDef<AttendanceDay>[] => [
   {
     id: "select",
     header: ({ table }) => (
@@ -95,7 +92,7 @@ const columns: ColumnDef<AttendanceDay>[] = [
       const { firstInAt, lateMinutes, status } = row.original
       if (!firstInAt) return <span className="text-muted-foreground">—</span>
       const tone =
-        lateMinutes > DEFAULT_ATTENDANCE_SETTINGS.lateGraceMinutes
+        lateMinutes > lateGraceMinutes
           ? "text-status-absent"
           : lateMinutes > 0
             ? "text-status-wfh"
@@ -162,6 +159,11 @@ const columns: ColumnDef<AttendanceDay>[] = [
 ]
 
 export function AttendancePage() {
+  const { settings } = useAppConfig()
+  const columns = React.useMemo(
+    () => makeColumns(settings.lateGraceMinutes),
+    [settings.lateGraceMinutes]
+  )
   const data = React.useMemo(() => seedAttendanceDays(), [])
   const [branch, setBranch] = React.useState("all")
 

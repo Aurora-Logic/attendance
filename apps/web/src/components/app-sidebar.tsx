@@ -1,10 +1,10 @@
-import { ChevronsUpDown, Clock, LogOut, UserRound } from "lucide-react"
+import { ChevronsUpDown, Clock, LogOut } from "lucide-react"
 import { NavLink } from "react-router"
 
+import { useAppConfig } from "@/lib/app-config"
 import { NAV_GROUPS } from "@/lib/nav"
 import { ROLE_LABEL, useSession } from "@/lib/session"
-import { ROLES } from "@attendance/shared"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +29,8 @@ import {
 
 export function AppSidebar() {
   const session = useSession()
+  const { branding } = useAppConfig()
+  if (!session.user) return null
 
   return (
     <Sidebar collapsible="icon">
@@ -37,13 +39,22 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <NavLink to="/">
-                <div className="bg-primary text-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Clock className="size-4" />
-                </div>
+                {/* White-label: the uploaded logo replaces the default mark. */}
+                {branding.logoDataUrl ? (
+                  <img
+                    src={branding.logoDataUrl}
+                    alt=""
+                    className="size-8 shrink-0 rounded-lg object-contain"
+                  />
+                ) : (
+                  <div className="bg-primary text-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
+                    <Clock className="size-4" />
+                  </div>
+                )}
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">Delta Attendance</span>
+                  <span className="truncate font-medium">{branding.companyName}</span>
                   <span className="text-muted-foreground truncate text-xs">
-                    Mumbai HO
+                    {branding.branchLabel}
                   </span>
                 </div>
               </NavLink>
@@ -94,12 +105,15 @@ export function AppSidebar() {
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton size="lg">
                   <Avatar className="size-8 rounded-lg">
-                    <AvatarFallback className="rounded-lg">{session.initials}</AvatarFallback>
+                    <AvatarImage src={undefined} />
+                    <AvatarFallback className="rounded-lg">
+                      {session.user.initials}
+                    </AvatarFallback>
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium">{session.name}</span>
+                    <span className="truncate font-medium">{session.user.name}</span>
                     <span className="text-muted-foreground truncate text-xs">
-                      {ROLE_LABEL[session.role]}
+                      {ROLE_LABEL[session.user.role]}
                     </span>
                   </div>
                   <ChevronsUpDown className="ml-auto" />
@@ -107,26 +121,13 @@ export function AppSidebar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent side="right" align="end" className="w-60">
                 <DropdownMenuLabel className="font-normal">
-                  <span className="block text-sm font-medium">{session.name}</span>
-                  <span className="text-muted-foreground block text-xs">{session.email}</span>
+                  <span className="block text-sm font-medium">{session.user.name}</span>
+                  <span className="text-muted-foreground block text-xs">
+                    {session.user.email}
+                  </span>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {/* Until Phase 1 auth, switching role here proves the matrix
-                    actually drives what is visible. */}
-                <DropdownMenuLabel className="text-muted-foreground text-xs">
-                  View as role
-                </DropdownMenuLabel>
-                {ROLES.map((role) => (
-                  <DropdownMenuItem key={role} onClick={() => session.setRole(role)}>
-                    <UserRound />
-                    {ROLE_LABEL[role]}
-                    {role === session.role ? (
-                      <span className="text-muted-foreground ml-auto text-xs">current</span>
-                    ) : null}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem disabled>
+                <DropdownMenuItem onClick={session.logout}>
                   <LogOut />
                   Sign out
                 </DropdownMenuItem>

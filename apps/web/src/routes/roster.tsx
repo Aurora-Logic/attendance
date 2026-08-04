@@ -1,26 +1,17 @@
 import * as React from "react"
 import { toast } from "sonner"
-import { CalendarCheck, CalendarDays, CalendarX, RefreshCw, Sparkles } from "lucide-react"
+import { CalendarCheck, CalendarDays, CalendarX, Settings2, Sparkles } from "lucide-react"
+import { Link } from "react-router"
 
-import {
-  HOLIDAYS_AUG_2026,
-  ROSTER_RULES,
-  SHIFTS,
-  generateRoster,
-  type CellSource,
-  type RosterRule,
-} from "@/lib/roster"
+import { useAppConfig, type RosterRule } from "@/lib/app-config"
+import { generateRoster, type CellSource } from "@/lib/roster"
 import { cn } from "@/lib/utils"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -77,8 +68,12 @@ function RulesPopover({
           <div>
             <p className="text-sm font-medium">Generation rules</p>
             <p className="text-muted-foreground text-sm">
-              The roster is derived from these, in order. Turn one off and the grid
-              regenerates immediately.
+              The grid regenerates the moment a rule changes. Patterns, shifts and the rotation are
+              edited in{" "}
+              <Link to="/settings" className="underline underline-offset-2">
+                Settings → Roster & shifts
+              </Link>
+              .
             </p>
           </div>
           {rules.map((rule) => (
@@ -100,10 +95,7 @@ function RulesPopover({
   )
 }
 
-/**
- * Declaring a holiday is a per-day action on the date header, so it applies to
- * the whole column at once rather than cell by cell.
- */
+/** Declaring a holiday is a per-day action on the date header — whole column at once. */
 function DayHeader({
   day,
   date,
@@ -120,6 +112,13 @@ function DayHeader({
   const [name, setName] = React.useState("")
   const [open, setOpen] = React.useState(false)
   const isSunday = date.getDay() === 0
+
+  const declare = () => {
+    if (!name.trim()) return
+    onDeclare(name.trim())
+    setName("")
+    setOpen(false)
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -143,11 +142,7 @@ function DayHeader({
         <div className="flex flex-col gap-3">
           <div>
             <p className="text-sm font-medium">
-              {date.toLocaleDateString("en-IN", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-              })}
+              {date.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
             </p>
             <p className="text-muted-foreground text-sm">
               {holidayName
@@ -155,7 +150,6 @@ function DayHeader({
                 : "Declare this day a holiday for every rostered employee."}
             </p>
           </div>
-
           {holidayName ? (
             <Button
               variant="outline"
@@ -174,23 +168,9 @@ function DayHeader({
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="Holiday name, e.g. Diwali"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && name.trim()) {
-                    onDeclare(name.trim())
-                    setName("")
-                    setOpen(false)
-                  }
-                }}
+                onKeyDown={(event) => event.key === "Enter" && declare()}
               />
-              <Button
-                size="sm"
-                disabled={!name.trim()}
-                onClick={() => {
-                  onDeclare(name.trim())
-                  setName("")
-                  setOpen(false)
-                }}
-              >
+              <Button size="sm" disabled={!name.trim()} onClick={declare}>
                 <CalendarCheck />
                 Mark as holiday
               </Button>
@@ -203,63 +183,21 @@ function DayHeader({
 }
 
 export function RosterPage() {
-  const [rules, setRules] = React.useState<RosterRule[]>(() =>
-    ROSTER_RULES.map((rule) => ({ ...rule }))
-  )
-  // Holidays declared here override the generated cell for that whole column.
-  const [holidays, setHolidays] = React.useState<Record<number, string>>(
-    () => ({ ...HOLIDAYS_AUG_2026 })
-  )
-
-  const generated = React.useMemo(() => generateRoster(2026, 7, rules), [rules])
-  const grid = React.useMemo(
-    () =>
-      generated.map((row) => {
-        const cells = row.cells.map((cell) =>
-          holidays[cell.day]
-            ? {
-                ...cell,
-                status: "HOLIDAY" as const,
-                shift: null,
-                source: "MANUAL" as const,
-                note: holidays[cell.day],
-              }
-            : cell
-        )
-        return {
-          ...row,
-          cells,
-          workingDays: cells.filter((cell) => cell.shift !== null).length,
-        }
-      }),
-    [generated, holidays]
-  )
+  const { roster, setRoster, declareHoliday, clearHoliday } = useAppConfig()
+  const grid = React.useMemo(() => generateRoster(2026, 7, roster), [roster])
   const daysInMonth = grid[0]?.cells.length ?? 31
 
   const toggleRule = (id: string, enabled: boolean) =>
-    setRules((prev) => prev.map((rule) => (rule.id === id ? { ...rule, enabled } : rule)))
-
-  const declareHoliday = (day: number, name: string) => {
-    setHolidays((prev) => ({ ...prev, [day]: name }))
-    toast.success(`${day} August marked as ${name}`, {
-      description: "Applied to every rostered employee. Payable days recalculated.",
-    })
-  }
-
-  const clearHoliday = (day: number) => {
-    setHolidays((prev) => {
-      const next = { ...prev }
-      delete next[day]
-      return next
-    })
-    toast("Holiday removed", { description: `${day} August is a working day again.` })
-  }
+    setRoster((prev) => ({
+      ...prev,
+      rules: prev.rules.map((rule) => (rule.id === id ? { ...rule, enabled } : rule)),
+    }))
 
   return (
     <Page>
       <PageHeader
         title="Roster"
-        description="Generated from the shift patterns. Click any date to declare a holiday."
+        description="August 2026 · generated from the configured patterns. Click any date to declare a holiday."
         actions={
           <>
             <Select defaultValue="all">
@@ -273,14 +211,12 @@ export function RosterPage() {
                 <SelectItem value="blr">Bengaluru Office</SelectItem>
               </SelectContent>
             </Select>
-            <RulesPopover rules={rules} onToggle={toggleRule} />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => toast.success("Roster regenerated from patterns")}
-            >
-              <RefreshCw />
-              <span className="hidden sm:inline">Regenerate</span>
+            <RulesPopover rules={roster.rules} onToggle={toggleRule} />
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/settings">
+                <Settings2 />
+                <span className="hidden sm:inline">Customise</span>
+              </Link>
             </Button>
             <Button size="sm" onClick={() => toast.success("Roster published to employees")}>
               <CalendarDays />
@@ -297,7 +233,7 @@ export function RosterPage() {
             </Badge>
           ))}
           <span className="text-muted-foreground ml-auto hidden text-xs sm:inline">
-            {SHIFTS.map((shift) => `${shift.short} ${shift.name}`).join(" · ")}
+            {roster.shifts.map((shift) => `${shift.short} ${shift.name}`).join(" · ")}
           </span>
         </div>
 
@@ -306,20 +242,25 @@ export function RosterPage() {
           <Table className="text-xs">
             <TableHeader className="bg-muted sticky top-0 z-20">
               <TableRow className="hover:bg-transparent">
-                <TableHead className="bg-muted sticky left-0 z-30 min-w-[180px]">
-                  Employee
-                </TableHead>
+                <TableHead className="bg-muted sticky left-0 z-30 min-w-[180px]">Employee</TableHead>
                 {Array.from({ length: daysInMonth }, (_, index) => {
                   const day = index + 1
                   const date = new Date(2026, 7, day)
+                  const dateISO = `2026-08-${String(day).padStart(2, "0")}`
                   return (
                     <TableHead key={index} className="w-11 p-0 text-center">
                       <DayHeader
                         day={day}
                         date={date}
-                        holidayName={holidays[day]}
-                        onDeclare={(name) => declareHoliday(day, name)}
-                        onClear={() => clearHoliday(day)}
+                        holidayName={roster.holidays[dateISO]}
+                        onDeclare={(name) => {
+                          declareHoliday(dateISO, name)
+                          toast.success(`${day} August marked as ${name}`)
+                        }}
+                        onClear={() => {
+                          clearHoliday(dateISO)
+                          toast(`${day} August is a working day again`)
+                        }}
                       />
                     </TableHead>
                   )

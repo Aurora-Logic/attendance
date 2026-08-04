@@ -7,13 +7,34 @@ import {
   type Scope,
 } from "@attendance/shared"
 
-interface SessionValue {
-  role: Role
+/**
+ * Session with a real login gate. Credentials mirror the API seed users
+ * (apps/api/src/store.ts) so the same accounts keep working when this swaps
+ * from local verification to POST /auth/login — the shape of `user`,
+ * `can()` and `scopeFor()` is exactly what /auth/me returns.
+ */
+
+export interface SessionUser {
   name: string
-  initials: string
   email: string
-  setRole: (role: Role) => void
-  /** Resolved reach of a capability for the signed-in role. */
+  role: Role
+  employeeId: string
+  initials: string
+}
+
+const ACCOUNTS: Array<SessionUser & { password: string }> = [
+  { name: "Virag Jain", email: "admin@delta.dev", password: "Admin@123", role: "ADMIN", employeeId: "emp_1", initials: "VJ" },
+  { name: "Priya Nair", email: "hr@delta.dev", password: "Hr@12345", role: "HR", employeeId: "emp_2", initials: "PN" },
+  { name: "Rohan Desai", email: "ops@delta.dev", password: "Ops@1234", role: "OPERATIONS", employeeId: "emp_8", initials: "RD" },
+  { name: "Kabir Singh", email: "employee@delta.dev", password: "Emp@1234", role: "EMPLOYEE", employeeId: "emp_5", initials: "KS" },
+]
+
+export const DEMO_ACCOUNTS = ACCOUNTS.map(({ password: _password, ...user }) => user)
+
+interface SessionValue {
+  user: SessionUser | null
+  login: (email: string, password: string) => { ok: boolean; error?: string }
+  logout: () => void
   scopeFor: (permissionKey: string) => Scope
   can: (permissionKey: string) => boolean
   matrix: PermissionMatrix
@@ -21,34 +42,45 @@ interface SessionValue {
 
 const SessionContext = React.createContext<SessionValue | null>(null)
 
-const PEOPLE: Record<Role, { name: string; initials: string; email: string }> = {
-  ADMIN: { name: "Virag Jain", initials: "VJ", email: "virag@example.com" },
-  HR: { name: "Priya Nair", initials: "PN", email: "priya.nair@example.com" },
-  OPERATIONS: { name: "Rohan Desai", initials: "RD", email: "rohan.desai@example.com" },
-  EMPLOYEE: { name: "Kabir Singh", initials: "KS", email: "kabir.singh@example.com" },
-}
+const STORAGE_KEY = "attendance.session.v1"
 
-/**
- * Stands in for real auth until Phase 1. The important part is the shape: the
- * app asks `can()` / `scopeFor()`, never `role === "ADMIN"`, so swapping the
- * seeded matrix for the API response changes nothing downstream.
- */
 export function SessionProvider({ children }: { children: React.ReactNode }) {
-  const [role, setRole] = React.useState<Role>("ADMIN")
+  const [user, setUser] = React.useState<SessionUser | null>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      return raw ? (JSON.parse(raw) as SessionUser) : null
+    } catch {
+      return null
+    }
+  })
   const matrix = DEFAULT_MATRIX
 
   const value = React.useMemo<SessionValue>(() => {
     const scopeFor = (permissionKey: string): Scope =>
-      matrix[permissionKey]?.[role] ?? "NONE"
+      user ? (matrix[permissionKey]?.[user.role] ?? "NONE") : "NONE"
     return {
-      role,
-      ...PEOPLE[role],
-      setRole,
+      user,
+      login: (email, password) => {
+        const account = ACCOUNTS.find(
+          (candidate) => candidate.email.toLowerCase() === email.trim().toLowerCase()
+        )
+        if (!account || account.password !== password) {
+          return { ok: false, error: "Invalid email or password." }
+        }
+        const { password: _password, ...safeUser } = account
+        setUser(safeUser)
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(safeUser))
+        return { ok: true }
+      },
+      logout: () => {
+        setUser(null)
+        localStorage.removeItem(STORAGE_KEY)
+      },
       scopeFor,
-      can: (permissionKey: string) => scopeFor(permissionKey) !== "NONE",
+      can: (permissionKey) => scopeFor(permissionKey) !== "NONE",
       matrix,
     }
-  }, [role, matrix])
+  }, [user, matrix])
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }

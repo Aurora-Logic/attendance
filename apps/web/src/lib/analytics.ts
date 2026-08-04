@@ -39,6 +39,9 @@ export interface EmployeeAnalytics {
   lateAllowance: number
   graceMinutes: number
   otHours: number
+  kpis: Array<{ label: string; value: string; hint: string }>
+  workedSeries: Array<{ day: string; hours: number }>
+  weekdayLate: Array<{ weekday: string; minutes: number }>
   arrivalSeries: Array<{ day: string; minutes: number }>
   monthlySeries: Array<{
     month: string
@@ -161,6 +164,36 @@ export function buildEmployeeAnalytics(employee: Employee): EmployeeAnalytics {
     }
   })
 
+  // Worked hours track arrivals: a very late day loses time, a normal day
+  // lands around the 8h mark with ordinary jitter.
+  const workedSeries = arrivalSeries.map((point, seriesIndex) => ({
+    day: point.day,
+    hours: Number(
+      (7.4 + seeded(index * 13 + seriesIndex) * 1.4 - (point.minutes > 30 ? 1.6 : 0)).toFixed(1)
+    ),
+  }))
+
+  // Which weekday the lateness clusters on — Monday usually earns its bump.
+  const weekdayLate = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((weekday, weekdayIndex) => ({
+    weekday,
+    minutes: Math.round(
+      seeded(index * 7 + weekdayIndex) * 20 * (weekdayIndex === 0 ? 1.8 : 1)
+    ),
+  }))
+
+  const otHours = Number((seeded(index * 3) * 12).toFixed(1))
+  const avgWorked =
+    workedSeries.reduce((sum, point) => sum + point.hours, 0) / workedSeries.length
+
+  const kpis = [
+    { label: "Present", value: String(current.present), hint: "days this month" },
+    { label: "Half days", value: String(current.halfDay), hint: "this month" },
+    { label: "Absent", value: String(current.absent), hint: "this month" },
+    { label: "Late marks", value: `${lateMarks}/${DEFAULT_ATTENDANCE_SETTINGS.lateMarksAllowed}`, hint: "of allowance" },
+    { label: "Avg worked", value: `${avgWorked.toFixed(1)}h`, hint: "per attended day" },
+    { label: "Overtime", value: `${otHours}h`, hint: "approved, this month" },
+  ]
+
   return {
     punctualityScore: score,
     rank,
@@ -170,7 +203,10 @@ export function buildEmployeeAnalytics(employee: Employee): EmployeeAnalytics {
     lateMarks,
     lateAllowance: DEFAULT_ATTENDANCE_SETTINGS.lateMarksAllowed,
     graceMinutes: DEFAULT_ATTENDANCE_SETTINGS.lateGraceMinutes,
-    otHours: Number((seeded(index * 3) * 12).toFixed(1)),
+    otHours,
+    kpis,
+    workedSeries,
+    weekdayLate,
     arrivalSeries,
     monthlySeries,
     statusSplit,

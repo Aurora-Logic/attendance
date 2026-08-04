@@ -12,11 +12,7 @@ import {
   TriangleAlert,
   WifiOff,
 } from "lucide-react"
-import {
-  DEFAULT_ATTENDANCE_SETTINGS,
-  evaluateLate,
-  type LateEvaluation,
-} from "@attendance/shared"
+import { evaluateLate, type LateEvaluation } from "@attendance/shared"
 
 import { checkGeofence, mapsLinkFor, type LatLng } from "@/lib/geo"
 import { cn } from "@/lib/utils"
@@ -28,9 +24,10 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
+import { useAppConfig } from "@/lib/app-config"
+
 const SHIFT_START_MINUTES = 9 * 60
 const SHIFT_END_MINUTES = 18 * 60
-const settings = DEFAULT_ATTENDANCE_SETTINGS
 
 const BRANCH: LatLng = { lat: 19.076, lng: 72.8777 }
 const DEVICE: LatLng = { lat: 19.0771, lng: 72.8781 }
@@ -113,6 +110,8 @@ function CaptureCheck({
 }
 
 export function PunchPage() {
+  // Live settings: change the grace in Settings and this screen follows.
+  const { settings } = useAppConfig()
   const now = useServerClock()
   const [dayPart, setDayPart] = React.useState("FULL")
   const [punchedIn, setPunchedIn] = React.useState(false)
