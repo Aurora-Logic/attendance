@@ -553,3 +553,31 @@ describe("nightly close — §3 missed punch-out", () => {
     expect(runNightlyClose(store, "2026-08-04").closed).toEqual([])
   })
 })
+
+describe("§8.6 hardening", () => {
+  it("five failed logins lock the account; the right password is then refused too", async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await login("employee@delta.dev", "wrong-password")
+    }
+    const locked = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "employee@delta.dev", password: "Emp@1234" },
+    })
+    expect(locked.statusCode).toBe(423)
+    expect(locked.json().retryAfterSec).toBeGreaterThan(0)
+  })
+
+  it("a success clears the failure counter", async () => {
+    await login("employee@delta.dev", "wrong-password")
+    await login("employee@delta.dev", "wrong-password")
+    const ok = await login("employee@delta.dev", "Emp@1234")
+    expect(ok.response.statusCode).toBe(200)
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await login("employee@delta.dev", "wrong-password")
+    }
+    // 4 fresh failures after the reset: still not locked.
+    const stillOpen = await login("employee@delta.dev", "Emp@1234")
+    expect(stillOpen.response.statusCode).toBe(200)
+  })
+})

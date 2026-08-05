@@ -18,8 +18,8 @@ what the previous wave proved.
                     │ Money-in-paise · Masters · Notifications · Files (MinIO)    │
                     └──────────────────────────────────────────────────────────────┘
    PEOPLE                    SELL                      BUY                    MAKE & STOCK
-   Attendance ✅             CRM-lite ⬜               Procurement ✅          Inventory ⬜
-   Leave ✅                  Estimates ⬜              Indents ⬜              Production ⬜
+   Attendance ✅             Customers ✅              Procurement ✅          Inventory ⬜
+   Leave ✅                  Estimates ✅              Indents ⬜              Production ⬜
    Payroll 🔨                Sales Orders ⬜           Vendor Bills ⬜         Stock Reports ⬜
    Expense Claims ⬜         Dispatch/Challan ⬜       Payables ⬜
    HR-lite ⬜                Invoicing ⬜
@@ -43,8 +43,8 @@ what the previous wave proved.
 ### Sell (the estimate creator's family)
 | Module | Contents | Rides on |
 |---|---|---|
-| CRM-lite ⬜ | **Customers master** (mirror of vendors), contacts, follow-ups | Masters pattern from vendors |
-| Estimates ⬜ | The OCC type-on-template sheet; `salePricePaise` + price history on items; validity, revisions | PO document sheet (D6), GST maths, doc series `EST-` |
+| Customers ✅ | **Customers master** (mirror of vendors), win-rate and quoted value per customer | Masters pattern from vendors |
+| Estimates ✅ | The OCC type-on-template sheet; `salePricePaise` on items; validity with derived EXPIRED; send → accept/reject with reasons | PO document sheet (D6), GST maths + CGST/SGST split, doc series `EST-` |
 | Sales Orders ⬜ | Won estimate → SO; the customer-side mirror of a PO with delivery schedule | PO lifecycle shape (draft→approve→fulfil) |
 | Dispatch ⬜ | Delivery challans against SO tranches — the mirror of GRNs, append-only | GRN pattern (D1/D2), stock issue |
 | Invoicing ⬜ | GST invoice from SO/challan, credit notes; e-invoice IRN + e-way bill when turnover requires | Doc sheet, tax breakup, doc series `INV-` |

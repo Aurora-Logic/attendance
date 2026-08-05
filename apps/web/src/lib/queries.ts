@@ -530,3 +530,49 @@ export function useSetCalendarDay() {
     }),
   }
 }
+
+// ---------------------------------------------------------------- exports
+
+export interface ExportJobView {
+  id: string
+  report: string
+  status: "QUEUED" | "RUNNING" | "READY" | "FAILED"
+  filename: string
+  rowCount: number
+  createdAt: string
+  error?: string
+}
+
+/** The real §7 queue. Polls while anything is in flight, sleeps otherwise. */
+export function useExportJobs() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+
+  const query = useQuery({
+    queryKey: ["exports"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<{ jobs: ExportJobView[] }>("/exports"),
+    select: (payload) => payload.jobs,
+    refetchInterval: (query) =>
+      query.state.data?.jobs.some(
+        (job) => job.status === "QUEUED" || job.status === "RUNNING"
+      )
+        ? 1_500
+        : false,
+  })
+
+  return {
+    jobs: enabled && !query.isError ? (query.data ?? []) : null,
+    source: (enabled ? "api" : "demo") as DataSource,
+  }
+}
+
+export function useEnqueueExport() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { report: "daily-register"; date: string }) =>
+      apiFetch<{ job: ExportJobView }>("/exports", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["exports"] }),
+  })
+}

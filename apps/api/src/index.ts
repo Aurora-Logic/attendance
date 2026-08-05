@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url"
 
 import { buildServer } from "./server"
+import { exportsDir, startExportWorker } from "./exports"
 import { scheduleNightlyClose } from "./nightly"
 import { loadStore, persistOnWrite } from "./persist"
 
@@ -11,9 +12,11 @@ const dataFile =
   process.env.DATA_FILE ?? fileURLToPath(new URL("../.data/store.json", import.meta.url))
 
 const store = loadStore(dataFile)
-const app = buildServer(store)
+const filesDir = exportsDir(fileURLToPath(new URL("../.data", import.meta.url)))
+const app = buildServer(store, { exportsDir: filesDir })
 persistOnWrite(app, store, dataFile)
 scheduleNightlyClose(store)
+void startExportWorker(store, filesDir)
 
 app
   .listen({ port, host: "0.0.0.0" })

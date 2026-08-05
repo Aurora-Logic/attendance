@@ -3,6 +3,8 @@ import {
   Boxes,
   CalendarDays,
   ClipboardCheck,
+  Contact,
+  FileText,
   Fingerprint,
   LayoutDashboard,
   Package,
@@ -109,6 +111,25 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: "attendance.approve",
       },
       { title: "Leave", url: "/leave", icon: Plane, phase: 5 },
+    ],
+  },
+  {
+    label: "Sales",
+    items: [
+      {
+        title: "Estimates",
+        url: "/estimates",
+        icon: FileText,
+        phase: 4,
+        permission: "sales.view",
+      },
+      {
+        title: "Customers",
+        url: "/customers",
+        icon: Contact,
+        phase: 4,
+        permission: "sales.view",
+      },
     ],
   },
   {

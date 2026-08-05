@@ -1,4 +1,5 @@
 import cookie from "@fastify/cookie"
+import rateLimit from "@fastify/rate-limit"
 import cors from "@fastify/cors"
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify"
 import jwt from "jsonwebtoken"
@@ -22,6 +23,7 @@ import {
 } from "@attendance/shared"
 
 import { auditPage, recordAudit } from "./db"
+import { enqueueExport, exportFileStream } from "./exports"
 import {
   clearCalendarDay,
   createDepartment,
@@ -126,11 +128,13 @@ function scopeReaches(
   }
 }
 
-export function buildServer(store: Store = seedStore()) {
+export function buildServer(store: Store = seedStore(), options: { exportsDir?: string } = {}) {
   const app = Fastify({ logger: false })
 
   app.register(cors, { origin: true, credentials: true })
   app.register(cookie)
+  // §8.6: global ceiling; auth and punch carry tighter per-route limits below.
+  app.register(rateLimit, { global: true, max: 300, timeWindow: "1 minute" })
 
   const sign = (payload: AuthContext, ttlSec: number) =>
     jwt.sign(payload, SECRET, { expiresIn: ttlSec })
@@ -215,19 +219,55 @@ export function buildServer(store: Store = seedStore()) {
   app.get("/health", async () => ({ ok: true, uptimeSec: Math.round(process.uptime()) }))
 
   // ---- auth ---------------------------------------------------------------
-  app.post("/auth/login", async (request, reply) => {
+  // §8.6 account lockout: 5 failures locks the email for 15 minutes. Tracked
+  // per identifier (not per IP) so a distributed guesser still locks out, and
+  // cleared on success.
+  const failedLogins = new Map<string, { count: number; lockedUntil: number }>()
+  const LOCK_AFTER = 5
+  const LOCK_MS = 15 * 60 * 1000
+
+  app.post(
+    "/auth/login",
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (request, reply) => {
     const parsed = credentialsSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
-    const user = store.users.find((candidate) => candidate.email === parsed.data.email)
-    if (!user || !bcrypt.compareSync(parsed.data.password, user.passwordHash)) {
-      return reply.code(401).send({ error: "INVALID_CREDENTIALS" })
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+      const email = parsed.data.email.toLowerCase()
+
+      const lock = failedLogins.get(email)
+      if (lock && lock.lockedUntil > Date.now()) {
+        return reply.code(423).send({
+          error: "ACCOUNT_LOCKED",
+          retryAfterSec: Math.ceil((lock.lockedUntil - Date.now()) / 1000),
+        })
+      }
+
+      const user = store.users.find((candidate) => candidate.email === email)
+      if (!user || !bcrypt.compareSync(parsed.data.password, user.passwordHash)) {
+        const next = { count: (lock?.count ?? 0) + 1, lockedUntil: 0 }
+        if (next.count >= LOCK_AFTER) {
+          next.lockedUntil = Date.now() + LOCK_MS
+          next.count = 0
+          recordAudit({
+            actorId: "system",
+            action: "auth.lockout",
+            entity: "users",
+            entityId: email,
+            ip: request.ip,
+          })
+        }
+        failedLogins.set(email, next)
+        return reply.code(401).send({ error: "INVALID_CREDENTIALS" })
+      }
+
+      failedLogins.delete(email)
+      const auth: AuthContext = { userId: user.id, role: user.role, employeeId: user.employeeId }
+      setAuthCookies(reply, auth)
+      return {
+        user: { id: user.id, name: user.name, email: user.email, role: user.role, employeeId: user.employeeId },
+      }
     }
-    const auth: AuthContext = { userId: user.id, role: user.role, employeeId: user.employeeId }
-    setAuthCookies(reply, auth)
-    return {
-      user: { id: user.id, name: user.name, email: user.email, role: user.role, employeeId: user.employeeId },
-    }
-  })
+  )
 
   app.post("/auth/refresh", async (request, reply) => {
     const token = request.cookies.refresh_token
@@ -477,6 +517,60 @@ export function buildServer(store: Store = seedStore()) {
     }
   )
 
+  // ---- §7 exports: queued on Redis, built server-side ----------------------
+  app.get(
+    "/exports",
+    { preHandler: [authenticate, requirePermission("reports.view")] },
+    async () => ({ jobs: store.exportJobs.slice(0, 20) })
+  )
+
+  app.post(
+    "/exports",
+    { preHandler: [authenticate, requirePermission("reports.view")] },
+    async (request, reply) => {
+      const parsed = z
+        .object({
+          report: z.literal("daily-register"),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        })
+        .safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+      const job = await enqueueExport(store, {
+        ...parsed.data,
+        requestedBy: request.auth.userId,
+      })
+      if (!job) return reply.code(503).send({ error: "QUEUE_UNAVAILABLE" })
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "export.enqueue",
+        entity: "export_jobs",
+        entityId: job.id,
+        after: { report: job.report, date: job.params.date },
+        ip: request.ip,
+      })
+      return reply.code(201).send({ job })
+    }
+  )
+
+  app.get(
+    "/exports/:id/download",
+    { preHandler: [authenticate, requirePermission("reports.view")] },
+    async (request, reply) => {
+      const { id: jobId } = request.params as { id: string }
+      const job = store.exportJobs.find((candidate) => candidate.id === jobId)
+      if (!job || job.status !== "READY" || !options.exportsDir) {
+        return reply.code(404).send({ error: "NOT_READY" })
+      }
+      const file = exportFileStream(options.exportsDir, jobId)
+      if (!file) return reply.code(404).send({ error: "NOT_FOUND" })
+      reply
+        .header("content-type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .header("content-disposition", `attachment; filename="${job.filename}"`)
+        .header("content-length", file.size)
+      return reply.send(file.stream)
+    }
+  )
+
   app.get("/branding", async () => ({ branding: store.branding }))
 
   // §8.1 — served from Postgres. There is no update or delete route.
@@ -531,7 +625,10 @@ export function buildServer(store: Store = seedStore()) {
   // ---- punches ------------------------------------------------------------
   app.post(
     "/punches",
-    { preHandler: [authenticate, requirePermission("punch.self")] },
+    {
+      preHandler: [authenticate, requirePermission("punch.self")],
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
     async (request, reply) => {
       const parsed = punchBodySchema.safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })

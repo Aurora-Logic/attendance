@@ -18,6 +18,10 @@ import { PunchPage } from "@/routes/punch"
 import { PurchaseOrderDetailPage } from "@/routes/purchase-order-detail"
 import { PurchaseOrderNewPage } from "@/routes/purchase-order-new"
 import { PurchaseOrdersPage } from "@/routes/purchase-orders"
+import { CustomersPage } from "@/routes/customers"
+import { EstimateDetailPage } from "@/routes/estimate-detail"
+import { EstimateNewPage } from "@/routes/estimate-new"
+import { EstimatesPage } from "@/routes/estimates"
 import { ReportsPage } from "@/routes/reports"
 import { RolesPage } from "@/routes/roles"
 import { RosterPage } from "@/routes/roster"
@@ -46,6 +50,10 @@ export default function App() {
         <Route path="employees" element={<EmployeesPage />} />
         <Route path="employees/:id" element={<EmployeeDetailPage />} />
         <Route path="leave" element={<LeavePage />} />
+        <Route path="estimates" element={<EstimatesPage />} />
+        <Route path="estimates/new" element={<EstimateNewPage />} />
+        <Route path="estimates/:id" element={<EstimateDetailPage />} />
+        <Route path="customers" element={<CustomersPage />} />
         <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
         <Route path="purchase-orders/new" element={<PurchaseOrderNewPage />} />
         <Route path="purchase-orders/:id" element={<PurchaseOrderDetailPage />} />

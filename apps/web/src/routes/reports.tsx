@@ -5,7 +5,10 @@ import { CalendarRange, Download, Eye, FileSpreadsheet, Loader2 } from "lucide-r
 import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
 
+import { API_BASE } from "@/lib/api"
 import { exportDailyRegisterExcel } from "@/lib/attendance-export"
+import { useEnqueueExport, useExportJobs } from "@/lib/queries"
+import { useSession } from "@/lib/session"
 import { EXPORT_JOBS, REPORTS, seedAttendanceDays } from "@/lib/seed"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
 import { Badge } from "@/components/ui/badge"
@@ -73,11 +76,30 @@ const PHASE_NOTE = "Ships with the Phase 6 export worker (server-side ExcelJS + 
 
 export function ReportsPage() {
   const navigate = useNavigate()
+  const { user } = useSession()
+  const { jobs } = useExportJobs()
+  const enqueue = useEnqueueExport()
+  const today = new Date().toISOString().slice(0, 10)
 
   const exportDaily = () => {
+    // API session: queue the server-side build (§7 — the request thread never
+    // builds a file). Demo: the client workbook keeps the feature usable.
+    if (user?.source === "api") {
+      enqueue.mutate(
+        { report: "daily-register", date: today },
+        {
+          onSuccess: ({ job }) =>
+            toast.success("Export queued on the server", {
+              description: `${job.filename} — the queue below tracks it to Ready.`,
+            }),
+          onError: () => toast.error("Queue unavailable — is Redis up?"),
+        }
+      )
+      return
+    }
     const rows = seedAttendanceDays()
     void exportDailyRegisterExcel(rows, "2026-08-03").then(() =>
-      toast.success("Daily register exported", {
+      toast.success("Daily register exported (client, demo)", {
         description: `${rows.length} rows → Delta_DailyRegister_2026-08-03.xlsx`,
       })
     )
@@ -109,12 +131,18 @@ export function ReportsPage() {
           <CardHeader>
             <CardTitle>Export queue</CardTitle>
             <CardDescription>
-              Preview of the Phase 6 background worker: anything over ~5,000 rows runs as a BullMQ
-              job with a streaming writer and a download link when ready.
+              {jobs
+                ? "Live: BullMQ on Redis, workbooks built server-side with ExcelJS. Download when Ready."
+                : "Preview — sign in with the API and Redis running for the live queue."}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-0">
-            {EXPORT_JOBS.map((job, index) => (
+            {jobs && jobs.length === 0 ? (
+              <p className="text-muted-foreground py-2 text-sm">
+                Nothing queued yet — press Export on a report below.
+              </p>
+            ) : null}
+            {(jobs ?? EXPORT_JOBS).map((job, index) => (
               <React.Fragment key={job.id}>
                 {index > 0 ? <Separator /> : null}
                 <Item size="sm">
@@ -128,28 +156,55 @@ export function ReportsPage() {
                   <ItemContent>
                     <ItemTitle className="font-mono text-xs">{job.filename}</ItemTitle>
                     <ItemDescription>
-                      {job.report} · {job.rows.toLocaleString("en-IN")} rows · queued{" "}
-                      {job.requestedAt}
+                      {job.report}
+                      {"rowCount" in job && job.rowCount
+                        ? ` · ${job.rowCount.toLocaleString("en-IN")} rows`
+                        : "rows" in job
+                          ? ` · ${(job as { rows: number }).rows.toLocaleString("en-IN")} rows`
+                          : ""}
+                      {"error" in job && job.error ? ` · ${job.error}` : ""}
                     </ItemDescription>
-                    {job.status === "RUNNING" ? (
-                      <Progress value={job.progress} className="mt-1" />
+                    {job.status === "RUNNING" || job.status === "QUEUED" ? (
+                      <Progress value={job.status === "RUNNING" ? 66 : 15} className="mt-1" />
                     ) : null}
                   </ItemContent>
                   <ItemActions>
-                    <Badge variant={job.status === "READY" ? "success" : "secondary"}>
+                    <Badge
+                      variant={
+                        job.status === "READY"
+                          ? "success"
+                          : job.status === "FAILED"
+                            ? "destructive"
+                            : "secondary"
+                      }
+                    >
                       {job.status}
                     </Badge>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span>
-                          <Button variant="outline" size="sm" disabled>
-                            <Download />
-                            Download
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>{PHASE_NOTE}</TooltipContent>
-                    </Tooltip>
+                    {jobs ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={job.status !== "READY"}
+                        onClick={() =>
+                          window.open(`${API_BASE}/exports/${job.id}/download`, "_blank")
+                        }
+                      >
+                        <Download />
+                        Download
+                      </Button>
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Button variant="outline" size="sm" disabled>
+                              <Download />
+                              Download
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{PHASE_NOTE}</TooltipContent>
+                      </Tooltip>
+                    )}
                   </ItemActions>
                 </Item>
               </React.Fragment>

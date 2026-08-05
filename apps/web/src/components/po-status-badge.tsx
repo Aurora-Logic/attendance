@@ -1,4 +1,4 @@
-import type { PoDisplayStatus, ScheduleStatus } from "@attendance/shared"
+import type { EstimateDisplayStatus, PoDisplayStatus, ScheduleStatus } from "@attendance/shared"
 
 import { Badge } from "@/components/ui/badge"
 
@@ -44,3 +44,25 @@ export function ScheduleStatusBadge({ status }: { status: ScheduleStatus }) {
   const meta = SCHEDULE_META[status]
   return <Badge variant={meta.variant}>{meta.label}</Badge>
 }
+
+/** Estimate lifecycle, same colour discipline as POs. */
+const ESTIMATE_META: Record<
+  EstimateDisplayStatus,
+  { label: string; variant: "success" | "warning" | "info" | "destructive" | "secondary" | "outline" }
+> = {
+  DRAFT: { label: "Draft", variant: "outline" },
+  SENT: { label: "Sent", variant: "info" },
+  ACCEPTED: { label: "Accepted", variant: "success" },
+  REJECTED: { label: "Rejected", variant: "destructive" },
+  EXPIRED: { label: "Expired", variant: "warning" },
+  CLOSED: { label: "Closed", variant: "secondary" },
+}
+
+export function EstimateStatusBadge({ status }: { status: EstimateDisplayStatus }) {
+  const meta = ESTIMATE_META[status]
+  return <Badge variant={meta.variant}>{meta.label}</Badge>
+}
+
+export const ESTIMATE_STATUS_LABEL = Object.fromEntries(
+  Object.entries(ESTIMATE_META).map(([status, meta]) => [status, meta.label])
+) as Record<EstimateDisplayStatus, string>
