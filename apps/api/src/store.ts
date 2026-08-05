@@ -5,8 +5,15 @@ import {
   DEFAULT_ATTENDANCE_SETTINGS,
   DEFAULT_MATRIX,
   type AttendanceSettings,
+  type Challan,
   type Customer,
   type Estimate,
+  type ExpenseClaim,
+  type Indent,
+  type Invoice,
+  type PaymentEntry,
+  type StockAdjustment,
+  type VendorBill,
   type Grn,
   type Item,
   type PermissionMatrix,
@@ -137,8 +144,18 @@ export interface Store {
   customers: Customer[]
   estimates: Estimate[]
   salesOrders: SalesOrder[]
+  challans: Challan[]
+  invoices: Invoice[]
+  /** Money received from customers, allocated to invoices. */
+  receipts: PaymentEntry[]
+  vendorBills: VendorBill[]
+  /** Money paid to vendors, allocated to bills. */
+  payments: PaymentEntry[]
+  indents: Indent[]
+  expenseClaims: ExpenseClaim[]
+  stockAdjustments: StockAdjustment[]
   /** Per-year document sequences (PO-2026-0042); year rollover resets in Prisma. */
-  seq: { po: number; grn: number; est: number; so: number }
+  seq: { po: number; grn: number; est: number; so: number; ch: number; inv: number; ind: number; exp: number }
   nextId: number
 }
 
@@ -187,9 +204,9 @@ export function seedStore(): Store {
       { id: "v2", code: "VND002", name: "Om Packaging Co", gstin: null, contact: "Sunita Shah", email: "om.pack@gmail.com", phone: "+91 98111 44556", address: "MIDC Phase II", city: "Pune", state: "Maharashtra", paymentTermsDays: 15, leadTimeDays: 4, active: true },
     ],
     items: [
-      { id: "i1", code: "ITM001", name: "MS Sheet 2mm", brand: "Tata Steel", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, salePricePaise: 6_500, active: true },
-      { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", brand: "", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, salePricePaise: 3_200, active: true },
-      { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", brand: "Castrol", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, salePricePaise: 28_000, active: true },
+      { id: "i1", code: "ITM001", name: "MS Sheet 2mm", brand: "Tata Steel", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, salePricePaise: 6_500, reorderLevel: 0, active: true },
+      { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", brand: "", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, salePricePaise: 3_200, reorderLevel: 0, active: true },
+      { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", brand: "Castrol", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, salePricePaise: 28_000, reorderLevel: 0, active: true },
     ],
     brands: ["Tata Steel", "Castrol"],
     categories: ["Raw Material", "Packaging", "Consumables"],
@@ -201,7 +218,15 @@ export function seedStore(): Store {
     ],
     estimates: [],
     salesOrders: [],
-    seq: { po: 0, grn: 0, est: 0, so: 0 },
+    challans: [],
+    invoices: [],
+    receipts: [],
+    vendorBills: [],
+    payments: [],
+    indents: [],
+    expenseClaims: [],
+    stockAdjustments: [],
+    seq: { po: 0, grn: 0, est: 0, so: 0, ch: 0, inv: 0, ind: 0, exp: 0 },
     nextId: 1,
   }
 }

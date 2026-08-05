@@ -59,6 +59,35 @@ describe("salesOrderFromEstimate", () => {
   })
 })
 
+describe("soFulfilment / soDisplayStatus", () => {
+  it("dispatch progress mirrors GRN receipt progress; status is derived", async () => {
+    const { soFulfilment, soDisplayStatus } = await import("./sales")
+    const so = {
+      id: "so1",
+      status: "OPEN" as const,
+      lines: [
+        { id: "sol1", itemId: "i1", qty: 100, unitPricePaise: 8_000, gstRatePct: 18, discountPct: 0 },
+      ],
+    }
+    const challan = (qty: number, id: string) => ({
+      id,
+      number: `CH-${id}`,
+      soId: "so1",
+      dispatchDate: "2026-08-08",
+      vehicleNo: "",
+      remarks: "",
+      recordedBy: "",
+      lines: [{ soLineId: "sol1", qty }],
+    })
+    expect(soDisplayStatus(so, [])).toBe("OPEN")
+    expect(soDisplayStatus(so, [challan(60, "a")])).toBe("PARTIALLY_DISPATCHED")
+    expect(soFulfilment(so, [challan(60, "a")])[0]).toMatchObject({ dispatchedQty: 60, pendingQty: 40 })
+    expect(soDisplayStatus(so, [challan(60, "a"), challan(40, "b")])).toBe("DISPATCHED")
+    // Terminal statuses win over the derived dimension.
+    expect(soDisplayStatus({ ...so, status: "CANCELLED" as const }, [challan(60, "a")])).toBe("CANCELLED")
+  })
+})
+
 describe("schemas", () => {
   it("estimate lines are PO lines — one totals implementation for both sides", () => {
     const estimate = estimateSchema.parse({
