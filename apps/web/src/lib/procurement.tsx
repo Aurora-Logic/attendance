@@ -1,14 +1,20 @@
 import * as React from "react"
 import {
+  allocateOldestFirst,
   formatDocNumber,
+  outstandingPaise,
   shiftDateISO,
   type Grn,
   type GrnLine,
+  type Indent,
   type Item,
+  type PaymentEntry,
   type PoLine,
   type PoSchedule,
   type PurchaseOrder,
+  type StockAdjustment,
   type Vendor,
+  type VendorBill,
 } from "@attendance/shared"
 
 /**
@@ -27,7 +33,12 @@ export interface ProcurementState {
   categories: string[]
   pos: PurchaseOrder[]
   grns: Grn[]
-  seq: { po: number; grn: number; entity: number }
+  vendorBills: VendorBill[]
+  /** Money paid to vendors, allocated to bills. */
+  payments: PaymentEntry[]
+  indents: Indent[]
+  stockAdjustments: StockAdjustment[]
+  seq: { po: number; grn: number; ind: number; entity: number }
 }
 
 export interface PoDraftLine {
@@ -62,6 +73,18 @@ interface ProcurementValue extends ProcurementState {
     grn: { receivedDate: string; invoiceNo: string; remarks: string; lines: GrnLine[] },
     recordedBy: string
   ) => Grn
+  recordBill: (bill: Omit<VendorBill, "id" | "status" | "recordedBy">, recordedBy: string) => VendorBill
+  /** Auto-allocates oldest-due-first across the vendor's open bills. */
+  recordPayment: (
+    input: Omit<PaymentEntry, "id" | "allocations" | "recordedBy">,
+    recordedBy: string
+  ) => PaymentEntry | null
+  createIndent: (
+    indent: Omit<Indent, "id" | "number" | "status" | "decisionNote" | "poId">,
+  ) => Indent
+  decideIndent: (indentId: string, action: "APPROVE" | "REJECT", note?: string) => void
+  markIndentOrdered: (indentId: string, poId: string) => void
+  adjustStock: (adjustment: Omit<StockAdjustment, "id" | "recordedBy">, recordedBy: string) => void
 }
 
 const ProcurementContext = React.createContext<ProcurementValue | null>(null)
@@ -131,7 +154,19 @@ function seedState(): ProcurementState {
       lines: [{ poLineId: "pol2", qtyAccepted: 1000, qtyRejected: 0, remarks: "" }],
     },
   ]
-  return { vendors, items, brands, categories, pos, grns, seq: { po: 3, grn: 3, entity: 1 } }
+  return {
+    vendors,
+    items,
+    brands,
+    categories,
+    pos,
+    grns,
+    vendorBills: [],
+    payments: [],
+    indents: [],
+    stockAdjustments: [],
+    seq: { po: 3, grn: 3, ind: 0, entity: 1 },
+  }
 }
 
 /** A blob saved before a field existed must never brick the app. */
@@ -144,6 +179,11 @@ function normalizeState(raw: ProcurementState): ProcurementState {
     items,
     brands: raw.brands ?? fromItems((item) => item.brand),
     categories: raw.categories ?? fromItems((item) => item.category),
+    vendorBills: raw.vendorBills ?? [],
+    payments: raw.payments ?? [],
+    indents: raw.indents ?? [],
+    stockAdjustments: raw.stockAdjustments ?? [],
+    seq: { ...raw.seq, ind: raw.seq.ind ?? 0 },
   }
 }
 
@@ -314,6 +354,86 @@ export function ProcurementProvider({ children }: { children: React.ReactNode })
         }))
         return saved
       },
+
+      recordBill: (bill, recordedBy) => {
+        const saved: VendorBill = { id: `vb_${state.seq.entity}`, status: "OPEN", recordedBy, ...bill }
+        setState((prev) => ({
+          ...prev,
+          vendorBills: [...prev.vendorBills, saved],
+          seq: { ...prev.seq, entity: prev.seq.entity + 1 },
+        }))
+        return saved
+      },
+
+      recordPayment: (input, recordedBy) => {
+        const allocations = allocateOldestFirst(
+          input.amountPaise,
+          state.vendorBills
+            .filter((bill) => bill.vendorId === input.partyId && bill.status === "OPEN")
+            .map((bill) => ({
+              id: bill.id,
+              dueDate: bill.dueDate,
+              outstandingPaise: outstandingPaise(bill, state.payments),
+            }))
+        )
+        if (allocations.length === 0) return null
+        const payment: PaymentEntry = { id: `pay_${state.seq.entity}`, recordedBy, ...input, allocations }
+        setState((prev) => ({
+          ...prev,
+          payments: [...prev.payments, payment],
+          seq: { ...prev.seq, entity: prev.seq.entity + 1 },
+        }))
+        return payment
+      },
+
+      createIndent: (indent) => {
+        const saved: Indent = {
+          id: `ind_${state.seq.entity}`,
+          number: formatDocNumber("IND", Number(indent.date.slice(0, 4)), state.seq.ind + 1),
+          status: "PENDING",
+          decisionNote: "",
+          poId: null,
+          ...indent,
+        }
+        setState((prev) => ({
+          ...prev,
+          indents: [...prev.indents, saved],
+          seq: { ...prev.seq, ind: prev.seq.ind + 1, entity: prev.seq.entity + 1 },
+        }))
+        return saved
+      },
+
+      decideIndent: (indentId, action, note = "") =>
+        setState((prev) => ({
+          ...prev,
+          indents: prev.indents.map((indent) =>
+            indent.id === indentId
+              ? {
+                  ...indent,
+                  status: action === "APPROVE" ? "APPROVED" : "REJECTED",
+                  decisionNote: note,
+                }
+              : indent
+          ),
+        })),
+
+      markIndentOrdered: (indentId, poId) =>
+        setState((prev) => ({
+          ...prev,
+          indents: prev.indents.map((indent) =>
+            indent.id === indentId ? { ...indent, status: "ORDERED", poId } : indent
+          ),
+        })),
+
+      adjustStock: (adjustment, recordedBy) =>
+        setState((prev) => ({
+          ...prev,
+          stockAdjustments: [
+            ...prev.stockAdjustments,
+            { id: `adj_${prev.seq.entity}`, recordedBy, ...adjustment },
+          ],
+          seq: { ...prev.seq, entity: prev.seq.entity + 1 },
+        })),
     }
   }, [state])
 

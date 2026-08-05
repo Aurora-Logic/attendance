@@ -1,6 +1,6 @@
 import * as z from "zod"
 
-import { poLineSchema, type PoLine } from "./procurement"
+import { poLineSchema } from "./procurement"
 
 /**
  * Sales: customers and estimates (quotations) — the sell-side mirror of

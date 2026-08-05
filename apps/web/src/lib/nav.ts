@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   TrendingUp,
+  Warehouse,
   Users,
   Wallet,
 } from "lucide-react"
@@ -123,6 +124,13 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: FileText,
         phase: 4,
         permission: "sales.view",
+      },
+      {
+        title: "Stock",
+        url: "/stock",
+        icon: Warehouse,
+        phase: 4,
+        permission: "procurement.view",
       },
       {
         title: "Sales Orders",

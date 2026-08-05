@@ -28,6 +28,7 @@ import { ReportsPage } from "@/routes/reports"
 import { RolesPage } from "@/routes/roles"
 import { RosterPage } from "@/routes/roster"
 import { SettingsPage } from "@/routes/settings"
+import { StockPage } from "@/routes/stock"
 import { VendorsPage } from "@/routes/vendors"
 
 export default function App() {
@@ -63,6 +64,7 @@ export default function App() {
         <Route path="purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
         <Route path="vendors" element={<VendorsPage />} />
         <Route path="items" element={<ItemsPage />} />
+        <Route path="stock" element={<StockPage />} />
         <Route path="procurement-analytics" element={<ProcurementAnalyticsPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="payroll" element={<PayrollPage />} />

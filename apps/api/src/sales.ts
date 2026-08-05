@@ -1,12 +1,20 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import * as z from "zod"
 import {
+  allocateOldestFirst,
+  challanSchema,
   customerSchema,
   estimateDisplayStatus,
   formatDocNumber,
+  outstandingPaise,
+  paymentEntrySchema,
   poTotals,
   salesOrderFromEstimate,
+  soDisplayStatus,
+  soFulfilment,
+  type Challan,
   type Estimate,
+  type Invoice,
   type PoLine,
   type SalesOrder,
 } from "@attendance/shared"
@@ -252,7 +260,127 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
     const so = store.salesOrders.find((candidate) => candidate.id === soId)
     if (!so) return reply.code(404).send({ error: "NOT_FOUND" })
     if (so.status !== "OPEN") return reply.code(409).send({ error: "NOT_OPEN", status: so.status })
+    if (store.challans.some((challan) => challan.soId === so.id)) {
+      return reply.code(409).send({ error: "ALREADY_DISPATCHED" })
+    }
     so.status = "CANCELLED"
     return { salesOrder: soSummary(so) }
+  })
+
+  // ---- dispatch (delivery challans) ---------------------------------------
+  const challanBodySchema = challanSchema.omit({ id: true, number: true, soId: true, recordedBy: true })
+
+  app.post("/sales-orders/:id/challans", { preHandler: manage }, async (request, reply) => {
+    const { id: soId } = request.params as { id: string }
+    const parsed = challanBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+    const so = store.salesOrders.find((candidate) => candidate.id === soId)
+    if (!so) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (so.status !== "OPEN") return reply.code(422).send({ error: "SO_NOT_OPEN", status: so.status })
+    for (const line of parsed.data.lines) {
+      if (!so.lines.some((soLine) => soLine.id === line.soLineId)) {
+        return reply.code(400).send({ error: "LINE_NOT_ON_SO", soLineId: line.soLineId })
+      }
+    }
+
+    store.seq.ch += 1
+    const challan: Challan = {
+      id: id(store, "ch"),
+      number: formatDocNumber("CH", Number(parsed.data.dispatchDate.slice(0, 4)), store.seq.ch),
+      soId: so.id,
+      recordedBy: request.auth.userId,
+      ...parsed.data,
+    }
+    store.challans.push(challan)
+    return reply.code(201).send({
+      challan,
+      displayStatus: soDisplayStatus(so, store.challans),
+      fulfilment: soFulfilment(so, store.challans),
+    })
+  })
+
+  // ---- invoices -----------------------------------------------------------
+  const invoiceSummary = (invoice: Invoice) => ({
+    ...invoice,
+    customerName:
+      store.customers.find((candidate) => candidate.id === invoice.customerId)?.name ?? "—",
+    totals: poTotals(invoice.lines),
+    outstandingPaise: outstandingPaise(invoice, store.receipts),
+  })
+
+  app.get("/invoices", { preHandler: read }, async () => ({
+    invoices: store.invoices.map(invoiceSummary),
+  }))
+
+  const invoiceBodySchema = z.object({
+    soId: z.string(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  })
+
+  /** Invoice a sales order — lines copy verbatim; billing never reprices. */
+  app.post("/invoices", { preHandler: manage }, async (request, reply) => {
+    const parsed = invoiceBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+    const so = store.salesOrders.find((candidate) => candidate.id === parsed.data.soId)
+    if (!so) return reply.code(404).send({ error: "SO_NOT_FOUND" })
+
+    store.seq.inv += 1
+    const invoiceId = id(store, "inv")
+    const invoice: Invoice = {
+      id: invoiceId,
+      number: formatDocNumber("INV", Number(parsed.data.date.slice(0, 4)), store.seq.inv),
+      customerId: so.customerId,
+      soId: so.id,
+      date: parsed.data.date,
+      dueDate: parsed.data.dueDate,
+      status: "OPEN",
+      lines: so.lines.map((line, index): PoLine => ({ ...line, id: `${invoiceId}_l${index}` })),
+      terms: so.terms,
+      createdBy: request.auth.userId,
+    }
+    store.invoices.push(invoice)
+    return reply.code(201).send({ invoice: invoiceSummary(invoice) })
+  })
+
+  // ---- receipts (money in) ------------------------------------------------
+  app.get("/receipts", { preHandler: read }, async () => ({ receipts: store.receipts }))
+
+  const receiptBodySchema = paymentEntrySchema
+    .omit({ id: true, recordedBy: true, allocations: true })
+    .extend({
+      /** Omit to auto-allocate oldest-due-first across open invoices. */
+      allocations: paymentEntrySchema.shape.allocations.optional(),
+    })
+
+  app.post("/receipts", { preHandler: manage }, async (request, reply) => {
+    const parsed = receiptBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+    const body = parsed.data
+
+    const allocations =
+      body.allocations ??
+      allocateOldestFirst(
+        body.amountPaise,
+        store.invoices
+          .filter((invoice) => invoice.customerId === body.partyId && invoice.status === "OPEN")
+          .map((invoice) => ({
+            id: invoice.id,
+            dueDate: invoice.dueDate,
+            outstandingPaise: outstandingPaise(invoice, store.receipts),
+          }))
+      )
+    if (allocations.length === 0) {
+      return reply.code(422).send({ error: "NOTHING_OUTSTANDING" })
+    }
+
+    const receipt = {
+      id: id(store, "rcpt"),
+      recordedBy: request.auth.userId,
+      ...body,
+      allocations,
+    }
+    store.receipts.push(receipt)
+    return reply.code(201).send({ receipt })
   })
 }

@@ -52,6 +52,7 @@ const itemFormSchema = z.object({
   gstRatePct: z.number(),
   lastPriceRupees: z.number({ error: "Enter a price." }).min(0, "Price cannot be negative."),
   salePriceRupees: z.number({ error: "Enter a price." }).min(0, "Price cannot be negative."),
+  reorderLevel: z.number({ error: "Enter a level." }).min(0, "0 disables the check."),
   active: z.boolean(),
 })
 type ItemForm = z.infer<typeof itemFormSchema>
@@ -66,6 +67,7 @@ const EMPTY: ItemForm = {
   gstRatePct: 18,
   lastPriceRupees: 0,
   salePriceRupees: 0,
+  reorderLevel: 0,
   active: true,
 }
 
@@ -276,6 +278,27 @@ function ItemSheet({
                   )}
                 />
               </div>
+              <Controller
+                name="reorderLevel"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="item-reorder">Reorder level</FieldLabel>
+                    <Input
+                      {...field}
+                      onChange={(event) => field.onChange(event.target.valueAsNumber)}
+                      id="item-reorder"
+                      type="number"
+                      step="any"
+                      aria-invalid={fieldState.invalid}
+                    />
+                    <FieldDescription>
+                      Stock at/below this flags the item on the Stock screen. 0 disables.
+                    </FieldDescription>
+                    {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
+                  </Field>
+                )}
+              />
               <Controller
                 name="active"
                 control={form.control}

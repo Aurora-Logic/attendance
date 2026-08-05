@@ -1,9 +1,14 @@
 import * as React from "react"
 import {
+  allocateOldestFirst,
   formatDocNumber,
+  outstandingPaise,
   salesOrderFromEstimate,
+  type Challan,
   type Customer,
   type Estimate,
+  type Invoice,
+  type PaymentEntry,
   type PoLine,
   type SalesOrder,
 } from "@attendance/shared"
@@ -19,7 +24,11 @@ export interface SalesState {
   customers: Customer[]
   estimates: Estimate[]
   salesOrders: SalesOrder[]
-  seq: { est: number; so: number; entity: number }
+  challans: Challan[]
+  invoices: Invoice[]
+  /** Money received from customers, allocated to invoices. */
+  receipts: PaymentEntry[]
+  seq: { est: number; so: number; ch: number; inv: number; entity: number }
 }
 
 export interface EstimateDraftLine {
@@ -53,6 +62,21 @@ interface SalesValue extends SalesState {
   ) => SalesOrder | null
   closeSalesOrder: (soId: string) => void
   cancelSalesOrder: (soId: string) => void
+  recordChallan: (
+    soId: string,
+    challan: { dispatchDate: string; vehicleNo: string; remarks: string; lines: Array<{ soLineId: string; qty: number }> },
+    recordedBy: string
+  ) => Challan
+  /** Bills a sales order verbatim — billing never reprices. */
+  createInvoiceFromSo: (
+    soId: string,
+    input: { date: string; dueDate: string; createdBy: string }
+  ) => Invoice | null
+  /** Auto-allocates oldest-due-first across the customer's open invoices. */
+  recordReceipt: (
+    input: Omit<PaymentEntry, "id" | "allocations" | "recordedBy">,
+    recordedBy: string
+  ) => PaymentEntry | null
 }
 
 const SalesContext = React.createContext<SalesValue | null>(null)
@@ -73,7 +97,15 @@ function seedState(): SalesState {
       notes: "", createdBy: "ops@delta.dev", decisionNote: "",
     },
   ]
-  return { customers, estimates, salesOrders: [], seq: { est: 1, so: 0, entity: 1 } }
+  return {
+    customers,
+    estimates,
+    salesOrders: [],
+    challans: [],
+    invoices: [],
+    receipts: [],
+    seq: { est: 1, so: 0, ch: 0, inv: 0, entity: 1 },
+  }
 }
 
 /** A blob saved before sales orders existed must never brick the app. */
@@ -81,7 +113,16 @@ function normalizeState(raw: SalesState): SalesState {
   return {
     ...raw,
     salesOrders: raw.salesOrders ?? [],
-    seq: { est: raw.seq.est, so: raw.seq.so ?? 0, entity: raw.seq.entity },
+    challans: raw.challans ?? [],
+    invoices: raw.invoices ?? [],
+    receipts: raw.receipts ?? [],
+    seq: {
+      est: raw.seq.est,
+      so: raw.seq.so ?? 0,
+      ch: raw.seq.ch ?? 0,
+      inv: raw.seq.inv ?? 0,
+      entity: raw.seq.entity,
+    },
   }
 }
 
@@ -198,6 +239,72 @@ export function SalesProvider({ children }: { children: React.ReactNode }) {
             so.id === soId ? { ...so, status: "CANCELLED" } : so
           ),
         })),
+
+      recordChallan: (soId, challan, recordedBy) => {
+        const saved: Challan = {
+          id: `ch_${state.seq.entity}`,
+          number: formatDocNumber("CH", Number(challan.dispatchDate.slice(0, 4)), state.seq.ch + 1),
+          soId,
+          recordedBy,
+          ...challan,
+        }
+        setState((prev) => ({
+          ...prev,
+          challans: [...prev.challans, saved],
+          seq: { ...prev.seq, ch: prev.seq.ch + 1, entity: prev.seq.entity + 1 },
+        }))
+        return saved
+      },
+
+      createInvoiceFromSo: (soId, input) => {
+        const so = state.salesOrders.find((candidate) => candidate.id === soId)
+        if (!so) return null
+        const invoiceId = `inv_${state.seq.entity}`
+        const invoice: Invoice = {
+          id: invoiceId,
+          number: formatDocNumber("INV", Number(input.date.slice(0, 4)), state.seq.inv + 1),
+          customerId: so.customerId,
+          soId: so.id,
+          date: input.date,
+          dueDate: input.dueDate,
+          status: "OPEN",
+          lines: so.lines.map((line, index): PoLine => ({ ...line, id: `${invoiceId}_l${index}` })),
+          terms: so.terms,
+          createdBy: input.createdBy,
+        }
+        setState((prev) => ({
+          ...prev,
+          invoices: [...prev.invoices, invoice],
+          seq: { ...prev.seq, inv: prev.seq.inv + 1, entity: prev.seq.entity + 1 },
+        }))
+        return invoice
+      },
+
+      recordReceipt: (input, recordedBy) => {
+        const allocations = allocateOldestFirst(
+          input.amountPaise,
+          state.invoices
+            .filter((invoice) => invoice.customerId === input.partyId && invoice.status === "OPEN")
+            .map((invoice) => ({
+              id: invoice.id,
+              dueDate: invoice.dueDate,
+              outstandingPaise: outstandingPaise(invoice, state.receipts),
+            }))
+        )
+        if (allocations.length === 0) return null
+        const receipt: PaymentEntry = {
+          id: `rcpt_${state.seq.entity}`,
+          recordedBy,
+          ...input,
+          allocations,
+        }
+        setState((prev) => ({
+          ...prev,
+          receipts: [...prev.receipts, receipt],
+          seq: { ...prev.seq, entity: prev.seq.entity + 1 },
+        }))
+        return receipt
+      },
     }
   }, [state])
 
