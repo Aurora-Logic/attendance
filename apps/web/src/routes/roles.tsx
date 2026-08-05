@@ -97,7 +97,7 @@ export function RolesPage() {
   }, [])
 
   const grantCount = (role: Role) =>
-    PERMISSIONS.filter((permission) => matrix[permission.key][role] !== "NONE").length
+    PERMISSIONS.filter((permission) => matrix[permission.key]?.[role] ?? "NONE" !== "NONE").length
 
   return (
     <Page>
@@ -196,7 +196,7 @@ export function RolesPage() {
                         </Tooltip>
                       </TableCell>
                       {ROLES.map((role) => {
-                        const scope = matrix[permission.key][role]
+                        const scope = matrix[permission.key]?.[role] ?? "NONE"
                         return (
                           <TableCell key={role}>
                             <Select

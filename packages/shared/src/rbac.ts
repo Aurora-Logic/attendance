@@ -186,6 +186,14 @@ export const DEFAULT_MATRIX: PermissionMatrix = {
   "expense.approve": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "OWN_TEAM", EMPLOYEE: "NONE" },
 }
 
+/**
+ * A permission added to PERMISSIONS without a matrix row must degrade to
+ * NONE-for-everyone, never crash a screen. Applied to the seed at load.
+ */
+for (const permission of PERMISSIONS) {
+  DEFAULT_MATRIX[permission.key] ??= { ADMIN: "ALL", HR: "NONE", OPERATIONS: "NONE", EMPLOYEE: "NONE" }
+}
+
 /** Which scopes make sense for a given capability. */
 export function allowedScopes(permissionKey: string): Scope[] {
   if (permissionKey === "punch.self") return ["NONE", "SELF"]
