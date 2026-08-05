@@ -107,6 +107,50 @@ describe("sales", () => {
     ).toBe(403)
   })
 
+  it("accepted estimate converts to a sales order exactly once, prices untouched", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const { estimate } = (await draftEstimate(ops)).json()
+    await app.inject({ method: "POST", url: `/estimates/${estimate.id}/send`, headers: { cookie: ops } })
+
+    // Converting before acceptance is refused.
+    const early = await app.inject({
+      method: "POST",
+      url: `/estimates/${estimate.id}/convert`,
+      headers: { cookie: ops },
+      payload: { orderDate: "2026-08-07" },
+    })
+    expect(early.statusCode).toBe(409)
+
+    await app.inject({
+      method: "POST",
+      url: `/estimates/${estimate.id}/decide`,
+      headers: { cookie: ops },
+      payload: { action: "ACCEPT" },
+    })
+    const converted = await app.inject({
+      method: "POST",
+      url: `/estimates/${estimate.id}/convert`,
+      headers: { cookie: ops },
+      payload: { orderDate: "2026-08-07", customerRef: "ACME-PO-991" },
+    })
+    expect(converted.statusCode).toBe(201)
+    const { salesOrder } = converted.json()
+    expect(salesOrder.number).toBe("SO-2026-0001")
+    expect(salesOrder.status).toBe("OPEN")
+    expect(salesOrder.sourceEstimateId).toBe(estimate.id)
+    // Conversion never reprices.
+    expect(salesOrder.totals.totalPaise).toBe(767_000)
+
+    const twice = await app.inject({
+      method: "POST",
+      url: `/estimates/${estimate.id}/convert`,
+      headers: { cookie: ops },
+      payload: { orderDate: "2026-08-07" },
+    })
+    expect(twice.statusCode).toBe(409)
+    expect(twice.json().error).toBe("ALREADY_CONVERTED")
+  })
+
   it("customer master enforces unique codes", async () => {
     const ops = await login("ops@delta.dev", "Ops@1234")
     const duplicate = await app.inject({

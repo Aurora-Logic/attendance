@@ -28,6 +28,37 @@ describe("estimateDisplayStatus", () => {
   })
 })
 
+describe("salesOrderFromEstimate", () => {
+  it("copies lines verbatim with new ids and keeps the source link", async () => {
+    const { salesOrderFromEstimate } = await import("./sales")
+    const estimate = estimateSchema.parse({
+      id: "est1",
+      number: "EST-2026-0001",
+      customerId: "c1",
+      date: "2026-08-06",
+      status: "ACCEPTED",
+      terms: "Ex-works Mumbai.",
+      lines: [
+        { id: "l1", itemId: "i1", qty: 10, unitPricePaise: 25_000, gstRatePct: 18, discountPct: 5 },
+      ],
+    })
+    const so = salesOrderFromEstimate(estimate, {
+      id: "so1",
+      number: "SO-2026-0001",
+      orderDate: "2026-08-07",
+      customerRef: "ACME-PO-991",
+      createdBy: "ops@delta.dev",
+    })
+    expect(so.status).toBe("OPEN")
+    expect(so.sourceEstimateId).toBe("est1")
+    expect(so.terms).toBe("Ex-works Mumbai.")
+    expect(so.lines[0]).toMatchObject({ qty: 10, unitPricePaise: 25_000, discountPct: 5 })
+    expect(so.lines[0].id).not.toBe("l1")
+    // Conversion never reprices: totals match the estimate exactly.
+    expect(poTotals(so.lines).totalPaise).toBe(poTotals(estimate.lines).totalPaise)
+  })
+})
+
 describe("schemas", () => {
   it("estimate lines are PO lines — one totals implementation for both sides", () => {
     const estimate = estimateSchema.parse({

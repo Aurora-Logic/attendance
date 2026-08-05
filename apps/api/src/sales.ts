@@ -5,8 +5,10 @@ import {
   estimateDisplayStatus,
   formatDocNumber,
   poTotals,
+  salesOrderFromEstimate,
   type Estimate,
   type PoLine,
+  type SalesOrder,
 } from "@attendance/shared"
 
 import { id, type Store } from "./store"
@@ -181,5 +183,76 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
     }
     estimate.status = "CLOSED"
     return { estimate: summary(estimate) }
+  })
+
+  // ---- sales orders -------------------------------------------------------
+  const soSummary = (so: SalesOrder) => ({
+    ...so,
+    customerName:
+      store.customers.find((candidate) => candidate.id === so.customerId)?.name ?? "—",
+    totals: poTotals(so.lines),
+  })
+
+  app.get("/sales-orders", { preHandler: read }, async () => ({
+    salesOrders: store.salesOrders.map(soSummary),
+  }))
+
+  app.get("/sales-orders/:id", { preHandler: read }, async (request, reply) => {
+    const { id: soId } = request.params as { id: string }
+    const so = store.salesOrders.find((candidate) => candidate.id === soId)
+    if (!so) return reply.code(404).send({ error: "NOT_FOUND" })
+    return { salesOrder: soSummary(so) }
+  })
+
+  const convertSchema = z.object({
+    orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    customerRef: z.string().default(""),
+  })
+
+  /** An accepted estimate becomes an order exactly once — prices untouched. */
+  app.post("/estimates/:id/convert", { preHandler: manage }, async (request, reply) => {
+    const { id: estimateId } = request.params as { id: string }
+    const parsed = convertSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+    const estimate = store.estimates.find((candidate) => candidate.id === estimateId)
+    if (!estimate) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (estimate.status !== "ACCEPTED") {
+      return reply.code(409).send({ error: "NOT_ACCEPTED", status: estimate.status })
+    }
+    const existing = store.salesOrders.find(
+      (candidate) => candidate.sourceEstimateId === estimate.id
+    )
+    if (existing) {
+      return reply.code(409).send({ error: "ALREADY_CONVERTED", salesOrderId: existing.id })
+    }
+
+    store.seq.so += 1
+    const so = salesOrderFromEstimate(estimate, {
+      id: id(store, "so"),
+      number: formatDocNumber("SO", Number(parsed.data.orderDate.slice(0, 4)), store.seq.so),
+      orderDate: parsed.data.orderDate,
+      customerRef: parsed.data.customerRef,
+      createdBy: request.auth.userId,
+    })
+    store.salesOrders.push(so)
+    return reply.code(201).send({ salesOrder: soSummary(so) })
+  })
+
+  app.post("/sales-orders/:id/close", { preHandler: manage }, async (request, reply) => {
+    const { id: soId } = request.params as { id: string }
+    const so = store.salesOrders.find((candidate) => candidate.id === soId)
+    if (!so) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (so.status !== "OPEN") return reply.code(409).send({ error: "NOT_OPEN", status: so.status })
+    so.status = "CLOSED"
+    return { salesOrder: soSummary(so) }
+  })
+
+  app.post("/sales-orders/:id/cancel", { preHandler: manage }, async (request, reply) => {
+    const { id: soId } = request.params as { id: string }
+    const so = store.salesOrders.find((candidate) => candidate.id === soId)
+    if (!so) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (so.status !== "OPEN") return reply.code(409).send({ error: "NOT_OPEN", status: so.status })
+    so.status = "CANCELLED"
+    return { salesOrder: soSummary(so) }
   })
 }

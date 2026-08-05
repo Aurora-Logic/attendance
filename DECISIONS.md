@@ -158,7 +158,20 @@ when it is on — the cost of that toggle should not be a surprise discovered at
 | D4 | The Settings **Guide** is written per task, not per screen | "How do I make Friday a half day?" is how the question arrives. Every entry ends with *what it does* — the rule, not just the clicks — and the header renders the live values so the guide always matches the configuration. |
 | D5 | Nightly close is an idempotent pure function | `runNightlyClose(store, date)`: IN without OUT → MISSING_PUNCH_OUT regularisation to the employee, once. Runs at boot for yesterday and hourly after; re-runs create nothing twice. |
 
-## 8. Backend shape (Phase 1, first cut)
+## 8. Attendance truth lives in Postgres
+
+Punches, approvals and the leave ledger dual-write: the in-memory store keeps
+answering requests synchronously, every mutation also lands in its Postgres
+table (fire-and-forget, like the audit log — a DB outage never fails a punch),
+and **boot hydration replaces the JSON file's copy with the database rows**, so
+Postgres is the system of record across restarts. A one-time backfill migrates
+pre-existing file history into empty tables on first boot. Selfie data URLs
+deliberately stay out of the DB (§1 — images never in the database); they ride
+in the store file until MinIO object storage lands. The JSON file now only
+carries what has no table yet (procurement/sales, branding extras, the
+export-job registry).
+
+## 9. Backend shape (Phase 1, first cut)
 
 | # | Decision | Rationale |
 |---|---|---|

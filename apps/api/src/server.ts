@@ -29,6 +29,10 @@ import {
   createDepartment,
   listCalendarDays,
   listDepartments,
+  persistApproval,
+  persistApprovalDecision,
+  persistLedgerEntry,
+  persistPunch,
   setCalendarDay,
   updateDepartment,
   type CalendarDayRow,
@@ -725,6 +729,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         syncDeltaSec,
       }
       store.punches.push(punch)
+      persistPunch(punch)
       recordAudit({
         actorId: request.auth.userId,
         action: `punch.${body.type.toLowerCase()}`,
@@ -749,6 +754,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
           level: 1,
           createdAt: new Date().toISOString(),
         })
+        persistApproval(store.approvals.at(-1)!)
       }
 
       const evaluation = evaluateLate(
@@ -882,6 +888,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         createdAt: new Date().toISOString(),
       }
       store.approvals.push(approval)
+      persistApproval(approval)
       return reply.code(201).send({ approval, units })
     }
   )
@@ -933,6 +940,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     approval.status = parsed.data.action === "APPROVE" ? "APPROVED" : "REJECTED"
     approval.decidedBy = request.auth.userId
     approval.remarks = parsed.data.remarks
+    persistApprovalDecision(approval)
     recordAudit({
       actorId: request.auth.userId,
       action: `approval.${parsed.data.action.toLowerCase()}`,
@@ -953,6 +961,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         date: approval.dateFrom,
         remarks: `${approval.id} approved`,
       })
+      persistLedgerEntry(store.ledger.at(-1)!)
     }
 
     return { approval }

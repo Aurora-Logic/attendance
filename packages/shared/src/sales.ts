@@ -64,3 +64,57 @@ export function estimateDisplayStatus(
   }
   return estimate.status
 }
+
+/* ------------------------------------------------------------- sales orders */
+
+/**
+ * A sales order is a customer's confirmed commitment — usually born from an
+ * accepted estimate. OPEN until dispatched (fulfilment tracking arrives with
+ * the inventory wave), CLOSED when done or short-closed, CANCELLED before any
+ * dispatch. Lines stay PO lines; delivery schedules reuse the PO tranche shape.
+ */
+export const SALES_ORDER_STATUS = ["OPEN", "CLOSED", "CANCELLED"] as const
+export const salesOrderStatusSchema = z.enum(SALES_ORDER_STATUS)
+export type SalesOrderStatus = z.infer<typeof salesOrderStatusSchema>
+
+export const salesOrderSchema = z.object({
+  id: z.string(),
+  /** SO-2026-0001; sequence per year. */
+  number: z.string(),
+  customerId: z.string(),
+  /** The estimate this order was won from, when there was one. */
+  sourceEstimateId: z.string().nullable().default(null),
+  orderDate: z.string(),
+  /** Customer's own PO/order reference, printed on the document. */
+  customerRef: z.string().default(""),
+  status: salesOrderStatusSchema,
+  lines: z.array(poLineSchema).min(1),
+  terms: z.string().default(""),
+  notes: z.string().default(""),
+  createdBy: z.string().default(""),
+})
+export type SalesOrder = z.infer<typeof salesOrderSchema>
+
+/**
+ * Convert an accepted estimate into a sales order: lines are copied verbatim
+ * (prices were agreed — conversion must never reprice), terms carry over, and
+ * the source link is kept so the estimate can never be converted twice.
+ */
+export function salesOrderFromEstimate(
+  estimate: Estimate,
+  input: { id: string; number: string; orderDate: string; customerRef?: string; createdBy: string }
+): SalesOrder {
+  return {
+    id: input.id,
+    number: input.number,
+    customerId: estimate.customerId,
+    sourceEstimateId: estimate.id,
+    orderDate: input.orderDate,
+    customerRef: input.customerRef ?? "",
+    status: "OPEN",
+    lines: estimate.lines.map((line, index) => ({ ...line, id: `${input.id}_l${index}` })),
+    terms: estimate.terms,
+    notes: estimate.notes,
+    createdBy: input.createdBy,
+  }
+}

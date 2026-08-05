@@ -1,3 +1,4 @@
+import { persistApproval } from "./repositories"
 import type { Store } from "./store"
 import { id } from "./store"
 
@@ -41,6 +42,7 @@ export function runNightlyClose(store: Store, dateISO: string): { closed: string
       level: 1,
       createdAt: new Date().toISOString(),
     })
+    persistApproval(store.approvals.at(-1)!)
     closed.push(employee.id)
   }
 

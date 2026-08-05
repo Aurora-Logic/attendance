@@ -1,5 +1,12 @@
 import * as React from "react"
-import { formatDocNumber, type Customer, type Estimate, type PoLine } from "@attendance/shared"
+import {
+  formatDocNumber,
+  salesOrderFromEstimate,
+  type Customer,
+  type Estimate,
+  type PoLine,
+  type SalesOrder,
+} from "@attendance/shared"
 
 /**
  * Sales store: customers and estimates, persisted locally and mirroring
@@ -11,7 +18,8 @@ import { formatDocNumber, type Customer, type Estimate, type PoLine } from "@att
 export interface SalesState {
   customers: Customer[]
   estimates: Estimate[]
-  seq: { est: number; entity: number }
+  salesOrders: SalesOrder[]
+  seq: { est: number; so: number; entity: number }
 }
 
 export interface EstimateDraftLine {
@@ -38,6 +46,13 @@ interface SalesValue extends SalesState {
   sendEstimate: (estimateId: string) => void
   decideEstimate: (estimateId: string, action: "ACCEPT" | "REJECT", note?: string) => void
   closeEstimate: (estimateId: string) => void
+  /** Accepted estimate → sales order, once; returns null if already converted. */
+  convertEstimate: (
+    estimateId: string,
+    input: { orderDate: string; customerRef: string; createdBy: string }
+  ) => SalesOrder | null
+  closeSalesOrder: (soId: string) => void
+  cancelSalesOrder: (soId: string) => void
 }
 
 const SalesContext = React.createContext<SalesValue | null>(null)
@@ -58,14 +73,23 @@ function seedState(): SalesState {
       notes: "", createdBy: "ops@delta.dev", decisionNote: "",
     },
   ]
-  return { customers, estimates, seq: { est: 1, entity: 1 } }
+  return { customers, estimates, salesOrders: [], seq: { est: 1, so: 0, entity: 1 } }
+}
+
+/** A blob saved before sales orders existed must never brick the app. */
+function normalizeState(raw: SalesState): SalesState {
+  return {
+    ...raw,
+    salesOrders: raw.salesOrders ?? [],
+    seq: { est: raw.seq.est, so: raw.seq.so ?? 0, entity: raw.seq.entity },
+  }
 }
 
 export function SalesProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = React.useState<SalesState>(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) return JSON.parse(raw) as SalesState
+      if (raw) return normalizeState(JSON.parse(raw) as SalesState)
     } catch {
       localStorage.removeItem(STORAGE_KEY)
     }
@@ -139,6 +163,41 @@ export function SalesProvider({ children }: { children: React.ReactNode }) {
         }),
 
       closeEstimate: (estimateId) => patchEstimate(estimateId, { status: "CLOSED" }),
+
+      convertEstimate: (estimateId, input) => {
+        const estimate = state.estimates.find((candidate) => candidate.id === estimateId)
+        if (!estimate || estimate.status !== "ACCEPTED") return null
+        if (state.salesOrders.some((so) => so.sourceEstimateId === estimateId)) return null
+        const so = salesOrderFromEstimate(estimate, {
+          id: `so_${state.seq.entity}`,
+          number: formatDocNumber("SO", Number(input.orderDate.slice(0, 4)), state.seq.so + 1),
+          orderDate: input.orderDate,
+          customerRef: input.customerRef,
+          createdBy: input.createdBy,
+        })
+        setState((prev) => ({
+          ...prev,
+          salesOrders: [...prev.salesOrders, so],
+          seq: { ...prev.seq, so: prev.seq.so + 1, entity: prev.seq.entity + 1 },
+        }))
+        return so
+      },
+
+      closeSalesOrder: (soId) =>
+        setState((prev) => ({
+          ...prev,
+          salesOrders: prev.salesOrders.map((so) =>
+            so.id === soId ? { ...so, status: "CLOSED" } : so
+          ),
+        })),
+
+      cancelSalesOrder: (soId) =>
+        setState((prev) => ({
+          ...prev,
+          salesOrders: prev.salesOrders.map((so) =>
+            so.id === soId ? { ...so, status: "CANCELLED" } : so
+          ),
+        })),
     }
   }, [state])
 

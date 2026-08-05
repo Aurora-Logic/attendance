@@ -14,6 +14,7 @@ import {
   type PunchType,
   type PurchaseOrder,
   type Role,
+  type SalesOrder,
   type ShiftSpec,
   type Vendor,
 } from "@attendance/shared"
@@ -135,8 +136,9 @@ export interface Store {
   grns: Grn[]
   customers: Customer[]
   estimates: Estimate[]
+  salesOrders: SalesOrder[]
   /** Per-year document sequences (PO-2026-0042); year rollover resets in Prisma. */
-  seq: { po: number; grn: number; est: number }
+  seq: { po: number; grn: number; est: number; so: number }
   nextId: number
 }
 
@@ -198,7 +200,8 @@ export function seedStore(): Store {
       { id: "c2", code: "CST002", name: "Zenith Traders", gstin: null, contact: "Farhan Ali", email: "zenith.traders@gmail.com", phone: "+91 99887 66554", address: "Chickpet Main Road", city: "Bengaluru", state: "Karnataka", paymentTermsDays: 15, active: true },
     ],
     estimates: [],
-    seq: { po: 0, grn: 0, est: 0 },
+    salesOrders: [],
+    seq: { po: 0, grn: 0, est: 0, so: 0 },
     nextId: 1,
   }
 }

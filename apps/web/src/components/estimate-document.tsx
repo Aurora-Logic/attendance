@@ -53,6 +53,11 @@ export interface EstimateDocumentProps {
   date: string
   validUntil: string | null
   statusLabel: string
+  /** Document title band — "ESTIMATE" by default; "SALES ORDER" reuses the sheet. */
+  title?: string
+  numberLabel?: string
+  /** Replaces the Valid-until cell (e.g. the customer's own PO reference). */
+  thirdRef?: { label: string; value: string }
   customer: Customer | null
   lines: EstimateDocLine[]
   terms: string
@@ -217,6 +222,9 @@ export function EstimateDocument({
   date,
   validUntil,
   statusLabel,
+  title = "ESTIMATE",
+  numberLabel = "Estimate No.",
+  thirdRef,
   customer,
   lines,
   terms,
@@ -391,7 +399,12 @@ export function EstimateDocument({
           </div>
           <div className="flex w-32 shrink-0 items-center justify-center border-l border-neutral-800 px-3 text-center sm:w-44">
             <p className="-mr-[0.12em] text-sm leading-snug font-bold tracking-[0.12em] sm:text-base">
-              ESTIMATE
+              {title.split(" ").map((word, index) => (
+                <React.Fragment key={index}>
+                  {index > 0 ? <br /> : null}
+                  {word}
+                </React.Fragment>
+              ))}
             </p>
           </div>
         </div>

@@ -146,3 +146,255 @@ export async function clearCalendarDay(dateISO: string): Promise<void> {
       // Already absent — clearing a non-declared day is a no-op, not an error.
     })
 }
+
+/* ------------------------------------------------- attendance write-through */
+
+/**
+ * Punches, approvals and ledger entries dual-write: the store answers requests
+ * (fast, synchronous), Postgres is the durable record, and boot hydration
+ * makes Postgres the source of truth across restarts. Writes are
+ * fire-and-forget like the audit log — a DB outage never fails a punch.
+ *
+ * Selfie data URLs deliberately do NOT go to Postgres (§1: images never in the
+ * DB); they stay in the store file until MinIO object storage lands.
+ */
+
+import type { LedgerRow, Store, StoredApproval, StoredPunch } from "./store"
+
+const fire = (label: string, work: () => Promise<unknown>) => {
+  void work().catch((error) => console.error(`${label}:`, (error as Error).message))
+}
+
+export function persistPunch(punch: StoredPunch): void {
+  const db = prisma()
+  if (!db) return
+  fire("persist punch", () =>
+    db.punch.create({
+      data: {
+        id: punch.id,
+        companyId: COMPANY_ID,
+        employeeId: punch.employeeId,
+        type: punch.type,
+        at: new Date(`${punch.at}:00`),
+        resolvedDate: new Date(`${punch.businessDate}T00:00:00Z`),
+        offsetMin: punch.offsetMin,
+        lat: punch.lat,
+        lng: punch.lng,
+        accuracyM: punch.accuracyM,
+        dayPart: punch.dayPart,
+        flags: punch.flags,
+        idempotencyKey: punch.idempotencyKey,
+        syncDeltaSec: punch.syncDeltaSec,
+      },
+    })
+  )
+}
+
+export function persistApproval(approval: StoredApproval): void {
+  const db = prisma()
+  if (!db) return
+  fire("persist approval", () =>
+    db.approvalRequest.create({
+      data: {
+        id: approval.id,
+        companyId: COMPANY_ID,
+        kind: approval.kind,
+        employeeId: approval.employeeId,
+        subject: approval.subject,
+        detail: approval.detail,
+        dateFrom: new Date(`${approval.dateFrom}T00:00:00Z`),
+        dateTo: new Date(`${approval.dateTo}T00:00:00Z`),
+        units: approval.units,
+        status: approval.status,
+        level: approval.level,
+        // The model has no createdAt/leaveType columns; they ride in metaJson
+        // so hydration can round-trip the store shape exactly.
+        metaJson: {
+          createdAt: approval.createdAt,
+          leaveType: approval.leaveType ?? null,
+          leavePart: approval.leavePart ?? null,
+        },
+      },
+    })
+  )
+}
+
+export function persistApprovalDecision(approval: StoredApproval): void {
+  const db = prisma()
+  if (!db) return
+  fire("persist decision", () =>
+    db.approvalRequest.update({
+      where: { id: approval.id },
+      data: { status: approval.status },
+    })
+  )
+}
+
+export function persistLedgerEntry(entry: LedgerRow): void {
+  const db = prisma()
+  if (!db) return
+  fire("persist ledger", () =>
+    db.leaveLedgerEntry.create({
+      data: {
+        id: entry.id,
+        companyId: COMPANY_ID,
+        employeeId: entry.employeeId,
+        typeCode: entry.type,
+        txnType: entry.txnType,
+        units: entry.units,
+        date: new Date(`${entry.date}T00:00:00Z`),
+        remarks: entry.remarks,
+      },
+    })
+  )
+}
+
+const dateOnly = (value: Date) => value.toISOString().slice(0, 10)
+const clockOf = (value: Date) =>
+  `${dateOnly(value)}T${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`
+
+/**
+ * Boot hydration: Postgres rows replace the JSON file's copy of attendance
+ * truth. The file keeps carrying what has no table yet (procurement, sales,
+ * branding extras).
+ */
+export async function hydrateFromDb(store: Store): Promise<{
+  punches: number
+  approvals: number
+  ledger: number
+} | null> {
+  const db = prisma()
+  if (!db) return null
+
+  // One-time backfill: rows that predate the write-through exist only in the
+  // JSON file. An empty table with a non-empty store means this is that first
+  // boot — copy the history in before reading it back.
+  if ((await db.punch.count()) === 0 && store.punches.length > 0) {
+    await db.punch.createMany({
+      skipDuplicates: true,
+      data: store.punches.map((punch) => ({
+        id: punch.id,
+        companyId: COMPANY_ID,
+        employeeId: punch.employeeId,
+        type: punch.type,
+        at: new Date(`${punch.at}:00`),
+        resolvedDate: new Date(`${punch.businessDate}T00:00:00Z`),
+        offsetMin: punch.offsetMin,
+        lat: punch.lat,
+        lng: punch.lng,
+        accuracyM: punch.accuracyM,
+        dayPart: punch.dayPart,
+        flags: punch.flags,
+        idempotencyKey: punch.idempotencyKey,
+        syncDeltaSec: punch.syncDeltaSec,
+      })),
+    })
+  }
+  if ((await db.approvalRequest.count()) === 0 && store.approvals.length > 0) {
+    await db.approvalRequest.createMany({
+      skipDuplicates: true,
+      data: store.approvals.map((approval) => ({
+        id: approval.id,
+        companyId: COMPANY_ID,
+        kind: approval.kind,
+        employeeId: approval.employeeId,
+        subject: approval.subject,
+        detail: approval.detail,
+        dateFrom: new Date(`${approval.dateFrom}T00:00:00Z`),
+        dateTo: new Date(`${approval.dateTo}T00:00:00Z`),
+        units: approval.units,
+        status: approval.status,
+        level: approval.level,
+        metaJson: {
+          createdAt: approval.createdAt,
+          leaveType: approval.leaveType ?? null,
+          leavePart: approval.leavePart ?? null,
+        },
+      })),
+    })
+  }
+  if ((await db.leaveLedgerEntry.count()) === 0 && store.ledger.length > 0) {
+    await db.leaveLedgerEntry.createMany({
+      skipDuplicates: true,
+      data: store.ledger.map((entry) => ({
+        id: entry.id,
+        companyId: COMPANY_ID,
+        employeeId: entry.employeeId,
+        typeCode: entry.type,
+        txnType: entry.txnType,
+        units: entry.units,
+        date: new Date(`${entry.date}T00:00:00Z`),
+        remarks: entry.remarks,
+      })),
+    })
+  }
+
+  const [punches, approvals, ledger] = await Promise.all([
+    db.punch.findMany({ orderBy: { at: "asc" } }),
+    db.approvalRequest.findMany(),
+    db.leaveLedgerEntry.findMany({ orderBy: { date: "asc" } }),
+  ])
+
+  if (punches.length > 0) {
+    // Selfies live only in the store file — merge them back onto DB rows.
+    const selfies = new Map(
+      store.punches.map((punch) => [punch.id, { thumb: punch.selfieThumb, view: punch.selfieView }])
+    )
+    store.punches = punches.map((row) => ({
+      id: row.id,
+      employeeId: row.employeeId,
+      type: row.type,
+      businessDate: dateOnly(row.resolvedDate),
+      offsetMin: row.offsetMin,
+      at: clockOf(row.at),
+      lat: row.lat ?? undefined,
+      lng: row.lng ?? undefined,
+      accuracyM: row.accuracyM ?? 0,
+      dayPart: row.dayPart as StoredPunch["dayPart"],
+      flags: row.flags as StoredPunch["flags"],
+      idempotencyKey: row.idempotencyKey,
+      selfieThumb: selfies.get(row.id)?.thumb,
+      selfieView: selfies.get(row.id)?.view,
+      syncDeltaSec: row.syncDeltaSec ?? undefined,
+    }))
+  }
+
+  if (approvals.length > 0) {
+    store.approvals = approvals.map((row) => {
+      const meta = (row.metaJson ?? {}) as {
+        createdAt?: string
+        leaveType?: string | null
+        leavePart?: StoredApproval["leavePart"] | null
+      }
+      return {
+        id: row.id,
+        kind: row.kind as StoredApproval["kind"],
+        employeeId: row.employeeId,
+        subject: row.subject,
+        detail: row.detail,
+        dateFrom: dateOnly(row.dateFrom),
+        dateTo: dateOnly(row.dateTo),
+        units: row.units,
+        status: row.status as StoredApproval["status"],
+        level: row.level as 1 | 2,
+        createdAt: meta.createdAt ?? row.dateFrom.toISOString(),
+        leaveType: meta.leaveType ?? undefined,
+        leavePart: meta.leavePart ?? undefined,
+      }
+    })
+  }
+
+  if (ledger.length > 0) {
+    store.ledger = ledger.map((row) => ({
+      id: row.id,
+      employeeId: row.employeeId,
+      type: row.typeCode,
+      txnType: row.txnType as LedgerRow["txnType"],
+      units: row.units,
+      date: dateOnly(row.date),
+      remarks: row.remarks,
+    }))
+  }
+
+  return { punches: punches.length, approvals: approvals.length, ledger: ledger.length }
+}
