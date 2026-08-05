@@ -55,6 +55,8 @@ export const itemSchema = z.object({
   gstRatePct: z.number().min(0).max(28).default(18),
   /** Last agreed price — the default when the item lands on a PO line. */
   lastPricePaise: z.number().int().nonnegative().default(0),
+  /** Sale price — the default when the item lands on an estimate line. */
+  salePricePaise: z.number().int().nonnegative().default(0),
   active: z.boolean().default(true),
 })
 export type Item = z.infer<typeof itemSchema>
@@ -168,6 +170,27 @@ export function lineAmounts(line: PoLine): LineAmounts {
   const taxablePaise = subtotalPaise - discountPaise
   const taxPaise = Math.round((taxablePaise * line.gstRatePct) / 100)
   return { subtotalPaise, discountPaise, taxablePaise, taxPaise, totalPaise: taxablePaise + taxPaise }
+}
+
+/** First two GSTIN digits are the state code — what decides IGST vs CGST+SGST. */
+export function gstStateCode(gstin: string | null | undefined): string | null {
+  if (!gstin) return null
+  const match = /^(\d{2})/.exec(gstin.trim())
+  return match ? match[1] : null
+}
+
+/**
+ * Intra-state GST splits into CGST + SGST at half the rate each. CGST is
+ * rounded once; SGST takes the remainder so the pair always sums exactly to
+ * the single-GST figure — no one-paisa drift between the two presentations.
+ */
+export function splitGst(
+  taxablePaise: Paise,
+  ratePct: number
+): { cgstPaise: Paise; sgstPaise: Paise } {
+  const total = Math.round((taxablePaise * ratePct) / 100)
+  const cgstPaise = Math.round((taxablePaise * ratePct) / 200)
+  return { cgstPaise, sgstPaise: total - cgstPaise }
 }
 
 export interface PoTotals extends LineAmounts {

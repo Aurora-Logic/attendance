@@ -4,6 +4,7 @@ import { CalendarCheck, CalendarDays, CalendarX, Settings2, Sparkles } from "luc
 import { Link } from "react-router"
 
 import { useAppConfig, type RosterRule } from "@/lib/app-config"
+import { useCalendarDays, useSetCalendarDay } from "@/lib/queries"
 import { generateRoster, type CellSource } from "@/lib/roster"
 import { cn } from "@/lib/utils"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
@@ -20,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   Table,
   TableBody,
@@ -35,6 +37,7 @@ const SOURCE_TONE: Record<CellSource, "success" | "info" | "warning" | "outline"
   DEFAULT: "success",
   WEEKLY_OFF: "outline",
   HOLIDAY: "warning",
+  HALF_DAY: "warning",
   MANUAL: "secondary",
 }
 
@@ -43,6 +46,7 @@ const SOURCE_LABEL: Record<CellSource, string> = {
   DEFAULT: "Default shift",
   WEEKLY_OFF: "Weekly off",
   HOLIDAY: "Holiday",
+  HALF_DAY: "Half working day",
   MANUAL: "Manual override",
 }
 
@@ -99,23 +103,24 @@ function RulesPopover({
 function DayHeader({
   day,
   date,
-  holidayName,
+  declared,
   onDeclare,
   onClear,
 }: {
   day: number
   date: Date
-  holidayName?: string
-  onDeclare: (name: string) => void
+  declared?: { name: string; type: "HOLIDAY" | "HALF_DAY" }
+  onDeclare: (name: string, type: "HOLIDAY" | "HALF_DAY") => void
   onClear: () => void
 }) {
   const [name, setName] = React.useState("")
+  const [type, setType] = React.useState<"HOLIDAY" | "HALF_DAY">("HOLIDAY")
   const [open, setOpen] = React.useState(false)
   const isSunday = date.getDay() === 0
 
   const declare = () => {
     if (!name.trim()) return
-    onDeclare(name.trim())
+    onDeclare(name.trim(), type)
     setName("")
     setOpen(false)
   }
@@ -127,10 +132,11 @@ function DayHeader({
           type="button"
           className={cn(
             "hover:bg-accent flex w-full flex-col items-center py-2 leading-tight transition-colors",
-            holidayName && "text-status-holiday font-semibold",
-            !holidayName && isSunday && "text-muted-foreground"
+            declared?.type === "HOLIDAY" && "text-status-holiday font-semibold",
+            declared?.type === "HALF_DAY" && "text-status-half-day font-semibold",
+            !declared && isSunday && "text-muted-foreground"
           )}
-          aria-label={`Day ${day}${holidayName ? ` — ${holidayName}` : ""}`}
+          aria-label={`Day ${day}${declared ? ` — ${declared.name}` : ""}`}
         >
           <span>{day}</span>
           <span className="text-[10px] font-normal opacity-60">
@@ -145,12 +151,12 @@ function DayHeader({
               {date.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
             </p>
             <p className="text-muted-foreground text-sm">
-              {holidayName
-                ? `Currently a holiday: ${holidayName}`
-                : "Declare this day a holiday for every rostered employee."}
+              {declared
+                ? `Currently ${declared.type === "HOLIDAY" ? "a holiday" : "a half working day"}: ${declared.name}`
+                : "Declare this day for every rostered employee."}
             </p>
           </div>
-          {holidayName ? (
+          {declared ? (
             <Button
               variant="outline"
               size="sm"
@@ -160,19 +166,39 @@ function DayHeader({
               }}
             >
               <CalendarX />
-              Remove holiday
+              Remove {declared.type === "HOLIDAY" ? "holiday" : "half day"}
             </Button>
           ) : (
             <div className="flex flex-col gap-2">
               <Input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Holiday name, e.g. Diwali"
+                placeholder="e.g. Diwali, or Festival eve"
                 onKeyDown={(event) => event.key === "Enter" && declare()}
               />
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={type}
+                onValueChange={(value) => value && setType(value as "HOLIDAY" | "HALF_DAY")}
+                className="w-full"
+              >
+                <ToggleGroupItem value="HOLIDAY" className="flex-1">
+                  Holiday
+                </ToggleGroupItem>
+                <ToggleGroupItem value="HALF_DAY" className="flex-1">
+                  Half day
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <p className="text-muted-foreground text-xs">
+                {type === "HOLIDAY"
+                  ? "Paid for everyone, no punches expected."
+                  : "A working day with the expectation halved — half the hours still earn a full day."}
+              </p>
               <Button size="sm" disabled={!name.trim()} onClick={declare}>
                 <CalendarCheck />
-                Mark as holiday
+                Mark as {type === "HOLIDAY" ? "holiday" : "half day"}
               </Button>
             </div>
           )}
@@ -183,8 +209,44 @@ function DayHeader({
 }
 
 export function RosterPage() {
-  const { roster, setRoster, declareHoliday, clearHoliday } = useAppConfig()
-  const grid = React.useMemo(() => generateRoster(2026, 7, roster), [roster])
+  const { roster, setRoster, declareDay, clearDay } = useAppConfig()
+  const { days: apiDays } = useCalendarDays()
+  const calendarMutations = useSetCalendarDay()
+
+  // Postgres wins when signed in through the API; otherwise the local config.
+  const declaredDays: Record<string, { name: string; type: "HOLIDAY" | "HALF_DAY" }> =
+    apiDays ??
+    Object.fromEntries([
+      ...Object.entries(roster.holidays).map(([date, name]) => [
+        date,
+        { name, type: "HOLIDAY" as const },
+      ]),
+      ...Object.entries(roster.halfDays).map(([date, name]) => [
+        date,
+        { name, type: "HALF_DAY" as const },
+      ]),
+    ])
+
+  const effectiveRoster = React.useMemo(
+    () =>
+      apiDays
+        ? {
+            ...roster,
+            holidays: Object.fromEntries(
+              Object.entries(apiDays)
+                .filter(([, day]) => day.type === "HOLIDAY")
+                .map(([date, day]) => [date, day.name])
+            ),
+            halfDays: Object.fromEntries(
+              Object.entries(apiDays)
+                .filter(([, day]) => day.type === "HALF_DAY")
+                .map(([date, day]) => [date, day.name])
+            ),
+          }
+        : roster,
+    [roster, apiDays]
+  )
+  const grid = React.useMemo(() => generateRoster(2026, 7, effectiveRoster), [effectiveRoster])
   const daysInMonth = grid[0]?.cells.length ?? 31
 
   const toggleRule = (id: string, enabled: boolean) =>
@@ -252,14 +314,38 @@ export function RosterPage() {
                       <DayHeader
                         day={day}
                         date={date}
-                        holidayName={roster.holidays[dateISO]}
-                        onDeclare={(name) => {
-                          declareHoliday(dateISO, name)
-                          toast.success(`${day} August marked as ${name}`)
+                        declared={declaredDays[dateISO]}
+                        onDeclare={(name, type) => {
+                          const label = type === "HOLIDAY" ? "holiday" : "half working day"
+                          if (apiDays) {
+                            calendarMutations.declare.mutate(
+                              { date: dateISO, name, type },
+                              {
+                                onSuccess: () =>
+                                  toast.success(`${day} August marked as a ${label}`, {
+                                    description:
+                                      type === "HALF_DAY"
+                                        ? "Half the hours now earn a full payable day."
+                                        : "Paid for everyone; punches route as comp-off claims.",
+                                  }),
+                                onError: () => toast.error("Could not save — admin rights required"),
+                              }
+                            )
+                          } else {
+                            declareDay(dateISO, name, type)
+                            toast.success(`${day} August marked as a ${label}`)
+                          }
                         }}
                         onClear={() => {
-                          clearHoliday(dateISO)
-                          toast(`${day} August is a working day again`)
+                          if (apiDays) {
+                            calendarMutations.clear.mutate(dateISO, {
+                              onSuccess: () => toast(`${day} August is an ordinary working day again`),
+                              onError: () => toast.error("Could not clear — admin rights required"),
+                            })
+                          } else {
+                            clearDay(dateISO)
+                            toast(`${day} August is an ordinary working day again`)
+                          }
                         }}
                       />
                     </TableHead>

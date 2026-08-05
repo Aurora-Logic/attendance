@@ -198,3 +198,47 @@ describe("computeAttendanceDay — overtime", () => {
     expect(r.otMinutes).toBe(0)
   })
 })
+
+describe("computeAttendanceDay — declared half working day", () => {
+  it("halves the expectation, not the pay: 4h on a half day is a FULL day", () => {
+    const r = computeAttendanceDay(day({ dayKind: "HALF_DAY", punches: [IN(0), OUT(240)] }))
+    expect(r.status).toBe("PRESENT")
+    expect(r.payableUnits).toBe(1)
+    expect(r.explanation).toMatch(/declared half working day/i)
+  })
+
+  it("the same 4h on a normal day is only a half day", () => {
+    const r = computeAttendanceDay(day({ punches: [IN(0), OUT(240)] }))
+    expect(r.status).toBe("HALF_DAY")
+    expect(r.payableUnits).toBe(0.5)
+  })
+
+  it("2h on a half day is a half day — the ladder still applies, at halved thresholds", () => {
+    const r = computeAttendanceDay(day({ dayKind: "HALF_DAY", punches: [IN(0), OUT(130)] }))
+    expect(r.status).toBe("HALF_DAY")
+    expect(r.payableUnits).toBe(0.5)
+  })
+
+  it("under the halved half-day floor is still absent for payroll", () => {
+    const r = computeAttendanceDay(day({ dayKind: "HALF_DAY", punches: [IN(0), OUT(60)] }))
+    expect(r.status).toBe("ABSENT")
+    expect(r.payableUnits).toBe(0)
+  })
+
+  it("overtime on a half day starts after the shortened expectation", () => {
+    const r = computeAttendanceDay(day({ dayKind: "HALF_DAY", punches: [IN(0), OUT(240 + 45)] }))
+    expect(r.otMinutes).toBe(45)
+  })
+
+  it("no punches on a declared half day is still absent — it is a working day", () => {
+    const r = computeAttendanceDay(day({ dayKind: "HALF_DAY" }))
+    expect(r.status).toBe("ABSENT")
+  })
+
+  it("the late rule is unchanged on a half day", () => {
+    const r = computeAttendanceDay(
+      day({ dayKind: "HALF_DAY", priorLateMarks: 2, punches: [IN(25), OUT(265)] })
+    )
+    expect(r.penaltyApplied).toBe("ABSENT")
+  })
+})

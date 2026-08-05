@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url"
 
 import { buildServer } from "./server"
+import { scheduleNightlyClose } from "./nightly"
 import { loadStore, persistOnWrite } from "./persist"
 
 const port = Number(process.env.PORT ?? 3000)
@@ -12,6 +13,7 @@ const dataFile =
 const store = loadStore(dataFile)
 const app = buildServer(store)
 persistOnWrite(app, store, dataFile)
+scheduleNightlyClose(store)
 
 app
   .listen({ port, host: "0.0.0.0" })

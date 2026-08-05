@@ -22,7 +22,17 @@ import {
 } from "@attendance/shared"
 
 import { auditPage, recordAudit } from "./db"
+import {
+  clearCalendarDay,
+  createDepartment,
+  listCalendarDays,
+  listDepartments,
+  setCalendarDay,
+  updateDepartment,
+  type CalendarDayRow,
+} from "./repositories"
 import { registerProcurementRoutes } from "./procurement"
+import { registerSalesRoutes } from "./sales"
 import { id, seedStore, type Store, type StoredEmployee } from "./store"
 
 const ACCESS_TTL_SEC = 15 * 60
@@ -71,6 +81,17 @@ const leaveApplySchema = z.object({
 const decideSchema = z.object({
   action: z.enum(["APPROVE", "REJECT"]),
   remarks: z.string().default(""),
+})
+
+const departmentSchema = z.object({
+  code: z.string().min(2).max(8).regex(/^[A-Za-z0-9-]+$/, "Letters, digits and dashes only."),
+  name: z.string().min(2).max(60),
+})
+
+const calendarDaySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  name: z.string().min(1).max(60),
+  type: z.enum(["HOLIDAY", "HALF_DAY"]),
 })
 
 const brandingSchema = z.object({
@@ -145,8 +166,32 @@ export function buildServer(store: Store = seedStore()) {
   const employeeById = (employeeId: string) =>
     store.employees.find((employee) => employee.id === employeeId)
 
+  // Postgres is the source of truth for declared days; this cache keeps the
+  // synchronous day-computation path fast and is refreshed on every write.
+  // Seeded from the store so the calendar is never empty when Postgres is
+  // absent (tests, or a DB outage) — declared days degrade to the last known
+  // set rather than silently turning every holiday into a working day.
+  let calendarDays: Record<string, CalendarDayRow> = Object.fromEntries(
+    Object.entries(store.holidays).map(([date, name]) => [
+      date,
+      { date, name, type: "HOLIDAY" as const },
+    ])
+  )
+  const refreshCalendar = async () => {
+    const rows = await listCalendarDays().catch(() => null)
+    if (!rows) return
+    calendarDays = Object.fromEntries(rows.map((row) => [row.date, row]))
+    // Keep the legacy store map in step for anything still reading it.
+    store.holidays = Object.fromEntries(
+      rows.filter((row) => row.type === "HOLIDAY").map((row) => [row.date, row.name])
+    )
+  }
+  void refreshCalendar()
+
+  const dayTypeFor = (date: string) => calendarDays[date]?.type ?? null
+
   const calendar = {
-    isHoliday: (date: string) => Boolean(store.holidays[date]),
+    isHoliday: (date: string) => dayTypeFor(date) === "HOLIDAY",
     isWeeklyOff: (date: string) => new Date(`${date}T00:00:00Z`).getUTCDay() === 0,
   }
 
@@ -309,6 +354,126 @@ export function buildServer(store: Store = seedStore()) {
         ip: request.ip,
       })
       return { matrix: store.matrix }
+    }
+  )
+
+  // ---- departments (Postgres) --------------------------------------------
+  app.get("/departments", { preHandler: [authenticate] }, async (_request, reply) => {
+    const rows = await listDepartments().catch(() => null)
+    if (rows === null) return reply.code(503).send({ error: "DB_UNAVAILABLE" })
+    return { departments: rows }
+  })
+
+  app.post(
+    "/departments",
+    { preHandler: [authenticate, requirePermission("employee.manage", { write: true })] },
+    async (request, reply) => {
+      const parsed = departmentSchema.safeParse(request.body)
+      if (!parsed.success)
+        return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+      try {
+        const department = await createDepartment(parsed.data)
+        recordAudit({
+          actorId: request.auth.userId,
+          action: "department.create",
+          entity: "departments",
+          entityId: department.id,
+          after: department,
+          ip: request.ip,
+        })
+        return reply.code(201).send({ department })
+      } catch (error) {
+        // Unique violation on (company, code) or (company, name).
+        if ((error as { code?: string }).code === "P2002") {
+          return reply.code(409).send({ error: "DEPARTMENT_EXISTS" })
+        }
+        return reply.code(503).send({ error: "DB_UNAVAILABLE" })
+      }
+    }
+  )
+
+  app.patch(
+    "/departments/:id",
+    { preHandler: [authenticate, requirePermission("employee.manage", { write: true })] },
+    async (request, reply) => {
+      const parsed = departmentSchema
+        .partial()
+        .extend({ isActive: z.boolean().optional() })
+        .safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+      try {
+        const department = await updateDepartment(
+          (request.params as { id: string }).id,
+          parsed.data
+        )
+        recordAudit({
+          actorId: request.auth.userId,
+          action: "department.update",
+          entity: "departments",
+          entityId: department.id,
+          after: department,
+          ip: request.ip,
+        })
+        return { department }
+      } catch (error) {
+        if ((error as { code?: string }).code === "P2002")
+          return reply.code(409).send({ error: "DEPARTMENT_EXISTS" })
+        return reply.code(503).send({ error: "DB_UNAVAILABLE" })
+      }
+    }
+  )
+
+  // ---- company calendar: holidays and declared half working days ----------
+  app.get("/calendar", { preHandler: [authenticate] }, async (_request, reply) => {
+    const rows = await listCalendarDays().catch(() => null)
+    if (rows === null) return reply.code(503).send({ error: "DB_UNAVAILABLE" })
+    return { days: rows }
+  })
+
+  app.put(
+    "/calendar",
+    { preHandler: [authenticate, requirePermission("config.manage", { write: true })] },
+    async (request, reply) => {
+      const parsed = calendarDaySchema.safeParse(request.body)
+      if (!parsed.success)
+        return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+      try {
+        const day = await setCalendarDay(parsed.data)
+        await refreshCalendar()
+        recordAudit({
+          actorId: request.auth.userId,
+          action: day.type === "HALF_DAY" ? "calendar.halfDay" : "calendar.holiday",
+          entity: "holidays",
+          entityId: day.date,
+          after: day,
+          ip: request.ip,
+        })
+        return { day }
+      } catch {
+        return reply.code(503).send({ error: "DB_UNAVAILABLE" })
+      }
+    }
+  )
+
+  app.delete(
+    "/calendar/:date",
+    { preHandler: [authenticate, requirePermission("config.manage", { write: true })] },
+    async (request, reply) => {
+      const { date } = request.params as { date: string }
+      try {
+        await clearCalendarDay(date)
+        await refreshCalendar()
+        recordAudit({
+          actorId: request.auth.userId,
+          action: "calendar.clear",
+          entity: "holidays",
+          entityId: date,
+          ip: request.ip,
+        })
+        return { ok: true }
+      } catch {
+        return reply.code(503).send({ error: "DB_UNAVAILABLE" })
+      }
     }
   )
 
@@ -531,7 +696,9 @@ export function buildServer(store: Store = seedStore()) {
               ? "HOLIDAY"
               : calendar.isWeeklyOff(targetDate)
                 ? "WEEKLY_OFF"
-                : "WORKING",
+                : dayTypeFor(targetDate) === "HALF_DAY"
+                  ? "HALF_DAY"
+                  : "WORKING",
             leave: approvedLeave
               ? { part: approvedLeave.leavePart ?? "FULL", isPaid: approvedLeave.leaveType !== "LOP" }
               : null,
@@ -695,6 +862,7 @@ export function buildServer(store: Store = seedStore()) {
   })
 
   registerProcurementRoutes(app, store, { authenticate, requirePermission })
+  registerSalesRoutes(app, store, { authenticate, requirePermission })
 
   return app
 }

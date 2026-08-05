@@ -44,6 +44,41 @@ async function main() {
     })
   }
 
+  const departments: Array<[string, string]> = [
+    ["OPS", "Operations"],
+    ["PROD", "Production"],
+    ["FIN", "Finance"],
+    ["HR", "HR"],
+    ["QA", "Quality"],
+  ]
+  for (const [index, [code, name]] of departments.entries()) {
+    await db.department.upsert({
+      where: { companyId_code: { companyId: company.id, code } },
+      update: { name },
+      create: { companyId: company.id, code, name, sortOrder: index },
+    })
+  }
+
+  // Company calendar: a holiday and a declared half working day, so both
+  // paths are visible the moment the app opens.
+  await db.holidayCalendar.upsert({
+    where: { id: "cal_default" },
+    update: {},
+    create: { id: "cal_default", companyId: company.id, name: "Company calendar" },
+  })
+  const calendarDays: Array<[string, string, "HOLIDAY" | "HALF_DAY"]> = [
+    ["2026-08-15", "Independence Day", "HOLIDAY"],
+    ["2026-08-26", "Ganesh Chaturthi", "HOLIDAY"],
+    ["2026-08-25", "Ganesh Chaturthi eve", "HALF_DAY"],
+  ]
+  for (const [date, name, type] of calendarDays) {
+    await db.holiday.upsert({
+      where: { calendarId_date: { calendarId: "cal_default", date: new Date(`${date}T00:00:00Z`) } },
+      update: { name, type },
+      create: { calendarId: "cal_default", date: new Date(`${date}T00:00:00Z`), name, type },
+    })
+  }
+
   const employees: Array<[string, string, string, string, string | null, boolean]> = [
     ["e1", "DLT0001", "Virag Jain", "virag@delta.dev", null, false],
     ["e2", "DLT0002", "Priya Nair", "priya@delta.dev", "e1", false],
@@ -98,6 +133,8 @@ async function main() {
     branches: await db.branch.count(),
     employees: await db.employee.count(),
     users: await db.user.count(),
+    departments: await db.department.count(),
+    calendarDays: await db.holiday.count(),
     auditRows: await db.auditLog.count(),
   }
   console.log("seeded:", counts)

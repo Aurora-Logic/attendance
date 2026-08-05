@@ -15,6 +15,8 @@ import { useAppConfig } from "@/lib/app-config"
 import { useSession } from "@/lib/session"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
 import { BrandingSettings } from "@/components/settings-branding"
+import { DepartmentsSettings } from "@/components/settings-departments"
+import { GuideSettings } from "@/components/settings-guide"
 import { RosterSettings } from "@/components/settings-roster"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -274,6 +276,8 @@ export function SettingsPage() {
             <TabsTrigger value="capture">Capture</TabsTrigger>
             <TabsTrigger value="approvals">Approvals & OT</TabsTrigger>
             <TabsTrigger value="roster">Roster & shifts</TabsTrigger>
+            <TabsTrigger value="departments">Departments</TabsTrigger>
+            <TabsTrigger value="guide">Guide</TabsTrigger>
             {isAdmin ? <TabsTrigger value="branding">Branding</TabsTrigger> : null}
           </TabsList>
 
@@ -686,6 +690,14 @@ export function SettingsPage() {
           </TabsContent>
           <TabsContent value="roster">
             <RosterSettings />
+          </TabsContent>
+
+          <TabsContent value="departments">
+            <DepartmentsSettings />
+          </TabsContent>
+
+          <TabsContent value="guide">
+            <GuideSettings />
           </TabsContent>
 
           <TabsContent value="branding">

@@ -515,3 +515,41 @@ describe("leave — apply, balance guard, approve", () => {
     expect(again.statusCode).toBe(409)
   })
 })
+
+describe("nightly close — §3 missed punch-out", () => {
+  it("raises one regularisation per open day, idempotently", async () => {
+    const { runNightlyClose } = await import("../src/nightly")
+    const employee = await asEmployee()
+    await app.inject({
+      method: "POST",
+      url: "/punches",
+      headers: { cookie: employee.cookies },
+      payload: punchBody({ at: "2026-08-04T09:00", idempotencyKey: "key-nightly-1" }),
+    })
+
+    const first = runNightlyClose(store, "2026-08-04")
+    expect(first.closed).toEqual(["e4"])
+    const second = runNightlyClose(store, "2026-08-04")
+    expect(second.closed).toEqual([])
+    expect(
+      store.approvals.filter((approval) => approval.subject.startsWith("Missed punch-out"))
+    ).toHaveLength(1)
+  })
+
+  it("a completed day is left alone", async () => {
+    const { runNightlyClose } = await import("../src/nightly")
+    const employee = await asEmployee()
+    for (const [type, at, key] of [
+      ["IN", "2026-08-04T09:00", "key-nightly-2"],
+      ["OUT", "2026-08-04T18:00", "key-nightly-3"],
+    ] as const) {
+      await app.inject({
+        method: "POST",
+        url: "/punches",
+        headers: { cookie: employee.cookies },
+        payload: punchBody({ type, at, idempotencyKey: key }),
+      })
+    }
+    expect(runNightlyClose(store, "2026-08-04").closed).toEqual([])
+  })
+})

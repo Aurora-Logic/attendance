@@ -80,11 +80,11 @@ function seedState(): ProcurementState {
     { id: "v3", code: "VND003", name: "Bharat Electricals", gstin: "27AACCB2230C1ZK", contact: "Ramesh Iyer", email: "sales@bharatelec.in", phone: "+91 99670 77889", address: "Lamington Road", city: "Mumbai", state: "Maharashtra", paymentTermsDays: 45, leadTimeDays: 10, active: true },
   ]
   const items: Item[] = [
-    { id: "i1", code: "ITM001", name: "MS Sheet 2mm", brand: "Tata Steel", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, active: true },
-    { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", brand: "", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, active: true },
-    { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", brand: "Castrol", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, active: true },
-    { id: "i4", code: "ITM004", name: "Nitrile Gloves (100)", brand: "3M", category: "Safety", unit: "BOX", hsn: "4015", gstRatePct: 12, lastPricePaise: 45_000, active: true },
-    { id: "i5", code: "ITM005", name: "MCB 32A C-Curve", brand: "Havells", category: "Electrical", unit: "PCS", hsn: "8536", gstRatePct: 18, lastPricePaise: 21_500, active: true },
+    { id: "i1", code: "ITM001", name: "MS Sheet 2mm", brand: "Tata Steel", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, salePricePaise: 6_500, active: true },
+    { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", brand: "", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, salePricePaise: 3_200, active: true },
+    { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", brand: "Castrol", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, salePricePaise: 28_000, active: true },
+    { id: "i4", code: "ITM004", name: "Nitrile Gloves (100)", brand: "3M", category: "Safety", unit: "BOX", hsn: "4015", gstRatePct: 12, lastPricePaise: 45_000, salePricePaise: 45_000, active: true },
+    { id: "i5", code: "ITM005", name: "MCB 32A C-Curve", brand: "Havells", category: "Electrical", unit: "PCS", hsn: "8536", gstRatePct: 18, lastPricePaise: 21_500, salePricePaise: 21_500, active: true },
   ]
   const brands = ["Tata Steel", "Castrol", "3M", "Havells"]
   const categories = ["Raw Material", "Packaging", "Consumables", "Safety", "Electrical"]

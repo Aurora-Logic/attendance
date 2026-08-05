@@ -1,12 +1,13 @@
 import { toast } from "sonner"
 import { Plus, Trash2 } from "lucide-react"
-import { minutesToClock, type ShiftSpec } from "@attendance/shared"
+import type { ShiftSpec } from "@attendance/shared"
 
 import { useAppConfig, type WeeklyOffPattern } from "@/lib/app-config"
 import { DEPARTMENTS } from "@/lib/seed"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { TimeSelect } from "@/components/time-select"
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
@@ -20,11 +21,6 @@ import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"]
-
-const clockToMinutes = (value: string): number => {
-  const [hours, minutes] = value.split(":").map(Number)
-  return hours * 60 + minutes
-}
 
 /**
  * Settings → Roster & shifts. Everything the roster generator reads is edited
@@ -127,24 +123,18 @@ export function RosterSettings() {
                 className="w-14 text-center font-mono"
                 aria-label="Muster code"
               />
-              <Input
-                type="time"
-                value={minutesToClock(shift.startMin)}
-                onChange={(event) =>
-                  updateShift(shift.id, { startMin: clockToMinutes(event.target.value) })
-                }
+              <TimeSelect
+                value={shift.startMin}
+                onChange={(startMin) => updateShift(shift.id, { startMin })}
                 className="w-28"
-                aria-label="Start time"
+                ariaLabel="Start time"
               />
               <span className="text-muted-foreground text-sm">to</span>
-              <Input
-                type="time"
-                value={minutesToClock(shift.endMin)}
-                onChange={(event) =>
-                  updateShift(shift.id, { endMin: clockToMinutes(event.target.value) })
-                }
+              <TimeSelect
+                value={shift.endMin}
+                onChange={(endMin) => updateShift(shift.id, { endMin })}
                 className="w-28"
-                aria-label="End time"
+                ariaLabel="End time"
               />
               {shift.endMin <= shift.startMin ? <Badge variant="info">Night</Badge> : null}
               <Button

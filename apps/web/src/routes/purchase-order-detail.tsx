@@ -1,7 +1,17 @@
 import * as React from "react"
 import { useParams } from "react-router"
+import { format } from "date-fns"
 import { toast } from "sonner"
-import { Ban, Check, FileDown, PackageCheck, Printer, SendHorizontal, X } from "lucide-react"
+import {
+  Ban,
+  CalendarIcon,
+  Check,
+  FileDown,
+  PackageCheck,
+  Printer,
+  SendHorizontal,
+  X,
+} from "lucide-react"
 import {
   poDisplayStatus,
   receiptProgress,
@@ -17,7 +27,9 @@ import { PO_STATUS_LABEL, PoStatusBadge, ScheduleStatusBadge } from "@/component
 import { PoDocument, printPoDocument, type DocLine } from "@/components/po-document"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Dialog,
   DialogClose,
@@ -458,6 +470,7 @@ function RecordGrnDialog({
   }) => void
 }) {
   const [receivedDate, setReceivedDate] = React.useState(todayISO())
+  const [dateOpen, setDateOpen] = React.useState(false)
   const [invoiceNo, setInvoiceNo] = React.useState("")
   const [remarks, setRemarks] = React.useState("")
   const [quantities, setQuantities] = React.useState<
@@ -510,12 +523,26 @@ function RecordGrnDialog({
           <div className="grid grid-cols-2 gap-4">
             <Field>
               <FieldLabel htmlFor="grn-date">Received on</FieldLabel>
-              <Input
-                id="grn-date"
-                type="date"
-                value={receivedDate}
-                onChange={(event) => setReceivedDate(event.target.value)}
-              />
+              {/* date-picker is popover + calendar — there is no registry component. */}
+              <Popover open={dateOpen} onOpenChange={setDateOpen}>
+                <PopoverTrigger asChild>
+                  <Button id="grn-date" variant="outline" className="justify-start font-normal">
+                    <CalendarIcon />
+                    {format(new Date(`${receivedDate}T00:00:00`), "EEE, d MMM yyyy")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={new Date(`${receivedDate}T00:00:00`)}
+                    defaultMonth={new Date(`${receivedDate}T00:00:00`)}
+                    onSelect={(date) => {
+                      if (date) setReceivedDate(format(date, "yyyy-MM-dd"))
+                      setDateOpen(false)
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
             </Field>
             <Field>
               <FieldLabel htmlFor="grn-invoice">Vendor invoice / DC no.</FieldLabel>

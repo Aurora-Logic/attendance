@@ -55,8 +55,10 @@ export interface RosterConfig {
   departmentPatterns: Record<string, string>
   rotation: RotationConfig
   rules: RosterRule[]
-  /** dateISO → holiday name. */
+  /** dateISO → holiday name (kept for the local/demo path). */
   holidays: Record<string, string>
+  /** dateISO → declared half working day name. */
+  halfDays: Record<string, string>
 }
 
 export const DEFAULT_SHIFTS: ShiftSpec[] = [
@@ -86,6 +88,7 @@ const DEFAULT_ROSTER: RosterConfig = {
   rotation: { enabled: true, department: "Production", cycle: ["morn", "eve", "night"] },
   rules: DEFAULT_ROSTER_RULES,
   holidays: { "2026-08-15": "Independence Day", "2026-08-26": "Ganesh Chaturthi" },
+  halfDays: { "2026-08-25": "Ganesh Chaturthi eve" },
 }
 
 const DEFAULT_BRANDING: Branding = {
@@ -105,8 +108,8 @@ interface AppConfigValue {
 
   roster: RosterConfig
   setRoster: React.Dispatch<React.SetStateAction<RosterConfig>>
-  declareHoliday: (dateISO: string, name: string) => void
-  clearHoliday: (dateISO: string) => void
+  declareDay: (dateISO: string, name: string, type: "HOLIDAY" | "HALF_DAY") => void
+  clearDay: (dateISO: string) => void
 
   branding: Branding
   setBranding: React.Dispatch<React.SetStateAction<Branding>>
@@ -128,7 +131,7 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
       if (!raw) return
       const saved = JSON.parse(raw)
       if (saved.settings) setSettings(attendanceSettingsSchema.parse(saved.settings))
-      if (saved.roster) setRoster({ ...DEFAULT_ROSTER, ...saved.roster })
+      if (saved.roster) setRoster({ ...DEFAULT_ROSTER, ...saved.roster, halfDays: saved.roster.halfDays ?? {} })
       if (saved.branding) setBranding({ ...DEFAULT_BRANDING, ...saved.branding })
     } catch {
       // A corrupt blob must never brick the app — fall back to defaults.
@@ -147,13 +150,24 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
       resetSettings: () => setSettings(DEFAULT_ATTENDANCE_SETTINGS),
       roster,
       setRoster,
-      declareHoliday: (dateISO, name) =>
-        setRoster((prev) => ({ ...prev, holidays: { ...prev.holidays, [dateISO]: name } })),
-      clearHoliday: (dateISO) =>
+      declareDay: (dateISO, name, type) =>
+        setRoster((prev) => {
+          // A date is one thing or the other — declaring clears the other map.
+          const holidays = { ...prev.holidays }
+          const halfDays = { ...prev.halfDays }
+          delete holidays[dateISO]
+          delete halfDays[dateISO]
+          if (type === "HOLIDAY") holidays[dateISO] = name
+          else halfDays[dateISO] = name
+          return { ...prev, holidays, halfDays }
+        }),
+      clearDay: (dateISO) =>
         setRoster((prev) => {
           const holidays = { ...prev.holidays }
+          const halfDays = { ...prev.halfDays }
           delete holidays[dateISO]
-          return { ...prev, holidays }
+          delete halfDays[dateISO]
+          return { ...prev, holidays, halfDays }
         }),
       branding,
       setBranding,

@@ -16,6 +16,7 @@ const config = (over: Partial<RosterConfig> = {}): RosterConfig => ({
   rotation: { enabled: true, department: "Production", cycle: ["morn", "eve", "night"] },
   rules: DEFAULT_ROSTER_RULES.map((rule) => ({ ...rule })),
   holidays: { "2026-08-15": "Independence Day" },
+  halfDays: { "2026-08-20": "Founders Day" },
   ...over,
 })
 
@@ -82,6 +83,15 @@ describe("generateRoster — derived from configuration, never copied", () => {
       const offs = row.cells.filter((cell) => cell.shift === null).length
       expect(row.workingDays + offs).toBe(31)
     }
+  })
+
+  it("a declared half day stays a WORKING day with its shift, marked HALF_DAY", () => {
+    const rows = generateRoster(2026, 7, config())
+    const cell = rowFor(rows, "Operations").cells[20 - 1]
+    expect(cell.status).toBe("PRESENT")
+    expect(cell.shift).not.toBeNull()
+    expect(cell.source).toBe("HALF_DAY")
+    expect(cell.note).toMatch(/half working day/i)
   })
 
   it("covers every seeded employee", () => {

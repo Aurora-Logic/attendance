@@ -8,9 +8,9 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { ArrowUpDown, Plus, Upload } from "lucide-react"
 
 import { ApiError } from "@/lib/api"
-import { useCreateEmployee, useEmployeesList } from "@/lib/queries"
+import { useCreateEmployee, useDepartments, useEmployeesList } from "@/lib/queries"
 import { useSession } from "@/lib/session"
-import { BRANCHES, DEPARTMENTS, type Employee } from "@/lib/seed"
+import { BRANCHES, type Employee } from "@/lib/seed"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -62,6 +62,7 @@ function EmployeeSheet() {
   const { user } = useSession()
   const [open, setOpen] = React.useState(false)
   const createEmployee = useCreateEmployee()
+  const { departments } = useDepartments()
   const form = useForm<EmployeeForm>({
     resolver: zodResolver(employeeSchema),
     defaultValues: {
@@ -174,11 +175,13 @@ function EmployeeSheet() {
                         <SelectValue placeholder="Select department" />
                       </SelectTrigger>
                       <SelectContent>
-                        {DEPARTMENTS.map((department) => (
-                          <SelectItem key={department} value={department}>
-                            {department}
-                          </SelectItem>
-                        ))}
+                        {departments
+                          .filter((department) => department.isActive)
+                          .map((department) => (
+                            <SelectItem key={department.id} value={department.name}>
+                              {department.name}
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                     {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}

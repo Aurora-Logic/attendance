@@ -304,3 +304,12 @@
     width: auto !important;
   }
 }
+
+/*
+  The PO sheet is paper, so it is set in a classic document face — Helvetica
+  Neue with system fallbacks — rather than the app's Geist. Screen and print
+  render identically.
+*/
+.po-document {
+  font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+}

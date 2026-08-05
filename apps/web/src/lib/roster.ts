@@ -10,7 +10,7 @@ import { EMPLOYEES, type Employee } from "@/lib/seed"
  * land as manual overrides.
  */
 
-export type CellSource = "WEEKLY_OFF" | "HOLIDAY" | "ROTATION" | "DEFAULT" | "MANUAL"
+export type CellSource = "WEEKLY_OFF" | "HOLIDAY" | "HALF_DAY" | "ROTATION" | "DEFAULT" | "MANUAL"
 
 export interface RosterCell {
   day: number
@@ -81,6 +81,10 @@ export function generateRoster(
         return { day, dateISO, status: "HOLIDAY" as DayStatus, shift: null, source: "HOLIDAY" as CellSource, note: holidayName }
       }
 
+      // A declared half day is still a working day — it keeps its shift and
+      // counts toward working days; only the expectation halves.
+      const halfDayName = enabled.has("holidays") ? config.halfDays[dateISO] : undefined
+
       if (enabled.has("weekly-off") && isWeeklyOff(pattern, date)) {
         return { day, dateISO, status: "WEEKLY_OFF" as DayStatus, shift: null, source: "WEEKLY_OFF" as CellSource, note: pattern.name }
       }
@@ -107,6 +111,17 @@ export function generateRoster(
 
       workingDays += 1
       if (nightIds.has(shift.id)) nightDays += 1
+
+      if (halfDayName) {
+        return {
+          day,
+          dateISO,
+          status: "PRESENT" as DayStatus,
+          shift,
+          source: "HALF_DAY" as CellSource,
+          note: `${halfDayName} · half working day`,
+        }
+      }
 
       return {
         day,

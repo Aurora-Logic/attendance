@@ -51,6 +51,7 @@ const itemFormSchema = z.object({
   hsn: z.string(),
   gstRatePct: z.number(),
   lastPriceRupees: z.number({ error: "Enter a price." }).min(0, "Price cannot be negative."),
+  salePriceRupees: z.number({ error: "Enter a price." }).min(0, "Price cannot be negative."),
   active: z.boolean(),
 })
 type ItemForm = z.infer<typeof itemFormSchema>
@@ -64,6 +65,7 @@ const EMPTY: ItemForm = {
   hsn: "",
   gstRatePct: 18,
   lastPriceRupees: 0,
+  salePriceRupees: 0,
   active: true,
 }
 
@@ -82,12 +84,23 @@ function ItemSheet({
   React.useEffect(() => {
     if (open)
       form.reset(
-        item ? { ...item, lastPriceRupees: paiseToRupees(item.lastPricePaise) } : EMPTY
+        item
+          ? {
+              ...item,
+              lastPriceRupees: paiseToRupees(item.lastPricePaise),
+              salePriceRupees: paiseToRupees(item.salePricePaise),
+            }
+          : EMPTY
       )
   }, [open, item, form])
 
-  const onSubmit = ({ lastPriceRupees, ...values }: ItemForm) => {
-    upsertItem({ ...values, lastPricePaise: rupeesToPaise(lastPriceRupees), id: item?.id })
+  const onSubmit = ({ lastPriceRupees, salePriceRupees, ...values }: ItemForm) => {
+    upsertItem({
+      ...values,
+      lastPricePaise: rupeesToPaise(lastPriceRupees),
+      salePricePaise: rupeesToPaise(salePriceRupees),
+      id: item?.id,
+    })
     toast.success(item ? "Item updated" : "Item created", { description: values.name })
     onOpenChange(false)
   }
@@ -229,7 +242,7 @@ function ItemSheet({
                   control={form.control}
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="item-price">Price (₹)</FieldLabel>
+                      <FieldLabel htmlFor="item-price">Purchase price (₹)</FieldLabel>
                       <Input
                         {...field}
                         onChange={(event) => field.onChange(event.target.valueAsNumber)}
@@ -239,6 +252,25 @@ function ItemSheet({
                         aria-invalid={fieldState.invalid}
                       />
                       <FieldDescription>Default rate on new PO lines.</FieldDescription>
+                      {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
+                    </Field>
+                  )}
+                />
+                <Controller
+                  name="salePriceRupees"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor="item-sale-price">Sale price (₹)</FieldLabel>
+                      <Input
+                        {...field}
+                        onChange={(event) => field.onChange(event.target.valueAsNumber)}
+                        id="item-sale-price"
+                        type="number"
+                        step="0.01"
+                        aria-invalid={fieldState.invalid}
+                      />
+                      <FieldDescription>Default rate on estimates and invoices.</FieldDescription>
                       {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
                     </Field>
                   )}

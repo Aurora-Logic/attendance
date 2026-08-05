@@ -229,6 +229,27 @@ describe("vendorPerformance", () => {
   })
 })
 
+describe("GST split", () => {
+  it("extracts the state code from a GSTIN", async () => {
+    const { gstStateCode } = await import("./procurement")
+    expect(gstStateCode("27AABCS1429B1ZP")).toBe("27")
+    expect(gstStateCode("07AAACD1234E1ZP")).toBe("07")
+    expect(gstStateCode(null)).toBeNull()
+    expect(gstStateCode("INVALID")).toBeNull()
+  })
+
+  it("CGST + SGST always sum exactly to the single-GST figure", async () => {
+    const { splitGst } = await import("./procurement")
+    // ₹89.99 taxable @ 5%: total 450, halves 225/225.
+    expect(splitGst(8_999, 5)).toEqual({ cgstPaise: 225, sgstPaise: 225 })
+    // Odd total: ₹0.99 @ 5% → 5 paise total, splits 2 + 3 with no drift.
+    const odd = splitGst(99, 5)
+    expect(odd.cgstPaise + odd.sgstPaise).toBe(Math.round((99 * 5) / 100))
+    // The §11-style worked example: 650000 @ 18% → 117000 = 58500 + 58500.
+    expect(splitGst(650_000, 18)).toEqual({ cgstPaise: 58_500, sgstPaise: 58_500 })
+  })
+})
+
 describe("helpers", () => {
   it("formats document numbers with a per-year sequence", () => {
     expect(formatDocNumber("PO", 2026, 42)).toBe("PO-2026-0042")

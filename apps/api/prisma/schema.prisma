@@ -51,11 +51,18 @@ model Branch {
 }
 
 model Department {
-  id        String @id @default(cuid())
+  id        String   @id @default(cuid())
   companyId String
   name      String
+  /// Short code used on imports and reports (OPS, PROD…).
+  code      String
+  /// Soft state: a closed department keeps its history reportable.
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
 
   @@unique([companyId, name])
+  @@unique([companyId, code])
   @@map("departments")
 }
 
@@ -231,12 +238,19 @@ model HolidayCalendar {
   @@map("holiday_calendars")
 }
 
+enum CalendarDayType {
+  HOLIDAY
+  /// A declared half working day: the expectation halves, the pay does not.
+  HALF_DAY
+}
+
 model Holiday {
-  id         String   @id @default(cuid())
+  id         String          @id @default(cuid())
   calendarId String
-  date       DateTime @db.Date
+  date       DateTime        @db.Date
   name       String
-  isFloating Boolean  @default(false)
+  type       CalendarDayType @default(HOLIDAY)
+  isFloating Boolean         @default(false)
 
   calendar HolidayCalendar @relation(fields: [calendarId], references: [id])
 

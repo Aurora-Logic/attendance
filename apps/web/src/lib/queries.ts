@@ -4,6 +4,7 @@ import type { AttendanceDay } from "@attendance/shared"
 import { apiFetch } from "@/lib/api"
 import { useSession } from "@/lib/session"
 import {
+  DEPARTMENTS as SEED_DEPARTMENTS,
   EMPLOYEES,
   LEAVE_BALANCES,
   seedApprovals,
@@ -395,3 +396,137 @@ export function useAuditRows() {
 
 /** Demo approvals list, memo-free (deterministic seed). */
 export const demoApprovals = seedApprovals
+
+// ---------------------------------------------------------------- departments
+
+export interface DepartmentRow {
+  id: string
+  code: string
+  name: string
+  isActive: boolean
+  sortOrder: number
+}
+
+/**
+ * Departments are a Postgres master. Without an API session the seed list
+ * stands in, shaped identically so forms and filters do not branch.
+ */
+export function useDepartments() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+
+  const query = useQuery({
+    queryKey: ["departments"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<{ departments: DepartmentRow[] }>("/departments"),
+    select: (payload) => payload.departments,
+  })
+
+  if (!enabled || query.isError) {
+    return {
+      departments: SEED_DEPARTMENTS.map((name, index) => ({
+        id: `seed_${index}`,
+        code: name.slice(0, 4).toUpperCase(),
+        name,
+        isActive: true,
+        sortOrder: index,
+      })),
+      source: "demo" as DataSource,
+      isLoading: false,
+    }
+  }
+  return {
+    departments: query.data ?? [],
+    source: "api" as DataSource,
+    isLoading: query.isLoading,
+  }
+}
+
+export function useCreateDepartment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { code: string; name: string }) =>
+      apiFetch<{ department: DepartmentRow }>("/departments", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["departments"] }),
+  })
+}
+
+export function useUpdateDepartment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...patch
+    }: {
+      id: string
+      name?: string
+      code?: string
+      isActive?: boolean
+    }) =>
+      apiFetch<{ department: DepartmentRow }>(`/departments/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["departments"] }),
+  })
+}
+
+// ---------------------------------------------------------------- calendar
+
+export type CalendarDayType = "HOLIDAY" | "HALF_DAY"
+
+export interface CalendarDayRow {
+  date: string
+  name: string
+  type: CalendarDayType
+}
+
+/** Declared days: holidays and half working days, keyed by ISO date. */
+export function useCalendarDays() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+
+  const query = useQuery({
+    queryKey: ["calendar"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<{ days: CalendarDayRow[] }>("/calendar"),
+    select: (payload) =>
+      Object.fromEntries(payload.days.map((day) => [day.date, day])) as Record<
+        string,
+        CalendarDayRow
+      >,
+  })
+
+  return {
+    days: enabled && !query.isError ? (query.data ?? {}) : null,
+    source: (enabled ? "api" : "demo") as DataSource,
+  }
+}
+
+export function useSetCalendarDay() {
+  const queryClient = useQueryClient()
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["calendar"] })
+    void queryClient.invalidateQueries({ queryKey: ["attendance-days"] })
+  }
+  return {
+    declare: useMutation({
+      mutationFn: (body: CalendarDayRow) =>
+        apiFetch<{ day: CalendarDayRow }>("/calendar", {
+          method: "PUT",
+          body: JSON.stringify(body),
+        }),
+      onSuccess: invalidate,
+    }),
+    clear: useMutation({
+      mutationFn: (dateISO: string) =>
+        apiFetch(`/calendar/${dateISO}`, { method: "DELETE" }),
+      onSuccess: invalidate,
+    }),
+  }
+}

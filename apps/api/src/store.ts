@@ -3,6 +3,8 @@ import {
   DEFAULT_ATTENDANCE_SETTINGS,
   DEFAULT_MATRIX,
   type AttendanceSettings,
+  type Customer,
+  type Estimate,
   type Grn,
   type Item,
   type PermissionMatrix,
@@ -128,8 +130,10 @@ export interface Store {
   categories: string[]
   pos: PurchaseOrder[]
   grns: Grn[]
+  customers: Customer[]
+  estimates: Estimate[]
   /** Per-year document sequences (PO-2026-0042); year rollover resets in Prisma. */
-  seq: { po: number; grn: number }
+  seq: { po: number; grn: number; est: number }
   nextId: number
 }
 
@@ -177,15 +181,20 @@ export function seedStore(): Store {
       { id: "v2", code: "VND002", name: "Om Packaging Co", gstin: null, contact: "Sunita Shah", email: "om.pack@gmail.com", phone: "+91 98111 44556", address: "MIDC Phase II", city: "Pune", state: "Maharashtra", paymentTermsDays: 15, leadTimeDays: 4, active: true },
     ],
     items: [
-      { id: "i1", code: "ITM001", name: "MS Sheet 2mm", brand: "Tata Steel", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, active: true },
-      { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", brand: "", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, active: true },
-      { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", brand: "Castrol", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, active: true },
+      { id: "i1", code: "ITM001", name: "MS Sheet 2mm", brand: "Tata Steel", category: "Raw Material", unit: "KG", hsn: "7208", gstRatePct: 18, lastPricePaise: 6_500, salePricePaise: 6_500, active: true },
+      { id: "i2", code: "ITM002", name: "Corrugated Box 18×12×10", brand: "", category: "Packaging", unit: "PCS", hsn: "4819", gstRatePct: 12, lastPricePaise: 3_200, salePricePaise: 3_200, active: true },
+      { id: "i3", code: "ITM003", name: "Machine Oil SAE-40", brand: "Castrol", category: "Consumables", unit: "L", hsn: "2710", gstRatePct: 18, lastPricePaise: 28_000, salePricePaise: 28_000, active: true },
     ],
     brands: ["Tata Steel", "Castrol"],
     categories: ["Raw Material", "Packaging", "Consumables"],
     pos: [],
     grns: [],
-    seq: { po: 0, grn: 0 },
+    customers: [
+      { id: "c1", code: "CST001", name: "Acme Retail Pvt Ltd", gstin: "27AAACA1111A1Z5", contact: "Neha Gupta", email: "purchase@acmeretail.in", phone: "+91 98220 33445", address: "Linking Road, Bandra West", city: "Mumbai", state: "Maharashtra", paymentTermsDays: 30, active: true },
+      { id: "c2", code: "CST002", name: "Zenith Traders", gstin: null, contact: "Farhan Ali", email: "zenith.traders@gmail.com", phone: "+91 99887 66554", address: "Chickpet Main Road", city: "Bengaluru", state: "Karnataka", paymentTermsDays: 15, active: true },
+    ],
+    estimates: [],
+    seq: { po: 0, grn: 0, est: 0 },
     nextId: 1,
   }
 }

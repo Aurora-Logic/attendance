@@ -9,7 +9,13 @@ import { punchWindowFlag, shiftLengthMin, type ShiftSpec } from "./shift"
  * exactly this, so a recompute can never disagree with the original run.
  */
 
-export type DayKind = "WORKING" | "WEEKLY_OFF" | "HOLIDAY"
+/**
+ * HALF_DAY is a *declared half working day* — the company shuts at lunch for a
+ * festival eve or similar. It halves the EXPECTATION, not the pay: an employee
+ * who works the shortened day earns a full 1.0. Not to be confused with an
+ * individual HALF_DAY status, which is one person working half of a normal day.
+ */
+export type DayKind = "WORKING" | "WEEKLY_OFF" | "HOLIDAY" | "HALF_DAY"
 export type DayPart = "FULL" | "FIRST_HALF" | "SECOND_HALF"
 
 export interface NormalizedPunch {
@@ -96,9 +102,20 @@ export function computeAttendanceDay(input: DayComputationInput): DayComputation
     explanation: "",
   }
 
+  // A declared half working day halves both hour thresholds; everything
+  // downstream — the ladder, OT, the late rule — is unchanged.
+  const expectation =
+    dayKind === "HALF_DAY"
+      ? {
+          ...settings,
+          halfDayMinHours: settings.halfDayMinHours / 2,
+          fullDayMinHours: settings.fullDayMinHours / 2,
+        }
+      : settings
+
   // Non-working days are paid (§6) and punching on them is a comp-off claim,
   // never an error.
-  if (dayKind !== "WORKING") {
+  if (dayKind !== "WORKING" && dayKind !== "HALF_DAY") {
     base.status = dayKind === "HOLIDAY" ? "HOLIDAY" : "WEEKLY_OFF"
     base.payableUnits = 1
     if (attended) {
@@ -152,11 +169,12 @@ export function computeAttendanceDay(input: DayComputationInput): DayComputation
   base.workedMinutes = Math.max(lastOut! - firstIn! - breakMinutes, 0)
   base.lateMinutes = Math.max(firstIn!, 0)
 
-  const rawOt = lastOut! - shiftLengthMin(shift)
+  const rawOt =
+    lastOut! - (dayKind === "HALF_DAY" ? expectation.fullDayMinHours * 60 : shiftLengthMin(shift))
   if (settings.otEnabled && rawOt >= settings.otMinMinutes) base.otMinutes = rawOt
 
-  const halfMin = settings.halfDayMinHours * 60
-  const fullMin = settings.fullDayMinHours * 60
+  const halfMin = expectation.halfDayMinHours * 60
+  const fullMin = expectation.fullDayMinHours * 60
 
   if (leave) {
     // Half leave + the other half worked.
@@ -174,19 +192,22 @@ export function computeAttendanceDay(input: DayComputationInput): DayComputation
   } else if (base.workedMinutes >= fullMin) {
     base.status = "PRESENT"
     base.payableUnits = 1
-    base.explanation = "Full day by worked hours."
+    base.explanation =
+      dayKind === "HALF_DAY"
+        ? `Full day — declared half working day (${expectation.fullDayMinHours}h expected).`
+        : "Full day by worked hours."
   } else if (base.workedMinutes >= halfMin) {
     base.status = "HALF_DAY"
     base.halfDayReason = "WORKED_HOURS"
     base.payableUnits = HALF
-    base.explanation = `Half day — worked ${Math.round(base.workedMinutes / 6) / 10}h, below the ${settings.fullDayMinHours}h full-day threshold.`
+    base.explanation = `Half day — worked ${Math.round(base.workedMinutes / 6) / 10}h, below the ${expectation.fullDayMinHours}h full-day threshold.`
   } else {
     // Attended but below even the half-day floor. Payroll treats it as absent;
     // the punches survive and the dispute goes through approval.
     base.status = "ABSENT"
     base.payableUnits = 0
     base.needsApproval = true
-    base.explanation = `Worked under the ${settings.halfDayMinHours}h half-day minimum.`
+    base.explanation = `Worked under the ${expectation.halfDayMinHours}h half-day minimum.`
   }
 
   // ---- late-mark policy ---------------------------------------------------

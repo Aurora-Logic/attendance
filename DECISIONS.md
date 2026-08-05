@@ -148,7 +148,17 @@ requirement, and the Settings screen shows a live storage estimate plus a warnin
 when it is on — the cost of that toggle should not be a surprise discovered at
 200 GB.
 
-## 7. Backend shape (Phase 1, first cut)
+## 7. Calendar day types and departments
+
+| # | Decision | Rationale |
+|---|---|---|
+| D1 | A declared **half working day** halves the expectation, not the pay | With an 8h full day, 4h+ on a declared half day earns 1.0; under 2h is still absent. OT starts after the shortened day; the late rule is unchanged. Distinct from an individual's HALF_DAY status. |
+| D2 | Holiday vs half day is one choice on the roster date header | Both live in the `holidays` table with a `type` enum — one calendar, one unique row per date, declaring one clears the other. |
+| D3 | Departments are a Postgres master with a unique short code | Closing one is a soft `isActive` flag, never a delete — history stays reportable and the code is refused on duplicates (409). Employee forms list only open departments. |
+| D4 | The Settings **Guide** is written per task, not per screen | "How do I make Friday a half day?" is how the question arrives. Every entry ends with *what it does* — the rule, not just the clicks — and the header renders the live values so the guide always matches the configuration. |
+| D5 | Nightly close is an idempotent pure function | `runNightlyClose(store, date)`: IN without OUT → MISSING_PUNCH_OUT regularisation to the employee, once. Runs at boot for yesterday and hourly after; re-runs create nothing twice. |
+
+## 8. Backend shape (Phase 1, first cut)
 
 | # | Decision | Rationale |
 |---|---|---|
