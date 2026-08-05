@@ -57,6 +57,8 @@ export const itemSchema = z.object({
   lastPricePaise: z.number().int().nonnegative().default(0),
   /** Sale price — the default when the item lands on an estimate line. */
   salePricePaise: z.number().int().nonnegative().default(0),
+  /** Stock at/below this suggests reordering; 0 disables the check. */
+  reorderLevel: z.number().nonnegative().default(0),
   active: z.boolean().default(true),
 })
 export type Item = z.infer<typeof itemSchema>

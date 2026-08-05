@@ -1,4 +1,9 @@
-import type { EstimateDisplayStatus, PoDisplayStatus, ScheduleStatus } from "@attendance/shared"
+import type {
+  EstimateDisplayStatus,
+  PoDisplayStatus,
+  SalesOrderStatus,
+  ScheduleStatus,
+} from "@attendance/shared"
 
 import { Badge } from "@/components/ui/badge"
 
@@ -66,3 +71,22 @@ export function EstimateStatusBadge({ status }: { status: EstimateDisplayStatus 
 export const ESTIMATE_STATUS_LABEL = Object.fromEntries(
   Object.entries(ESTIMATE_META).map(([status, meta]) => [status, meta.label])
 ) as Record<EstimateDisplayStatus, string>
+
+/** Sales orders: open is the working state; the rest are terminal. */
+const SO_META: Record<
+  SalesOrderStatus,
+  { label: string; variant: "success" | "warning" | "info" | "destructive" | "secondary" | "outline" }
+> = {
+  OPEN: { label: "Open", variant: "info" },
+  CLOSED: { label: "Closed", variant: "secondary" },
+  CANCELLED: { label: "Cancelled", variant: "outline" },
+}
+
+export function SoStatusBadge({ status }: { status: SalesOrderStatus }) {
+  const meta = SO_META[status]
+  return <Badge variant={meta.variant}>{meta.label}</Badge>
+}
+
+export const SO_STATUS_LABEL = Object.fromEntries(
+  Object.entries(SO_META).map(([status, meta]) => [status, meta.label])
+) as Record<SalesOrderStatus, string>

@@ -149,7 +149,7 @@ export function SalesProvider({ children }: { children: React.ReactNode }) {
         setState((prev) => ({
           ...prev,
           estimates: [...prev.estimates, estimate],
-          seq: { est: prev.seq.est + 1, entity: prev.seq.entity + 1 },
+          seq: { ...prev.seq, est: prev.seq.est + 1, entity: prev.seq.entity + 1 },
         }))
         return estimate
       },

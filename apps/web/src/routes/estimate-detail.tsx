@@ -1,7 +1,7 @@
 import * as React from "react"
-import { useParams } from "react-router"
+import { Link, useNavigate, useParams } from "react-router"
 import { toast } from "sonner"
-import { Ban, Check, Printer, SendHorizontal, X } from "lucide-react"
+import { ArrowRightCircle, Ban, Check, FileText, Printer, SendHorizontal, X } from "lucide-react"
 import { estimateDisplayStatus } from "@attendance/shared"
 
 import { todayISO, useProcurement } from "@/lib/procurement"
@@ -21,15 +21,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 
 export function EstimateDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { items } = useProcurement()
-  const { estimates, customers, sendEstimate, decideEstimate, closeEstimate } = useSales()
-  const { can } = useSession()
+  const {
+    estimates,
+    customers,
+    salesOrders,
+    sendEstimate,
+    decideEstimate,
+    closeEstimate,
+    convertEstimate,
+  } = useSales()
+  const { can, user } = useSession()
   const [rejectOpen, setRejectOpen] = React.useState(false)
   const [rejectNote, setRejectNote] = React.useState("")
+  const [convertOpen, setConvertOpen] = React.useState(false)
+  const [customerRef, setCustomerRef] = React.useState("")
 
   const estimate = estimates.find((candidate) => candidate.id === id)
   if (!estimate) {
@@ -43,6 +56,7 @@ export function EstimateDetailPage() {
   const customer = customers.find((candidate) => candidate.id === estimate.customerId) ?? null
   const display = estimateDisplayStatus(estimate, todayISO())
   const canManage = can("sales.manage")
+  const existingSo = salesOrders.find((so) => so.sourceEstimateId === estimate.id)
 
   return (
     <Page>
@@ -79,6 +93,21 @@ export function EstimateDetailPage() {
                 <SendHorizontal />
                 Mark sent
               </Button>
+            ) : null}
+            {estimate.status === "ACCEPTED" && canManage ? (
+              existingSo ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={`/sales-orders/${existingSo.id}`}>
+                    <FileText />
+                    {existingSo.number}
+                  </Link>
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => setConvertOpen(true)}>
+                  <ArrowRightCircle />
+                  Convert to Sales Order
+                </Button>
+              )
             ) : null}
             {estimate.status === "SENT" && canManage ? (
               <>
@@ -132,6 +161,49 @@ export function EstimateDetailPage() {
           items={items}
         />
       </PageBody>
+
+      <Dialog open={convertOpen} onOpenChange={setConvertOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Convert {estimate.number} to a sales order</DialogTitle>
+            <DialogDescription>
+              Lines and terms carry over exactly as agreed — conversion never reprices.
+            </DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel htmlFor="so-ref">Customer's PO / reference (optional)</FieldLabel>
+            <Input
+              id="so-ref"
+              value={customerRef}
+              onChange={(event) => setCustomerRef(event.target.value)}
+              placeholder="ACME-PO-991"
+            />
+          </Field>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              onClick={() => {
+                const so = convertEstimate(estimate.id, {
+                  orderDate: todayISO(),
+                  customerRef,
+                  createdBy: user?.email ?? "",
+                })
+                setConvertOpen(false)
+                if (so) {
+                  toast.success(`${so.number} created from ${estimate.number}`)
+                  navigate(`/sales-orders/${so.id}`)
+                } else {
+                  toast.error("This estimate was already converted.")
+                }
+              }}
+            >
+              Create order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent className="sm:max-w-sm">

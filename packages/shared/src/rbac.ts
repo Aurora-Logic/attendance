@@ -146,6 +146,18 @@ export const PERMISSIONS: PermissionDef[] = [
     label: "Sales screens & reports",
     description: "See customers, estimates and their outcomes.",
   },
+  {
+    key: "expense.claim",
+    group: "People",
+    label: "Raise expense claims",
+    description: "File reimbursement claims for own spends.",
+  },
+  {
+    key: "expense.approve",
+    group: "People",
+    label: "Approve expense claims",
+    description: "Decide claims and mark them reimbursed.",
+  },
 ]
 
 export type PermissionMatrix = Record<string, Record<Role, Scope>>
@@ -170,6 +182,8 @@ export const DEFAULT_MATRIX: PermissionMatrix = {
   "procurement.view": { ADMIN: "ALL", HR: "VIEW", OPERATIONS: "ALL", EMPLOYEE: "NONE" },
   "sales.manage": { ADMIN: "ALL", HR: "NONE", OPERATIONS: "ALL", EMPLOYEE: "NONE" },
   "sales.view": { ADMIN: "ALL", HR: "VIEW", OPERATIONS: "ALL", EMPLOYEE: "NONE" },
+  "expense.claim": { ADMIN: "SELF", HR: "SELF", OPERATIONS: "SELF", EMPLOYEE: "SELF" },
+  "expense.approve": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "OWN_TEAM", EMPLOYEE: "NONE" },
 }
 
 /** Which scopes make sense for a given capability. */

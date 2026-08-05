@@ -22,6 +22,8 @@ import { CustomersPage } from "@/routes/customers"
 import { EstimateDetailPage } from "@/routes/estimate-detail"
 import { EstimateNewPage } from "@/routes/estimate-new"
 import { EstimatesPage } from "@/routes/estimates"
+import { SalesOrderDetailPage } from "@/routes/sales-order-detail"
+import { SalesOrdersPage } from "@/routes/sales-orders"
 import { ReportsPage } from "@/routes/reports"
 import { RolesPage } from "@/routes/roles"
 import { RosterPage } from "@/routes/roster"
@@ -54,6 +56,8 @@ export default function App() {
         <Route path="estimates/new" element={<EstimateNewPage />} />
         <Route path="estimates/:id" element={<EstimateDetailPage />} />
         <Route path="customers" element={<CustomersPage />} />
+        <Route path="sales-orders" element={<SalesOrdersPage />} />
+        <Route path="sales-orders/:id" element={<SalesOrderDetailPage />} />
         <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
         <Route path="purchase-orders/new" element={<PurchaseOrderNewPage />} />
         <Route path="purchase-orders/:id" element={<PurchaseOrderDetailPage />} />

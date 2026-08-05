@@ -412,7 +412,7 @@ export function EstimateDocument({
         {/* Reference strip */}
         <div className="grid grid-cols-2 border-b border-neutral-800 sm:grid-cols-4">
           <div className="border-r border-neutral-200 px-4 py-2">
-            <Lbl>Estimate No.</Lbl>
+            <Lbl>{numberLabel}</Lbl>
             <p className="text-xs font-bold tabular-nums">{number}</p>
           </div>
           <div className="border-neutral-200 px-4 py-2 sm:border-r">
@@ -420,14 +420,23 @@ export function EstimateDocument({
             <DocDate value={date} onChange={(iso) => iso && onDate?.(iso)} editable={editable} />
           </div>
           <div className="border-r border-neutral-200 px-4 py-2">
-            <Lbl>Valid until</Lbl>
-            <DocDate
-              value={validUntil}
-              placeholder="No expiry"
-              clearable
-              onChange={onValidUntil}
-              editable={editable}
-            />
+            {thirdRef ? (
+              <>
+                <Lbl>{thirdRef.label}</Lbl>
+                <p className="text-xs font-bold tabular-nums">{thirdRef.value || "—"}</p>
+              </>
+            ) : (
+              <>
+                <Lbl>Valid until</Lbl>
+                <DocDate
+                  value={validUntil}
+                  placeholder="No expiry"
+                  clearable
+                  onChange={onValidUntil}
+                  editable={editable}
+                />
+              </>
+            )}
           </div>
           <div className="px-4 py-2">
             <Lbl>Status</Lbl>

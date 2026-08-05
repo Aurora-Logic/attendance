@@ -1,6 +1,6 @@
 import * as z from "zod"
 
-import { poLineSchema } from "./procurement"
+import { poLineSchema, type PoLine } from "./procurement"
 
 /**
  * Sales: customers and estimates (quotations) — the sell-side mirror of
@@ -100,6 +100,70 @@ export type SalesOrder = z.infer<typeof salesOrderSchema>
  * (prices were agreed — conversion must never reprice), terms carry over, and
  * the source link is kept so the estimate can never be converted twice.
  */
+/* ---------------------------------------------------------------- dispatch */
+
+/**
+ * Delivery challan — goods OUT against a sales order, the mirror of a GRN.
+ * Append-only: a wrong dispatch is corrected by a return adjustment in stock,
+ * never by editing the challan.
+ */
+export const challanSchema = z.object({
+  id: z.string(),
+  /** CH-2026-0001. */
+  number: z.string(),
+  soId: z.string(),
+  dispatchDate: z.string(),
+  vehicleNo: z.string().default(""),
+  remarks: z.string().default(""),
+  recordedBy: z.string().default(""),
+  lines: z.array(z.object({ soLineId: z.string(), qty: z.number().positive() })).min(1),
+})
+export type Challan = z.infer<typeof challanSchema>
+
+export interface SoLineFulfilment {
+  soLineId: string
+  orderedQty: number
+  dispatchedQty: number
+  pendingQty: number
+}
+
+export function soFulfilment(
+  so: Pick<SalesOrder, "id" | "lines">,
+  challans: Challan[]
+): SoLineFulfilment[] {
+  const own = challans.filter((challan) => challan.soId === so.id)
+  return so.lines.map((line) => {
+    const dispatchedQty = own.reduce(
+      (sum, challan) =>
+        sum +
+        challan.lines
+          .filter((challanLine) => challanLine.soLineId === line.id)
+          .reduce((lineSum, challanLine) => lineSum + challanLine.qty, 0),
+      0
+    )
+    return {
+      soLineId: line.id,
+      orderedQty: line.qty,
+      dispatchedQty,
+      pendingQty: Math.max(line.qty - dispatchedQty, 0),
+    }
+  })
+}
+
+/** OPEN plus the derived dispatch dimension — never stored (D2 doctrine). */
+export type SoDisplayStatus = SalesOrderStatus | "PARTIALLY_DISPATCHED" | "DISPATCHED"
+
+export function soDisplayStatus(
+  so: Pick<SalesOrder, "id" | "lines" | "status">,
+  challans: Challan[]
+): SoDisplayStatus {
+  if (so.status !== "OPEN") return so.status
+  const fulfilment = soFulfilment(so, challans)
+  const any = fulfilment.some((line) => line.dispatchedQty > 0)
+  if (!any) return "OPEN"
+  return fulfilment.every((line) => line.pendingQty === 0) ? "DISPATCHED" : "PARTIALLY_DISPATCHED"
+}
+
 export function salesOrderFromEstimate(
   estimate: Estimate,
   input: { id: string; number: string; orderDate: string; customerRef?: string; createdBy: string }
