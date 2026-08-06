@@ -231,6 +231,49 @@ export function registerProcurementRoutes(app: FastifyInstance, store: Store, gu
     return reply.code(201).send({ po: poSummary(po) })
   })
 
+  /** Rewrite a DRAFT in place — the one lifecycle stage where editing is honest. */
+  app.put("/pos/:id", { preHandler: manage }, async (request, reply) => {
+    const { id: poId } = request.params as { id: string }
+    const parsed = poBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+    const po = store.pos.find((candidate) => candidate.id === poId)
+    if (!po) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (po.status !== "DRAFT") return reply.code(409).send({ error: "NOT_DRAFT", status: po.status })
+    const body = parsed.data
+
+    const vendor = store.vendors.find((candidate) => candidate.id === body.vendorId)
+    if (!vendor) return reply.code(404).send({ error: "VENDOR_NOT_FOUND" })
+
+    const lines: PoLine[] = []
+    for (const lineBody of body.lines) {
+      const item = store.items.find((candidate) => candidate.id === lineBody.itemId)
+      if (!item) return reply.code(404).send({ error: "ITEM_NOT_FOUND", itemId: lineBody.itemId })
+      lines.push({
+        id: id(store, "pol"),
+        itemId: item.id,
+        qty: lineBody.qty,
+        unitPricePaise: lineBody.unitPricePaise ?? item.lastPricePaise,
+        gstRatePct: item.gstRatePct,
+        discountPct: lineBody.discountPct,
+      })
+    }
+    const schedules: PoSchedule[] = []
+    for (const tranche of body.schedules) {
+      const line = lines[tranche.lineIndex]
+      if (!line) return reply.code(400).send({ error: "SCHEDULE_LINE_INDEX_INVALID" })
+      schedules.push({ id: id(store, "sch"), poLineId: line.id, dueDate: tranche.dueDate, qty: tranche.qty })
+    }
+    Object.assign(po, {
+      vendorId: body.vendorId,
+      orderDate: body.orderDate,
+      terms: body.terms,
+      notes: body.notes,
+      lines,
+      schedules,
+    })
+    return { po: poSummary(po) }
+  })
+
   app.post("/pos/:id/submit", { preHandler: manage }, async (request, reply) => {
     const { id: poId } = request.params as { id: string }
     const po = store.pos.find((candidate) => candidate.id === poId)

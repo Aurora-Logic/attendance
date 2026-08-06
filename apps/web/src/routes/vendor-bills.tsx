@@ -1,7 +1,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
-import { ArrowUpDown, Plus } from "lucide-react"
+import { ArrowUpDown, Ban, Plus } from "lucide-react"
 import {
   formatPaise,
   outstandingPaise,
@@ -48,7 +48,8 @@ interface BillRow {
 }
 
 export function VendorBillsPage() {
-  const { vendors, items, pos, grns, vendorBills, payments, recordBill } = useProcurement()
+  const { vendors, items, pos, grns, vendorBills, payments, recordBill, cancelBill } =
+    useProcurement()
   const { can, user } = useSession()
   const [open, setOpen] = React.useState(false)
 
@@ -130,6 +131,28 @@ export function VendorBillsPage() {
         ),
       },
       {
+        id: "cancel",
+        header: "",
+        cell: ({ row }) =>
+          row.original.bill.status === "OPEN" &&
+          row.original.outstanding === row.original.totalPaise &&
+          can("procurement.manage") ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Cancel bill ${row.original.bill.billNo}`}
+              onClick={() => {
+                if (cancelBill(row.original.bill.id)) toast(`Bill ${row.original.bill.billNo} cancelled`)
+                else toast.error("Payments are allocated — cannot cancel.")
+              }}
+            >
+              <Ban />
+            </Button>
+          ) : row.original.bill.status === "CANCELLED" ? (
+            <Badge variant="secondary">Cancelled</Badge>
+          ) : null,
+      },
+      {
         id: "match",
         header: "3-way match",
         meta: { label: "Three-way match" },
@@ -145,7 +168,7 @@ export function VendorBillsPage() {
           ),
       },
     ],
-    []
+    [can, cancelBill]
   )
 
   const record = () => {

@@ -52,6 +52,8 @@ export interface EstimateDraft {
 interface SalesValue extends SalesState {
   upsertCustomer: (customer: Omit<Customer, "id"> & { id?: string }) => Customer
   createEstimate: (draft: EstimateDraft, createdBy: string) => Estimate
+  /** Rewrite a DRAFT in place — the one lifecycle stage where editing is honest. */
+  updateEstimateDraft: (estimateId: string, draft: EstimateDraft) => boolean
   sendEstimate: (estimateId: string) => void
   decideEstimate: (estimateId: string, action: "ACCEPT" | "REJECT", note?: string) => void
   closeEstimate: (estimateId: string) => void
@@ -73,6 +75,8 @@ interface SalesValue extends SalesState {
     input: { date: string; dueDate: string; createdBy: string }
   ) => Invoice | null
   /** Auto-allocates oldest-due-first across the customer's open invoices. */
+  /** Refused once any receipt is allocated — money history is never orphaned. */
+  cancelInvoice: (invoiceId: string) => boolean
   recordReceipt: (
     input: Omit<PaymentEntry, "id" | "allocations" | "recordedBy">,
     recordedBy: string
@@ -193,6 +197,41 @@ export function SalesProvider({ children }: { children: React.ReactNode }) {
           seq: { ...prev.seq, est: prev.seq.est + 1, entity: prev.seq.entity + 1 },
         }))
         return estimate
+      },
+
+      updateEstimateDraft: (estimateId, draft) => {
+        const estimate = state.estimates.find((candidate) => candidate.id === estimateId)
+        if (!estimate || estimate.status !== "DRAFT") return false
+        patchEstimate(estimateId, {
+          customerId: draft.customerId,
+          date: draft.date,
+          validUntil: draft.validUntil,
+          terms: draft.terms,
+          notes: draft.notes,
+          lines: draft.lines.map((line, index) => ({
+            id: `${estimateId}_l${index}`,
+            itemId: line.itemId,
+            qty: line.qty,
+            unitPricePaise: line.unitPricePaise,
+            gstRatePct: line.gstRatePct,
+            discountPct: line.discountPct,
+          })),
+        })
+        return true
+      },
+
+      cancelInvoice: (invoiceId) => {
+        const allocated = state.receipts.some((receipt) =>
+          receipt.allocations.some((allocation) => allocation.docId === invoiceId)
+        )
+        if (allocated) return false
+        setState((prev) => ({
+          ...prev,
+          invoices: prev.invoices.map((invoice) =>
+            invoice.id === invoiceId ? { ...invoice, status: "CANCELLED" } : invoice
+          ),
+        }))
+        return true
       },
 
       sendEstimate: (estimateId) => patchEstimate(estimateId, { status: "SENT" }),

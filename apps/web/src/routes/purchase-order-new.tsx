@@ -16,33 +16,50 @@ import { Button } from "@/components/ui/button"
  * affordances; Print uses the browser's A4 output of the same markup.
  */
 export function PurchaseOrderNewPage() {
-  const { vendors, items, seq, createPo, submitPo, markIndentOrdered } = useProcurement()
+  const { vendors, items, pos, seq, createPo, updatePoDraft, submitPo, markIndentOrdered } =
+    useProcurement()
   const { user } = useSession()
   const navigate = useNavigate()
-  // An approved indent can hand its lines straight to this builder.
+  // An approved indent can hand its lines straight to this builder, and a
+  // DRAFT PO can come back for editing — the one honest stage to edit.
   const prefill = (useLocation().state ?? null) as {
     indentId?: string
+    editPoId?: string
     lines?: Array<{ itemId: string; qty: number }>
   } | null
+  const editingPo = prefill?.editPoId
+    ? (pos.find((candidate) => candidate.id === prefill.editPoId && candidate.status === "DRAFT") ?? null)
+    : null
 
-  const [vendorId, setVendorId] = React.useState("")
-  const [orderDate, setOrderDate] = React.useState(todayISO())
-  const [terms, setTerms] = React.useState("")
+  const [vendorId, setVendorId] = React.useState(editingPo?.vendorId ?? "")
+  const [orderDate, setOrderDate] = React.useState(editingPo?.orderDate ?? todayISO())
+  const [terms, setTerms] = React.useState(editingPo?.terms ?? "")
   const [lines, setLines] = React.useState<DocLine[]>(() =>
-    (prefill?.lines ?? []).map((line, index) => ({
-      key: `pre${index}`,
-      itemId: line.itemId,
-      qty: line.qty,
-      unitPricePaise: items.find((item) => item.id === line.itemId)?.lastPricePaise ?? 0,
-      discountPct: 0,
-      schedules: [],
-    }))
+    editingPo
+      ? editingPo.lines.map((line) => ({
+          key: line.id,
+          itemId: line.itemId,
+          qty: line.qty,
+          unitPricePaise: line.unitPricePaise,
+          discountPct: line.discountPct,
+          schedules: editingPo.schedules
+            .filter((schedule) => schedule.poLineId === line.id)
+            .map((schedule) => ({ dueDate: schedule.dueDate, qty: schedule.qty })),
+        }))
+      : (prefill?.lines ?? []).map((line, index) => ({
+          key: `pre${index}`,
+          itemId: line.itemId,
+          qty: line.qty,
+          unitPricePaise: items.find((item) => item.id === line.itemId)?.lastPricePaise ?? 0,
+          discountPct: 0,
+          schedules: [],
+        }))
   )
   const [preview, setPreview] = React.useState(false)
   const nextKey = React.useRef(1)
 
   const vendor = vendors.find((candidate) => candidate.id === vendorId) ?? null
-  const number = formatDocNumber("PO", Number(orderDate.slice(0, 4)), seq.po + 1)
+  const number = editingPo?.number ?? formatDocNumber("PO", Number(orderDate.slice(0, 4)), seq.po + 1)
 
   const totals = poTotals(
     lines
@@ -95,6 +112,13 @@ export function PurchaseOrderNewPage() {
       toast.error(problem)
       return
     }
+    if (editingPo) {
+      updatePoDraft(editingPo.id, { vendorId, orderDate, terms, notes: "", lines })
+      if (submit) submitPo(editingPo.id)
+      toast.success(`${editingPo.number} ${submit ? "updated and submitted" : "updated"}`)
+      navigate(`/purchase-orders/${editingPo.id}`)
+      return
+    }
     const po = createPo(
       { vendorId, orderDate, terms, notes: "", lines },
       user?.email ?? "unknown"
@@ -108,7 +132,7 @@ export function PurchaseOrderNewPage() {
   return (
     <Page>
       <PageHeader
-        title="New Purchase Order"
+        title={editingPo ? `Edit ${editingPo.number}` : "New Purchase Order"}
         description={
           preview
             ? "Preview — exactly as it prints. Nothing is saved yet."

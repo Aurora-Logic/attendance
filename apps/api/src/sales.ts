@@ -156,6 +156,41 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
     return reply.code(201).send({ estimate: summary(estimate) })
   })
 
+  /** Rewrite a DRAFT in place — the one lifecycle stage where editing is honest. */
+  app.put("/estimates/:id", { preHandler: manage }, async (request, reply) => {
+    const { id: estimateId } = request.params as { id: string }
+    const parsed = estimateBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+    const estimate = store.estimates.find((candidate) => candidate.id === estimateId)
+    if (!estimate) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (estimate.status !== "DRAFT") {
+      return reply.code(409).send({ error: "NOT_DRAFT", status: estimate.status })
+    }
+    const body = parsed.data
+    const lines: PoLine[] = []
+    for (const lineBody of body.lines) {
+      const item = store.items.find((candidate) => candidate.id === lineBody.itemId)
+      if (!item) return reply.code(404).send({ error: "ITEM_NOT_FOUND", itemId: lineBody.itemId })
+      lines.push({
+        id: id(store, "estl"),
+        itemId: item.id,
+        qty: lineBody.qty,
+        unitPricePaise: lineBody.unitPricePaise ?? (item.salePricePaise || item.lastPricePaise),
+        gstRatePct: item.gstRatePct,
+        discountPct: lineBody.discountPct,
+      })
+    }
+    Object.assign(estimate, {
+      customerId: body.customerId,
+      date: body.date,
+      validUntil: body.validUntil,
+      terms: body.terms,
+      notes: body.notes,
+      lines,
+    })
+    return { estimate: summary(estimate) }
+  })
+
   app.post("/estimates/:id/send", { preHandler: manage }, async (request, reply) => {
     const { id: estimateId } = request.params as { id: string }
     const estimate = store.estimates.find((candidate) => candidate.id === estimateId)
@@ -341,6 +376,20 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
     }
     store.invoices.push(invoice)
     return reply.code(201).send({ invoice: invoiceSummary(invoice) })
+  })
+
+  /** Refused once any receipt is allocated — money history is never orphaned. */
+  app.post("/invoices/:id/cancel", { preHandler: manage }, async (request, reply) => {
+    const { id: invoiceId } = request.params as { id: string }
+    const invoice = store.invoices.find((candidate) => candidate.id === invoiceId)
+    if (!invoice) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (invoice.status !== "OPEN") return reply.code(409).send({ error: "NOT_OPEN" })
+    const allocated = store.receipts.some((receipt) =>
+      receipt.allocations.some((allocation) => allocation.docId === invoiceId)
+    )
+    if (allocated) return reply.code(409).send({ error: "RECEIPTS_ALLOCATED" })
+    invoice.status = "CANCELLED"
+    return { invoice: invoiceSummary(invoice) }
   })
 
   // ---- receipts (money in) ------------------------------------------------

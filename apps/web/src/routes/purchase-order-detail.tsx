@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useParams } from "react-router"
+import { useNavigate, useParams } from "react-router"
 import { format } from "date-fns"
 import { toast } from "sonner"
 import {
@@ -8,6 +8,7 @@ import {
   Check,
   FileDown,
   PackageCheck,
+  Pencil,
   Printer,
   SendHorizontal,
   X,
@@ -53,6 +54,7 @@ import { Textarea } from "@/components/ui/textarea"
 
 export function PurchaseOrderDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { pos, grns, vendors, items, submitPo, decidePo, cancelPo, closePo, recordGrn } =
     useProcurement()
   const { user, can } = useSession()
@@ -124,10 +126,20 @@ export function PurchaseOrderDetailPage() {
         Print / PDF
       </Button>
       {po.status === "DRAFT" && canManage ? (
-        <Button size="sm" onClick={() => submitPo(po.id)}>
-          <SendHorizontal />
-          Submit for approval
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate("/purchase-orders/new", { state: { editPoId: po.id } })}
+          >
+            <Pencil />
+            Edit draft
+          </Button>
+          <Button size="sm" onClick={() => submitPo(po.id)}>
+            <SendHorizontal />
+            Submit for approval
+          </Button>
+        </>
       ) : null}
       {po.status === "PENDING_APPROVAL" && canDecide ? (
         <>

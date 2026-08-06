@@ -1,9 +1,11 @@
 import { Link, useParams } from "react-router"
-import { Printer, ReceiptText } from "lucide-react"
+import { Ban, Printer, ReceiptText } from "lucide-react"
+import { toast } from "sonner"
 import { formatPaise, outstandingPaise } from "@attendance/shared"
 
 import { useProcurement } from "@/lib/procurement"
 import { useSales } from "@/lib/sales"
+import { useSession } from "@/lib/session"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
 import { EstimateDocument } from "@/components/estimate-document"
 import { printPoDocument } from "@/components/po-document"
@@ -14,7 +16,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 export function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { items } = useProcurement()
-  const { invoices, customers, receipts } = useSales()
+  const { invoices, customers, receipts, cancelInvoice } = useSales()
+  const { can } = useSession()
 
   const invoice = invoices.find((candidate) => candidate.id === id)
   if (!invoice) {
@@ -27,6 +30,7 @@ export function InvoiceDetailPage() {
 
   const customer = customers.find((candidate) => candidate.id === invoice.customerId) ?? null
   const outstanding = outstandingPaise(invoice, receipts)
+  const cancelled = invoice.status === "CANCELLED"
   const ownReceipts = receipts.filter((receipt) =>
     receipt.allocations.some((allocation) => allocation.docId === invoice.id)
   )
@@ -38,7 +42,9 @@ export function InvoiceDetailPage() {
         description={`${customer?.name ?? "—"} · ${invoice.date} · due ${invoice.dueDate}`}
         actions={
           <>
-            {outstanding === 0 ? (
+            {cancelled ? (
+              <Badge variant="secondary">Cancelled</Badge>
+            ) : outstanding === 0 ? (
               <Badge variant="success">Paid</Badge>
             ) : (
               <Badge variant="warning">{formatPaise(outstanding)} outstanding</Badge>
@@ -61,6 +67,19 @@ export function InvoiceDetailPage() {
               <Printer />
               Print / PDF
             </Button>
+            {invoice.status === "OPEN" && ownReceipts.length === 0 && can("sales.manage") ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (cancelInvoice(invoice.id)) toast(`${invoice.number} cancelled`)
+                  else toast.error("Receipts are allocated — cannot cancel.")
+                }}
+              >
+                <Ban />
+                Cancel
+              </Button>
+            ) : null}
           </>
         }
       />
@@ -69,7 +88,7 @@ export function InvoiceDetailPage() {
           number={invoice.number}
           date={invoice.date}
           validUntil={null}
-          statusLabel={outstanding === 0 ? "Paid" : "Open"}
+          statusLabel={cancelled ? "Cancelled" : outstanding === 0 ? "Paid" : "Open"}
           title="TAX INVOICE"
           numberLabel="Invoice No."
           thirdRef={{ label: "Due date", value: invoice.dueDate }}

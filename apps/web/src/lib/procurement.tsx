@@ -64,6 +64,8 @@ interface ProcurementValue extends ProcurementState {
   addBrand: (brand: string) => void
   addCategory: (category: string) => void
   createPo: (draft: PoDraft, createdBy: string) => PurchaseOrder
+  /** Rewrite a DRAFT in place — the one lifecycle stage where editing is honest. */
+  updatePoDraft: (poId: string, draft: PoDraft) => boolean
   submitPo: (poId: string) => void
   decidePo: (poId: string, action: "APPROVE" | "REJECT", decidedBy: string, reason?: string) => void
   cancelPo: (poId: string) => void
@@ -74,6 +76,8 @@ interface ProcurementValue extends ProcurementState {
     recordedBy: string
   ) => Grn
   recordBill: (bill: Omit<VendorBill, "id" | "status" | "recordedBy">, recordedBy: string) => VendorBill
+  /** Refused once any payment is allocated — money history is never orphaned. */
+  cancelBill: (billId: string) => boolean
   /** Auto-allocates oldest-due-first across the vendor's open bills. */
   recordPayment: (
     input: Omit<PaymentEntry, "id" | "allocations" | "recordedBy">,
@@ -305,6 +309,56 @@ export function ProcurementProvider({ children }: { children: React.ReactNode })
           seq: { ...prev.seq, po: prev.seq.po + 1, entity: prev.seq.entity + 1 },
         }))
         return po
+      },
+
+      updatePoDraft: (poId, draft) => {
+        const po = state.pos.find((candidate) => candidate.id === poId)
+        if (!po || po.status !== "DRAFT") return false
+        const lines: PoLine[] = []
+        const schedules: PoSchedule[] = []
+        draft.lines.forEach((draftLine, lineIndex) => {
+          const item = state.items.find((candidate) => candidate.id === draftLine.itemId)
+          const line: PoLine = {
+            id: `${poId}_l${lineIndex}`,
+            itemId: draftLine.itemId,
+            qty: draftLine.qty,
+            unitPricePaise: draftLine.unitPricePaise,
+            gstRatePct: item?.gstRatePct ?? 18,
+            discountPct: draftLine.discountPct,
+          }
+          lines.push(line)
+          draftLine.schedules.forEach((tranche, trancheIndex) =>
+            schedules.push({
+              id: `${line.id}_s${trancheIndex}`,
+              poLineId: line.id,
+              dueDate: tranche.dueDate,
+              qty: tranche.qty,
+            })
+          )
+        })
+        patchPo(poId, () => ({
+          vendorId: draft.vendorId,
+          orderDate: draft.orderDate,
+          terms: draft.terms,
+          notes: draft.notes,
+          lines,
+          schedules,
+        }))
+        return true
+      },
+
+      cancelBill: (billId) => {
+        const allocated = state.payments.some((payment) =>
+          payment.allocations.some((allocation) => allocation.docId === billId)
+        )
+        if (allocated) return false
+        setState((prev) => ({
+          ...prev,
+          vendorBills: prev.vendorBills.map((bill) =>
+            bill.id === billId ? { ...bill, status: "CANCELLED" } : bill
+          ),
+        }))
+        return true
       },
 
       submitPo: (poId) => patchPo(poId, () => ({ status: "PENDING_APPROVAL" })),

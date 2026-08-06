@@ -74,6 +74,20 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
     return reply.code(201).send({ bill: billSummary(bill) })
   })
 
+  /** Refused once any payment is allocated — money history is never orphaned. */
+  app.post("/vendor-bills/:id/cancel", { preHandler: procManage }, async (request, reply) => {
+    const { id: billId } = request.params as { id: string }
+    const bill = store.vendorBills.find((candidate) => candidate.id === billId)
+    if (!bill) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (bill.status !== "OPEN") return reply.code(409).send({ error: "NOT_OPEN" })
+    const allocated = store.payments.some((payment) =>
+      payment.allocations.some((allocation) => allocation.docId === billId)
+    )
+    if (allocated) return reply.code(409).send({ error: "PAYMENTS_ALLOCATED" })
+    bill.status = "CANCELLED"
+    return { bill: billSummary(bill) }
+  })
+
   // ---- vendor payments (money out) ----------------------------------------
   app.get("/payments", { preHandler: procRead }, async () => ({ payments: store.payments }))
 

@@ -1,7 +1,16 @@
 import * as React from "react"
 import { Link, useNavigate, useParams } from "react-router"
 import { toast } from "sonner"
-import { ArrowRightCircle, Ban, Check, FileText, Printer, SendHorizontal, X } from "lucide-react"
+import {
+  ArrowRightCircle,
+  Ban,
+  Check,
+  FileText,
+  Pencil,
+  Printer,
+  SendHorizontal,
+  X,
+} from "lucide-react"
 import { estimateDisplayStatus } from "@attendance/shared"
 
 import { todayISO, useProcurement } from "@/lib/procurement"
@@ -83,16 +92,28 @@ export function EstimateDetailPage() {
               Print / PDF
             </Button>
             {estimate.status === "DRAFT" && canManage ? (
-              <Button
-                size="sm"
-                onClick={() => {
-                  sendEstimate(estimate.id)
-                  toast.success(`${estimate.number} marked sent`)
-                }}
-              >
-                <SendHorizontal />
-                Mark sent
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    navigate("/estimates/new", { state: { editEstimateId: estimate.id } })
+                  }
+                >
+                  <Pencil />
+                  Edit draft
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    sendEstimate(estimate.id)
+                    toast.success(`${estimate.number} marked sent`)
+                  }}
+                >
+                  <SendHorizontal />
+                  Mark sent
+                </Button>
+              </>
             ) : null}
             {estimate.status === "ACCEPTED" && canManage ? (
               existingSo ? (

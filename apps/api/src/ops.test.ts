@@ -172,6 +172,92 @@ describe("commercial chain", () => {
     expect(position.avgCostPaise).toBe(6_000)
   })
 
+  it("drafts edit in place until submitted; money documents cancel only before money moves", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+
+    // Draft PO edits in place; after submit the PUT is refused.
+    const { po } = (
+      await app.inject({
+        method: "POST",
+        url: "/pos",
+        headers: { cookie: ops },
+        payload: { vendorId: "v1", orderDate: "2026-08-06", lines: [{ itemId: "i1", qty: 10 }] },
+      })
+    ).json()
+    const edited = await app.inject({
+      method: "PUT",
+      url: `/pos/${po.id}`,
+      headers: { cookie: ops },
+      payload: { vendorId: "v2", orderDate: "2026-08-07", lines: [{ itemId: "i2", qty: 50 }] },
+    })
+    expect(edited.statusCode).toBe(200)
+    expect(edited.json().po.vendorId).toBe("v2")
+    // The PO number never changes on edit — identity survives the rewrite.
+    expect(edited.json().po.number).toBe(po.number)
+    await app.inject({ method: "POST", url: `/pos/${po.id}/submit`, headers: { cookie: ops } })
+    const late = await app.inject({
+      method: "PUT",
+      url: `/pos/${po.id}`,
+      headers: { cookie: ops },
+      payload: { vendorId: "v1", orderDate: "2026-08-07", lines: [{ itemId: "i1", qty: 1 }] },
+    })
+    expect(late.statusCode).toBe(409)
+
+    // Estimate → SO → invoice → part-receipt: the invoice can no longer cancel.
+    const { estimate } = (
+      await app.inject({
+        method: "POST",
+        url: "/estimates",
+        headers: { cookie: ops },
+        payload: { customerId: "c1", date: "2026-08-06", lines: [{ itemId: "i1", qty: 10 }] },
+      })
+    ).json()
+    await app.inject({ method: "POST", url: `/estimates/${estimate.id}/send`, headers: { cookie: ops } })
+    const sentEdit = await app.inject({
+      method: "PUT",
+      url: `/estimates/${estimate.id}`,
+      headers: { cookie: ops },
+      payload: { customerId: "c1", date: "2026-08-06", lines: [{ itemId: "i1", qty: 5 }] },
+    })
+    expect(sentEdit.statusCode).toBe(409)
+    await app.inject({
+      method: "POST",
+      url: `/estimates/${estimate.id}/decide`,
+      headers: { cookie: ops },
+      payload: { action: "ACCEPT" },
+    })
+    const { salesOrder } = (
+      await app.inject({
+        method: "POST",
+        url: `/estimates/${estimate.id}/convert`,
+        headers: { cookie: ops },
+        payload: { orderDate: "2026-08-06" },
+      })
+    ).json()
+    const { invoice } = (
+      await app.inject({
+        method: "POST",
+        url: "/invoices",
+        headers: { cookie: ops },
+        payload: { soId: salesOrder.id, date: "2026-08-06", dueDate: "2026-09-05" },
+      })
+    ).json()
+    // Before any receipt: cancellable... but first prove the guard.
+    await app.inject({
+      method: "POST",
+      url: "/receipts",
+      headers: { cookie: ops },
+      payload: { partyId: "c1", date: "2026-08-10", amountPaise: 10_000 },
+    })
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/invoices/${invoice.id}/cancel`,
+      headers: { cookie: ops },
+    })
+    expect(blocked.statusCode).toBe(409)
+    expect(blocked.json().error).toBe("RECEIPTS_ALLOCATED")
+  })
+
   it("indent: request → approve → mark ordered; expense: claim → approve (not own) → reimburse", async () => {
     const employee = await login("employee@delta.dev", "Emp@1234")
     const ops = await login("ops@delta.dev", "Ops@1234")

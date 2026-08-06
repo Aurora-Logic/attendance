@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useNavigate } from "react-router"
+import { useLocation, useNavigate } from "react-router"
 import { toast } from "sonner"
 import { Eye, Pencil, Printer, SendHorizontal } from "lucide-react"
 import { formatDocNumber, formatPaise, poTotals, type PoLine } from "@attendance/shared"
@@ -16,20 +16,36 @@ import { Button } from "@/components/ui/button"
 /** Same type-on-the-template builder as the PO, pointed at a customer. */
 export function EstimateNewPage() {
   const { items } = useProcurement()
-  const { customers, seq, createEstimate, sendEstimate } = useSales()
+  const { customers, estimates, seq, createEstimate, updateEstimateDraft, sendEstimate } = useSales()
   const { user } = useSession()
   const navigate = useNavigate()
+  const editState = (useLocation().state ?? null) as { editEstimateId?: string } | null
+  const editing = editState?.editEstimateId
+    ? (estimates.find(
+        (candidate) => candidate.id === editState.editEstimateId && candidate.status === "DRAFT"
+      ) ?? null)
+    : null
 
-  const [customerId, setCustomerId] = React.useState("")
-  const [date, setDate] = React.useState(todayISO())
-  const [validUntil, setValidUntil] = React.useState<string | null>(shiftDateISO(todayISO(), 14))
-  const [terms, setTerms] = React.useState("")
-  const [lines, setLines] = React.useState<EstimateDocLine[]>([])
+  const [customerId, setCustomerId] = React.useState(editing?.customerId ?? "")
+  const [date, setDate] = React.useState(editing?.date ?? todayISO())
+  const [validUntil, setValidUntil] = React.useState<string | null>(
+    editing ? editing.validUntil : shiftDateISO(todayISO(), 14)
+  )
+  const [terms, setTerms] = React.useState(editing?.terms ?? "")
+  const [lines, setLines] = React.useState<EstimateDocLine[]>(() =>
+    (editing?.lines ?? []).map((line) => ({
+      key: line.id,
+      itemId: line.itemId,
+      qty: line.qty,
+      unitPricePaise: line.unitPricePaise,
+      discountPct: line.discountPct,
+    }))
+  )
   const [preview, setPreview] = React.useState(false)
   const nextKey = React.useRef(1)
 
   const customer = customers.find((candidate) => candidate.id === customerId) ?? null
-  const number = formatDocNumber("EST", Number(date.slice(0, 4)), seq.est + 1)
+  const number = editing?.number ?? formatDocNumber("EST", Number(date.slice(0, 4)), seq.est + 1)
 
   const totals = poTotals(
     lines
@@ -65,23 +81,28 @@ export function EstimateNewPage() {
       toast.error(problem)
       return
     }
-    const estimate = createEstimate(
-      {
-        customerId,
-        date,
-        validUntil,
-        terms,
-        notes: "",
-        lines: lines.map((line) => ({
-          itemId: line.itemId,
-          qty: line.qty,
-          unitPricePaise: line.unitPricePaise,
-          gstRatePct: items.find((item) => item.id === line.itemId)?.gstRatePct ?? 18,
-          discountPct: line.discountPct,
-        })),
-      },
-      user?.email ?? "unknown"
-    )
+    const draft = {
+      customerId,
+      date,
+      validUntil,
+      terms,
+      notes: "",
+      lines: lines.map((line) => ({
+        itemId: line.itemId,
+        qty: line.qty,
+        unitPricePaise: line.unitPricePaise,
+        gstRatePct: items.find((item) => item.id === line.itemId)?.gstRatePct ?? 18,
+        discountPct: line.discountPct,
+      })),
+    }
+    if (editing) {
+      updateEstimateDraft(editing.id, draft)
+      if (send) sendEstimate(editing.id)
+      toast.success(`${editing.number} ${send ? "updated and sent" : "updated"}`)
+      navigate(`/estimates/${editing.id}`)
+      return
+    }
+    const estimate = createEstimate(draft, user?.email ?? "unknown")
     if (send) sendEstimate(estimate.id)
     toast.success(`${estimate.number} ${send ? "sent" : "saved as draft"}`)
     navigate(`/estimates/${estimate.id}`)
@@ -90,7 +111,7 @@ export function EstimateNewPage() {
   return (
     <Page>
       <PageHeader
-        title="New Estimate"
+        title={editing ? `Edit ${editing.number}` : "New Estimate"}
         description={
           preview
             ? "Preview — exactly as it prints. Nothing is saved yet."
