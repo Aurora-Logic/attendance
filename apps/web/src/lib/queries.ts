@@ -443,6 +443,41 @@ export function useDepartments() {
   }
 }
 
+export interface ShiftRow {
+  id: string
+  name: string
+  short: string
+  startMin: number
+  endMin: number
+  breakMin: number
+}
+
+/** Shift specs come from the API; demo mirrors the server seed. */
+export function useShifts() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+
+  const query = useQuery({
+    queryKey: ["shifts"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<{ shifts: ShiftRow[] }>("/shifts"),
+    select: (payload) => payload.shifts,
+  })
+
+  if (!enabled || query.isError) {
+    return {
+      shifts: [
+        { id: "gen", name: "General", short: "G", startMin: 540, endMin: 1080, breakMin: 60 },
+        { id: "night", name: "Night", short: "N", startMin: 1320, endMin: 360, breakMin: 30 },
+      ] satisfies ShiftRow[],
+      source: "demo" as DataSource,
+      isLoading: false,
+    }
+  }
+  return { shifts: query.data ?? [], source: "api" as DataSource, isLoading: query.isLoading }
+}
+
 export function useCreateDepartment() {
   const queryClient = useQueryClient()
   return useMutation({

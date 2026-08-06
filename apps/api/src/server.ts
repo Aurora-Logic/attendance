@@ -17,6 +17,7 @@ import {
   reduceLedger,
   resolveBusinessDate,
   scopeSchema,
+  shiftSpecSchema,
   type PunchFlag,
   type Role,
   type Scope,
@@ -348,6 +349,95 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         ip: request.ip,
       })
       return reply.code(201).send({ employee })
+    }
+  )
+
+  const employeeUpdateSchema = employeeCreateSchema
+    .omit({ code: true })
+    .partial()
+    .extend({ managerId: z.string().nullable().optional() })
+
+  app.patch(
+    "/employees/:id",
+    { preHandler: [authenticate, requirePermission("employee.manage", { write: true })] },
+    async (request, reply) => {
+      const employee = store.employees.find(
+        (candidate) => candidate.id === (request.params as { id: string }).id
+      )
+      if (!employee) return reply.code(404).send({ error: "NOT_FOUND" })
+      const parsed = employeeUpdateSchema.safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+      // Referential guards — a typo'd shift or manager id must not corrupt the roster.
+      if (parsed.data.shiftId && !store.shifts.some((shift) => shift.id === parsed.data.shiftId))
+        return reply.code(422).send({ error: "UNKNOWN_SHIFT" })
+      if (
+        parsed.data.managerId &&
+        (parsed.data.managerId === employee.id ||
+          !store.employees.some((candidate) => candidate.id === parsed.data.managerId))
+      )
+        return reply.code(422).send({ error: "BAD_MANAGER" })
+      const before = { ...employee }
+      Object.assign(employee, parsed.data)
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "employee.update",
+        entity: "employees",
+        entityId: employee.id,
+        before,
+        after: employee,
+        ip: request.ip,
+      })
+      return { employee }
+    }
+  )
+
+  // ---- shifts --------------------------------------------------------------
+  // No DELETE by design: employees reference shiftId, so shifts retire by
+  // falling out of use — the departments pattern, not a hard delete.
+  app.get("/shifts", { preHandler: [authenticate] }, async () => ({ shifts: store.shifts }))
+
+  app.post(
+    "/shifts",
+    { preHandler: [authenticate, requirePermission("config.manage", { write: true })] },
+    async (request, reply) => {
+      const parsed = shiftSpecSchema.omit({ id: true }).safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+      const shift = { id: id(store, "sh"), ...parsed.data }
+      store.shifts.push(shift)
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "shift.create",
+        entity: "shifts",
+        entityId: shift.id,
+        after: shift,
+        ip: request.ip,
+      })
+      return reply.code(201).send({ shift })
+    }
+  )
+
+  app.patch(
+    "/shifts/:id",
+    { preHandler: [authenticate, requirePermission("config.manage", { write: true })] },
+    async (request, reply) => {
+      const shift = store.shifts.find(
+        (candidate) => candidate.id === (request.params as { id: string }).id
+      )
+      if (!shift) return reply.code(404).send({ error: "NOT_FOUND" })
+      const parsed = shiftSpecSchema.omit({ id: true }).partial().safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+      const before = { ...shift }
+      Object.assign(shift, parsed.data)
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "shift.update",
+        entity: "shifts",
+        entityId: shift.id,
+        before,
+        after: shift,
+        ip: request.ip,
+      })
+      return { shift }
     }
   )
 

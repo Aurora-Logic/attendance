@@ -11,6 +11,7 @@ import { useAttendanceDays, useEnqueueExport, useExportJobs } from "@/lib/querie
 import { useSession } from "@/lib/session"
 import { EXPORT_JOBS, REPORTS, seedAttendanceDays } from "@/lib/seed"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
+import { CustomReportsCard } from "@/components/report-builder-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -148,6 +149,8 @@ export function ReportsPage() {
             {todayRows.length} rostered
           </CardContent>
         </Card>
+
+        <CustomReportsCard />
 
         <Card>
           <CardHeader>

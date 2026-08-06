@@ -7,8 +7,10 @@ import * as z from "zod"
 import type { ColumnDef } from "@tanstack/react-table"
 import { ArrowUpDown, Plus, Upload } from "lucide-react"
 
+import { minutesToClock } from "@attendance/shared"
+
 import { ApiError } from "@/lib/api"
-import { useCreateEmployee, useDepartments, useEmployeesList } from "@/lib/queries"
+import { useCreateEmployee, useDepartments, useEmployeesList, useShifts } from "@/lib/queries"
 import { useSession } from "@/lib/session"
 import { BRANCHES, type Employee } from "@/lib/seed"
 import { DataTable } from "@/components/data-table"
@@ -50,6 +52,7 @@ const employeeSchema = z.object({
   email: z.email("Enter a valid email address."),
   department: z.string().min(1, "Pick a department."),
   branchId: z.string().min(1, "Pick a branch."),
+  shiftId: z.string().min(1, "Pick a shift."),
   isFieldEmployee: z.boolean(),
 })
 type EmployeeForm = z.infer<typeof employeeSchema>
@@ -63,6 +66,7 @@ function EmployeeSheet() {
   const [open, setOpen] = React.useState(false)
   const createEmployee = useCreateEmployee()
   const { departments } = useDepartments()
+  const { shifts } = useShifts()
   const form = useForm<EmployeeForm>({
     resolver: zodResolver(employeeSchema),
     defaultValues: {
@@ -71,6 +75,7 @@ function EmployeeSheet() {
       email: "",
       department: "",
       branchId: "",
+      shiftId: "",
       isFieldEmployee: false,
     },
   })
@@ -78,7 +83,7 @@ function EmployeeSheet() {
   const onSubmit = (values: EmployeeForm) => {
     if (user?.source === "api") {
       createEmployee.mutate(
-        { ...values, shiftId: "gen" },
+        values,
         {
           onSuccess: () => {
             toast.success("Employee created", { description: `${values.name} · ${values.code}` })
@@ -207,6 +212,29 @@ function EmployeeSheet() {
                       </SelectContent>
                     </Select>
                     <FieldDescription>Sets the geofence centre and holiday calendar.</FieldDescription>
+                    {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
+                  </Field>
+                )}
+              />
+              <Controller
+                name="shiftId"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="employee-shift">Shift</FieldLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="employee-shift" aria-invalid={fieldState.invalid}>
+                        <SelectValue placeholder="Select shift" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {shifts.map((shift) => (
+                          <SelectItem key={shift.id} value={shift.id}>
+                            {shift.name} ({minutesToClock(shift.startMin)}–
+                            {minutesToClock(shift.endMin)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
                   </Field>
                 )}

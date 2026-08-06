@@ -671,3 +671,106 @@ describe("§6 payroll — lock then run, exact paise", () => {
     ).toBe(403)
   })
 })
+
+describe("employees & shifts — full CRUD surface", () => {
+  it("PATCH /employees/:id updates fields, guards references, audits", async () => {
+    const admin = await asAdmin()
+    const ok = await app.inject({
+      method: "PATCH",
+      url: "/employees/e4",
+      headers: { cookie: admin.cookies },
+      payload: { department: "Finance", shiftId: "night" },
+    })
+    expect(ok.statusCode).toBe(200)
+    expect(ok.json().employee).toMatchObject({ id: "e4", department: "Finance", shiftId: "night" })
+
+    const badShift = await app.inject({
+      method: "PATCH",
+      url: "/employees/e4",
+      headers: { cookie: admin.cookies },
+      payload: { shiftId: "ghost" },
+    })
+    expect(badShift.statusCode).toBe(422)
+    expect(badShift.json().error).toBe("UNKNOWN_SHIFT")
+
+    const selfManager = await app.inject({
+      method: "PATCH",
+      url: "/employees/e4",
+      headers: { cookie: admin.cookies },
+      payload: { managerId: "e4" },
+    })
+    expect(selfManager.statusCode).toBe(422)
+    expect(selfManager.json().error).toBe("BAD_MANAGER")
+
+    expect(
+      (await app.inject({ method: "PATCH", url: "/employees/missing", headers: { cookie: admin.cookies }, payload: {} }))
+        .statusCode
+    ).toBe(404)
+  })
+
+  it("employee PATCH requires employee.manage write — EMPLOYEE role is refused", async () => {
+    const employee = await asEmployee()
+    const denied = await app.inject({
+      method: "PATCH",
+      url: "/employees/e4",
+      headers: { cookie: employee.cookies },
+      payload: { department: "Finance" },
+    })
+    expect(denied.statusCode).toBe(403)
+  })
+
+  it("GET /shifts lists for any signed-in user; create/update are config.manage writes", async () => {
+    const employee = await asEmployee()
+    const list = await app.inject({ method: "GET", url: "/shifts", headers: { cookie: employee.cookies } })
+    expect(list.statusCode).toBe(200)
+    expect(list.json().shifts.map((shift: { id: string }) => shift.id)).toContain("gen")
+
+    const deniedCreate = await app.inject({
+      method: "POST",
+      url: "/shifts",
+      headers: { cookie: employee.cookies },
+      payload: { name: "Evening", short: "E", startMin: 840, endMin: 1320, breakMin: 30 },
+    })
+    expect(deniedCreate.statusCode).toBe(403)
+
+    const admin = await asAdmin()
+    const created = await app.inject({
+      method: "POST",
+      url: "/shifts",
+      headers: { cookie: admin.cookies },
+      payload: { name: "Evening", short: "E", startMin: 840, endMin: 1320, breakMin: 30 },
+    })
+    expect(created.statusCode).toBe(201)
+    const shiftId = created.json().shift.id
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/shifts/${shiftId}`,
+      headers: { cookie: admin.cookies },
+      payload: { breakMin: 45 },
+    })
+    expect(updated.statusCode).toBe(200)
+    expect(updated.json().shift.breakMin).toBe(45)
+
+    // The new shift is immediately usable as an employee reference.
+    const assign = await app.inject({
+      method: "PATCH",
+      url: "/employees/e4",
+      headers: { cookie: admin.cookies },
+      payload: { shiftId },
+    })
+    expect(assign.statusCode).toBe(200)
+    expect(assign.json().employee.shiftId).toBe(shiftId)
+  })
+
+  it("shift POST rejects a malformed spec (minutes out of range)", async () => {
+    const admin = await asAdmin()
+    const bad = await app.inject({
+      method: "POST",
+      url: "/shifts",
+      headers: { cookie: admin.cookies },
+      payload: { name: "Broken", short: "B", startMin: 2000, endMin: 1080 },
+    })
+    expect(bad.statusCode).toBe(400)
+  })
+})
