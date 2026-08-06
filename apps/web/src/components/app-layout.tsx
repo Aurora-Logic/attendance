@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "react-router"
 import { Search } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { BottomNav } from "@/components/bottom-nav"
 import { CommandPaletteProvider, useCommandPalette } from "@/components/command-palette"
 import { ModeToggle } from "@/components/mode-toggle"
 import { resolveCrumbs } from "@/lib/nav"
@@ -69,9 +70,11 @@ function Shell() {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
+      {/* Reserve the bottom-nav's height on phones so pages never hide under it. */}
+      <div className="min-h-0 flex-1 overflow-hidden max-sm:pb-16">
         <Outlet />
       </div>
+      <BottomNav />
     </SidebarInset>
   )
 }

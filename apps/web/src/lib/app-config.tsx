@@ -102,6 +102,10 @@ const DEFAULT_BRANDING: Branding = {
 }
 
 interface AppConfigValue {
+  /** Pinned bottom-nav URLs on phones (max 4); null = sensible default. */
+  bottomNav: string[] | null
+  setBottomNav: (urls: string[] | null) => void
+
   settings: AttendanceSettings
   setSetting: <K extends keyof AttendanceSettings>(key: K, value: AttendanceSettings[K]) => void
   resetSettings: () => void
@@ -123,6 +127,7 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = React.useState<AttendanceSettings>(DEFAULT_ATTENDANCE_SETTINGS)
   const [roster, setRoster] = React.useState<RosterConfig>(DEFAULT_ROSTER)
   const [branding, setBranding] = React.useState<Branding>(DEFAULT_BRANDING)
+  const [bottomNav, setBottomNav] = React.useState<string[] | null>(null)
 
   // Survive a refresh — the running store until the API takes over.
   React.useEffect(() => {
@@ -133,6 +138,7 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
       if (saved.settings) setSettings(attendanceSettingsSchema.parse(saved.settings))
       if (saved.roster) setRoster({ ...DEFAULT_ROSTER, ...saved.roster, halfDays: saved.roster.halfDays ?? {} })
       if (saved.branding) setBranding({ ...DEFAULT_BRANDING, ...saved.branding })
+      if (Array.isArray(saved.bottomNav)) setBottomNav(saved.bottomNav)
     } catch {
       // A corrupt blob must never brick the app — fall back to defaults.
       localStorage.removeItem(STORAGE_KEY)
@@ -140,11 +146,13 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   React.useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, roster, branding }))
-  }, [settings, roster, branding])
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, roster, branding, bottomNav }))
+  }, [settings, roster, branding, bottomNav])
 
   const value = React.useMemo<AppConfigValue>(
     () => ({
+      bottomNav,
+      setBottomNav,
       settings,
       setSetting: (key, entry) => setSettings((prev) => ({ ...prev, [key]: entry })),
       resetSettings: () => setSettings(DEFAULT_ATTENDANCE_SETTINGS),
@@ -172,7 +180,7 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
       branding,
       setBranding,
     }),
-    [settings, roster, branding]
+    [settings, roster, branding, bottomNav]
   )
 
   return <AppConfigContext.Provider value={value}>{children}</AppConfigContext.Provider>

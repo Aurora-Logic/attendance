@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { MobileNavSettings } from "@/components/settings-mobile-nav"
 
 function NumberField({
   id,
@@ -277,9 +278,14 @@ export function SettingsPage() {
             <TabsTrigger value="approvals">Approvals & OT</TabsTrigger>
             <TabsTrigger value="roster">Roster & shifts</TabsTrigger>
             <TabsTrigger value="departments">Departments</TabsTrigger>
+            <TabsTrigger value="navigation">Navigation</TabsTrigger>
             <TabsTrigger value="guide">Guide</TabsTrigger>
             {isAdmin ? <TabsTrigger value="branding">Branding</TabsTrigger> : null}
           </TabsList>
+
+          <TabsContent value="navigation" className="flex flex-col gap-4">
+            <MobileNavSettings />
+          </TabsContent>
 
           <TabsContent value="late" className="flex flex-col gap-4">
             <Alert>
