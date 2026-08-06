@@ -220,6 +220,7 @@ export function useEmployeesList() {
         doj: "—",
         isFieldEmployee: employee.isFieldEmployee,
         email: employee.email,
+        shiftId: employee.shiftId,
       })),
   })
 
@@ -246,6 +247,29 @@ export function useCreateEmployee() {
       isFieldEmployee: boolean
     }) => apiFetch("/employees", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["employees"] }),
+  })
+}
+
+export function useUpdateEmployee() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...body
+    }: {
+      id: string
+      name?: string
+      email?: string
+      department?: string
+      branchId?: string
+      shiftId?: string
+      managerId?: string | null
+      isFieldEmployee?: boolean
+    }) => apiFetch(`/employees/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["employees"] })
+      void queryClient.invalidateQueries({ queryKey: ["attendance-days"] })
+    },
   })
 }
 

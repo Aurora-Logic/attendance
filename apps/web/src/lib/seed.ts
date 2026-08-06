@@ -48,6 +48,8 @@ export interface Employee {
   doj: string
   isFieldEmployee: boolean
   email: string
+  /** Present on live-API rows; seeded rows only carry the display name. */
+  shiftId?: string
 }
 
 const DESIGNATIONS = ["Operator", "Senior Operator", "Supervisor", "Executive", "Manager"]

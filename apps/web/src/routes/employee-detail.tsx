@@ -1,11 +1,14 @@
 import * as React from "react"
 import { Link, useNavigate, useParams } from "react-router"
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts"
-import { ArrowLeft, Crown, ExternalLink, MapPin } from "lucide-react"
-import type { DayStatus } from "@attendance/shared"
+import { ArrowLeft, Crown, ExternalLink, MapPin, Pencil } from "lucide-react"
+import { toast } from "sonner"
+import { minutesToClock, type DayStatus } from "@attendance/shared"
 
+import { ApiError } from "@/lib/api"
 import { EMPLOYEES, BRANCHES } from "@/lib/seed"
-import { useEmployeesList } from "@/lib/queries"
+import { useDepartments, useEmployeesList, useShifts, useUpdateEmployee } from "@/lib/queries"
+import { useSession } from "@/lib/session"
 import { buildEmployeeAnalytics } from "@/lib/analytics"
 import { mapsLinkFor } from "@/lib/geo"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
@@ -14,6 +17,32 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
+import { Switch } from "@/components/ui/switch"
 import {
   ChartContainer,
   ChartLegend,
@@ -57,14 +86,169 @@ const weekdayConfig = {
   minutes: { label: "Late", color: "var(--chart-3)" },
 } satisfies ChartConfig
 
+/**
+ * Edits land through PATCH /employees/:id — referential guards server-side
+ * (unknown shift 422, bad manager 422), audited. Demo sessions get the local
+ * toast so the control never pretends.
+ */
+function EditEmployeeSheet({
+  live,
+  fallbackName,
+}: {
+  live: { id: string; name: string; email: string; department: string; shiftId: string; isFieldEmployee: boolean } | null
+  fallbackName: string
+}) {
+  const { user } = useSession()
+  const { departments } = useDepartments()
+  const { shifts } = useShifts()
+  const update = useUpdateEmployee()
+  const [open, setOpen] = React.useState(false)
+  const [form, setForm] = React.useState({
+    name: live?.name ?? fallbackName,
+    email: live?.email ?? "",
+    department: live?.department ?? "",
+    shiftId: live?.shiftId ?? "",
+    isFieldEmployee: live?.isFieldEmployee ?? false,
+  })
+
+  const onSave = () => {
+    if (!(user?.source === "api" && live)) {
+      toast.success("Employee updated (demo)", { description: form.name })
+      setOpen(false)
+      return
+    }
+    update.mutate(
+      { id: live.id, ...form },
+      {
+        onSuccess: () => {
+          toast.success("Employee updated", { description: form.name })
+          setOpen(false)
+        },
+        onError: (error) =>
+          toast.error("Could not update", {
+            description:
+              error instanceof ApiError && error.status === 403
+                ? "Your role lacks employee.manage at write scope."
+                : error instanceof ApiError && error.status === 422
+                  ? "The server refused a reference (shift or manager)."
+                  : String(error),
+          }),
+      }
+    )
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Pencil />
+          Edit
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="flex flex-col gap-0 p-0 sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle>Edit employee</SheetTitle>
+          <SheetDescription>
+            Changes apply from the next computed day; history is never rewritten.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="edit-name">Full name</FieldLabel>
+              <Input
+                id="edit-name"
+                value={form.name}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="edit-email">Work email</FieldLabel>
+              <Input
+                id="edit-email"
+                type="email"
+                value={form.email}
+                onChange={(event) => setForm({ ...form, email: event.target.value })}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="edit-dept">Department</FieldLabel>
+              <Select
+                value={form.department}
+                onValueChange={(value) => setForm({ ...form, department: value })}
+              >
+                <SelectTrigger id="edit-dept">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments
+                    .filter((department) => department.isActive)
+                    .map((department) => (
+                      <SelectItem key={department.id} value={department.name}>
+                        {department.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="edit-shift">Shift</FieldLabel>
+              <Select
+                value={form.shiftId}
+                onValueChange={(value) => setForm({ ...form, shiftId: value })}
+              >
+                <SelectTrigger id="edit-shift">
+                  <SelectValue placeholder="Select shift" />
+                </SelectTrigger>
+                <SelectContent>
+                  {shifts.map((shift) => (
+                    <SelectItem key={shift.id} value={shift.id}>
+                      {shift.name} ({minutesToClock(shift.startMin)}–{minutesToClock(shift.endMin)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>Applies from tomorrow's roster.</FieldDescription>
+            </Field>
+            <Field orientation="horizontal">
+              <Switch
+                id="edit-field"
+                checked={form.isFieldEmployee}
+                onCheckedChange={(checked) => setForm({ ...form, isFieldEmployee: checked })}
+              />
+              <FieldContent>
+                <FieldLabel htmlFor="edit-field">Field employee</FieldLabel>
+                <FieldDescription>Exempt from the geofence check.</FieldDescription>
+              </FieldContent>
+            </Field>
+          </FieldGroup>
+        </div>
+        <SheetFooter className="flex-row border-t">
+          <SheetClose asChild>
+            <Button variant="outline" className="flex-1">
+              Cancel
+            </Button>
+          </SheetClose>
+          <Button className="flex-1" onClick={onSave} disabled={update.isPending}>
+            Save changes
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
 export function EmployeeDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { scopeFor } = useSession()
   const { employees: liveEmployees } = useEmployeesList()
   const employee =
     EMPLOYEES.find((entry) => entry.id === id) ??
     liveEmployees.find((entry) => entry.id === id) ??
     null
+  const liveRow = liveEmployees.find((entry) => entry.id === id && entry.shiftId) ?? null
+  const canEdit = scopeFor("employee.manage") !== "NONE"
 
   // Seeded employees carry three months of synthetic history; a live-API
   // employee has only what has actually been punched, so charts wait.
@@ -139,17 +323,37 @@ export function EmployeeDetailPage() {
                 {employee.shift}
               </p>
             </div>
-            <Button variant="outline" size="sm" asChild>
-              <a
-                href={mapsLinkFor({ lat: 19.076, lng: 72.8777 })}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <MapPin />
-                Branch pin
-                <ExternalLink />
-              </a>
-            </Button>
+            <div className="flex items-center gap-2">
+              {canEdit ? (
+                <EditEmployeeSheet
+                  key={employee.id}
+                  live={
+                    liveRow
+                      ? {
+                          id: liveRow.id,
+                          name: liveRow.name,
+                          email: liveRow.email,
+                          department: liveRow.department,
+                          shiftId: liveRow.shiftId ?? "",
+                          isFieldEmployee: liveRow.isFieldEmployee,
+                        }
+                      : null
+                  }
+                  fallbackName={employee.name}
+                />
+              ) : null}
+              <Button variant="outline" size="sm" asChild>
+                <a
+                  href={mapsLinkFor({ lat: 19.076, lng: 72.8777 })}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <MapPin />
+                  Branch pin
+                  <ExternalLink />
+                </a>
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
