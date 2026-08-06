@@ -18,12 +18,12 @@ what the previous wave proved.
                     │ Money-in-paise · Masters · Notifications · Files (MinIO)    │
                     └──────────────────────────────────────────────────────────────┘
    PEOPLE                    SELL                      BUY                    MAKE & STOCK
-   Attendance ✅             Customers ✅              Procurement ✅          Inventory ⬜
-   Leave ✅                  Estimates ✅              Indents ⬜              Production ⬜
-   Payroll 🔨                Sales Orders ⬜           Vendor Bills ⬜         Stock Reports ⬜
-   Expense Claims ⬜         Dispatch/Challan ⬜       Payables ⬜
-   HR-lite ⬜                Invoicing ⬜
-                             Receivables ⬜
+   Attendance ✅             Customers ✅              Procurement ✅          Inventory ✅
+   Leave ✅                  Estimates ✅              Indents ✅              Production ⬜
+   Payroll 🔨                Sales Orders ✅           Vendor Bills ✅         Stock Reports ✅
+   Expense Claims ✅         Dispatch/Challan ✅       Payables ✅
+   HR-lite ⬜                Invoicing ✅
+                             Receivables ✅
                     ┌──────────────────────────────────────────────────────────────┐
                     │ FINANCE SPINE: GST reports · TDS · Tally voucher export ⬜   │
                     └──────────────────────────────────────────────────────────────┘
@@ -37,7 +37,7 @@ what the previous wave proved.
 | Attendance ✅ | Punches, day computation, regularisation, roster, geofence, selfies | The founding module |
 | Leave ✅ | Ledger, balances, sandwich rule, comp-off | Approval engine |
 | Payroll 🔨 | Earned pay, OT; then Phase 7b: PF/ESI/PT/TDS, payslip PDF, bank file | `payable_units` (A3), locked months (A8) |
-| Expense Claims ⬜ | Employee spends → approve → reimburse in payroll | Approval engine, money-in-paise, payroll |
+| Expense Claims ✅ | Employee spends → approve (never your own) → reimburse | Approval engine, money-in-paise, payroll |
 | HR-lite ⬜ | Onboarding/exit checklists, documents, company asset issue | Files, audit |
 
 ### Sell (the estimate creator's family)
@@ -45,23 +45,23 @@ what the previous wave proved.
 |---|---|---|
 | Customers ✅ | **Customers master** (mirror of vendors), win-rate and quoted value per customer | Masters pattern from vendors |
 | Estimates ✅ | The OCC type-on-template sheet; `salePricePaise` on items; validity with derived EXPIRED; send → accept/reject with reasons | PO document sheet (D6), GST maths + CGST/SGST split, doc series `EST-` |
-| Sales Orders ⬜ | Won estimate → SO; the customer-side mirror of a PO with delivery schedule | PO lifecycle shape (draft→approve→fulfil) |
-| Dispatch ⬜ | Delivery challans against SO tranches — the mirror of GRNs, append-only | GRN pattern (D1/D2), stock issue |
-| Invoicing ⬜ | GST invoice from SO/challan, credit notes; e-invoice IRN + e-way bill when turnover requires | Doc sheet, tax breakup, doc series `INV-` |
-| Receivables ⬜ | Payments received, outstanding by customer, ageing, payment terms from customer master | Ledger-projection pattern from leave |
+| Sales Orders ✅ | Won estimate → SO (convert-once, never reprices); customer ref; derived dispatch status | PO lifecycle shape (draft→approve→fulfil) |
+| Dispatch ✅ | Delivery challans against SO lines — the mirror of GRNs, append-only; feeds stock OUT | GRN pattern (D1/D2), stock issue |
+| Invoicing ✅ | GST invoice from SO (never reprices), printable TAX INVOICE sheet; credit notes + e-invoice IRN later | Doc sheet, tax breakup, doc series `INV-` |
+| Receivables ✅ | Receipts allocate oldest-due-first; outstanding + ageing per customer, all projections | Ledger-projection pattern from leave |
 
 ### Buy (procurement grown up)
 | Module | Contents | Rides on |
 |---|---|---|
 | Procurement ✅ | Vendors, items (brand/category), POs, delivery schedules, GRNs, vendor analytics | — |
-| Indents ⬜ | Department requisitions → approved → grouped into POs | Approval engine |
-| Vendor Bills ⬜ | Purchase invoices with **3-way match**: PO ↔ GRN ↔ bill, mismatches flagged not blocked | receiptProgress (D2), §3 flag-don't-block |
-| Payables ⬜ | Debit notes, vendor payments, ageing by payment terms | Ledger-projection pattern |
+| Indents ✅ | Department requisitions → approve → PO builder prefills, indent marked ORDERED | Approval engine |
+| Vendor Bills ✅ | Purchase invoices with **3-way match**: PO ↔ GRN ↔ bill, mismatches flagged not blocked | receiptProgress (D2), §3 flag-don't-block |
+| Payables ✅ | Vendor payments allocate oldest-due-first; ageing by payment terms | Ledger-projection pattern |
 
 ### Make & stock
 | Module | Contents | Rides on |
 |---|---|---|
-| Inventory ⬜ | **Append-only stock ledger** — every movement is a row (GRN in, challan out, adjustment, transfer); balances are projections; weighted-average valuation; reorder levels → suggested indents | A1/D1 append-only doctrine, reduceLedger pattern |
+| Inventory ✅ | **Stock as a projection** — movements derived from GRNs (in) + challans (out) + counted adjustments; weighted-average valuation; reorder flags; per-item movement audit trail | A1/D1 append-only doctrine, reduceLedger pattern |
 | Production ⬜ | BOM per finished item, work orders, material issue/consumption, output entries | Inventory movements, approval engine |
 
 ### Finance spine (deliberately thin)

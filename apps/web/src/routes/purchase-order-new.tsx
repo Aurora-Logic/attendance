@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useNavigate } from "react-router"
+import { useLocation, useNavigate } from "react-router"
 import { toast } from "sonner"
 import { Eye, Pencil, Printer, SendHorizontal } from "lucide-react"
 import { formatDocNumber, formatPaise, poTotals, type PoLine } from "@attendance/shared"
@@ -16,14 +16,28 @@ import { Button } from "@/components/ui/button"
  * affordances; Print uses the browser's A4 output of the same markup.
  */
 export function PurchaseOrderNewPage() {
-  const { vendors, items, seq, createPo, submitPo } = useProcurement()
+  const { vendors, items, seq, createPo, submitPo, markIndentOrdered } = useProcurement()
   const { user } = useSession()
   const navigate = useNavigate()
+  // An approved indent can hand its lines straight to this builder.
+  const prefill = (useLocation().state ?? null) as {
+    indentId?: string
+    lines?: Array<{ itemId: string; qty: number }>
+  } | null
 
   const [vendorId, setVendorId] = React.useState("")
   const [orderDate, setOrderDate] = React.useState(todayISO())
   const [terms, setTerms] = React.useState("")
-  const [lines, setLines] = React.useState<DocLine[]>([])
+  const [lines, setLines] = React.useState<DocLine[]>(() =>
+    (prefill?.lines ?? []).map((line, index) => ({
+      key: `pre${index}`,
+      itemId: line.itemId,
+      qty: line.qty,
+      unitPricePaise: items.find((item) => item.id === line.itemId)?.lastPricePaise ?? 0,
+      discountPct: 0,
+      schedules: [],
+    }))
+  )
   const [preview, setPreview] = React.useState(false)
   const nextKey = React.useRef(1)
 
@@ -86,6 +100,7 @@ export function PurchaseOrderNewPage() {
       user?.email ?? "unknown"
     )
     if (submit) submitPo(po.id)
+    if (prefill?.indentId) markIndentOrdered(prefill.indentId, po.id)
     toast.success(`${po.number} ${submit ? "submitted for approval" : "saved as draft"}`)
     navigate(`/purchase-orders/${po.id}`)
   }

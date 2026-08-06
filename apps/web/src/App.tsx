@@ -29,6 +29,13 @@ import { RolesPage } from "@/routes/roles"
 import { RosterPage } from "@/routes/roster"
 import { SettingsPage } from "@/routes/settings"
 import { StockPage } from "@/routes/stock"
+import { ExpensesPage } from "@/routes/expenses"
+import { IndentsPage } from "@/routes/indents"
+import { InvoiceDetailPage } from "@/routes/invoice-detail"
+import { InvoicesPage } from "@/routes/invoices"
+import { PayablesPage } from "@/routes/payables"
+import { ReceivablesPage } from "@/routes/receivables"
+import { VendorBillsPage } from "@/routes/vendor-bills"
 import { VendorsPage } from "@/routes/vendors"
 
 export default function App() {
@@ -65,6 +72,13 @@ export default function App() {
         <Route path="vendors" element={<VendorsPage />} />
         <Route path="items" element={<ItemsPage />} />
         <Route path="stock" element={<StockPage />} />
+        <Route path="invoices" element={<InvoicesPage />} />
+        <Route path="invoices/:id" element={<InvoiceDetailPage />} />
+        <Route path="receivables" element={<ReceivablesPage />} />
+        <Route path="indents" element={<IndentsPage />} />
+        <Route path="vendor-bills" element={<VendorBillsPage />} />
+        <Route path="payables" element={<PayablesPage />} />
+        <Route path="expenses" element={<ExpensesPage />} />
         <Route path="procurement-analytics" element={<ProcurementAnalyticsPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="payroll" element={<PayrollPage />} />

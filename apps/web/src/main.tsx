@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { AppConfigProvider } from "@/lib/app-config"
 import { ProcurementProvider } from "@/lib/procurement"
 import { SalesProvider } from "@/lib/sales"
+import { ExpensesProvider } from "@/lib/expenses"
 import { SessionProvider } from "@/lib/session"
 import "@/index.css"
 
@@ -26,7 +27,9 @@ createRoot(document.getElementById("root")!).render(
             <SessionProvider>
               <ProcurementProvider>
                 <SalesProvider>
-                  <App />
+                  <ExpensesProvider>
+                    <App />
+                  </ExpensesProvider>
                 </SalesProvider>
               </ProcurementProvider>
             </SessionProvider>
