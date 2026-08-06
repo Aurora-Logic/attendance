@@ -144,10 +144,18 @@ export function CustomReportsCard() {
     setSheetOpen(false)
     toast.success("Report saved", { description: draft.name.trim() })
   }
+  // Undo instead of a confirm dialog: a slip costs one tap to reverse, and the
+  // common path stays one tap long.
   const removeDef = (def: CustomReportDef) => {
     setDefs(deleteReportDef(def.id))
     if (activeId === def.id) setActiveId(null)
-    toast.success("Report deleted", { description: def.name })
+    toast.success("Report deleted", {
+      description: def.name,
+      action: {
+        label: "Undo",
+        onClick: () => setDefs(saveReportDef(def)),
+      },
+    })
   }
   const exportActive = () => {
     if (!active) return

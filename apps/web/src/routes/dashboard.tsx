@@ -137,9 +137,9 @@ export function DashboardPage() {
                   <YAxis tickLine={false} axisLine={false} width={28} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
-                  <Bar dataKey="present" stackId="a" fill="var(--color-present)" />
-                  <Bar dataKey="leave" stackId="a" fill="var(--color-leave)" />
-                  <Bar
+                  <Bar isAnimationActive={false} dataKey="present" stackId="a" fill="var(--color-present)" />
+                  <Bar isAnimationActive={false} dataKey="leave" stackId="a" fill="var(--color-leave)" />
+                  <Bar isAnimationActive={false}
                     dataKey="absent"
                     stackId="a"
                     fill="var(--color-absent)"
@@ -159,7 +159,7 @@ export function DashboardPage() {
               <ChartContainer config={deptConfig} className="mx-auto h-56 w-full">
                 <PieChart>
                   <ChartTooltip content={<ChartTooltipContent nameKey="department" hideLabel />} />
-                  <Pie
+                  <Pie isAnimationActive={false}
                     data={byDepartment}
                     dataKey="headcount"
                     nameKey="department"
@@ -215,7 +215,7 @@ export function DashboardPage() {
                     <XAxis dataKey="week" tickLine={false} axisLine={false} tickMargin={8} />
                     <YAxis tickLine={false} axisLine={false} width={36} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Line
+                    <Line isAnimationActive={false}
                       dataKey="lateMinutes"
                       type="monotone"
                       stroke="var(--color-lateMinutes)"
@@ -250,7 +250,7 @@ export function DashboardPage() {
                     />
                     <YAxis tickLine={false} axisLine={false} width={28} />
                     <ChartTooltip content={<ChartTooltipContent nameKey="bucket" hideLabel />} />
-                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    <Bar isAnimationActive={false} dataKey="count" radius={[4, 4, 0, 0]}>
                       {ARRIVAL_HISTOGRAM.map((entry) => (
                         <Cell key={entry.bucket} fill={entry.fill} />
                       ))}
@@ -369,7 +369,7 @@ export function DashboardPage() {
                     fontSize={11}
                   />
                   <ChartTooltip content={<ChartTooltipContent nameKey="department" hideLabel />} />
-                  <Bar dataKey="hours" radius={[0, 4, 4, 0]}>
+                  <Bar isAnimationActive={false} dataKey="hours" radius={[0, 4, 4, 0]}>
                     {OT_BY_DEPARTMENT.map((entry) => (
                       <Cell key={entry.department} fill={entry.fill} />
                     ))}
@@ -392,7 +392,7 @@ export function DashboardPage() {
                   <YAxis tickLine={false} axisLine={false} width={30} unit="h" />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
-                  <Area
+                  <Area isAnimationActive={false}
                     dataKey="l1"
                     type="monotone"
                     stackId="a"
@@ -400,7 +400,7 @@ export function DashboardPage() {
                     fill="var(--color-l1)"
                     fillOpacity={0.2}
                   />
-                  <Area
+                  <Area isAnimationActive={false}
                     dataKey="l2"
                     type="monotone"
                     stackId="a"
@@ -426,8 +426,8 @@ export function DashboardPage() {
                   <YAxis tickLine={false} axisLine={false} width={32} unit="%" />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
-                  <Bar dataKey="used" stackId="a" fill="var(--color-used)" />
-                  <Bar
+                  <Bar isAnimationActive={false} dataKey="used" stackId="a" fill="var(--color-used)" />
+                  <Bar isAnimationActive={false}
                     dataKey="remaining"
                     stackId="a"
                     fill="var(--color-remaining)"

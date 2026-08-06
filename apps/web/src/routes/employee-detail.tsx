@@ -195,7 +195,7 @@ export function EmployeeDetailPage() {
                   <XAxis dataKey="day" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} width={40} unit="m" />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Area
+                  <Area isAnimationActive={false}
                     dataKey="minutes"
                     type="monotone"
                     stroke="var(--color-minutes)"
@@ -273,10 +273,10 @@ export function EmployeeDetailPage() {
                   <YAxis tickLine={false} axisLine={false} width={28} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
-                  <Bar dataKey="present" stackId="a" fill="var(--color-present)" />
-                  <Bar dataKey="halfDay" stackId="a" fill="var(--color-halfDay)" />
-                  <Bar dataKey="leave" stackId="a" fill="var(--color-leave)" />
-                  <Bar dataKey="absent" stackId="a" fill="var(--color-absent)" radius={[4, 4, 0, 0]} />
+                  <Bar isAnimationActive={false} dataKey="present" stackId="a" fill="var(--color-present)" />
+                  <Bar isAnimationActive={false} dataKey="halfDay" stackId="a" fill="var(--color-halfDay)" />
+                  <Bar isAnimationActive={false} dataKey="leave" stackId="a" fill="var(--color-leave)" />
+                  <Bar isAnimationActive={false} dataKey="absent" stackId="a" fill="var(--color-absent)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -291,7 +291,7 @@ export function EmployeeDetailPage() {
               <ChartContainer config={splitConfig} className="mx-auto h-56 w-full">
                 <PieChart>
                   <ChartTooltip content={<ChartTooltipContent nameKey="label" hideLabel />} />
-                  <Pie data={analytics.statusSplit} dataKey="count" nameKey="label" innerRadius={48}>
+                  <Pie isAnimationActive={false} data={analytics.statusSplit} dataKey="count" nameKey="label" innerRadius={48}>
                     {analytics.statusSplit.map((entry) => (
                       <Cell key={entry.label} fill={entry.fill} />
                     ))}
@@ -323,7 +323,7 @@ export function EmployeeDetailPage() {
                   <XAxis dataKey="day" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} width={30} unit="h" domain={[0, 10]} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="hours" fill="var(--color-hours)" radius={[3, 3, 0, 0]} />
+                  <Bar isAnimationActive={false} dataKey="hours" fill="var(--color-hours)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>
@@ -341,7 +341,7 @@ export function EmployeeDetailPage() {
                   <XAxis dataKey="weekday" tickLine={false} axisLine={false} tickMargin={8} />
                   <YAxis tickLine={false} axisLine={false} width={30} unit="m" />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="minutes" fill="var(--color-minutes)" radius={[3, 3, 0, 0]} />
+                  <Bar isAnimationActive={false} dataKey="minutes" fill="var(--color-minutes)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ChartContainer>
             </CardContent>

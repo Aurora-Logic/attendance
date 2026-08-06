@@ -239,7 +239,7 @@ export function ProcurementAnalyticsPage() {
                     tickFormatter={(value: number) => `₹${(value / 1000).toFixed(0)}k`}
                   />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="spend" fill="var(--color-spend)" radius={4} />
+                  <Bar isAnimationActive={false} dataKey="spend" fill="var(--color-spend)" radius={4} />
                 </BarChart>
               </ChartContainer>
             </CardContent>

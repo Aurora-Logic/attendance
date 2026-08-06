@@ -476,7 +476,7 @@ export function LeavePage() {
                         <ChartTooltip
                           content={<ChartTooltipContent nameKey="name" hideLabel />}
                         />
-                        <Pie
+                        <Pie isAnimationActive={false}
                           data={availedSplit}
                           dataKey="availed"
                           nameKey="name"

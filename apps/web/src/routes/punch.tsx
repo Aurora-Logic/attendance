@@ -264,6 +264,12 @@ export function PunchPage() {
   const [posting, setPosting] = React.useState(false)
 
   /**
+   * One short pulse on the frame the punch actually lands — the commit moment
+   * only, so the signal keeps meaning. No-op where the API is unsupported.
+   */
+  const buzz = () => navigator.vibrate?.(12)
+
+  /**
    * With an API session this is a real POST /punches — idempotency key, GPS,
    * server-side window/geofence evaluation. The demo fallback keeps the local
    * behaviour so the screen still demonstrates without the API.
@@ -286,6 +292,7 @@ export function PunchPage() {
         }
       }
       setPunchedIn((prev) => !prev)
+      buzz()
       toast[punctuality === "LATE" ? "warning" : "success"](
         punchedIn ? "Punched out (demo)" : "Punched in (demo)",
         { description: `${stamp} · ${mood.label.toLowerCase()} · start the API for real punches` }
@@ -329,6 +336,7 @@ export function PunchPage() {
         idempotent?: boolean
       }>("/punches", { method: "POST", body: JSON.stringify(punchPayload) })
       setPunchedIn((prev) => !prev)
+      buzz()
       void queryClient.invalidateQueries({ queryKey: ["attendance-days"] })
       const flagged = result.punch.flags.filter((flag) => flag !== "ON_TIME")
       if (result.needsApproval) {
@@ -358,6 +366,7 @@ export function PunchPage() {
         })
         refreshQueueCount()
         setPunchedIn((prev) => !prev)
+        buzz()
         toast.warning("Offline — punch queued on this device", {
           description: "It will sync automatically when the connection returns.",
         })
