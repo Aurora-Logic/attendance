@@ -581,3 +581,93 @@ describe("§8.6 hardening", () => {
     expect(stillOpen.response.statusCode).toBe(200)
   })
 })
+
+describe("§6 payroll — lock then run, exact paise", () => {
+  it("running an unlocked month is refused outright", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "POST",
+      url: "/payroll/runs",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error).toBe("MONTH_NOT_LOCKED")
+  })
+
+  it("lock → run computes exact per-day maths; locking twice is a conflict", async () => {
+    const admin = await asAdmin()
+    const locked = await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+    expect(locked.statusCode).toBe(201)
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/payroll/locks",
+          headers: { cookie: admin.cookies },
+          payload: { month: "2026-09" },
+        })
+      ).statusCode
+    ).toBe(409)
+
+    const run = await app.inject({
+      method: "POST",
+      url: "/payroll/runs",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+    expect(run.statusCode).toBe(201)
+    const body = run.json().run
+
+    // Sept 2026 with no punches: only the 4 Sundays are payable (paid weekly
+    // offs); every working day is ABSENT. Kabir: ₹26,000 FIXED_26 → ₹1,000/day
+    // → exactly ₹4,000.00.
+    const kabir = body.items.find((item: { code: string }) => item.code === "DLT0004")
+    expect(kabir.payableDays).toBe(4)
+    expect(kabir.perDayPaise).toBe(100_000)
+    expect(kabir.earnedPaise).toBe(400_000)
+    expect(kabir.grossPaise).toBe(400_000)
+    expect(body.totalGrossPaise).toBe(
+      body.items.reduce((sum: number, item: { grossPaise: number }) => sum + item.grossPaise, 0)
+    )
+  })
+
+  it("a rerun is a new immutable version, and EMPLOYEE cannot touch payroll", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+    await app.inject({
+      method: "POST",
+      url: "/payroll/runs",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+    const second = await app.inject({
+      method: "POST",
+      url: "/payroll/runs",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+    expect(second.json().run.version).toBe(2)
+
+    const employee = await asEmployee()
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/payroll",
+          headers: { cookie: employee.cookies },
+        })
+      ).statusCode
+    ).toBe(403)
+  })
+})

@@ -3,6 +3,8 @@ import { Lock, LockOpen, Play } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { formatPaise } from "@attendance/shared"
 
+import { ApiError } from "@/lib/api"
+import { usePayroll, usePayrollActions } from "@/lib/queries"
 import { PAYROLL_RUNS, type PayrollRun } from "@/lib/seed"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
@@ -89,7 +91,59 @@ const columns: ColumnDef<PayrollRun>[] = [
 ]
 
 export function PayrollPage() {
-  const open = PAYROLL_RUNS.find((run) => !run.attendanceLocked)
+  const { data, source } = usePayroll()
+  const { lockMonth, runPayroll } = usePayrollActions()
+  const currentMonth = new Date().toISOString().slice(0, 7)
+  const isLocked = data?.locks.some((lock) => lock.month === currentMonth) ?? false
+
+  // API runs map into the same table rows the seed used, so the table below
+  // is one component for both worlds.
+  const rows: PayrollRun[] = data
+    ? data.runs.map((run) => ({
+        id: run.id,
+        period: run.month,
+        branch: "All branches",
+        runType: run.version > 1 ? "ADJUSTMENT" : "REGULAR",
+        status: run.status,
+        employees: run.items.length,
+        grossPaise: run.totalGrossPaise,
+        deductionsPaise: 0,
+        netPaise: run.totalGrossPaise,
+        attendanceLocked: true,
+        version: run.version,
+      }))
+    : PAYROLL_RUNS
+
+  const lock = () =>
+    lockMonth.mutate(currentMonth, {
+      onSuccess: () =>
+        toast.success(`${currentMonth} locked`, {
+          description: "Attendance for the month is now frozen — payroll may run.",
+        }),
+      onError: (error) =>
+        toast.error(
+          error instanceof ApiError && error.status === 409
+            ? "Month is already locked"
+            : "Lock failed — payroll.manage at write scope required"
+        ),
+    })
+
+  const run = () =>
+    runPayroll.mutate(currentMonth, {
+      onSuccess: ({ run: created }) =>
+        toast.success(`Payroll run v${created.version} released`, {
+          description: `${created.items.length} employees · ${formatPaise(created.totalGrossPaise)} gross · immutable — corrections are a new version.`,
+        }),
+      onError: (error) =>
+        toast.error(
+          error instanceof ApiError &&
+            (error.body as { error?: string })?.error === "MONTH_NOT_LOCKED"
+            ? "Lock the month first — payroll never reads unlocked attendance"
+            : "Run failed"
+        ),
+    })
+
+  const open = source === "api" ? (isLocked ? undefined : { period: currentMonth }) : PAYROLL_RUNS.find((r) => !r.attendanceLocked)
 
   return (
     <Page>
@@ -98,11 +152,20 @@ export function PayrollPage() {
         description="Payroll consumes a locked attendance month. Corrections are new adjustment runs, never edits."
         actions={
           <>
-            <Button variant="outline" size="sm" onClick={() => toast("August attendance locked")}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={source === "api" && isLocked}
+              onClick={source === "api" ? lock : () => toast("Demo — sign in with the API for real locks")}
+            >
               <Lock />
-              Lock month
+              {source === "api" && isLocked ? `${currentMonth} locked` : "Lock month"}
             </Button>
-            <Button size="sm" disabled={!!open} onClick={() => toast.success("Payroll run started")}>
+            <Button
+              size="sm"
+              disabled={source === "api" ? !isLocked || runPayroll.isPending : !!open}
+              onClick={source === "api" ? run : () => toast.success("Payroll run started (demo)")}
+            >
               <Play />
               Run payroll
             </Button>
@@ -124,7 +187,7 @@ export function PayrollPage() {
 
         <DataTable
           columns={columns}
-          data={PAYROLL_RUNS}
+          data={rows}
           searchColumn="period"
           searchPlaceholder="Search period…"
           emptyTitle="No payroll runs"

@@ -576,3 +576,74 @@ export function useEnqueueExport() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["exports"] }),
   })
 }
+
+// ---------------------------------------------------------------- payroll
+
+export interface PayrollRunView {
+  id: string
+  month: string
+  version: number
+  status: "RELEASED"
+  createdAt: string
+  totalGrossPaise: number
+  items: Array<{
+    employeeId: string
+    code: string
+    name: string
+    payableDays: number
+    perDayPaise: number
+    earnedPaise: number
+    otMinutes: number
+    otPaise: number
+    grossPaise: number
+  }>
+}
+
+export interface MonthLockView {
+  id: string
+  month: string
+  lockedBy: string
+  lockedAt: string
+}
+
+/** §6: locks and released runs, straight from the API. */
+export function usePayroll() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+
+  const query = useQuery({
+    queryKey: ["payroll"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<{ locks: MonthLockView[]; runs: PayrollRunView[] }>("/payroll"),
+  })
+
+  return {
+    data: enabled && !query.isError ? query.data : null,
+    source: (enabled ? "api" : "demo") as DataSource,
+    isLoading: enabled && query.isLoading,
+  }
+}
+
+export function usePayrollActions() {
+  const queryClient = useQueryClient()
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["payroll"] })
+  return {
+    lockMonth: useMutation({
+      mutationFn: (month: string) =>
+        apiFetch<{ lock: MonthLockView }>("/payroll/locks", {
+          method: "POST",
+          body: JSON.stringify({ month }),
+        }),
+      onSuccess: invalidate,
+    }),
+    runPayroll: useMutation({
+      mutationFn: (month: string) =>
+        apiFetch<{ run: PayrollRunView }>("/payroll/runs", {
+          method: "POST",
+          body: JSON.stringify({ month }),
+        }),
+      onSuccess: invalidate,
+    }),
+  }
+}

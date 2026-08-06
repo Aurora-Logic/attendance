@@ -22,7 +22,8 @@ import {
   type Scope,
 } from "@attendance/shared"
 
-import { auditPage, recordAudit } from "./db"
+import { auditPage, prisma, recordAudit } from "./db"
+import { computeRunItems } from "./payroll"
 import { enqueueExport, exportFileStream } from "./exports"
 import {
   clearCalendarDay,
@@ -573,6 +574,93 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         .header("content-disposition", `attachment; filename="${job.filename}"`)
         .header("content-length", file.size)
       return reply.send(file.stream)
+    }
+  )
+
+  // ---- §6 payroll: lock -> run, never the other way round ------------------
+  app.get(
+    "/payroll",
+    { preHandler: [authenticate, requirePermission("payroll.manage")] },
+    async () => ({ locks: store.monthLocks, runs: store.payrollRuns })
+  )
+
+  app.post(
+    "/payroll/locks",
+    { preHandler: [authenticate, requirePermission("payroll.manage", { write: true })] },
+    async (request, reply) => {
+      const parsed = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+      const { month } = parsed.data
+      if (store.monthLocks.some((lock) => lock.month === month)) {
+        return reply.code(409).send({ error: "ALREADY_LOCKED" })
+      }
+      const lock = {
+        id: id(store, "lock"),
+        month,
+        lockedBy: request.auth.userId,
+        lockedAt: new Date().toISOString(),
+      }
+      store.monthLocks.push(lock)
+      // A8 in the real schema: payroll_runs.lockId is a non-null FK to this row.
+      const db = prisma()
+      if (db) {
+        void db.attendanceMonthLock
+          .upsert({
+            where: { companyId_month: { companyId: "co_delta", month } },
+            update: {},
+            create: { id: lock.id, companyId: "co_delta", month, lockedBy: lock.lockedBy },
+          })
+          .catch((error) => console.error("persist lock:", (error as Error).message))
+      }
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "payroll.lock",
+        entity: "attendance_month_locks",
+        entityId: month,
+        after: lock,
+        ip: request.ip,
+      })
+      return reply.code(201).send({ lock })
+    }
+  )
+
+  app.post(
+    "/payroll/runs",
+    { preHandler: [authenticate, requirePermission("payroll.manage", { write: true })] },
+    async (request, reply) => {
+      const parsed = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+      const { month } = parsed.data
+
+      // §11: payroll never reads unlocked attendance. Not a warning — a refusal.
+      const lock = store.monthLocks.find((candidate) => candidate.month === month)
+      if (!lock) return reply.code(409).send({ error: "MONTH_NOT_LOCKED" })
+
+      const items = computeRunItems(store, month, calendarDays)
+      const version =
+        store.payrollRuns.filter((run) => run.month === month).length + 1
+      const run = {
+        id: id(store, "run"),
+        month,
+        version,
+        status: "RELEASED" as const,
+        lockId: lock.id,
+        createdBy: request.auth.userId,
+        createdAt: new Date().toISOString(),
+        items,
+        totalGrossPaise: items.reduce((sum, item) => sum + item.grossPaise, 0),
+      }
+      // Immutable once created — corrections are a new version, never an edit.
+      store.payrollRuns.unshift(run)
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "payroll.run",
+        entity: "payroll_runs",
+        entityId: run.id,
+        after: { month, version, totalGrossPaise: run.totalGrossPaise, items: items.length },
+        ip: request.ip,
+      })
+      return reply.code(201).send({ run })
     }
   )
 

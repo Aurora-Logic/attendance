@@ -110,6 +110,43 @@ export interface LedgerRow {
   remarks: string
 }
 
+export interface SalaryRecord {
+  employeeId: string
+  grossMonthlyPaise: number
+  basis: "CALENDAR_DAYS" | "WORKING_DAYS" | "FIXED_26"
+}
+
+export interface PayrollRunItem {
+  employeeId: string
+  code: string
+  name: string
+  payableDays: number
+  perDayPaise: number
+  earnedPaise: number
+  otMinutes: number
+  otPaise: number
+  grossPaise: number
+}
+
+export interface PayrollRunRecord {
+  id: string
+  month: string
+  version: number
+  status: "RELEASED"
+  lockId: string
+  createdBy: string
+  createdAt: string
+  items: PayrollRunItem[]
+  totalGrossPaise: number
+}
+
+export interface MonthLock {
+  id: string
+  month: string
+  lockedBy: string
+  lockedAt: string
+}
+
 export interface Branding {
   companyName: string
   /** Data URL; object storage takes over in Phase 3. */
@@ -134,6 +171,9 @@ export interface Store {
   matrix: PermissionMatrix
   branding: Branding
   exportJobs: ExportJobRecord[]
+  salaries: SalaryRecord[]
+  monthLocks: MonthLock[]
+  payrollRuns: PayrollRunRecord[]
   vendors: Vendor[]
   items: Item[]
   /** Master lists behind the item form's pickers — grown inline, never typo'd. */
@@ -199,6 +239,18 @@ export function seedStore(): Store {
     matrix: structuredClone(DEFAULT_MATRIX),
     branding: { companyName: "Delta Attendance", logoDataUrl: null, address: "", gstin: "", phone: "", email: "" },
     exportJobs: [],
+    // §6 v1: one gross per employee. Component-wise structures and statutory
+    // deductions are the deferred 7b scope.
+    salaries: [
+      { employeeId: "e1", grossMonthlyPaise: 9_100_000, basis: "FIXED_26" },
+      { employeeId: "e2", grossMonthlyPaise: 6_500_000, basis: "FIXED_26" },
+      { employeeId: "e3", grossMonthlyPaise: 5_200_000, basis: "FIXED_26" },
+      { employeeId: "e4", grossMonthlyPaise: 2_600_000, basis: "FIXED_26" },
+      { employeeId: "e5", grossMonthlyPaise: 3_900_000, basis: "CALENDAR_DAYS" },
+      { employeeId: "e6", grossMonthlyPaise: 3_100_000, basis: "FIXED_26" },
+    ],
+    monthLocks: [],
+    payrollRuns: [],
     vendors: [
       { id: "v1", code: "VND001", name: "Shree Steel Traders", gstin: "27AABCS1429B1ZP", contact: "Mahesh Kulkarni", email: "sales@shreesteel.in", phone: "+91 98200 11223", address: "Kalbadevi Road", city: "Mumbai", state: "Maharashtra", paymentTermsDays: 30, leadTimeDays: 7, active: true },
       { id: "v2", code: "VND002", name: "Om Packaging Co", gstin: null, contact: "Sunita Shah", email: "om.pack@gmail.com", phone: "+91 98111 44556", address: "MIDC Phase II", city: "Pune", state: "Maharashtra", paymentTermsDays: 15, leadTimeDays: 4, active: true },

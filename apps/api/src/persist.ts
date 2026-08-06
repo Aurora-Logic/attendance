@@ -25,6 +25,9 @@ export function loadStore(path: string): Store {
       matrix: { ...seed.matrix, ...parsed.matrix },
       branding: { ...seed.branding, ...parsed.branding },
       exportJobs: parsed.exportJobs ?? [],
+      salaries: parsed.salaries ?? seed.salaries,
+      monthLocks: parsed.monthLocks ?? [],
+      payrollRuns: parsed.payrollRuns ?? [],
     }
   } catch {
     return seedStore()
