@@ -98,6 +98,22 @@ describe("stock ledger", () => {
     expect(position.valuePaise).toBe(110 * 6_333)
   })
 
+  it("outward-only history: negative on-hand is visible, valuation never negative", () => {
+    // A challan recorded before any GRN (data-entry order mishap): stock shows
+    // the truth (−40) instead of hiding it, and value clamps at zero.
+    const movements = stockMovements([], [], [so], [challan(40, "2026-08-06")], [])
+    const [position] = stockPositions([item({})], movements)
+    expect(position.onHandQty).toBe(-40)
+    expect(position.avgCostPaise).toBeNull()
+    expect(position.valuePaise).toBe(0)
+  })
+
+  it("a GRN whose PO line vanished contributes nothing rather than corrupting", () => {
+    const orphan: Grn = { ...grn(50, "2026-08-03"), poId: "po_missing" }
+    const movements = stockMovements([po], [orphan], [], [], [])
+    expect(movements).toHaveLength(0)
+  })
+
   it("reorder flag trips at or below the level; 0 disables", () => {
     const movements = stockMovements([po], [grn(10, "2026-08-03")], [], [], [])
     const [flagged] = stockPositions([item({ reorderLevel: 10 })], movements)

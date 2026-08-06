@@ -422,6 +422,11 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
     if (allocations.length === 0) {
       return reply.code(422).send({ error: "NOTHING_OUTSTANDING" })
     }
+    // Excess money must never vanish into unallocated air — refuse with the max.
+    const allocatable = allocations.reduce((sum, allocation) => sum + allocation.amountPaise, 0)
+    if (body.amountPaise > allocatable) {
+      return reply.code(422).send({ error: "EXCEEDS_OUTSTANDING", maxPaise: allocatable })
+    }
 
     const receipt = {
       id: id(store, "rcpt"),

@@ -108,4 +108,58 @@ describe("three-way match", () => {
     expect(match.overBilledQty).toBe(0)
     expect(match.rateDeltaPaise).toBe(0)
   })
+
+  it("aggregates duplicate item lines on the PO — a clean bill must not flag", () => {
+    const split: PurchaseOrder = {
+      ...po,
+      lines: [
+        { id: "pol1", itemId: "i1", qty: 60, unitPricePaise: 6_000, gstRatePct: 18, discountPct: 0 },
+        { id: "pol2", itemId: "i1", qty: 40, unitPricePaise: 6_200, gstRatePct: 18, discountPct: 0 },
+      ],
+    }
+    const splitGrns: Grn[] = [
+      {
+        ...grns[0],
+        lines: [
+          { poLineId: "pol1", qtyAccepted: 60, qtyRejected: 0, remarks: "" },
+          { poLineId: "pol2", qtyAccepted: 40, qtyRejected: 0, remarks: "" },
+        ],
+      },
+    ]
+    const [match] = threeWayMatch(bill(100, 6_000), split, splitGrns)
+    expect(match.orderedQty).toBe(100)
+    expect(match.receivedQty).toBe(100)
+    expect(match.overBilledQty).toBe(0)
+  })
+
+  it("an item never on the PO is fully over-billed", () => {
+    const rogue = {
+      lines: [
+        { id: "bl1", itemId: "i9", qty: 5, unitPricePaise: 1_000, gstRatePct: 18, discountPct: 0 },
+      ],
+    }
+    const [match] = threeWayMatch(rogue, po, grns)
+    expect(match.orderedQty).toBe(0)
+    expect(match.overBilledQty).toBe(5)
+  })
+})
+
+describe("edges", () => {
+  it("100% discount yields zero taxable, zero tax, zero total", async () => {
+    const { lineAmounts } = await import("./procurement")
+    const amounts = lineAmounts({
+      id: "l",
+      itemId: "i",
+      qty: 10,
+      unitPricePaise: 25_000,
+      gstRatePct: 18,
+      discountPct: 100,
+    })
+    expect(amounts).toMatchObject({ taxablePaise: 0, taxPaise: 0, totalPaise: 0 })
+  })
+
+  it("rate-0 GST splits to zero without dividing by anything", async () => {
+    const { splitGst } = await import("./procurement")
+    expect(splitGst(100_000, 0)).toEqual({ cgstPaise: 0, sgstPaise: 0 })
+  })
 })

@@ -70,17 +70,25 @@ export function threeWayMatch(
 ): ThreeWayLineMatch[] {
   const received = receiptProgress(po, grns)
   return bill.lines.map((billLine) => {
-    const poLine = po.lines.find((candidate) => candidate.itemId === billLine.itemId)
-    const receivedQty = poLine
-      ? (received.find((line) => line.poLineId === poLine.id)?.acceptedQty ?? 0)
-      : 0
+    // Aggregate across ALL PO lines for the item — a PO can carry the same
+    // item on several lines, and matching only the first would flag a
+    // perfectly clean bill as over-billed.
+    const poLines = po.lines.filter((candidate) => candidate.itemId === billLine.itemId)
+    const orderedQty = poLines.reduce((sum, line) => sum + line.qty, 0)
+    const receivedQty = poLines.reduce(
+      (sum, line) => sum + (received.find((entry) => entry.poLineId === line.id)?.acceptedQty ?? 0),
+      0
+    )
     return {
       itemId: billLine.itemId,
       billedQty: billLine.qty,
-      orderedQty: poLine?.qty ?? 0,
+      orderedQty,
       receivedQty,
       overBilledQty: Math.max(billLine.qty - receivedQty, 0),
-      rateDeltaPaise: poLine ? billLine.unitPricePaise - poLine.unitPricePaise : 0,
+      // Compared against the best (lowest) agreed rate for the item.
+      rateDeltaPaise: poLines.length
+        ? billLine.unitPricePaise - Math.min(...poLines.map((line) => line.unitPricePaise))
+        : 0,
     }
   })
 }

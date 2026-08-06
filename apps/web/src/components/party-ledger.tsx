@@ -285,6 +285,13 @@ export function PartyLedgerPage({
                   toast.error(`Pick a ${partyNoun} and a positive amount.`)
                   return
                 }
+                const partyOutstanding = rows.find((row) => row.party.id === partyId)?.total ?? 0
+                if (rupeesToPaise(amountRupees) > partyOutstanding) {
+                  toast.error(
+                    `Amount exceeds outstanding (${formatPaise(partyOutstanding)}) — advances land with the accounting wave.`
+                  )
+                  return
+                }
                 const saved = onRecord({
                   partyId,
                   date: todayISO(),

@@ -348,6 +348,8 @@ export function ProcurementProvider({ children }: { children: React.ReactNode })
       },
 
       cancelBill: (billId) => {
+        const bill = state.vendorBills.find((candidate) => candidate.id === billId)
+        if (!bill || bill.status !== "OPEN") return false
         const allocated = state.payments.some((payment) =>
           payment.allocations.some((allocation) => allocation.docId === billId)
         )
@@ -431,6 +433,9 @@ export function ProcurementProvider({ children }: { children: React.ReactNode })
             }))
         )
         if (allocations.length === 0) return null
+        // Excess money must never vanish into unallocated air.
+        const allocatable = allocations.reduce((sum, allocation) => sum + allocation.amountPaise, 0)
+        if (input.amountPaise > allocatable) return null
         const payment: PaymentEntry = { id: `pay_${state.seq.entity}`, recordedBy, ...input, allocations }
         setState((prev) => ({
           ...prev,

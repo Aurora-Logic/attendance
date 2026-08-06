@@ -221,6 +221,8 @@ export function SalesProvider({ children }: { children: React.ReactNode }) {
       },
 
       cancelInvoice: (invoiceId) => {
+        const invoice = state.invoices.find((candidate) => candidate.id === invoiceId)
+        if (!invoice || invoice.status !== "OPEN") return false
         const allocated = state.receipts.some((receipt) =>
           receipt.allocations.some((allocation) => allocation.docId === invoiceId)
         )
@@ -331,6 +333,9 @@ export function SalesProvider({ children }: { children: React.ReactNode }) {
             }))
         )
         if (allocations.length === 0) return null
+        // Excess money must never vanish into unallocated air.
+        const allocatable = allocations.reduce((sum, allocation) => sum + allocation.amountPaise, 0)
+        if (input.amountPaise > allocatable) return null
         const receipt: PaymentEntry = {
           id: `rcpt_${state.seq.entity}`,
           recordedBy,

@@ -256,6 +256,46 @@ describe("commercial chain", () => {
     })
     expect(blocked.statusCode).toBe(409)
     expect(blocked.json().error).toBe("RECEIPTS_ALLOCATED")
+
+    // Excess money never vanishes into unallocated air.
+    const overpay = await app.inject({
+      method: "POST",
+      url: "/receipts",
+      headers: { cookie: ops },
+      payload: { partyId: "c1", date: "2026-08-11", amountPaise: 99_999_999 },
+    })
+    expect(overpay.statusCode).toBe(422)
+    expect(overpay.json().error).toBe("EXCEEDS_OUTSTANDING")
+    expect(overpay.json().maxPaise).toBe(invoice.totals.totalPaise - 10_000)
+  })
+
+  it("RBAC probes: employees see none of the commercial surface; HR is read-only", async () => {
+    const employee = await login("employee@delta.dev", "Emp@1234")
+    for (const url of ["/stock", "/vendor-bills", "/payments", "/invoices", "/receipts"]) {
+      const response = await app.inject({ method: "GET", url, headers: { cookie: employee } })
+      expect(response.statusCode, url).toBe(403)
+    }
+
+    const hr = await login("hr@delta.dev", "Hr@12345")
+    // HR reads the buy side (procurement.view: VIEW)…
+    expect(
+      (await app.inject({ method: "GET", url: "/stock", headers: { cookie: hr } })).statusCode
+    ).toBe(200)
+    // …but every write is refused.
+    const writeBlocked = await app.inject({
+      method: "POST",
+      url: "/stock/adjustments",
+      headers: { cookie: hr },
+      payload: { itemId: "i1", qty: -1, date: "2026-08-06", reason: "HR should not do this" },
+    })
+    expect(writeBlocked.statusCode).toBe(403)
+    const receiptBlocked = await app.inject({
+      method: "POST",
+      url: "/receipts",
+      headers: { cookie: hr },
+      payload: { partyId: "c1", date: "2026-08-06", amountPaise: 1_000 },
+    })
+    expect(receiptBlocked.statusCode).toBe(403)
   })
 
   it("indent: request → approve → mark ordered; expense: claim → approve (not own) → reimburse", async () => {
