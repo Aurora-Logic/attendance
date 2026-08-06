@@ -1,6 +1,19 @@
 import * as React from "react"
 import { toast } from "sonner"
-import { RotateCcw } from "lucide-react"
+import {
+  AlarmClock,
+  BookOpen,
+  Building2,
+  CalendarCheck2,
+  CalendarDays,
+  Camera,
+  ClipboardCheck,
+  Palette,
+  RotateCcw,
+  Smartphone,
+  Timer,
+  type LucideIcon,
+} from "lucide-react"
 import {
   LATE_PENALTY,
   LATE_PERIOD,
@@ -13,7 +26,8 @@ import {
 import { ApiError, ApiUnreachable, apiFetch } from "@/lib/api"
 import { useAppConfig } from "@/lib/app-config"
 import { useSession } from "@/lib/session"
-import { Page, PageBody, PageHeader } from "@/components/page-shell"
+import { cn } from "@/lib/utils"
+import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { BrandingSettings } from "@/components/settings-branding"
 import { DepartmentsSettings } from "@/components/settings-departments"
 import { GuideSettings } from "@/components/settings-guide"
@@ -35,12 +49,13 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MobileNavSettings } from "@/components/settings-mobile-nav"
 
 function NumberField({
@@ -220,10 +235,167 @@ function StoragePreview({ settings }: { settings: AttendanceSettings }) {
   )
 }
 
+interface SettingsSection {
+  key: string
+  label: string
+  icon: LucideIcon
+  /** One line under the section title — says what lives here, not how it works. */
+  blurb: string
+  adminOnly?: boolean
+}
+
+/**
+ * Master–detail, System Settings style: a grouped rail on the left, one
+ * section at a time on the right. Grouping follows what the rules govern, so
+ * proximity mirrors effect (apple-design §16 grouping & mapping); ten flat
+ * tabs gave no such map and scrolled off-screen on phones.
+ */
+const SECTION_GROUPS: { group: string; sections: SettingsSection[] }[] = [
+  {
+    group: "Attendance rules",
+    sections: [
+      {
+        key: "late",
+        label: "Late & early",
+        icon: AlarmClock,
+        blurb: "Grace, allowance and penalty for both ends of the shift — with a live preview.",
+      },
+      {
+        key: "windows",
+        label: "Punch windows",
+        icon: Timer,
+        blurb: "When a punch counts as on time. Outside the window it is flagged, not blocked.",
+      },
+      {
+        key: "day",
+        label: "Day computation",
+        icon: CalendarCheck2,
+        blurb: "Hour thresholds, geofence radius and the sandwich rule behind payable units.",
+      },
+      {
+        key: "approvals",
+        label: "Approvals & overtime",
+        icon: ClipboardCheck,
+        blurb: "Escalation timing and what overtime is worth once approved.",
+      },
+    ],
+  },
+  {
+    group: "Organisation",
+    sections: [
+      {
+        key: "roster",
+        label: "Roster & shifts",
+        icon: CalendarDays,
+        blurb: "Weekly offs, holidays and half days — the roster derives from these rules.",
+      },
+      {
+        key: "departments",
+        label: "Departments",
+        icon: Building2,
+        blurb: "Create and retire departments; employees keep their history either way.",
+      },
+    ],
+  },
+  {
+    group: "Capture & privacy",
+    sections: [
+      {
+        key: "capture",
+        label: "Selfie capture",
+        icon: Camera,
+        blurb: "Compression, retention and what each choice costs to store.",
+      },
+    ],
+  },
+  {
+    group: "Workspace",
+    sections: [
+      {
+        key: "navigation",
+        label: "Mobile navigation",
+        icon: Smartphone,
+        blurb: "Pick the four screens pinned to the phone bottom bar.",
+      },
+      {
+        key: "branding",
+        label: "Branding",
+        icon: Palette,
+        blurb: "Company name and logo across the app and every export.",
+        adminOnly: true,
+      },
+      {
+        key: "guide",
+        label: "Guide",
+        icon: BookOpen,
+        blurb: "Short how-tos for the tasks people ask about.",
+      },
+    ],
+  },
+]
+
+function SectionRail({
+  active,
+  isAdmin,
+  onSelect,
+}: {
+  active: string
+  isAdmin: boolean
+  onSelect: (key: string) => void
+}) {
+  return (
+    <nav
+      aria-label="Settings sections"
+      className="hidden w-52 shrink-0 flex-col gap-4 overflow-y-auto overscroll-contain md:flex"
+    >
+      {SECTION_GROUPS.map(({ group, sections }) => {
+        const visible = sections.filter((section) => !section.adminOnly || isAdmin)
+        if (visible.length === 0) return null
+        return (
+          <div key={group}>
+            <p className="text-muted-foreground/70 px-2 pb-1 text-[11px] font-medium tracking-wide uppercase">
+              {group}
+            </p>
+            <div className="flex flex-col gap-0.5">
+              {visible.map((section) => {
+                const isActive = section.key === active
+                return (
+                  <button
+                    key={section.key}
+                    type="button"
+                    aria-current={isActive ? "true" : undefined}
+                    onClick={() => onSelect(section.key)}
+                    className={cn(
+                      "relative flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                      isActive
+                        ? "bg-muted font-medium"
+                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                    )}
+                  >
+                    {isActive ? (
+                      <span className="bg-primary absolute top-1/2 left-0.5 size-1 -translate-y-1/2 rounded-full" />
+                    ) : null}
+                    <section.icon className="size-4 shrink-0" />
+                    {section.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </nav>
+  )
+}
+
 export function SettingsPage() {
   const { settings, setSetting: set, resetSettings } = useAppConfig()
   const { scopeFor, user } = useSession()
   const isAdmin = scopeFor("config.manage") === "ALL"
+  const [active, setActive] = React.useState("late")
+
+  const allSections = SECTION_GROUPS.flatMap(({ sections }) => sections)
+  const current = allSections.find((section) => section.key === active) ?? allSections[0]
 
   const save = async () => {
     if (!(isAdmin && user?.source === "api")) {
@@ -268,26 +440,48 @@ export function SettingsPage() {
           </>
         }
       />
-      <PageBody>
-        <Tabs defaultValue="late" className="gap-4">
-          <TabsList className="w-fit max-w-full justify-start overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <TabsTrigger value="late">Late & early</TabsTrigger>
-            <TabsTrigger value="windows">Punch windows</TabsTrigger>
-            <TabsTrigger value="day">Day computation</TabsTrigger>
-            <TabsTrigger value="capture">Capture</TabsTrigger>
-            <TabsTrigger value="approvals">Approvals & OT</TabsTrigger>
-            <TabsTrigger value="roster">Roster & shifts</TabsTrigger>
-            <TabsTrigger value="departments">Departments</TabsTrigger>
-            <TabsTrigger value="navigation">Navigation</TabsTrigger>
-            <TabsTrigger value="guide">Guide</TabsTrigger>
-            {isAdmin ? <TabsTrigger value="branding">Branding</TabsTrigger> : null}
-          </TabsList>
+      <PageBodyFixed>
+        {/* Phone: the rail collapses into one labelled control. */}
+        <Select value={active} onValueChange={setActive}>
+          <SelectTrigger className="md:hidden" aria-label="Settings section">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SECTION_GROUPS.map(({ group, sections }) => {
+              const visible = sections.filter((section) => !section.adminOnly || isAdmin)
+              if (visible.length === 0) return null
+              return (
+                <SelectGroup key={group}>
+                  <SelectLabel>{group}</SelectLabel>
+                  {visible.map((section) => (
+                    <SelectItem key={section.key} value={section.key}>
+                      {section.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )
+            })}
+          </SelectContent>
+        </Select>
 
-          <TabsContent value="navigation" className="flex flex-col gap-4">
-            <MobileNavSettings />
-          </TabsContent>
+        <div className="flex min-h-0 flex-1 gap-6">
+          <SectionRail active={active} isAdmin={isAdmin} onSelect={setActive} />
 
-          <TabsContent value="late" className="flex flex-col gap-4">
+          {/* Keyed on the section so switching re-runs the enter fade — a
+              cross-fade, not a slide, per reduced-motion-friendly restraint. */}
+          <div
+            key={current.key}
+            className="section-enter flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain [&>*]:shrink-0"
+          >
+            <div>
+              <h2 className="text-base font-semibold tracking-[-0.01em]">{current.label}</h2>
+              <p className="text-muted-foreground mt-0.5 text-sm">{current.blurb}</p>
+            </div>
+
+            {active === "navigation" ? <MobileNavSettings /> : null}
+
+            {active === "late" ? (
+              <>
             <Alert>
               <AlertTitle>Resolution order</AlertTitle>
               <AlertDescription>
@@ -431,9 +625,10 @@ export function SettingsPage() {
                 </FieldGroup>
               </CardContent>
             </Card>
-          </TabsContent>
+              </>
+            ) : null}
 
-          <TabsContent value="windows">
+            {active === "windows" ? (
             <Card>
               <CardHeader>
                 <CardTitle>Punch windows</CardTitle>
@@ -496,9 +691,9 @@ export function SettingsPage() {
                 </FieldSet>
               </CardContent>
             </Card>
-          </TabsContent>
+            ) : null}
 
-          <TabsContent value="day">
+            {active === "day" ? (
             <Card>
               <CardHeader>
                 <CardTitle>Day computation</CardTitle>
@@ -548,9 +743,10 @@ export function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+            ) : null}
 
-          <TabsContent value="capture" className="flex flex-col gap-4">
+            {active === "capture" ? (
+              <>
             <StoragePreview settings={settings} />
 
             <Card>
@@ -637,9 +833,10 @@ export function SettingsPage() {
                 </FieldSet>
               </CardContent>
             </Card>
-          </TabsContent>
+              </>
+            ) : null}
 
-          <TabsContent value="approvals">
+            {active === "approvals" ? (
             <Card>
               <CardHeader>
                 <CardTitle>Approvals & overtime</CardTitle>
@@ -693,24 +890,15 @@ export function SettingsPage() {
                 </FieldSet>
               </CardContent>
             </Card>
-          </TabsContent>
-          <TabsContent value="roster">
-            <RosterSettings />
-          </TabsContent>
+            ) : null}
 
-          <TabsContent value="departments">
-            <DepartmentsSettings />
-          </TabsContent>
-
-          <TabsContent value="guide">
-            <GuideSettings />
-          </TabsContent>
-
-          <TabsContent value="branding">
-            <BrandingSettings />
-          </TabsContent>
-        </Tabs>
-      </PageBody>
+            {active === "roster" ? <RosterSettings /> : null}
+            {active === "departments" ? <DepartmentsSettings /> : null}
+            {active === "guide" ? <GuideSettings /> : null}
+            {active === "branding" && isAdmin ? <BrandingSettings /> : null}
+          </div>
+        </div>
+      </PageBodyFixed>
     </Page>
   )
 }

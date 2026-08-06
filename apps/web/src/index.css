@@ -227,6 +227,25 @@
     overflow-x: auto;
     overflow-y: hidden;
   }
+
+  /*
+    Section/pane arrival: a short cross-fade with a 2px settle — comprehension
+    without theatrics. The global prefers-reduced-motion override collapses it
+    to effectively instant.
+  */
+  .section-enter {
+    animation: section-enter 180ms ease-out;
+  }
+  @keyframes section-enter {
+    from {
+      opacity: 0;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
 
 /*
@@ -350,4 +369,24 @@
     background: var(--background) !important;
     backdrop-filter: none !important;
   }
+}
+
+/*
+  §7/§12 of the apple-design skill: layered surfaces enter and exit along the
+  same path with a decisive, decelerating curve — the iOS sheet bézier —
+  instead of the default linear-ish fade. Applied at the CSS layer so registry
+  components stay unmodified.
+*/
+[data-slot="sheet-content"],
+[data-slot="dialog-content"],
+[data-slot="popover-content"],
+[data-slot="dropdown-menu-content"],
+[data-slot="select-content"] {
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+[data-slot="sheet-content"] {
+  animation-duration: 350ms;
+}
+[data-slot="dialog-content"] {
+  animation-duration: 250ms;
 }
