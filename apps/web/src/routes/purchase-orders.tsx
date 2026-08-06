@@ -2,7 +2,7 @@ import * as React from "react"
 import { useNavigate } from "react-router"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
-import { ArrowUpDown, FileDown, Plus } from "lucide-react"
+import { ArrowUpDown, FileDown, Pencil, Plus } from "lucide-react"
 import {
   formatPaise,
   poDisplayStatus,
@@ -157,8 +157,25 @@ export function PurchaseOrdersPage() {
         header: "Status",
         cell: ({ row }) => <PoStatusBadge status={row.original.displayStatus} />,
       },
+      {
+        id: "rowActions",
+        header: "",
+        cell: ({ row }) =>
+          row.original.po.status === "DRAFT" && can("procurement.manage") ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Edit ${row.original.po.number}`}
+              onClick={() =>
+                navigate("/purchase-orders/new", { state: { editPoId: row.original.po.id } })
+              }
+            >
+              <Pencil />
+            </Button>
+          ) : null,
+      },
     ],
-    []
+    [can, navigate]
   )
 
   const onExport = async () => {

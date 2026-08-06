@@ -74,6 +74,27 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
     return reply.code(201).send({ bill: billSummary(bill) })
   })
 
+  /** Meta only, while OPEN and before any payment lands. */
+  app.put("/vendor-bills/:id", { preHandler: procManage }, async (request, reply) => {
+    const { id: billId } = request.params as { id: string }
+    const metaSchema = z.object({
+      billNo: z.string().min(1),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    })
+    const parsed = metaSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+    const bill = store.vendorBills.find((candidate) => candidate.id === billId)
+    if (!bill) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (bill.status !== "OPEN") return reply.code(409).send({ error: "NOT_OPEN" })
+    const allocated = store.payments.some((payment) =>
+      payment.allocations.some((allocation) => allocation.docId === billId)
+    )
+    if (allocated) return reply.code(409).send({ error: "PAYMENTS_ALLOCATED" })
+    Object.assign(bill, parsed.data)
+    return { bill: billSummary(bill) }
+  })
+
   /** Refused once any payment is allocated — money history is never orphaned. */
   app.post("/vendor-bills/:id/cancel", { preHandler: procManage }, async (request, reply) => {
     const { id: billId } = request.params as { id: string }
@@ -148,6 +169,26 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
     }
     store.indents.push(indent)
     return reply.code(201).send({ indent })
+  })
+
+  /** PENDING only — the requester (or procurement) can still reshape the ask. */
+  app.put("/indents/:id", { preHandler: [authenticate] }, async (request, reply) => {
+    const { id: indentId } = request.params as { id: string }
+    const patchSchema = z.object({
+      department: z.string().min(1),
+      lines: indentSchema.shape.lines,
+    })
+    const parsed = patchSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+    const indent = store.indents.find((candidate) => candidate.id === indentId)
+    if (!indent) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (indent.status !== "PENDING") return reply.code(409).send({ error: "ALREADY_DECIDED" })
+    const scope = store.matrix["procurement.manage"]?.[request.auth.role] ?? "NONE"
+    if (indent.requestedBy !== request.auth.userId && (scope === "NONE" || scope === "VIEW")) {
+      return reply.code(403).send({ error: "NOT_YOURS" })
+    }
+    Object.assign(indent, parsed.data)
+    return { indent }
   })
 
   const indentDecideSchema = z.object({
@@ -244,6 +285,29 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
       }
       store.expenseClaims.push(claim)
       return reply.code(201).send({ claim })
+    }
+  )
+
+  /** Own PENDING claims only — a decided claim is history. */
+  app.put(
+    "/expense-claims/:id",
+    { preHandler: [authenticate, requirePermission("expense.claim", { write: true })] },
+    async (request, reply) => {
+      const { id: claimId } = request.params as { id: string }
+      const patchSchema = expenseClaimSchema.pick({
+        category: true,
+        amountPaise: true,
+        description: true,
+      })
+      const parsed = patchSchema.safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+      const claim = store.expenseClaims.find((candidate) => candidate.id === claimId)
+      if (!claim) return reply.code(404).send({ error: "NOT_FOUND" })
+      if (claim.status !== "PENDING") return reply.code(409).send({ error: "ALREADY_DECIDED" })
+      const user = store.users.find((candidate) => candidate.id === request.auth.userId)
+      if (claim.employeeEmail !== user?.email) return reply.code(403).send({ error: "NOT_YOURS" })
+      Object.assign(claim, parsed.data)
+      return { claim }
     }
   )
 

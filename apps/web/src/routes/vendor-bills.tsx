@@ -1,7 +1,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
-import { ArrowUpDown, Ban, Plus } from "lucide-react"
+import { ArrowUpDown, Ban, Pencil, Plus } from "lucide-react"
 import {
   formatPaise,
   outstandingPaise,
@@ -48,7 +48,7 @@ interface BillRow {
 }
 
 export function VendorBillsPage() {
-  const { vendors, items, pos, grns, vendorBills, payments, recordBill, cancelBill } =
+  const { vendors, items, pos, grns, vendorBills, payments, recordBill, cancelBill, updateBillMeta } =
     useProcurement()
   const { can, user } = useSession()
   const [open, setOpen] = React.useState(false)
@@ -58,6 +58,10 @@ export function VendorBillsPage() {
   const [billNo, setBillNo] = React.useState("")
   const [billDate, setBillDate] = React.useState(todayISO())
   const [rates, setRates] = React.useState<Record<string, number>>({})
+  const [editing, setEditing] = React.useState<VendorBill | null>(null)
+  const [editNo, setEditNo] = React.useState("")
+  const [editDate, setEditDate] = React.useState("")
+  const [editDue, setEditDue] = React.useState("")
   const [quantities, setQuantities] = React.useState<Record<string, number>>({})
 
   const billablePos = pos.filter((po) => po.status === "APPROVED" || po.status === "CLOSED")
@@ -137,17 +141,32 @@ export function VendorBillsPage() {
           row.original.bill.status === "OPEN" &&
           row.original.outstanding === row.original.totalPaise &&
           can("procurement.manage") ? (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Cancel bill ${row.original.bill.billNo}`}
-              onClick={() => {
-                if (cancelBill(row.original.bill.id)) toast(`Bill ${row.original.bill.billNo} cancelled`)
-                else toast.error("Payments are allocated — cannot cancel.")
-              }}
-            >
-              <Ban />
-            </Button>
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Edit bill ${row.original.bill.billNo}`}
+                onClick={() => {
+                  setEditing(row.original.bill)
+                  setEditNo(row.original.bill.billNo)
+                  setEditDate(row.original.bill.date)
+                  setEditDue(row.original.bill.dueDate)
+                }}
+              >
+                <Pencil />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Cancel bill ${row.original.bill.billNo}`}
+                onClick={() => {
+                  if (cancelBill(row.original.bill.id)) toast(`Bill ${row.original.bill.billNo} cancelled`)
+                  else toast.error("Payments are allocated — cannot cancel.")
+                }}
+              >
+                <Ban />
+              </Button>
+            </div>
           ) : row.original.bill.status === "CANCELLED" ? (
             <Badge variant="secondary">Cancelled</Badge>
           ) : null,
@@ -169,6 +188,51 @@ export function VendorBillsPage() {
       },
     ],
     [can, cancelBill]
+  )
+
+  const editDialog = (
+    <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Edit bill {editing?.billNo}</DialogTitle>
+          <DialogDescription>
+            Number and dates only — for wrong quantities or rates, cancel and re-record so the
+            3-way match stays honest.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <Field>
+            <FieldLabel htmlFor="edit-bill-no">Vendor's bill no.</FieldLabel>
+            <Input id="edit-bill-no" value={editNo} onChange={(event) => setEditNo(event.target.value)} />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field>
+              <FieldLabel htmlFor="edit-bill-date">Bill date</FieldLabel>
+              <Input id="edit-bill-date" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="edit-bill-due">Due date</FieldLabel>
+              <Input id="edit-bill-due" type="date" value={editDue} onChange={(event) => setEditDue(event.target.value)} />
+            </Field>
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline">Cancel</Button>
+          </DialogClose>
+          <Button
+            onClick={() => {
+              if (editing && updateBillMeta(editing.id, { billNo: editNo.trim(), date: editDate, dueDate: editDue })) {
+                toast.success("Bill updated")
+                setEditing(null)
+              } else toast.error("Payments are allocated — the bill is frozen.")
+            }}
+          >
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 
   const record = () => {
@@ -264,6 +328,7 @@ export function VendorBillsPage() {
         />
       </PageBodyFixed>
 
+      {editDialog}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

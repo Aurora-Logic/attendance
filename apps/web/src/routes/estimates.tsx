@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useNavigate } from "react-router"
 import type { ColumnDef } from "@tanstack/react-table"
-import { ArrowUpDown, Plus } from "lucide-react"
+import { ArrowUpDown, Pencil, Plus } from "lucide-react"
 import {
   estimateDisplayStatus,
   formatPaise,
@@ -132,8 +132,25 @@ export function EstimatesPage() {
         header: "Status",
         cell: ({ row }) => <EstimateStatusBadge status={row.original.displayStatus} />,
       },
+      {
+        id: "rowActions",
+        header: "",
+        cell: ({ row }) =>
+          row.original.estimate.status === "DRAFT" && can("sales.manage") ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Edit ${row.original.estimate.number}`}
+              onClick={() =>
+                navigate("/estimates/new", { state: { editEstimateId: row.original.estimate.id } })
+              }
+            >
+              <Pencil />
+            </Button>
+          ) : null,
+      },
     ],
-    []
+    [can, navigate]
   )
 
   return (

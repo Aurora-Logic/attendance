@@ -2,7 +2,7 @@ import * as React from "react"
 import { Link, useNavigate } from "react-router"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
-import { ArrowRightCircle, Check, Plus, Trash2, X } from "lucide-react"
+import { ArrowRightCircle, Check, Pencil, Plus, Trash2, X } from "lucide-react"
 import type { Indent } from "@attendance/shared"
 
 import { todayISO, useProcurement } from "@/lib/procurement"
@@ -38,7 +38,7 @@ const STATUS_VARIANT: Record<Indent["status"], "warning" | "success" | "destruct
 }
 
 export function IndentsPage() {
-  const { items, indents, createIndent, decideIndent } = useProcurement()
+  const { items, indents, createIndent, updateIndent, decideIndent } = useProcurement()
   const { can, user } = useSession()
   const navigate = useNavigate()
   const [open, setOpen] = React.useState(false)
@@ -46,6 +46,14 @@ export function IndentsPage() {
   const [lines, setLines] = React.useState<Array<{ itemId: string; qty: number }>>([
     { itemId: "", qty: 1 },
   ])
+  const [editingId, setEditingId] = React.useState<string | null>(null)
+
+  const openForEdit = (indent: Indent) => {
+    setEditingId(indent.id)
+    setDepartment(indent.department)
+    setLines(indent.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })))
+    setOpen(true)
+  }
 
   const itemName = (itemId: string) => items.find((item) => item.id === itemId)?.name ?? "—"
   const canManage = can("procurement.manage")
@@ -88,6 +96,14 @@ export function IndentsPage() {
           if (indent.status === "PENDING") {
             return (
               <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Edit ${indent.number}`}
+                  onClick={() => openForEdit(indent)}
+                >
+                  <Pencil />
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -144,7 +160,15 @@ export function IndentsPage() {
         title="Indents"
         description="Department requisitions — approved indents become POs with nothing retyped."
         actions={
-          <Button size="sm" onClick={() => setOpen(true)}>
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditingId(null)
+              setDepartment("")
+              setLines([{ itemId: "", qty: 1 }])
+              setOpen(true)
+            }}
+          >
             <Plus />
             New indent
           </Button>
@@ -193,7 +217,7 @@ export function IndentsPage() {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent className="flex flex-col gap-0 p-0 sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>New indent</SheetTitle>
+            <SheetTitle>{editingId ? "Edit indent" : "New indent"}</SheetTitle>
             <SheetDescription>What does your department need bought?</SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-4">
@@ -285,21 +309,33 @@ export function IndentsPage() {
                   toast.error("Department and at least one item are required.")
                   return
                 }
-                const indent = createIndent({
-                  department: department.trim(),
-                  requestedBy: user?.email ?? "",
-                  date: todayISO(),
-                  neededBy: null,
-                  note: "",
-                  lines: valid.map((line) => ({ ...line, note: "" })),
-                })
-                toast.success(`${indent.number} raised`)
+                if (editingId) {
+                  if (
+                    updateIndent(editingId, {
+                      department: department.trim(),
+                      lines: valid.map((line) => ({ ...line, note: "" })),
+                    })
+                  ) {
+                    toast.success("Indent updated")
+                  } else toast.error("Only pending indents can be edited.")
+                } else {
+                  const indent = createIndent({
+                    department: department.trim(),
+                    requestedBy: user?.email ?? "",
+                    date: todayISO(),
+                    neededBy: null,
+                    note: "",
+                    lines: valid.map((line) => ({ ...line, note: "" })),
+                  })
+                  toast.success(`${indent.number} raised`)
+                }
                 setOpen(false)
+                setEditingId(null)
                 setDepartment("")
                 setLines([{ itemId: "", qty: 1 }])
               }}
             >
-              Raise indent
+              {editingId ? "Save changes" : "Raise indent"}
             </Button>
             <SheetClose asChild>
               <Button variant="outline">Cancel</Button>

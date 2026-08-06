@@ -1,5 +1,6 @@
 import { Link, useParams } from "react-router"
-import { Ban, Printer, ReceiptText } from "lucide-react"
+import * as React from "react"
+import { Ban, Pencil, Printer, ReceiptText } from "lucide-react"
 import { toast } from "sonner"
 import { formatPaise, outstandingPaise } from "@attendance/shared"
 
@@ -12,11 +13,25 @@ import { printPoDocument } from "@/components/po-document"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 
 export function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { items } = useProcurement()
-  const { invoices, customers, receipts, cancelInvoice } = useSales()
+  const { invoices, customers, receipts, cancelInvoice, updateInvoiceMeta } = useSales()
+  const [editOpen, setEditOpen] = React.useState(false)
+  const [editDate, setEditDate] = React.useState("")
+  const [editDue, setEditDue] = React.useState("")
   const { can } = useSession()
 
   const invoice = invoices.find((candidate) => candidate.id === id)
@@ -67,6 +82,20 @@ export function InvoiceDetailPage() {
               <Printer />
               Print / PDF
             </Button>
+            {invoice.status === "OPEN" && ownReceipts.length === 0 && can("sales.manage") ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEditDate(invoice.date)
+                  setEditDue(invoice.dueDate)
+                  setEditOpen(true)
+                }}
+              >
+                <Pencil />
+                Edit dates
+              </Button>
+            ) : null}
             {invoice.status === "OPEN" && ownReceipts.length === 0 && can("sales.manage") ? (
               <Button
                 variant="outline"
@@ -131,6 +160,42 @@ export function InvoiceDetailPage() {
           </Card>
         ) : null}
       </PageBody>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit {invoice.number} dates</DialogTitle>
+            <DialogDescription>
+              Amounts come from the sales order and never change here.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4">
+            <Field>
+              <FieldLabel htmlFor="edit-inv-date">Invoice date</FieldLabel>
+              <Input id="edit-inv-date" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="edit-inv-due">Due date</FieldLabel>
+              <Input id="edit-inv-due" type="date" value={editDue} onChange={(event) => setEditDue(event.target.value)} />
+            </Field>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              onClick={() => {
+                if (updateInvoiceMeta(invoice.id, { date: editDate, dueDate: editDue })) {
+                  toast.success(`${invoice.number} updated`)
+                  setEditOpen(false)
+                } else toast.error("Receipts are allocated — dates are frozen.")
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Page>
   )
 }

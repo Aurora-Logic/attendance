@@ -202,6 +202,18 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
     return { estimate: summary(estimate) }
   })
 
+  /** Pull a sent estimate back to DRAFT — the path to editing before a decision. */
+  app.post("/estimates/:id/recall", { preHandler: manage }, async (request, reply) => {
+    const { id: estimateId } = request.params as { id: string }
+    const estimate = store.estimates.find((candidate) => candidate.id === estimateId)
+    if (!estimate) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (estimate.status !== "SENT") {
+      return reply.code(409).send({ error: "NOT_SENT", status: estimate.status })
+    }
+    estimate.status = "DRAFT"
+    return { estimate: summary(estimate) }
+  })
+
   /** The customer's answer, recorded by whoever heard it. */
   app.post("/estimates/:id/decide", { preHandler: manage }, async (request, reply) => {
     const { id: estimateId } = request.params as { id: string }
@@ -279,6 +291,23 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
     })
     store.salesOrders.push(so)
     return reply.code(201).send({ salesOrder: soSummary(so) })
+  })
+
+  /** Meta only, while OPEN — lines are the estimate's agreement and never reprice. */
+  app.put("/sales-orders/:id", { preHandler: manage }, async (request, reply) => {
+    const { id: soId } = request.params as { id: string }
+    const metaSchema = z.object({
+      customerRef: z.string().default(""),
+      orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      terms: z.string().default(""),
+    })
+    const parsed = metaSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+    const so = store.salesOrders.find((candidate) => candidate.id === soId)
+    if (!so) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (so.status !== "OPEN") return reply.code(409).send({ error: "NOT_OPEN", status: so.status })
+    Object.assign(so, parsed.data)
+    return { salesOrder: soSummary(so) }
   })
 
   app.post("/sales-orders/:id/close", { preHandler: manage }, async (request, reply) => {
@@ -376,6 +405,26 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
     }
     store.invoices.push(invoice)
     return reply.code(201).send({ invoice: invoiceSummary(invoice) })
+  })
+
+  /** Dates only, while OPEN and before any receipt lands. */
+  app.put("/invoices/:id", { preHandler: manage }, async (request, reply) => {
+    const { id: invoiceId } = request.params as { id: string }
+    const metaSchema = z.object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    })
+    const parsed = metaSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+    const invoice = store.invoices.find((candidate) => candidate.id === invoiceId)
+    if (!invoice) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (invoice.status !== "OPEN") return reply.code(409).send({ error: "NOT_OPEN" })
+    const allocated = store.receipts.some((receipt) =>
+      receipt.allocations.some((allocation) => allocation.docId === invoiceId)
+    )
+    if (allocated) return reply.code(409).send({ error: "RECEIPTS_ALLOCATED" })
+    Object.assign(invoice, parsed.data)
+    return { invoice: invoiceSummary(invoice) }
   })
 
   /** Refused once any receipt is allocated — money history is never orphaned. */

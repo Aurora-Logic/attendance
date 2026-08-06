@@ -43,6 +43,7 @@ export function EstimateDetailPage() {
     customers,
     salesOrders,
     sendEstimate,
+    recallEstimate,
     decideEstimate,
     closeEstimate,
     convertEstimate,
@@ -129,6 +130,20 @@ export function EstimateDetailPage() {
                   Convert to Sales Order
                 </Button>
               )
+            ) : null}
+            {estimate.status === "SENT" && canManage ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (recallEstimate(estimate.id)) {
+                    toast(`${estimate.number} recalled to draft — edit away`)
+                  }
+                }}
+              >
+                <Pencil />
+                Recall to draft
+              </Button>
             ) : null}
             {estimate.status === "SENT" && canManage ? (
               <>

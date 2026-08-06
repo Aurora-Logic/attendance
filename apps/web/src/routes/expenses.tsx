@@ -1,7 +1,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
-import { BadgeIndianRupee, Check, Plus, X } from "lucide-react"
+import { BadgeIndianRupee, Check, Pencil, Plus, X } from "lucide-react"
 import {
   EXPENSE_CATEGORIES,
   formatPaise,
@@ -47,12 +47,13 @@ const STATUS_VARIANT: Record<
 }
 
 export function ExpensesPage() {
-  const { claims, createClaim, decideClaim, reimburseClaim } = useExpenses()
+  const { claims, createClaim, updateClaim, decideClaim, reimburseClaim } = useExpenses()
   const { can, user, scopeFor } = useSession()
   const [open, setOpen] = React.useState(false)
   const [category, setCategory] = React.useState<(typeof EXPENSE_CATEGORIES)[number]>("Travel")
   const [amountRupees, setAmountRupees] = React.useState(0)
   const [description, setDescription] = React.useState("")
+  const [editingId, setEditingId] = React.useState<string | null>(null)
 
   const approverScope = scopeFor("expense.approve")
   const isApprover = approverScope !== "NONE"
@@ -95,6 +96,24 @@ export function ExpensesPage() {
         header: "",
         cell: ({ row }) => {
           const claim = row.original
+          if (claim.status === "PENDING" && claim.employeeEmail === user?.email) {
+            return (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Edit ${claim.number}`}
+                onClick={() => {
+                  setEditingId(claim.id)
+                  setCategory(claim.category)
+                  setAmountRupees(claim.amountPaise / 100)
+                  setDescription(claim.description)
+                  setOpen(true)
+                }}
+              >
+                <Pencil />
+              </Button>
+            )
+          }
           // Deciding your own claim is never allowed, whatever the scope.
           if (!isApprover || claim.employeeEmail === user?.email) return null
           if (claim.status === "PENDING") {
@@ -154,7 +173,15 @@ export function ExpensesPage() {
         description="Claim → approve (never your own) → reimburse, with the reason on record."
         actions={
           can("expense.claim") ? (
-            <Button size="sm" onClick={() => setOpen(true)}>
+            <Button
+            size="sm"
+            onClick={() => {
+              setEditingId(null)
+              setAmountRupees(0)
+              setDescription("")
+              setOpen(true)
+            }}
+          >
               <Plus />
               New claim
             </Button>
@@ -192,7 +219,7 @@ export function ExpensesPage() {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent className="flex flex-col gap-0 p-0 sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>New expense claim</SheetTitle>
+            <SheetTitle>{editingId ? "Edit claim" : "New expense claim"}</SheetTitle>
             <SheetDescription>Approved claims are reimbursed through payroll.</SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-4">
@@ -248,22 +275,39 @@ export function ExpensesPage() {
                   toast.error("Enter an amount and a short description.")
                   return
                 }
-                const claim = createClaim(
-                  {
-                    date: todayISO(),
-                    category,
-                    amountPaise: rupeesToPaise(amountRupees),
-                    description: description.trim(),
-                  },
-                  { email: user?.email ?? "", name: user?.name ?? "" }
-                )
-                toast.success(`${claim.number} filed`)
+                if (editingId) {
+                  if (
+                    updateClaim(
+                      editingId,
+                      {
+                        category,
+                        amountPaise: rupeesToPaise(amountRupees),
+                        description: description.trim(),
+                      },
+                      user?.email ?? ""
+                    )
+                  ) {
+                    toast.success("Claim updated")
+                  } else toast.error("Only your own pending claims can be edited.")
+                } else {
+                  const claim = createClaim(
+                    {
+                      date: todayISO(),
+                      category,
+                      amountPaise: rupeesToPaise(amountRupees),
+                      description: description.trim(),
+                    },
+                    { email: user?.email ?? "", name: user?.name ?? "" }
+                  )
+                  toast.success(`${claim.number} filed`)
+                }
                 setOpen(false)
+                setEditingId(null)
                 setAmountRupees(0)
                 setDescription("")
               }}
             >
-              File claim
+              {editingId ? "Save changes" : "File claim"}
             </Button>
             <SheetClose asChild>
               <Button variant="outline">Cancel</Button>

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Link, useNavigate, useParams } from "react-router"
 import { toast } from "sonner"
-import { Ban, FileText, Printer, ReceiptText, Truck } from "lucide-react"
+import { Ban, FileText, Pencil, Printer, ReceiptText, Truck } from "lucide-react"
 import { soDisplayStatus, soFulfilment, shiftDateISO } from "@attendance/shared"
 
 import { todayISO, useProcurement } from "@/lib/procurement"
@@ -46,9 +46,14 @@ export function SalesOrderDetailPage() {
     cancelSalesOrder,
     recordChallan,
     createInvoiceFromSo,
+    updateSalesOrderMeta,
   } = useSales()
   const { can, user } = useSession()
   const [dispatchOpen, setDispatchOpen] = React.useState(false)
+  const [editOpen, setEditOpen] = React.useState(false)
+  const [editRef, setEditRef] = React.useState("")
+  const [editDate, setEditDate] = React.useState("")
+  const [editTerms, setEditTerms] = React.useState("")
 
   const so = salesOrders.find((candidate) => candidate.id === id)
   if (!so) {
@@ -100,6 +105,21 @@ export function SalesOrderDetailPage() {
               <Printer />
               Print / PDF
             </Button>
+            {so.status === "OPEN" && canManage ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEditRef(so.customerRef)
+                  setEditDate(so.orderDate)
+                  setEditTerms(so.terms)
+                  setEditOpen(true)
+                }}
+              >
+                <Pencil />
+                Edit details
+              </Button>
+            ) : null}
             {so.status === "OPEN" && canManage && display !== "DISPATCHED" ? (
               <Button size="sm" onClick={() => setDispatchOpen(true)}>
                 <Truck />
@@ -242,6 +262,47 @@ export function SalesOrderDetailPage() {
           </div>
         )}
       </PageBody>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit {so.number}</DialogTitle>
+            <DialogDescription>
+              Reference, date and terms only — lines are the estimate's agreement and never
+              reprice.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <Field>
+              <FieldLabel htmlFor="edit-so-ref">Customer's PO / reference</FieldLabel>
+              <Input id="edit-so-ref" value={editRef} onChange={(event) => setEditRef(event.target.value)} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="edit-so-date">Order date</FieldLabel>
+              <Input id="edit-so-date" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="edit-so-terms">Terms</FieldLabel>
+              <Input id="edit-so-terms" value={editTerms} onChange={(event) => setEditTerms(event.target.value)} />
+            </Field>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              onClick={() => {
+                if (updateSalesOrderMeta(so.id, { customerRef: editRef, orderDate: editDate, terms: editTerms })) {
+                  toast.success(`${so.number} updated`)
+                  setEditOpen(false)
+                } else toast.error("Only open orders can be edited.")
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <DispatchDialog
         open={dispatchOpen}

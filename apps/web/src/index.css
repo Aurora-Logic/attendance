@@ -313,3 +313,41 @@
 .po-document {
   font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
 }
+
+/*
+  Fluid-interface layer, per the apple-design skill.
+
+  §1 Response: press feedback fires on pointer-down, instantly — never only
+  on release. §14: reduced motion swaps springs and slides for near-instant
+  transitions without deleting comprehension-aiding fades; reduced
+  transparency solidifies the translucent chrome.
+*/
+@layer base {
+  [data-slot="button"] {
+    transition-property: transform;
+    transition-duration: 100ms;
+    transition-timing-function: ease-out;
+  }
+  [data-slot="button"]:active {
+    transform: scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  header,
+  nav {
+    background: var(--background) !important;
+    backdrop-filter: none !important;
+  }
+}

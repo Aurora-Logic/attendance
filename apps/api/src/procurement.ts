@@ -283,6 +283,18 @@ export function registerProcurementRoutes(app: FastifyInstance, store: Store, gu
     return { po: poSummary(po) }
   })
 
+  /** Pull a submitted PO back to DRAFT — the path to editing before approval. */
+  app.post("/pos/:id/recall", { preHandler: manage }, async (request, reply) => {
+    const { id: poId } = request.params as { id: string }
+    const po = store.pos.find((candidate) => candidate.id === poId)
+    if (!po) return reply.code(404).send({ error: "NOT_FOUND" })
+    if (po.status !== "PENDING_APPROVAL") {
+      return reply.code(409).send({ error: "NOT_PENDING", status: po.status })
+    }
+    po.status = "DRAFT"
+    return { po: poSummary(po) }
+  })
+
   app.post(
     "/pos/:id/decide",
     { preHandler: [authenticate, requirePermission("po.approve", { write: true })] },

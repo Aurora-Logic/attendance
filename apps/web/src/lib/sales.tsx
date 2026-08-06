@@ -55,6 +55,8 @@ interface SalesValue extends SalesState {
   /** Rewrite a DRAFT in place — the one lifecycle stage where editing is honest. */
   updateEstimateDraft: (estimateId: string, draft: EstimateDraft) => boolean
   sendEstimate: (estimateId: string) => void
+  /** Pull a sent estimate back to DRAFT — the path to editing before a decision. */
+  recallEstimate: (estimateId: string) => boolean
   decideEstimate: (estimateId: string, action: "ACCEPT" | "REJECT", note?: string) => void
   closeEstimate: (estimateId: string) => void
   /** Accepted estimate → sales order, once; returns null if already converted. */
@@ -62,6 +64,11 @@ interface SalesValue extends SalesState {
     estimateId: string,
     input: { orderDate: string; customerRef: string; createdBy: string }
   ) => SalesOrder | null
+  /** Meta only, while OPEN — lines are the estimate's agreement and never reprice. */
+  updateSalesOrderMeta: (
+    soId: string,
+    meta: { customerRef: string; orderDate: string; terms: string }
+  ) => boolean
   closeSalesOrder: (soId: string) => void
   cancelSalesOrder: (soId: string) => void
   recordChallan: (
@@ -75,6 +82,8 @@ interface SalesValue extends SalesState {
     input: { date: string; dueDate: string; createdBy: string }
   ) => Invoice | null
   /** Auto-allocates oldest-due-first across the customer's open invoices. */
+  /** Dates only, while OPEN and before any receipt lands. */
+  updateInvoiceMeta: (invoiceId: string, meta: { date: string; dueDate: string }) => boolean
   /** Refused once any receipt is allocated — money history is never orphaned. */
   cancelInvoice: (invoiceId: string) => boolean
   recordReceipt: (
@@ -220,6 +229,22 @@ export function SalesProvider({ children }: { children: React.ReactNode }) {
         return true
       },
 
+      updateInvoiceMeta: (invoiceId, meta) => {
+        const invoice = state.invoices.find((candidate) => candidate.id === invoiceId)
+        if (!invoice || invoice.status !== "OPEN") return false
+        const allocated = state.receipts.some((receipt) =>
+          receipt.allocations.some((allocation) => allocation.docId === invoiceId)
+        )
+        if (allocated) return false
+        setState((prev) => ({
+          ...prev,
+          invoices: prev.invoices.map((candidate) =>
+            candidate.id === invoiceId ? { ...candidate, ...meta } : candidate
+          ),
+        }))
+        return true
+      },
+
       cancelInvoice: (invoiceId) => {
         const invoice = state.invoices.find((candidate) => candidate.id === invoiceId)
         if (!invoice || invoice.status !== "OPEN") return false
@@ -237,6 +262,13 @@ export function SalesProvider({ children }: { children: React.ReactNode }) {
       },
 
       sendEstimate: (estimateId) => patchEstimate(estimateId, { status: "SENT" }),
+
+      recallEstimate: (estimateId) => {
+        const estimate = state.estimates.find((candidate) => candidate.id === estimateId)
+        if (!estimate || estimate.status !== "SENT") return false
+        patchEstimate(estimateId, { status: "DRAFT" })
+        return true
+      },
 
       decideEstimate: (estimateId, action, note = "") =>
         patchEstimate(estimateId, {
@@ -263,6 +295,18 @@ export function SalesProvider({ children }: { children: React.ReactNode }) {
           seq: { ...prev.seq, so: prev.seq.so + 1, entity: prev.seq.entity + 1 },
         }))
         return so
+      },
+
+      updateSalesOrderMeta: (soId, meta) => {
+        const so = state.salesOrders.find((candidate) => candidate.id === soId)
+        if (!so || so.status !== "OPEN") return false
+        setState((prev) => ({
+          ...prev,
+          salesOrders: prev.salesOrders.map((candidate) =>
+            candidate.id === soId ? { ...candidate, ...meta } : candidate
+          ),
+        }))
+        return true
       },
 
       closeSalesOrder: (soId) =>

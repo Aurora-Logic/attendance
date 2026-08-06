@@ -16,6 +16,12 @@ interface ExpensesValue extends ExpensesState {
     claim: Pick<ExpenseClaim, "date" | "category" | "amountPaise" | "description">,
     employee: { email: string; name: string }
   ) => ExpenseClaim
+  /** Own PENDING claims only — a decided claim is history. */
+  updateClaim: (
+    claimId: string,
+    patch: Pick<ExpenseClaim, "category" | "amountPaise" | "description">,
+    byEmail: string
+  ) => boolean
   decideClaim: (claimId: string, action: "APPROVE" | "REJECT", decidedBy: string, note?: string) => void
   reimburseClaim: (claimId: string, onISO: string) => void
 }
@@ -68,6 +74,13 @@ export function ExpensesProvider({ children }: { children: React.ReactNode }) {
           seq: { exp: prev.seq.exp + 1 },
         }))
         return saved
+      },
+
+      updateClaim: (claimId, updates, byEmail) => {
+        const claim = state.claims.find((candidate) => candidate.id === claimId)
+        if (!claim || claim.status !== "PENDING" || claim.employeeEmail !== byEmail) return false
+        patch(claimId, updates)
+        return true
       },
 
       decideClaim: (claimId, action, decidedBy, note = "") =>

@@ -55,7 +55,7 @@ import { Textarea } from "@/components/ui/textarea"
 export function PurchaseOrderDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { pos, grns, vendors, items, submitPo, decidePo, cancelPo, closePo, recordGrn } =
+  const { pos, grns, vendors, items, submitPo, recallPo, decidePo, cancelPo, closePo, recordGrn } =
     useProcurement()
   const { user, can } = useSession()
 
@@ -140,6 +140,18 @@ export function PurchaseOrderDetailPage() {
             Submit for approval
           </Button>
         </>
+      ) : null}
+      {po.status === "PENDING_APPROVAL" && canManage ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            if (recallPo(po.id)) toast(`${po.number} recalled to draft — edit away`)
+          }}
+        >
+          <Pencil />
+          Recall to draft
+        </Button>
       ) : null}
       {po.status === "PENDING_APPROVAL" && canDecide ? (
         <>

@@ -67,6 +67,8 @@ interface ProcurementValue extends ProcurementState {
   /** Rewrite a DRAFT in place — the one lifecycle stage where editing is honest. */
   updatePoDraft: (poId: string, draft: PoDraft) => boolean
   submitPo: (poId: string) => void
+  /** Pull a submitted PO back to DRAFT — the path to editing before approval. */
+  recallPo: (poId: string) => boolean
   decidePo: (poId: string, action: "APPROVE" | "REJECT", decidedBy: string, reason?: string) => void
   cancelPo: (poId: string) => void
   closePo: (poId: string) => void
@@ -76,6 +78,11 @@ interface ProcurementValue extends ProcurementState {
     recordedBy: string
   ) => Grn
   recordBill: (bill: Omit<VendorBill, "id" | "status" | "recordedBy">, recordedBy: string) => VendorBill
+  /** Meta only, while OPEN and before any payment lands. */
+  updateBillMeta: (
+    billId: string,
+    meta: { billNo: string; date: string; dueDate: string }
+  ) => boolean
   /** Refused once any payment is allocated — money history is never orphaned. */
   cancelBill: (billId: string) => boolean
   /** Auto-allocates oldest-due-first across the vendor's open bills. */
@@ -86,6 +93,11 @@ interface ProcurementValue extends ProcurementState {
   createIndent: (
     indent: Omit<Indent, "id" | "number" | "status" | "decisionNote" | "poId">,
   ) => Indent
+  /** PENDING only — a decided indent is history. */
+  updateIndent: (
+    indentId: string,
+    patch: { department: string; lines: Indent["lines"] }
+  ) => boolean
   decideIndent: (indentId: string, action: "APPROVE" | "REJECT", note?: string) => void
   markIndentOrdered: (indentId: string, poId: string) => void
   adjustStock: (adjustment: Omit<StockAdjustment, "id" | "recordedBy">, recordedBy: string) => void
@@ -347,6 +359,22 @@ export function ProcurementProvider({ children }: { children: React.ReactNode })
         return true
       },
 
+      updateBillMeta: (billId, meta) => {
+        const bill = state.vendorBills.find((candidate) => candidate.id === billId)
+        if (!bill || bill.status !== "OPEN") return false
+        const allocated = state.payments.some((payment) =>
+          payment.allocations.some((allocation) => allocation.docId === billId)
+        )
+        if (allocated) return false
+        setState((prev) => ({
+          ...prev,
+          vendorBills: prev.vendorBills.map((candidate) =>
+            candidate.id === billId ? { ...candidate, ...meta } : candidate
+          ),
+        }))
+        return true
+      },
+
       cancelBill: (billId) => {
         const bill = state.vendorBills.find((candidate) => candidate.id === billId)
         if (!bill || bill.status !== "OPEN") return false
@@ -364,6 +392,13 @@ export function ProcurementProvider({ children }: { children: React.ReactNode })
       },
 
       submitPo: (poId) => patchPo(poId, () => ({ status: "PENDING_APPROVAL" })),
+
+      recallPo: (poId) => {
+        const po = state.pos.find((candidate) => candidate.id === poId)
+        if (!po || po.status !== "PENDING_APPROVAL") return false
+        patchPo(poId, () => ({ status: "DRAFT" }))
+        return true
+      },
 
       decidePo: (poId, action, decidedBy, reason = "") => {
         if (action === "APPROVE") {
@@ -460,6 +495,18 @@ export function ProcurementProvider({ children }: { children: React.ReactNode })
           seq: { ...prev.seq, ind: prev.seq.ind + 1, entity: prev.seq.entity + 1 },
         }))
         return saved
+      },
+
+      updateIndent: (indentId, patch) => {
+        const indent = state.indents.find((candidate) => candidate.id === indentId)
+        if (!indent || indent.status !== "PENDING") return false
+        setState((prev) => ({
+          ...prev,
+          indents: prev.indents.map((candidate) =>
+            candidate.id === indentId ? { ...candidate, ...patch } : candidate
+          ),
+        }))
+        return true
       },
 
       decideIndent: (indentId, action, note = "") =>

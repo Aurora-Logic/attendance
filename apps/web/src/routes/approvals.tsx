@@ -1,6 +1,6 @@
 import * as React from "react"
 import { toast } from "sonner"
-import { Check, X } from "lucide-react"
+import { CalendarPlus, Check, Clock, Fingerprint, Plane, X } from "lucide-react"
 import { DEFAULT_ATTENDANCE_SETTINGS } from "@attendance/shared"
 
 import { useApprovals, useDecideApprovals } from "@/lib/queries"
@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
@@ -33,6 +33,14 @@ const KIND_LABEL: Record<RequestKind, string> = {
   REGULARISATION: "Regularisation",
   OVERTIME: "Overtime",
   COMP_OFF: "Comp-off",
+}
+
+/** One icon + tint per request kind, so a mixed inbox scans by shape. */
+const KIND_META: Record<RequestKind, { icon: typeof Plane; className: string }> = {
+  LEAVE: { icon: Plane, className: "bg-status-leave/12 text-status-leave" },
+  REGULARISATION: { icon: Fingerprint, className: "bg-status-wfh/12 text-status-wfh" },
+  OVERTIME: { icon: Clock, className: "bg-status-half-day/15 text-status-half-day" },
+  COMP_OFF: { icon: CalendarPlus, className: "bg-status-present/12 text-status-present" },
 }
 
 const TABS: Array<{ value: RequestKind | "ALL"; label: string }> = [
@@ -218,15 +226,15 @@ export function ApprovalsPage() {
               ) : null}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-md border">
+            <div className="min-h-0 flex-1 overflow-y-auto">
               {isLoading ? (
-                <div className="flex flex-col gap-2 p-4">
+                <div className="flex flex-col gap-2">
                   {Array.from({ length: 5 }).map((_, index) => (
-                    <div key={index} className="bg-muted h-14 animate-pulse rounded-md" />
+                    <div key={index} className="bg-muted h-20 animate-pulse rounded-md" />
                   ))}
                 </div>
               ) : visible.length === 0 ? (
-                <Empty className="h-full border-0">
+                <Empty className="h-full">
                   <EmptyHeader>
                     <EmptyTitle>Inbox zero</EmptyTitle>
                     <EmptyDescription>
@@ -235,84 +243,102 @@ export function ApprovalsPage() {
                   </EmptyHeader>
                 </Empty>
               ) : (
-                <div className="divide-y">
-                  {visible.map((request) => (
-                    <div
-                      key={request.id}
-                      className="hover:bg-muted/40 flex items-start gap-3 px-3 py-3 transition-colors"
-                    >
-                      <Checkbox
-                        className="mt-1"
-                        checked={selected.has(request.id)}
-                        onCheckedChange={() => toggle(request.id)}
-                        aria-label={`Select ${request.employeeName}`}
-                      />
-                      <Avatar className="mt-0.5 size-8 shrink-0">
-                        <AvatarFallback className="text-xs">{request.initials}</AvatarFallback>
-                      </Avatar>
+                <div className="flex flex-col gap-2">
+                  {visible.map((request) => {
+                    const meta = KIND_META[request.kind]
+                    return (
+                      <div
+                        key={request.id}
+                        className={cn(
+                          "flex flex-wrap items-start gap-3 rounded-md border p-3 transition-colors sm:flex-nowrap",
+                          selected.has(request.id)
+                            ? "border-primary/40 bg-primary/5"
+                            : "hover:bg-muted/40"
+                        )}
+                      >
+                        <Checkbox
+                          className="mt-2"
+                          checked={selected.has(request.id)}
+                          onCheckedChange={() => toggle(request.id)}
+                          aria-label={`Select ${request.employeeName}`}
+                        />
+                        {/* Kind is the first thing an approver triages by. */}
+                        <div
+                          className={cn(
+                            "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md",
+                            meta.className
+                          )}
+                        >
+                          <meta.icon className="size-4" />
+                        </div>
 
-                      {/*
-                        Two lines, not four. Line one is the request — the thing
-                        being decided. Line two is who and when. The free-text
-                        reason moves behind a tooltip: it matters for a handful
-                        of rows, and inline it made all 26 unscannable.
-                      */}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="font-medium">{request.subject}</span>
-                          <Badge variant="outline">{KIND_LABEL[request.kind]}</Badge>
-                          {request.level === 2 ? (
-                            <Badge variant="destructive">L2</Badge>
+                        <div className="min-w-0 flex-1 basis-48">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-medium">{request.subject}</span>
+                            {request.level === 2 ? (
+                              <Badge variant="destructive">Escalated · L2</Badge>
+                            ) : null}
+                          </div>
+                          <p className="text-muted-foreground mt-0.5 text-sm">
+                            <span className="text-foreground">{request.employeeName}</span>
+                            <span className="mx-1.5 opacity-50">·</span>
+                            {KIND_LABEL[request.kind]}
+                            <span className="mx-1.5 opacity-50">·</span>
+                            <span className="tabular-nums">
+                              {request.dateFrom}
+                              {request.dateTo !== request.dateFrom ? ` → ${request.dateTo}` : ""}
+                            </span>
+                            <span className="mx-1.5 opacity-50">·</span>
+                            <span className="tabular-nums">{request.units}</span>
+                          </p>
+                          {request.detail ? (
+                            <p className="text-muted-foreground mt-0.5 truncate text-xs">
+                              {request.detail}
+                            </p>
                           ) : null}
                         </div>
-                        <p className="text-muted-foreground mt-0.5 truncate text-sm">
-                          {request.employeeName}
-                          <span className="mx-1.5 opacity-50">·</span>
-                          {request.dateFrom}
-                          {request.dateTo !== request.dateFrom ? ` → ${request.dateTo}` : ""}
-                          <span className="mx-1.5 opacity-50">·</span>
-                          {request.units}
-                        </p>
-                      </div>
 
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Badge
-                              variant={request.ageDays >= 2 ? "destructive" : "secondary"}
-                              className="cursor-default"
+                        <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge
+                                variant={request.ageDays >= 2 ? "destructive" : "secondary"}
+                                className="cursor-default tabular-nums"
+                              >
+                                {request.ageDays >= 2 ? "⏰ " : ""}
+                                waiting {request.ageDays}d
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              <p className="font-medium">
+                                {request.employeeCode} · {request.department}
+                              </p>
+                              <p>Escalates to L2 after 2 days without action.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <ButtonGroup>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              aria-label={`Reject ${request.subject}`}
+                              onClick={() => decide("REJECT", [request.id], "Rejected inline")}
                             >
-                              {request.ageDays}d
-                            </Badge>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs">
-                            <p className="font-medium">
-                              {request.employeeCode} · {request.department}
-                            </p>
-                            <p>{request.detail}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                        <ButtonGroup>
-                          <Button
-                            variant="outline"
-                            size="icon-sm"
-                            aria-label={`Reject ${request.subject}`}
-                            onClick={() => decide("REJECT", [request.id], "Rejected inline")}
-                          >
-                            <X />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon-sm"
-                            aria-label={`Approve ${request.subject}`}
-                            onClick={() => decide("APPROVE", [request.id], "Approved inline")}
-                          >
-                            <Check />
-                          </Button>
-                        </ButtonGroup>
+                              <X />
+                              <span className="max-sm:hidden">Reject</span>
+                            </Button>
+                            <Button
+                              size="sm"
+                              aria-label={`Approve ${request.subject}`}
+                              onClick={() => decide("APPROVE", [request.id], "Approved inline")}
+                            >
+                              <Check />
+                              <span className="max-sm:hidden">Approve</span>
+                            </Button>
+                          </ButtonGroup>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
