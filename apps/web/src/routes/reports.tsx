@@ -7,7 +7,7 @@ import type { DateRange } from "react-day-picker"
 
 import { API_BASE } from "@/lib/api"
 import { exportDailyRegisterExcel } from "@/lib/attendance-export"
-import { useEnqueueExport, useExportJobs } from "@/lib/queries"
+import { useAttendanceDays, useEnqueueExport, useExportJobs } from "@/lib/queries"
 import { useSession } from "@/lib/session"
 import { EXPORT_JOBS, REPORTS, seedAttendanceDays } from "@/lib/seed"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
@@ -80,6 +80,12 @@ export function ReportsPage() {
   const { jobs } = useExportJobs()
   const enqueue = useEnqueueExport()
   const today = new Date().toISOString().slice(0, 10)
+  const { rows: todayRows, source: daySource } = useAttendanceDays(today)
+  const present = todayRows.filter((row) =>
+    ["PRESENT", "ON_DUTY", "WFH"].includes(row.status)
+  ).length
+  const onLeave = todayRows.filter((row) => row.status.startsWith("ON_LEAVE")).length
+  const pendingApproval = todayRows.filter((row) => row.approvalStatus === "PENDING").length
 
   const exportDaily = () => {
     // API session: queue the server-side build (§7 — the request thread never
@@ -127,6 +133,22 @@ export function ReportsPage() {
         }
       />
       <PageBody>
+        {/* The live headline numbers live HERE by product decision — screens
+            show the work, Reports shows the figures. One line, no tiles. */}
+        <Card className="py-4">
+          <CardContent className="text-sm">
+            <span className="font-medium">Today{daySource === "demo" ? " (seeded)" : ""}: </span>
+            <span className="text-status-present font-semibold tabular-nums">{present}</span> present
+            <span className="text-muted-foreground mx-1.5">·</span>
+            <span className="font-semibold tabular-nums">{onLeave}</span> on leave
+            <span className="text-muted-foreground mx-1.5">·</span>
+            <span className="text-status-half-day font-semibold tabular-nums">{pendingApproval}</span>{" "}
+            awaiting approval
+            <span className="text-muted-foreground mx-1.5">·</span>
+            {todayRows.length} rostered
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Export queue</CardTitle>

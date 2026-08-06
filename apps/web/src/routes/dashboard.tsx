@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { CalendarClock, CircleAlert, Crown, Plane, Users } from "lucide-react"
+import { Crown } from "lucide-react"
 import { Link } from "react-router"
 
 import {
@@ -95,44 +95,10 @@ const deptConfig = {
   Quality: { label: "Quality", color: "var(--chart-5)" },
 } satisfies ChartConfig
 
-function StatCard({
-  title,
-  value,
-  hint,
-  icon: Icon,
-}: {
-  title: string
-  value: string
-  hint: string
-  icon: React.ElementType
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardDescription className="flex items-center gap-2">
-          <Icon className="size-4" />
-          {title}
-        </CardDescription>
-        <CardTitle className="text-3xl tabular-nums">{value}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-muted-foreground text-sm">{hint}</p>
-      </CardContent>
-    </Card>
-  )
-}
-
 export function DashboardPage() {
   const days = React.useMemo(() => seedAttendanceDays(), [])
   const approvals = React.useMemo(() => seedApprovals().slice(0, 5), [])
   const podium = React.useMemo(() => rankedByPunctuality().slice(0, 3), [])
-
-  const present = days.filter((d) => ["PRESENT", "ON_DUTY", "WFH"].includes(d.status)).length
-  const onLeave = days.filter((d) => d.status.startsWith("ON_LEAVE")).length
-  const pending = days.filter((d) => d.approvalStatus === "PENDING").length
-  const avgLate = Math.round(
-    days.reduce((sum, d) => sum + d.lateMinutes, 0) / Math.max(days.length, 1)
-  )
 
   const byDepartment = React.useMemo(
     () =>
@@ -157,33 +123,6 @@ export function DashboardPage() {
         }
       />
       <PageBody>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            title="Present today"
-            value={String(present)}
-            hint={`of ${days.length} rostered`}
-            icon={Users}
-          />
-          <StatCard
-            title="On leave"
-            value={String(onLeave)}
-            hint="approved leave"
-            icon={Plane}
-          />
-          <StatCard
-            title="Pending approval"
-            value={String(pending)}
-            hint="flagged punches awaiting L1"
-            icon={CircleAlert}
-          />
-          <StatCard
-            title="Average late"
-            value={`${avgLate}m`}
-            hint="across everyone rostered today"
-            icon={CalendarClock}
-          />
-        </div>
-
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2">
             <CardHeader>
