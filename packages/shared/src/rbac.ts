@@ -194,9 +194,30 @@ for (const permission of PERMISSIONS) {
   DEFAULT_MATRIX[permission.key] ??= { ADMIN: "ALL", HR: "NONE", OPERATIONS: "NONE", EMPLOYEE: "NONE" }
 }
 
-/** Which scopes make sense for a given capability. */
+/**
+ * Which scopes make sense for a given capability — and, critically, which the
+ * guards can actually ENFORCE. Document capabilities (POs, estimates, bills)
+ * have no per-employee reach, so offering OWN_TEAM there would grant a scope
+ * nothing checks; the editor simply never offers un-enforceable reaches.
+ */
+const DOCUMENT_CAPABILITIES = new Set([
+  "config.manage",
+  "procurement.manage",
+  "po.approve",
+  "grn.record",
+  "procurement.view",
+  "sales.manage",
+  "sales.view",
+  "payroll.manage",
+  "leave.policy",
+  "audit.view",
+])
+
 export function allowedScopes(permissionKey: string): Scope[] {
   if (permissionKey === "punch.self") return ["NONE", "SELF"]
   if (permissionKey === "payroll.viewOwn") return ["NONE", "SELF", "ALL"]
+  if (permissionKey === "expense.claim") return ["NONE", "SELF"]
+  if (permissionKey === "expense.approve") return ["NONE", "OWN_TEAM", "ALL"]
+  if (DOCUMENT_CAPABILITIES.has(permissionKey)) return ["NONE", "VIEW", "ALL"]
   return ["NONE", "VIEW", "SELF", "OWN_TEAM", "OWN_BRANCH", "ALL"]
 }

@@ -1,9 +1,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import { useNavigate } from "react-router"
-import { CalendarRange, Download, Eye, FileSpreadsheet, Loader2 } from "lucide-react"
-import { format } from "date-fns"
-import type { DateRange } from "react-day-picker"
+import { Download, Eye, FileSpreadsheet, Loader2 } from "lucide-react"
 
 import { API_BASE } from "@/lib/api"
 import { exportDailyRegisterExcel } from "@/lib/attendance-export"
@@ -14,7 +12,6 @@ import { Page, PageBody, PageHeader } from "@/components/page-shell"
 import { CustomReportsCard } from "@/components/report-builder-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Item,
@@ -24,44 +21,9 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Progress } from "@/components/ui/progress"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-
-/** `date-picker` is not a registry component — it is popover + calendar. */
-function DateRangePicker() {
-  const [range, setRange] = React.useState<DateRange | undefined>({
-    from: new Date(2026, 6, 1),
-    to: new Date(2026, 6, 31),
-  })
-
-  const label =
-    range?.from && range?.to
-      ? `${format(range.from, "d MMM")} – ${format(range.to, "d MMM yyyy")}`
-      : "Pick a range"
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
-          <CalendarRange />
-          {label}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
-        <Calendar mode="range" selected={range} onSelect={setRange} numberOfMonths={2} />
-      </PopoverContent>
-    </Popover>
-  )
-}
 
 /**
  * Which screen previews each report today. Reports without a surface yet keep
@@ -114,24 +76,11 @@ export function ReportsPage() {
 
   return (
     <Page>
+      {/* No decorative filters up here: a control that filters nothing is a
+          broken promise. The report builder below owns its real date picker. */}
       <PageHeader
         title="Reports"
         description="Every export is a real .xlsx — typed cells, frozen headers, auto-filter, totals as SUM formulas."
-        actions={
-          <>
-            <DateRangePicker />
-            <Select defaultValue="all">
-              <SelectTrigger size="sm" className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All branches</SelectItem>
-                <SelectItem value="ho">Mumbai HO</SelectItem>
-                <SelectItem value="pune">Pune Plant</SelectItem>
-              </SelectContent>
-            </Select>
-          </>
-        }
       />
       <PageBody>
         {/* The live headline numbers live HERE by product decision — screens

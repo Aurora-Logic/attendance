@@ -269,6 +269,63 @@ describe("commercial chain", () => {
     expect(overpay.json().maxPaise).toBe(invoice.totals.totalPaise - 10_000)
   })
 
+  it("expense reach: OWN_TEAM decides only its chain; ALL decides anyone but self", async () => {
+    const employee = await login("employee@delta.dev", "Emp@1234") // Kabir, reports to Ops
+    const hr = await login("hr@delta.dev", "Hr@12345") // Priya, reports to Admin
+    const ops = await login("ops@delta.dev", "Ops@1234") // OWN_TEAM scope
+    const admin = await login("admin@delta.dev", "Admin@123") // ALL scope
+
+    const file = async (cookie: string) =>
+      (
+        await app.inject({
+          method: "POST",
+          url: "/expense-claims",
+          headers: { cookie },
+          payload: { date: "2026-08-06", category: "Travel", amountPaise: 10_000, description: "Site visit" },
+        })
+      ).json().claim
+
+    const kabirClaim = await file(employee)
+    const priyaClaim = await file(hr)
+
+    // Ops CAN decide Kabir's (direct report)…
+    const inTeam = await app.inject({
+      method: "POST",
+      url: `/expense-claims/${kabirClaim.id}/decide`,
+      headers: { cookie: ops },
+      payload: { action: "APPROVE" },
+    })
+    expect(inTeam.statusCode).toBe(200)
+
+    // …but NOT Priya's — she reports to Admin, outside Ops' chain.
+    const outOfTeam = await app.inject({
+      method: "POST",
+      url: `/expense-claims/${priyaClaim.id}/decide`,
+      headers: { cookie: ops },
+      payload: { action: "APPROVE" },
+    })
+    expect(outOfTeam.statusCode).toBe(403)
+    expect(outOfTeam.json().error).toBe("OUT_OF_REACH")
+
+    // Admin (ALL) decides Priya's fine — "admin unable" only ever applies to
+    // admin's OWN claims, by the creator≠approver rule.
+    const byAdmin = await app.inject({
+      method: "POST",
+      url: `/expense-claims/${priyaClaim.id}/decide`,
+      headers: { cookie: admin },
+      payload: { action: "APPROVE" },
+    })
+    expect(byAdmin.statusCode).toBe(200)
+
+    // Ops' listing shows own + team, never Priya's.
+    const opsList = (
+      await app.inject({ method: "GET", url: "/expense-claims", headers: { cookie: ops } })
+    ).json()
+    const listedIds = opsList.claims.map((claim: { id: string }) => claim.id)
+    expect(listedIds).toContain(kabirClaim.id)
+    expect(listedIds).not.toContain(priyaClaim.id)
+  })
+
   it("RBAC probes: employees see none of the commercial surface; HR is read-only", async () => {
     const employee = await login("employee@delta.dev", "Emp@1234")
     for (const url of ["/stock", "/vendor-bills", "/payments", "/invoices", "/receipts"]) {

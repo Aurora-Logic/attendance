@@ -12,6 +12,26 @@ import {
 import { todayISO } from "@/lib/procurement"
 import { useExpenses } from "@/lib/expenses"
 import { useSession } from "@/lib/session"
+
+/**
+ * Demo-session reporting chain, mirroring the API seed exactly: HR and
+ * Operations report to Admin; the Employee account reports to Operations.
+ * The API enforces the same chain from the employees table.
+ */
+const DEMO_MANAGER_OF: Record<string, string> = {
+  "hr@delta.dev": "admin@delta.dev",
+  "ops@delta.dev": "admin@delta.dev",
+  "employee@delta.dev": "ops@delta.dev",
+}
+
+const inTeamOf = (managerEmail: string, claimantEmail: string): boolean => {
+  let current: string | undefined = DEMO_MANAGER_OF[claimantEmail]
+  for (let hops = 0; current && hops < 10; hops++) {
+    if (current === managerEmail) return true
+    current = DEMO_MANAGER_OF[current]
+  }
+  return false
+}
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { Badge } from "@/components/ui/badge"
@@ -57,10 +77,19 @@ export function ExpensesPage() {
 
   const approverScope = scopeFor("expense.approve")
   const isApprover = approverScope !== "NONE"
-  // Approvers see everyone's; everyone sees their own.
-  const visible = isApprover
-    ? claims
-    : claims.filter((claim) => claim.employeeEmail === user?.email)
+  // The grant's REACH decides what an approver can act on, not just its
+  // existence: ALL reaches everyone, OWN_TEAM only the reporting chain.
+  const reaches = (claimantEmail: string) =>
+    approverScope === "ALL" ||
+    (approverScope === "OWN_TEAM" && inTeamOf(user?.email ?? "", claimantEmail))
+  const visible =
+    approverScope === "ALL"
+      ? claims
+      : approverScope === "OWN_TEAM"
+        ? claims.filter(
+            (claim) => claim.employeeEmail === user?.email || reaches(claim.employeeEmail)
+          )
+        : claims.filter((claim) => claim.employeeEmail === user?.email)
 
   const columns = React.useMemo<ColumnDef<ExpenseClaim>[]>(
     () => [
@@ -114,8 +143,23 @@ export function ExpensesPage() {
               </Button>
             )
           }
-          // Deciding your own claim is never allowed, whatever the scope.
+          // Deciding your own claim is never allowed, whatever the scope —
+          // say so instead of leaving a confusing blank.
+          if (isApprover && claim.status === "PENDING" && claim.employeeEmail === user?.email) {
+            return (
+              <Badge variant="outline" className="text-muted-foreground font-normal">
+                Yours — another approver decides
+              </Badge>
+            )
+          }
           if (!isApprover || claim.employeeEmail === user?.email) return null
+          if (!reaches(claim.employeeEmail)) {
+            return (
+              <Badge variant="outline" className="text-muted-foreground font-normal">
+                Outside your team
+              </Badge>
+            )
+          }
           if (claim.status === "PENDING") {
             return (
               <div className="flex gap-1">
@@ -163,7 +207,7 @@ export function ExpensesPage() {
         },
       },
     ],
-    [isApprover, user, can, decideClaim, reimburseClaim]
+    [isApprover, approverScope, user, can, decideClaim, reimburseClaim]
   )
 
   return (

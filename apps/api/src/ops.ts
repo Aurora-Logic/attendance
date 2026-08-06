@@ -243,13 +243,50 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
   })
 
   // ---- expense claims -----------------------------------------------------
+  const employeeOfUser = (userId: string) => {
+    const user = store.users.find((candidate) => candidate.id === userId)
+    return store.employees.find((candidate) => candidate.id === user?.employeeId)
+  }
+  const employeeOfEmail = (email: string) => {
+    const user = store.users.find((candidate) => candidate.email === email)
+    return store.employees.find((candidate) => candidate.id === user?.employeeId)
+  }
+  /** True when `email`'s employee sits anywhere under `managerId`'s chain. */
+  const inTeamOf = (managerId: string | undefined, email: string): boolean => {
+    if (!managerId) return false
+    let current = employeeOfEmail(email)
+    for (let hops = 0; current && hops < 10; hops++) {
+      if (current.managerId === managerId) return true
+      current = store.employees.find((candidate) => candidate.id === current?.managerId)
+    }
+    return false
+  }
+  /** ALL reaches everyone; OWN_TEAM reaches the reporting chain; nothing else decides. */
+  const approverReaches = (
+    userId: string,
+    role: "ADMIN" | "HR" | "OPERATIONS" | "EMPLOYEE",
+    claimantEmail: string
+  ): boolean => {
+    const scope = store.matrix["expense.approve"]?.[role] ?? "NONE"
+    if (scope === "ALL") return true
+    if (scope === "OWN_TEAM") return inTeamOf(employeeOfUser(userId)?.id, claimantEmail)
+    return false
+  }
   app.get("/expense-claims", { preHandler: [authenticate] }, async (request) => {
     const scope = store.matrix["expense.approve"]?.[request.auth.role] ?? "NONE"
     const user = store.users.find((candidate) => candidate.id === request.auth.userId)
     const mine = (claim: ExpenseClaim) => claim.employeeEmail === user?.email
-    // Approvers see all; everyone always sees their own claims.
+    // ALL sees everything; OWN_TEAM sees own + the reporting chain; else own.
     const claims =
-      scope === "ALL" ? store.expenseClaims : store.expenseClaims.filter(mine)
+      scope === "ALL"
+        ? store.expenseClaims
+        : scope === "OWN_TEAM"
+          ? store.expenseClaims.filter(
+              (claim) =>
+                mine(claim) ||
+                inTeamOf(employeeOfUser(request.auth.userId)?.id, claim.employeeEmail)
+            )
+          : store.expenseClaims.filter(mine)
     return { claims }
   })
 
@@ -331,6 +368,11 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
       if (claim.employeeEmail === user?.email) {
         return reply.code(403).send({ error: "CANNOT_DECIDE_OWN" })
       }
+      // The grant's REACH is enforced, not just its existence: OWN_TEAM only
+      // decides for the reporting chain — the hole the audit found.
+      if (!approverReaches(request.auth.userId, request.auth.role, claim.employeeEmail)) {
+        return reply.code(403).send({ error: "OUT_OF_REACH", scope: "OWN_TEAM" })
+      }
       claim.status = parsed.data.action === "APPROVE" ? "APPROVED" : "REJECTED"
       claim.decidedBy = request.auth.userId
       claim.decisionNote = parsed.data.note
@@ -346,6 +388,9 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
       const claim = store.expenseClaims.find((candidate) => candidate.id === claimId)
       if (!claim) return reply.code(404).send({ error: "NOT_FOUND" })
       if (claim.status !== "APPROVED") return reply.code(409).send({ error: "NOT_APPROVED" })
+      if (!approverReaches(request.auth.userId, request.auth.role, claim.employeeEmail)) {
+        return reply.code(403).send({ error: "OUT_OF_REACH", scope: "OWN_TEAM" })
+      }
       claim.status = "REIMBURSED"
       claim.reimbursedOn = new Date().toISOString().slice(0, 10)
       return { claim }
