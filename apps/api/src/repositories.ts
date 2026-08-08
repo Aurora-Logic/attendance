@@ -190,30 +190,46 @@ export function persistPunch(punch: StoredPunch): void {
   )
 }
 
+/**
+ * Write an approval, whether it is new or has moved on.
+ *
+ * This was a bare `create` with an explicit id, and the escalation sweep calls
+ * it for approvals that already exist. The insert violated the primary key,
+ * `fire` swallowed the error, and the escalation silently never persisted: on
+ * restart the request hydrated as PENDING again while its ledger debit had
+ * already been written, so approving it a second time debited the employee
+ * twice for one absence.
+ *
+ * An upsert is correct for both callers and cannot half-apply.
+ */
 export function persistApproval(approval: StoredApproval): void {
   const db = prisma()
   if (!db) return
+  const meta = {
+    createdAt: approval.createdAt,
+    leaveType: approval.leaveType ?? null,
+    leavePart: approval.leavePart ?? null,
+  }
+  const shared = {
+    kind: approval.kind,
+    subject: approval.subject,
+    detail: approval.detail,
+    units: approval.units,
+    status: approval.status,
+    level: approval.level,
+    metaJson: meta,
+  }
   fire("persist approval", () =>
-    db.approvalRequest.create({
-      data: {
+    db.approvalRequest.upsert({
+      where: { id: approval.id },
+      update: shared,
+      create: {
         id: approval.id,
         companyId: COMPANY_ID,
-        kind: approval.kind,
         employeeId: approval.employeeId,
-        subject: approval.subject,
-        detail: approval.detail,
         dateFrom: new Date(`${approval.dateFrom}T00:00:00Z`),
         dateTo: new Date(`${approval.dateTo}T00:00:00Z`),
-        units: approval.units,
-        status: approval.status,
-        level: approval.level,
-        // The model has no createdAt/leaveType columns; they ride in metaJson
-        // so hydration can round-trip the store shape exactly.
-        metaJson: {
-          createdAt: approval.createdAt,
-          leaveType: approval.leaveType ?? null,
-          leavePart: approval.leavePart ?? null,
-        },
+        ...shared,
       },
     })
   )

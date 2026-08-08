@@ -15,6 +15,7 @@ import {
   compOffCredit,
   computeAttendanceDay,
   countLeaveUnits,
+  crossesMidnight,
   DEFAULT_MATRIX,
   evaluateLate,
   isoDateSchema,
@@ -24,7 +25,7 @@ import {
   PERMISSIONS,
   punchWindowFlag,
   reduceLedger,
-  regularisationPunches,
+  regularisationOrderingError,
   regularisationRequestSchema,
   regularisationSubject,
   resolveBusinessDate,
@@ -1553,6 +1554,21 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
           approval.status === "PENDING"
       )
       if (duplicate) return reply.code(409).send({ error: "ALREADY_PENDING" })
+
+      // Ordering depends on the shift: 06:00 legitimately follows 22:00 on a
+      // night shift, so the schema cannot decide this.
+      const claimant = employeeById(request.auth.employeeId)
+      const claimantShift = claimant
+        ? store.shifts.find((candidate) => candidate.id === claimant.shiftId)
+        : undefined
+      if (claimantShift) {
+        const ordering = regularisationOrderingError(
+          body,
+          claimantShift.startMin,
+          crossesMidnight(claimantShift)
+        )
+        if (ordering) return reply.code(400).send({ error: "BAD_REQUEST", detail: ordering })
+      }
 
       const approval = {
         id: id(store, "req"),

@@ -1,4 +1,4 @@
-import { regularisationPunches, reduceLedger } from "@attendance/shared"
+import { crossesMidnight, regularisationPunches, reduceLedger } from "@attendance/shared"
 
 import { persistLedgerEntry, persistPunch } from "./repositories"
 import { id, type Store, type StoredApproval } from "./store"
@@ -88,7 +88,8 @@ export function applyApproval(store: Store, approval: StoredApproval): void {
         outTime: approval.regularisation.outTime,
         note: approval.detail,
       },
-      shift.startMin
+      shift.startMin,
+      crossesMidnight(shift)
     )) {
       const stored = {
         id: id(store, "p"),

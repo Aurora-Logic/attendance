@@ -2370,3 +2370,37 @@ describe("a ledger whose rows are out of date order still works", () => {
     expect(applied.json().error).toBe("MONTH_LOCKED")
   })
 })
+
+describe("an escalated approval survives a restart", () => {
+  it("re-persisting an existing approval updates it rather than failing silently", async () => {
+    // The in-memory half of the bug: escalation mutates the approval and calls
+    // persistApproval, which used to be a bare create. The insert violated the
+    // primary key, the error was swallowed, and the request hydrated as PENDING
+    // again on restart — while its ledger debit had already been written, so a
+    // second approval debited the employee twice for one absence.
+    store.settings.autoApproveOnEscalation = true
+    const employee = await asEmployee()
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+    const approvalId = applied.json().approval.id
+
+    const later = new Date(Date.now() + 3 * 86_400_000).toISOString()
+    escalateStaleApprovals(store, later, makeNotifier(store))
+
+    const approval = store.approvals.find((row) => row.id === approvalId)!
+    expect(approval.status).toBe("APPROVED")
+    expect(approval.level).toBe(2)
+    expect(approval.decidedBy).toBe("system")
+
+    // Exactly one debit exists for it, and re-running the sweep adds none.
+    const debits = () =>
+      store.ledger.filter((row) => row.remarks.includes(approvalId) && row.units < 0)
+    expect(debits()).toHaveLength(1)
+    escalateStaleApprovals(store, later, makeNotifier(store))
+    expect(debits()).toHaveLength(1)
+  })
+})

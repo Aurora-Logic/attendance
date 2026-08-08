@@ -52,13 +52,12 @@ export const regularisationRequestSchema = z
     message: "Give at least one time to correct.",
     path: ["inTime"],
   })
-  .refine(
-    (value) =>
-      value.inTime === undefined ||
-      value.outTime === undefined ||
-      value.outTime > value.inTime,
-    { message: "Out time must be after in time.", path: ["outTime"] }
-  )
+  /**
+   * Note there is deliberately no "out after in" check here. On a night shift
+   * 06:00 legitimately follows 22:00, and a string comparison would refuse
+   * every night-shift correction outright. Ordering is validated by the route,
+   * which knows the employee's shift — see `regularisationOrderingError`.
+   */
 export type RegularisationRequest = z.infer<typeof regularisationRequestSchema>
 
 export const clockToMinutes = (clock: string): number => {
@@ -87,22 +86,58 @@ export interface RegularisationPunch {
  * every device punch uses, so a regularised day computes identically to one
  * that went right the first time.
  */
+/**
+ * Offset of a wall-clock time from shift start.
+ *
+ * On a shift that crosses midnight, a clock time earlier than the start
+ * belongs to the *next* calendar day: 06:00 on a 22:00 shift is +480, not
+ * −960. Subtracting plainly put the out-punch sixteen hours before the
+ * in-punch, so an approved night-shift correction produced a day with negative
+ * worked time — the employee's day stayed unpaid and the correction appeared
+ * to have done nothing.
+ */
+export function offsetForShift(
+  clock: string,
+  shiftStartMin: number,
+  crossesMidnight: boolean
+): number {
+  const raw = clockToMinutes(clock) - shiftStartMin
+  return crossesMidnight && raw < 0 ? raw + 1440 : raw
+}
+
+/**
+ * Is this correction the wrong way round for the employee's shift? Returns a
+ * message, or null when the pair is coherent.
+ */
+export function regularisationOrderingError(
+  request: RegularisationRequest,
+  shiftStartMin: number,
+  crossesMidnight: boolean
+): string | null {
+  if (request.inTime === undefined || request.outTime === undefined) return null
+  const inOffset = offsetForShift(request.inTime, shiftStartMin, crossesMidnight)
+  const outOffset = offsetForShift(request.outTime, shiftStartMin, crossesMidnight)
+  if (outOffset <= inOffset) return "Out time must be after in time for this shift."
+  return null
+}
+
 export function regularisationPunches(
   request: RegularisationRequest,
-  shiftStartMin: number
+  shiftStartMin: number,
+  crossesMidnight = false
 ): RegularisationPunch[] {
   const punches: RegularisationPunch[] = []
   if (request.inTime) {
     punches.push({
       type: "IN",
-      offsetMin: clockToMinutes(request.inTime) - shiftStartMin,
+      offsetMin: offsetForShift(request.inTime, shiftStartMin, crossesMidnight),
       clock: request.inTime,
     })
   }
   if (request.outTime) {
     punches.push({
       type: "OUT",
-      offsetMin: clockToMinutes(request.outTime) - shiftStartMin,
+      offsetMin: offsetForShift(request.outTime, shiftStartMin, crossesMidnight),
       clock: request.outTime,
     })
   }

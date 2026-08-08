@@ -60,11 +60,9 @@ await sheet.getByLabel("What happened").fill("Gate reader did not register my ex
 await sheet.getByRole("button", { name: "Send for approval" }).click()
 await sheet.getByText("Give at least one time to correct.").waitFor({ timeout: 3_000 })
 
-// Guard: out before in.
-await sheet.getByLabel("In time").fill("18:00")
-await sheet.getByLabel("Out time").fill("09:00")
-await sheet.getByRole("button", { name: "Send for approval" }).click()
-await sheet.getByText("Out time must be after in time.").waitFor({ timeout: 3_000 })
+// Ordering is judged by the server now, because only it knows the shift —
+// 06:00 legitimately follows 22:00 on a night shift. The client no longer
+// second-guesses it, so this pair reaches the API and comes back refused.
 
 await page.screenshot({ path: `${SHOTS}/regularise-sheet.png` })
 

@@ -80,10 +80,9 @@ export function RegulariseSheet({
       setError("Give at least one time to correct.")
       return
     }
-    if (inTime && outTime && outTime <= inTime) {
-      setError("Out time must be after in time.")
-      return
-    }
+    // No client-side ordering check: on a night shift 06:00 legitimately
+    // follows 22:00, and only the server knows the employee's shift. It
+    // answers with the reason if the pair is genuinely the wrong way round.
     if (note.trim().length < 5) {
       setError("Say what happened, in a few words.")
       return
@@ -129,7 +128,9 @@ export function RegulariseSheet({
                 ? "That month is locked for payroll — ask HR for an adjustment run."
                 : code === "FUTURE_DATE"
                   ? "That date has not happened yet."
-                  : "Check the date and times and try again.",
+                  : (apiError instanceof ApiError &&
+                      (apiError.body as { detail?: string })?.detail) ||
+                    "Check the date and times and try again.",
         })
       },
     })

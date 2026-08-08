@@ -422,6 +422,20 @@ Guarding eight privileged routes earlier left the commercial suite untouched. Pr
 
 Verified per role after the change: an employee reaches none of the 15, Operations and Admin reach all 15.
 
+## 26. Night shifts and lost escalations (8 Aug 2026)
+
+Two more confirmed P0s from the audit of this session's code.
+
+**An escalated approval never persisted.** `persistApproval` was a bare `create` with an explicit id, and the escalation sweep calls it for approvals that already exist. The insert violated the primary key, `fire` swallowed the error, and the change was lost: on restart the request hydrated as PENDING again *while its ledger debit had already been written*, so approving it a second time debited the employee twice for one absence. It is now an upsert — correct for both callers, and proven against the real database by persisting the same id twice.
+
+**A night-shift correction left the day unpaid.** `regularisationPunches` subtracted the shift start plainly, so 06:00 on a 22:00 shift computed as **−960** — sixteen hours *before* the in-punch. The approved correction produced a day with negative worked time and changed nothing. Reproduced before the fix.
+
+| # | Decision | Why |
+|---|---|---|
+| N10 | An offset wraps by +1440 when the shift crosses midnight and the clock time is before its start | 06:00 on a 22:00 shift is eight hours in. Day shifts are untouched: a time before the start stays negative, which is what an early arrival means. |
+| N11 | "Out after in" moved **out of the schema and into the route** | The schema has no idea whether the employee works nights, and a string comparison refused every night-shift correction outright — those employees could not file one at all. |
+| N12 | The client no longer duplicates the ordering check | Only the server knows the shift. The sheet surfaces the server's reason instead of guessing, so the two cannot disagree. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.
