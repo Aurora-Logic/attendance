@@ -138,3 +138,27 @@ describe("buildPayrollJournal", () => {
     ).toThrow(/Nothing payable/)
   })
 })
+
+describe("a correction run is a distinct voucher", () => {
+  const items = [{ name: "Kabir Singh", code: "DLT0004", grossPaise: 900_000 }]
+  const base = {
+    company: "Delta",
+    month: "2026-08",
+    items,
+    expenseLedger: "Salary & Wages",
+    payableLedger: "Salary Payable",
+    perEmployeeLedgers: false,
+  }
+
+  it("version 1 keeps the plain number", () => {
+    expect(buildPayrollJournal({ ...base, version: 1 })).toContain(
+      "<VOUCHERNUMBER>PAY/2026-08</VOUCHERNUMBER>"
+    )
+  })
+
+  it("a later version is distinguishable, so Tally cannot double-book the month", () => {
+    expect(buildPayrollJournal({ ...base, version: 2 })).toContain(
+      "<VOUCHERNUMBER>PAY/2026-08/V2</VOUCHERNUMBER>"
+    )
+  })
+})

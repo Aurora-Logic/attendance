@@ -471,6 +471,16 @@ The last of the eight P0s. Three places decided how many late marks an employee 
 
 The audit reported that approving leave early "shields" a comp-off credit from expiry, because a future-dated debit counts as consumption. Reproduced, and left alone: the employee has committed the credit to a booked date, consumption-at-approval is the employee-favourable reading, and there is no cancellation route that would let it be abused. Changing it is a **policy decision for the owner**, not a defect fix.
 
+## 30. Overtime is time worked (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| O6 | Overtime is **worked minutes beyond the shift's length**, not elapsed time since clocking in | Measuring from the out-punch paid for hours nobody worked. Reproduced: in at 09:00, out at 19:00 with five hours of recorded break is five hours of work — correctly a half day paying 0.5, and it *also* banked an hour of overtime. Half a day's pay plus overtime, for five hours on a nine-hour shift. |
+| O7 | The baseline is the shift's length on **every** kind of day, including a declared half day | Halving it there made the hours between half and full day count twice: once inside the 1.0 payable unit such a day already earns, and again as overtime. |
+| O8 | The Tally voucher number carries the **run version** past v1 | A correction run for the same month otherwise carries the identical number, so Tally either rejects it as a duplicate or books the month's salary twice. |
+
+The half-day test asserting "overtime starts after the shortened expectation" encoded the double-pay; it now asserts the opposite, plus a long-break case that must earn nothing.
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

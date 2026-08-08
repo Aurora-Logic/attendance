@@ -1058,6 +1058,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
           expenseLedger: store.settings.tallySalaryExpenseLedger,
           payableLedger: store.settings.tallySalaryPayableLedger,
           perEmployeeLedgers: store.settings.tallyPerEmployeeLedgers,
+          version: run.version,
         })
         recordAudit({
           actorId: request.auth.userId,

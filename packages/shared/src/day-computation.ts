@@ -169,8 +169,24 @@ export function computeAttendanceDay(input: DayComputationInput): DayComputation
   base.workedMinutes = Math.max(lastOut! - firstIn! - breakMinutes, 0)
   base.lateMinutes = Math.max(firstIn!, 0)
 
-  const rawOt =
-    lastOut! - (dayKind === "HALF_DAY" ? expectation.fullDayMinHours * 60 : shiftLengthMin(shift))
+  /**
+   * Overtime is time **worked** beyond a standard full day — not time elapsed
+   * since clocking in.
+   *
+   * Measuring from the out-punch paid overtime for hours nobody worked: a day
+   * with a five-hour break, in at 09:00 and out at 19:00, is five hours of
+   * work. It was correctly a half day paying 0.5, and it *also* earned an hour
+   * of overtime.
+   *
+   * The baseline is the shift's own length, for every kind of day. A declared
+   * half day used to halve it, so the hours between half and full day counted
+   * twice — once inside the 1.0 payable unit the day already earns, and again
+   * as overtime.
+   *
+   * Worked minutes already exclude recorded breaks, so this compares like with
+   * like: time actually on the job against the time the shift asks for.
+   */
+  const rawOt = base.workedMinutes - shiftLengthMin(shift)
   if (settings.otEnabled && rawOt >= settings.otMinMinutes) base.otMinutes = rawOt
 
   const halfMin = expectation.halfDayMinHours * 60

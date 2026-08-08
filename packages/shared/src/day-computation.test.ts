@@ -4,6 +4,7 @@ import { computeAttendanceDay, type DayComputationInput } from "./day-computatio
 import { DEFAULT_ATTENDANCE_SETTINGS } from "./settings"
 import type { ShiftSpec } from "./shift"
 
+const HALF_UNIT = 0.5
 const GEN: ShiftSpec = { id: "gen", name: "General", short: "G", startMin: 540, endMin: 1080, breakMin: 60 }
 
 const day = (over: Partial<DayComputationInput> = {}): DayComputationInput => ({
@@ -225,9 +226,39 @@ describe("computeAttendanceDay — declared half working day", () => {
     expect(r.payableUnits).toBe(0)
   })
 
-  it("overtime on a half day starts after the shortened expectation", () => {
-    const r = computeAttendanceDay(day({ dayKind: "HALF_DAY", punches: [IN(0), OUT(240 + 45)] }))
-    expect(r.otMinutes).toBe(45)
+  it("a declared half day earns its full unit without also earning overtime", () => {
+    // Working past the shortened expectation used to bank overtime as well as
+    // the full payable unit, paying the same hours twice. Overtime starts
+    // where it always does: past the shift's own length.
+    const short = computeAttendanceDay(
+      day({ dayKind: "HALF_DAY", punches: [IN(0), OUT(240 + 45)] })
+    )
+    expect(short.payableUnits).toBe(1)
+    expect(short.otMinutes).toBe(0)
+
+    const long = computeAttendanceDay(
+      day({ dayKind: "HALF_DAY", punches: [IN(0), OUT(540 + 45)] })
+    )
+    expect(long.payableUnits).toBe(1)
+    expect(long.otMinutes).toBe(45)
+  })
+
+  it("a long recorded break is not overtime", () => {
+    // In 09:00, out 19:00, with five hours of recorded break: five hours of
+    // work. It is a half day, and it earns no overtime.
+    const r = computeAttendanceDay(
+      day({
+        punches: [
+          IN(0),
+          { type: "BREAK_OUT", offsetMin: 120 },
+          { type: "BREAK_IN", offsetMin: 420 },
+          OUT(600),
+        ],
+      })
+    )
+    expect(r.workedMinutes).toBe(300)
+    expect(r.payableUnits).toBe(HALF_UNIT)
+    expect(r.otMinutes).toBe(0)
   })
 
   it("no punches on a declared half day is still absent — it is a working day", () => {
