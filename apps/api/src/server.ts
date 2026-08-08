@@ -15,20 +15,22 @@ import {
   compOffCredit,
   computeAttendanceDay,
   countLeaveUnits,
+  DEFAULT_MATRIX,
   evaluateLate,
+  isoDateSchema,
+  isoMonthSchema,
   minutesToClock,
   offsetFromShiftStart,
+  PERMISSIONS,
   punchWindowFlag,
   reduceLedger,
   regularisationPunches,
   regularisationRequestSchema,
   regularisationSubject,
   resolveBusinessDate,
+  ROLES,
   scopeSchema,
   shiftSpecSchema,
-  DEFAULT_MATRIX,
-  PERMISSIONS,
-  ROLES,
   splitForDisbursement,
   unreadCount,
   type PunchFlag,
@@ -131,8 +133,8 @@ const punchBodySchema = z.object({
 
 const leaveApplySchema = z.object({
   type: z.string().min(1),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  from: isoDateSchema,
+  to: isoDateSchema,
   part: z.enum(["FULL", "FIRST_HALF", "SECOND_HALF"]).default("FULL"),
   reason: z.string().default(""),
 })
@@ -148,7 +150,7 @@ const departmentSchema = z.object({
 })
 
 const calendarDaySchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: isoDateSchema,
   name: z.string().min(1).max(60),
   type: z.enum(["HOLIDAY", "HALF_DAY"]),
 })
@@ -860,7 +862,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       const parsed = z
         .object({
           report: z.literal("daily-register"),
-          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          date: isoDateSchema,
         })
         .safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
@@ -920,7 +922,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     "/payroll/locks",
     { preHandler: [authenticate, requirePermission("payroll.manage", { write: true })] },
     async (request, reply) => {
-      const parsed = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).safeParse(request.body)
+      const parsed = z.object({ month: isoMonthSchema }).safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
       const { month } = parsed.data
       if (store.monthLocks.some((lock) => lock.month === month)) {
@@ -960,7 +962,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     "/payroll/runs",
     { preHandler: [authenticate, requirePermission("payroll.manage", { write: true })] },
     async (request, reply) => {
-      const parsed = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }).safeParse(request.body)
+      const parsed = z.object({ month: isoMonthSchema }).safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
       const { month } = parsed.data
 
@@ -1542,7 +1544,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     async (request, reply) => {
       const parsed = z
         .object({
-          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          date: isoDateSchema,
           note: z.string().max(300).default(""),
         })
         .safeParse(request.body)
@@ -1631,7 +1633,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     async (request, reply) => {
       const parsed = z
         .object({
-          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          date: isoDateSchema,
           note: z.string().max(300).default(""),
         })
         .safeParse(request.body)

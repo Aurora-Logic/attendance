@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { DEFAULT_ATTENDANCE_SETTINGS as S } from "./settings"
-import { companyToday, crossesMidnight, offsetFromShiftStart, punchWindowFlag, recentCompanyDates, resolveBusinessDate, shiftLengthMin, type ShiftSpec } from "./shift"
+import { companyToday, crossesMidnight, isRealISODate, offsetFromShiftStart, punchWindowFlag, recentCompanyDates, resolveBusinessDate, shiftLengthMin, type ShiftSpec } from "./shift"
 
 const DAY: ShiftSpec = { id: "gen", name: "General", short: "G", startMin: 540, endMin: 1080, breakMin: 60 }
 const NIGHT: ShiftSpec = { id: "night", name: "Night", short: "N", startMin: 1320, endMin: 360, breakMin: 30 }
@@ -103,5 +103,31 @@ describe("recentCompanyDates", () => {
       "2026-08-06",
       "2026-08-07",
     ])
+  })
+})
+
+describe("isRealISODate", () => {
+  it("accepts real dates, including a leap day", () => {
+    expect(isRealISODate("2026-08-08")).toBe(true)
+    expect(isRealISODate("2024-02-29")).toBe(true)
+    expect(isRealISODate("2026-12-31")).toBe(true)
+    expect(isRealISODate("2026-01-01")).toBe(true)
+  })
+
+  it("rejects dates that pass the shape check but do not exist", () => {
+    // The whole point: these are what the bare regex let through.
+    expect(isRealISODate("2026-02-31")).toBe(false)
+    expect(isRealISODate("2026-02-29")).toBe(false) // 2026 is not a leap year
+    expect(isRealISODate("2026-04-31")).toBe(false)
+    expect(isRealISODate("2026-13-01")).toBe(false)
+    expect(isRealISODate("2026-00-10")).toBe(false)
+    expect(isRealISODate("2026-01-00")).toBe(false)
+  })
+
+  it("rejects anything that is not the ISO shape at all", () => {
+    expect(isRealISODate("08/08/2026")).toBe(false)
+    expect(isRealISODate("2026-8-8")).toBe(false)
+    expect(isRealISODate("")).toBe(false)
+    expect(isRealISODate("2026-08-08T09:00")).toBe(false)
   })
 })

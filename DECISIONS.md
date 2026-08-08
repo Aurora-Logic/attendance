@@ -320,6 +320,15 @@ A six-dimension audit (security, robustness, performance, responsiveness, operat
 | G5 | `PUT /permissions` **merges** over the current matrix and drops unknown keys | A body that omitted a permission used to erase it, and routes indexing it directly then threw on every request — a save from a stale browser tab could take the approvals path down. The matrix is a closed vocabulary, not a bag. |
 | G6 | A matrix that leaves nobody with `config.manage: ALL` is **refused** (422) | Otherwise an admin can lock the company out of its own permission matrix permanently, with no route back short of editing the store by hand. |
 
+## 18. Dates that do not exist (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| D10 | One `isoDateSchema` across every route, replacing 20 copies of `\d{4}-\d{2}-\d{2}` | The regex is a *shape* check, not a validity check. It accepted `2026-02-31`, which JavaScript silently rolls forward to 3 March, and `2026-13-45`, which becomes an Invalid Date whose arithmetic yields NaN. Both reached money and attendance maths and would have surfaced as a wrong number on an invoice rather than an error. |
+| D11 | `isoMonthSchema` for payroll months | `\d{4}-\d{2}` accepted **month 13**, so a lock could be taken on a month no run could ever sensibly match. Found by a test written for the date fix, not by the audit. |
+| D12 | The refusal message names the problem ("Use a real calendar date in YYYY-MM-DD form") | A bare "Invalid input" on a date field sends people hunting through a form for something that looks fine. |
+| D13 | Leap years are handled by `Date.UTC(year, month, 0)`, not a table | Day 0 of the next month is the last day of this one. 2024-02-29 is accepted, 2026-02-29 is not, with no leap-year rule written out anywhere to drift. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

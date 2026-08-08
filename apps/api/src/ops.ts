@@ -5,6 +5,7 @@ import {
   expenseClaimSchema,
   formatDocNumber,
   indentSchema,
+  isoDateSchema,
   outstandingPaise,
   paymentEntrySchema,
   poTotals,
@@ -79,8 +80,8 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
     const { id: billId } = request.params as { id: string }
     const metaSchema = z.object({
       billNo: z.string().min(1),
-      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      date: isoDateSchema,
+      dueDate: isoDateSchema,
     })
     const parsed = metaSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })

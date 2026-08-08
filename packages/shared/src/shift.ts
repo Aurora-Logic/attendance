@@ -112,3 +112,38 @@ export function recentCompanyDates(timezone: string, days: number, now: Date = n
   }
   return dates
 }
+
+/**
+ * Does this string name a date that actually exists? `\d{4}-\d{2}-\d{2}` is a
+ * shape check, not a validity check: it accepts 2026-02-31, which JavaScript
+ * silently rolls forward to 3 March, and 2026-13-45, which becomes an Invalid
+ * Date whose arithmetic yields NaN. Both reach money and attendance maths and
+ * surface as a wrong number rather than an error.
+ */
+export function isRealISODate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split("-").map(Number)
+  if (month < 1 || month > 12 || day < 1) return false
+  // Day 0 of the next month is the last day of this one — handles leap years
+  // without a table.
+  return day <= new Date(Date.UTC(year, month, 0)).getUTCDate()
+}
+
+/**
+ * The one date schema every route should use. Message included because a bare
+ * "Invalid input" on a date field sends people hunting through a form.
+ */
+export const isoDateSchema = z
+  .string()
+  .refine(isRealISODate, "Use a real calendar date in YYYY-MM-DD form.")
+
+/** YYYY-MM naming a month that exists. `\d{4}-\d{2}` accepts month 13. */
+export function isRealISOMonth(value: string): boolean {
+  if (!/^\d{4}-\d{2}$/.test(value)) return false
+  const month = Number(value.slice(5, 7))
+  return month >= 1 && month <= 12
+}
+
+export const isoMonthSchema = z
+  .string()
+  .refine(isRealISOMonth, "Use a real month in YYYY-MM form.")

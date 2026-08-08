@@ -1897,3 +1897,73 @@ describe("permissions matrix cannot be broken or locked out", () => {
     ).toBe(403)
   })
 })
+
+describe("dates that do not exist are refused everywhere", () => {
+  it("attendance routes reject an impossible calendar date", async () => {
+    const employee = await asEmployee()
+    // 2026 is not a leap year; 31 February never exists.
+    for (const date of ["2026-02-29", "2026-02-31", "2026-13-01", "2026-04-31"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/regularisations",
+        headers: { cookie: employee.cookies },
+        payload: { date, reason: "MISSED_OUT", outTime: "18:30", note: "impossible date" },
+      })
+      expect(response.statusCode, `expected ${date} to be refused`).toBe(400)
+    }
+  })
+
+  it("a real leap day is still accepted", async () => {
+    const employee = await asEmployee()
+    const response = await app.inject({
+      method: "POST",
+      url: "/regularisations",
+      headers: { cookie: employee.cookies },
+      payload: {
+        date: "2024-02-29",
+        reason: "MISSED_OUT",
+        outTime: "18:30",
+        note: "a genuine leap day",
+      },
+    })
+    // Refused for being in a different month's business, not for the date shape.
+    expect(response.statusCode).not.toBe(400)
+  })
+
+  it("billing documents reject an impossible date before any money maths runs", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const invoice = await app.inject({
+      method: "POST",
+      url: "/invoices",
+      headers: { cookie: ops.cookies },
+      payload: { soId: "so_1", date: "2026-02-31", dueDate: "2026-03-31" },
+    })
+    expect(invoice.statusCode).toBe(400)
+
+    const estimate = await app.inject({
+      method: "POST",
+      url: "/estimates",
+      headers: { cookie: ops.cookies },
+      payload: {
+        customerId: "cust1",
+        date: "2026-13-45",
+        lines: [{ itemId: "i1", qty: 1 }],
+      },
+    })
+    expect(estimate.statusCode).toBe(400)
+  })
+
+  it("payroll month locks still reject a malformed month", async () => {
+    const admin = await asAdmin()
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/payroll/locks",
+          headers: { cookie: admin.cookies },
+          payload: { month: "2026-13" },
+        })
+      ).statusCode
+    ).toBe(400)
+  })
+})

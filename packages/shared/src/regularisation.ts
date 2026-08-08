@@ -1,5 +1,7 @@
 import * as z from "zod"
 
+import { isoDateSchema } from "./shift"
+
 /**
  * Attendance regularisation: the employee's route to fix a day the machine got
  * wrong — a phone that died before punch-out, a gate reader that missed the
@@ -38,7 +40,7 @@ const timeString = z
 
 export const regularisationRequestSchema = z
   .object({
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    date: isoDateSchema,
     reason: regularisationReasonSchema,
     /** What the employee says the in-punch should have been. */
     inTime: timeString.optional(),

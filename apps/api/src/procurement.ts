@@ -3,6 +3,7 @@ import * as z from "zod"
 import {
   formatDocNumber,
   grnLineSchema,
+  isoDateSchema,
   itemSchema,
   monthlySpend,
   poDisplayStatus,
@@ -52,14 +53,14 @@ const poLineBodySchema = z.object({
 
 const poBodySchema = z.object({
   vendorId: z.string(),
-  orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  orderDate: isoDateSchema,
   lines: z.array(poLineBodySchema).min(1),
   /** Tranches reference lines by index because line ids are assigned here. */
   schedules: z
     .array(
       z.object({
         lineIndex: z.number().int().nonnegative(),
-        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        dueDate: isoDateSchema,
         qty: z.number().positive(),
       })
     )
@@ -74,7 +75,7 @@ const decideSchema = z.object({
 })
 
 const grnBodySchema = z.object({
-  receivedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  receivedDate: isoDateSchema,
   invoiceNo: z.string().default(""),
   remarks: z.string().default(""),
   lines: z.array(grnLineSchema).min(1),

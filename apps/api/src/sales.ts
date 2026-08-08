@@ -6,6 +6,7 @@ import {
   customerSchema,
   estimateDisplayStatus,
   formatDocNumber,
+  isoDateSchema,
   outstandingPaise,
   paymentEntrySchema,
   poTotals,
@@ -40,8 +41,8 @@ const customerBodySchema = customerSchema.omit({ id: true })
 
 const estimateBodySchema = z.object({
   customerId: z.string(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  validUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+  date: isoDateSchema,
+  validUntil: isoDateSchema.nullable().default(null),
   lines: z
     .array(
       z.object({
@@ -260,7 +261,7 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
   })
 
   const convertSchema = z.object({
-    orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    orderDate: isoDateSchema,
     customerRef: z.string().default(""),
   })
 
@@ -298,7 +299,7 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
     const { id: soId } = request.params as { id: string }
     const metaSchema = z.object({
       customerRef: z.string().default(""),
-      orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      orderDate: isoDateSchema,
       terms: z.string().default(""),
     })
     const parsed = metaSchema.safeParse(request.body)
@@ -378,8 +379,8 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
 
   const invoiceBodySchema = z.object({
     soId: z.string(),
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    date: isoDateSchema,
+    dueDate: isoDateSchema,
   })
 
   /** Invoice a sales order — lines copy verbatim; billing never reprices. */
@@ -411,8 +412,8 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
   app.put("/invoices/:id", { preHandler: manage }, async (request, reply) => {
     const { id: invoiceId } = request.params as { id: string }
     const metaSchema = z.object({
-      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      date: isoDateSchema,
+      dueDate: isoDateSchema,
     })
     const parsed = metaSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
