@@ -150,6 +150,52 @@ if (!done) throw new Error("the list was not recorded as short")
 if (done.lines[0].pickedQty !== 60) throw new Error(`stored ${done.lines[0].pickedQty}, not 60`)
 if (!done.completedAt) throw new Error("a finished list has no completion time")
 
+// --- pack, dispatch, file the three LR copies, and take the signature.
+await openOrder()
+await page.getByRole("button", { name: /^Pack PL-/ }).click()
+await page.getByText(/Packed as PK-\d{4}-\d{4}/).waitFor({ timeout: 8_000 })
+
+await page.locator("#dispatch-vehicle").fill("MH-12-AB-1234")
+await page.locator("#dispatch-transporter").fill("VRL Logistics")
+await page.locator("#dispatch-lr").fill("44821")
+await page.locator("#dispatch-lr-date").fill("2026-08-08")
+await page.getByRole("button", { name: "Record dispatch" }).click()
+await page.getByText(/Dispatched as DSP-\d{4}-\d{4}/).waitFor({ timeout: 8_000 })
+
+const dispatched = (await call(`/fulfilment/consignments?soId=${so.id}`)).consignments[0]
+if (dispatched.lr.complete) throw new Error("a brand new consignment cannot already have all copies")
+
+// A delivery cannot be certified while a copy is missing.
+const early = await fetch(`${API}/fulfilment/pods`, {
+  method: "POST",
+  headers: { "content-type": "application/json", cookie },
+  body: JSON.stringify({
+    consignmentId: dispatched.id,
+    deliveredAt: new Date().toISOString(),
+    receivedBy: "Too Early",
+    condition: "OK",
+  }),
+})
+if (early.status !== 422)
+  throw new Error(`a POD with LR copies missing should be refused, got ${early.status}`)
+
+for (const label of ["Consignor copy (ours)", "Consignee copy (customer's)", "Transporter copy"]) {
+  await page.getByRole("button", { name: new RegExp(`Attach ${label.replace(/[()']/g, ".")}`) }).click()
+  await page.getByText(`${label} filed`).first().waitFor({ timeout: 8_000 })
+}
+
+const filed = (await call(`/fulfilment/consignments?soId=${so.id}`)).consignments[0]
+if (!filed.lr.complete) throw new Error(`copies still missing: ${filed.lr.missing.join(", ")}`)
+
+await page.locator(`#pod-name-${dispatched.id}`).fill("Sunita Shah")
+await page.getByRole("button", { name: `Record delivery of ${dispatched.number}` }).click()
+await page.getByText("Delivery recorded").first().waitFor({ timeout: 8_000 })
+
+const signed = (await call(`/fulfilment/consignments?soId=${so.id}`)).consignments[0]
+if (signed.pod?.receivedBy !== "Sunita Shah")
+  throw new Error(`the signature was not recorded: ${JSON.stringify(signed.pod)}`)
+await page.screenshot({ path: `${SHOTS}/fulfilment-delivered.png`, fullPage: true })
+
 // --- the phone view must not scroll sideways.
 await page.setViewportSize({ width: 390, height: 844 })
 await page.goto(`${BASE}/fulfilment`, { waitUntil: "domcontentloaded" })
@@ -166,4 +212,6 @@ if (errors.length > 0) {
   console.error("CONSOLE ERRORS:", errors)
   process.exit(1)
 }
-console.log("fulfilment: PASS (board, claim shrinks remainder, over-claim refused, short needs a reason, 390w)")
+console.log(
+  "fulfilment: PASS (board, claim shrinks remainder, over-claim refused, short needs a reason, pack → dispatch → 3 LR copies → signature, 390w)"
+)

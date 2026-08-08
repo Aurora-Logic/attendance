@@ -12,6 +12,7 @@ import {
   type FulfilmentOrderRow,
 } from "@/lib/queries"
 import { useSales } from "@/lib/sales"
+import { DispatchPanel } from "@/components/fulfilment-dispatch"
 import { useSession } from "@/lib/session"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -233,6 +234,8 @@ function PickPanel({ order, onClose }: { order: FulfilmentOrderRow; onClose: () 
 export function FulfilmentPage() {
   const { board, isLoading, enabled } = useFulfilmentBoard()
   const { customers } = useSales()
+  const { scopeFor } = useSession()
+  const canDispatch = ["ALL", "OWN_BRANCH"].includes(scopeFor("dispatch.manage"))
   const [selected, setSelected] = React.useState<FulfilmentOrderRow | null>(null)
 
   const nameOf = (customerId: string) =>
@@ -374,7 +377,12 @@ export function FulfilmentPage() {
             </SheetHeader>
             <div className="px-4 pb-8">
               {selected ? (
-                <PickPanel order={selected} onClose={() => setSelected(null)} />
+                <div className="flex flex-col gap-4">
+                  <PickPanel order={selected} onClose={() => setSelected(null)} />
+                  {/* Only for those who may dispatch: the person who sealed the
+                      carton should not be the one certifying it arrived. */}
+                  {canDispatch ? <DispatchPanel soId={selected.soId} /> : null}
+                </div>
               ) : null}
             </div>
           </SheetContent>

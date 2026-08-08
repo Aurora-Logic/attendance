@@ -2,7 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   DEFAULT_OPERATIONS_SETTINGS,
   type AttendanceDay,
+  type Consignment,
   type FulfilmentStage,
+  type LrCopy,
+  type Pack,
+  type ProofOfDelivery,
   type OperationsSettings,
   type PickList,
 } from "@attendance/shared"
@@ -1076,4 +1080,79 @@ export function describeRefusal(error: unknown): string {
     if (body?.issues?.length) return body.issues.map((issue) => issue.message).join(" ")
   }
   return describeApiError(error)
+}
+
+export interface ConsignmentRow extends Consignment {
+  lr: { held: LrCopy[]; missing: LrCopy[]; complete: boolean }
+  pod: ProofOfDelivery | null
+}
+
+export function useConsignments(soId?: string) {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+  const query = useQuery({
+    queryKey: ["fulfilment", "consignments", soId ?? "all"],
+    enabled,
+    retry: false,
+    queryFn: () =>
+      apiFetch<{ consignments: ConsignmentRow[] }>(
+        `/fulfilment/consignments${soId ? `?soId=${soId}` : ""}`
+      ),
+    select: (payload) => payload.consignments,
+  })
+  return { consignments: query.data ?? [] }
+}
+
+export function usePacks(soId?: string) {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+  const query = useQuery({
+    queryKey: ["fulfilment", "packs", soId ?? "all"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<{ packs: Pack[] }>(`/fulfilment/packs${soId ? `?soId=${soId}` : ""}`),
+    select: (payload) => payload.packs,
+  })
+  return { packs: query.data ?? [] }
+}
+
+/** Packing, dispatch and proof of delivery. Kept apart from the picking hooks
+ * because a picker's role grants none of these. */
+export function useDispatchActions() {
+  const queryClient = useQueryClient()
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["fulfilment"] })
+
+  return {
+    createPack: useMutation({
+      mutationFn: (body: {
+        pickListId: string
+        packages: { sequence: number; description: string; weightKg: number; contents: { soLineId: string; qty: number }[] }[]
+      }) => apiFetch<{ pack: Pack }>("/fulfilment/packs", { method: "POST", body: JSON.stringify(body) }),
+      onSuccess: invalidate,
+    }),
+    dispatch: useMutation({
+      mutationFn: (body: Record<string, unknown>) =>
+        apiFetch<{ consignment: Consignment }>("/fulfilment/consignments", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      onSuccess: invalidate,
+    }),
+    attachLrCopy: useMutation({
+      mutationFn: ({ id, copy, url }: { id: string; copy: LrCopy; url: string }) =>
+        apiFetch(`/fulfilment/consignments/${id}/lr-copies`, {
+          method: "POST",
+          body: JSON.stringify({ copy, url }),
+        }),
+      onSuccess: invalidate,
+    }),
+    recordPod: useMutation({
+      mutationFn: (body: Record<string, unknown>) =>
+        apiFetch<{ pod: ProofOfDelivery }>("/fulfilment/pods", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      onSuccess: invalidate,
+    }),
+  }
 }
