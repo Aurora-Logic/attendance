@@ -1967,3 +1967,98 @@ describe("dates that do not exist are refused everywhere", () => {
     ).toBe(400)
   })
 })
+
+describe("broken references fail by name, not by crashing", () => {
+  it("a punch for an employee whose shift is gone answers 409 naming the shift", async () => {
+    const employee = store.employees.find((row) => row.id === "e4")!
+    employee.shiftId = "shift_that_vanished"
+    // e4 punching for itself: the scope check passes, so the reference guard
+    // is what answers.
+    const actor = await asEmployee()
+    const response = await app.inject({
+      method: "POST",
+      url: "/punches",
+      headers: { cookie: actor.cookies },
+      payload: punchBody({ employeeId: "e4", idempotencyKey: "dangling-1" }),
+    })
+    expect(response.statusCode).toBe(409)
+    expect(response.json()).toMatchObject({
+      error: "DANGLING_SHIFT",
+      employeeId: "e4",
+      shiftId: "shift_that_vanished",
+    })
+  })
+
+  it("a valid token for an employee who no longer exists is an expired session", async () => {
+    const employee = await asEmployee()
+    // A 30-day refresh token outlives a data restore.
+    store.employees = store.employees.filter((row) => row.id !== "e4")
+    const response = await app.inject({
+      method: "POST",
+      url: "/overtime/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: "2026-08-05" },
+    })
+    expect(response.statusCode).toBe(401)
+    expect(response.json().error).toBe("EMPLOYEE_GONE")
+  })
+
+  it("deciding an approval whose employee was removed answers 409, not 500", async () => {
+    const employee = await asEmployee()
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+    store.employees = store.employees.filter((row) => row.id !== "e4")
+
+    const manager = await asOps()
+    const response = await app.inject({
+      method: "POST",
+      url: `/approvals/${applied.json().approval.id}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "ok" },
+    })
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error).toBe("EMPLOYEE_GONE")
+  })
+
+  it("the daily register still renders for everyone when one employee's shift dangles", async () => {
+    const broken = store.employees.find((row) => row.id === "e4")!
+    broken.shiftId = "shift_that_vanished"
+    const admin = await asAdmin()
+    const register = await app.inject({
+      method: "GET",
+      url: "/attendance/days?date=2026-08-05",
+      headers: { cookie: admin.cookies },
+    })
+    expect(register.statusCode).toBe(200)
+    const rows = register.json().rows
+    expect(rows.length).toBe(store.employees.length)
+    // The broken row says so rather than taking the day down for everyone.
+    expect(rows.find((row: { employeeId: string }) => row.employeeId === "e4").shiftName).toBe(
+      "Shift missing"
+    )
+  })
+
+  it("a payroll run refuses to omit anyone silently, naming who to fix", async () => {
+    const broken = store.employees.find((row) => row.id === "e4")!
+    broken.shiftId = "shift_that_vanished"
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-08" },
+    })
+    const run = await app.inject({
+      method: "POST",
+      url: "/payroll/runs",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-08" },
+    })
+    expect(run.statusCode).toBe(500)
+    expect(run.json().message ?? "").toContain("DLT0004")
+  })
+})

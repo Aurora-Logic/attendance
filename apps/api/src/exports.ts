@@ -82,7 +82,14 @@ async function buildDailyRegister(
 
   let rows = 0
   for (const employee of store.employees) {
-    const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)!
+    const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)
+    if (!shift) {
+      // Never skip silently — that is someone missing from the export with no
+      // trace. Fail loudly naming who to fix.
+      throw new Error(
+        `${employee.code} (${employee.name}) references shift ${employee.shiftId}, which does not exist. Fix the employee before running this.`
+      )
+    }
     const punches = store.punches
       .filter((punch) => punch.employeeId === employee.id && punch.businessDate === date)
       .map((punch) => ({ type: punch.type, offsetMin: punch.offsetMin }))

@@ -284,6 +284,43 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       .map((user) => user.employeeId)
   }
 
+  /**
+   * An employee whose shift or branch no longer resolves is broken data, not a
+   * bad request. Answering 409 with the dangling id tells whoever is on call
+   * exactly what to fix; a non-null assertion here produced an unhandled 500
+   * that named nothing.
+   */
+  const resolveContext = (
+    reply: FastifyReply,
+    employee: StoredEmployee
+  ): { shift: (typeof store.shifts)[number]; branch: (typeof store.branches)[number] } | null => {
+    const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)
+    if (!shift) {
+      reply.code(409).send({ error: "DANGLING_SHIFT", employeeId: employee.id, shiftId: employee.shiftId })
+      return null
+    }
+    const branch = store.branches.find((candidate) => candidate.id === employee.branchId)
+    if (!branch) {
+      reply.code(409).send({ error: "DANGLING_BRANCH", employeeId: employee.id, branchId: employee.branchId })
+      return null
+    }
+    return { shift, branch }
+  }
+
+  /**
+   * The signed-in employee, or null after answering 401. A 30-day refresh
+   * token outlives a data restore, so a valid token can name an employee row
+   * that no longer exists — that is an expired session, not a server fault.
+   */
+  const currentEmployee = (reply: FastifyReply, auth: AuthContext): StoredEmployee | null => {
+    const employee = store.employees.find((candidate) => candidate.id === auth.employeeId)
+    if (!employee) {
+      reply.code(401).send({ error: "EMPLOYEE_GONE" })
+      return null
+    }
+    return employee
+  }
+
   const employeeById = (employeeId: string) =>
     store.employees.find((employee) => employee.id === employeeId)
 
@@ -1213,8 +1250,9 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
 
       const employee = employeeById(body.employeeId)
       if (!employee) return reply.code(404).send({ error: "EMPLOYEE_NOT_FOUND" })
-      const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)!
-      const branch = store.branches.find((candidate) => candidate.id === employee.branchId)!
+      const context = resolveContext(reply, employee)
+      if (!context) return reply
+      const { shift, branch } = context
 
       const [dateISO, clock] = body.at.split("T")
       const [hours, minutes] = clock.split(":").map(Number)
@@ -1344,7 +1382,18 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       const rows = store.employees
         .filter((employee) => scopeReaches(scope, employee, request.auth, false))
         .map((employee) => {
-          const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)!
+          // A dangling shift used to take the whole register down for everyone.
+          // The day still renders; this row carries the problem visibly.
+          const shift =
+            store.shifts.find((candidate) => candidate.id === employee.shiftId) ??
+            ({
+              id: employee.shiftId,
+              name: "Shift missing",
+              short: "??",
+              startMin: 540,
+              endMin: 1080,
+              breakMin: 0,
+            } as (typeof store.shifts)[number])
           const punches = store.punches
             .filter((punch) => punch.employeeId === employee.id && punch.businessDate === targetDate)
             .map((punch) => ({ type: punch.type, offsetMin: punch.offsetMin }))
@@ -1558,8 +1607,11 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       if (store.monthLocks.some((lock) => lock.month === date.slice(0, 7)))
         return reply.code(409).send({ error: "MONTH_LOCKED" })
 
-      const employee = employeeById(request.auth.employeeId)!
-      const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)!
+      const employee = currentEmployee(reply, request.auth)
+      if (!employee) return reply
+      const claimContext = resolveContext(reply, employee)
+      if (!claimContext) return reply
+      const shift = claimContext.shift
       const day = computeAttendanceDay({
         shift,
         dayKind: dayKindFor(date),
@@ -1649,8 +1701,11 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       if (dayKind !== "WEEKLY_OFF" && dayKind !== "HOLIDAY")
         return reply.code(422).send({ error: "NOT_AN_OFF_DAY", dayKind })
 
-      const employee = employeeById(request.auth.employeeId)!
-      const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)!
+      const employee = currentEmployee(reply, request.auth)
+      if (!employee) return reply
+      const claimContext = resolveContext(reply, employee)
+      if (!claimContext) return reply
+      const shift = claimContext.shift
       const day = computeAttendanceDay({
         shift,
         dayKind,
@@ -1801,7 +1856,11 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
 
     const permissionKey = approval.kind === "LEAVE" ? "leave.approve" : "attendance.approve"
     const scope = store.matrix[permissionKey][request.auth.role]
-    const employee = employeeById(approval.employeeId)!
+    const employee = employeeById(approval.employeeId)
+    if (!employee)
+      return reply
+        .code(409)
+        .send({ error: "EMPLOYEE_GONE", employeeId: approval.employeeId })
     if (scope === "NONE" || scope === "VIEW" || !scopeReaches(scope, employee, request.auth, true)) {
       return reply.code(403).send({ error: "FORBIDDEN", permission: permissionKey })
     }
@@ -1862,8 +1921,10 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
      * someone disputes a payslip months later.
      */
     if (approval.status === "APPROVED" && approval.kind === "REGULARISATION" && approval.regularisation) {
-      const employee = employeeById(approval.employeeId)!
-      const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)
+      const target = employeeById(approval.employeeId)
+      const shift = target
+        ? store.shifts.find((candidate) => candidate.id === target.shiftId)
+        : undefined
       if (!shift) return reply.code(422).send({ error: "UNKNOWN_SHIFT" })
 
       const punches = regularisationPunches(

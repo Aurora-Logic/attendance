@@ -329,6 +329,20 @@ A six-dimension audit (security, robustness, performance, responsiveness, operat
 | D12 | The refusal message names the problem ("Use a real calendar date in YYYY-MM-DD form") | A bare "Invalid input" on a date field sends people hunting through a form for something that looks fine. |
 | D13 | Leap years are handled by `Date.UTC(year, month, 0)`, not a table | Day 0 of the next month is the last day of this one. 2024-02-29 is accepted, 2026-02-29 is not, with no leap-year rule written out anywhere to drift. |
 
+## 19. Broken references fail by name (8 Aug 2026)
+
+Eleven non-null assertions on store lookups sat in request paths. Each was an unhandled 500 whose message named nothing — the hardest class of production incident to diagnose. All are gone, and what replaces each one depends on whose problem it is.
+
+| # | Decision | Why |
+|---|---|---|
+| E1 | A dangling `shiftId`/`branchId` on a punch answers **409 with the offending id** | It is broken data, not a bad request. The response tells whoever is on call exactly what to fix. |
+| E2 | A valid token naming an employee who no longer exists answers **401 EMPLOYEE_GONE** | A 30-day refresh token outlives a data restore, so this is an expired session rather than a server fault — and the client already knows how to handle a 401. |
+| E3 | Deciding an approval whose employee was removed answers **409**, not 500 | The approval is orphaned; saying so is actionable. |
+| E4 | The **daily register degrades** — a broken row renders as "Shift missing" | One employee's bad reference used to take the whole day's view down for everybody. |
+| E5 | **Payroll and the export throw, naming the employee** | Skipping silently would leave someone out of a pay run with no trace, which is worse than a failed run. The message carries the code and name, so the fix is obvious. |
+
+The rule this encodes: degrade where a reader just wants the rest of the data, and refuse loudly where money is involved.
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.
