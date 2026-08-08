@@ -38,6 +38,8 @@ export const PUNCH_FLAG = [
   "MISSING_PUNCH_OUT",
   "NO_FACE",
   "DUPLICATE_IMAGE",
+  /** Written by an approved regularisation, never by a device. */
+  "REGULARISED",
 ] as const
 export const punchFlagSchema = z.enum(PUNCH_FLAG)
 export type PunchFlag = z.infer<typeof punchFlagSchema>

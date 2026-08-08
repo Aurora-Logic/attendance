@@ -347,6 +347,27 @@ export interface MyLeaveRequestView {
   status: "PENDING" | "APPROVED" | "REJECTED"
 }
 
+export function useRaiseRegularisation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: {
+      date: string
+      reason: string
+      inTime?: string
+      outTime?: string
+      note: string
+    }) =>
+      apiFetch<{ approval: ApiApproval }>("/regularisations", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["approvals"] })
+      void queryClient.invalidateQueries({ queryKey: ["attendance-days"] })
+    },
+  })
+}
+
 export function useMyLeaveRequests(): MyLeaveRequestView[] | null {
   const { user } = useSession()
   const enabled = user?.source === "api"

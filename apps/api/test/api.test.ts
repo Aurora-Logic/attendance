@@ -1097,3 +1097,125 @@ describe("salary disbursement — bank details and the transfer sheet", () => {
     ).toBe(404)
   })
 })
+
+describe("regularisation — the employee's route to fix a missed punch", () => {
+  const raise = (cookie: string, body: object) =>
+    app.inject({ method: "POST", url: "/regularisations", headers: { cookie }, payload: body })
+
+  const valid = {
+    date: "2026-08-07",
+    reason: "MISSED_OUT",
+    outTime: "18:30",
+    note: "Phone battery died before I could punch out.",
+  }
+
+  it("raises a request, and raising it changes no attendance by itself", async () => {
+    const employee = await asEmployee()
+    const before = store.punches.length
+    const raised = await raise(employee.cookies, valid)
+    expect(raised.statusCode).toBe(201)
+    expect(raised.json().approval.kind).toBe("REGULARISATION")
+    expect(raised.json().approval.status).toBe("PENDING")
+    expect(store.punches.length).toBe(before)
+  })
+
+  it("refuses an empty correction, a future date, and a second pending request", async () => {
+    const employee = await asEmployee()
+    expect((await raise(employee.cookies, { ...valid, outTime: undefined })).statusCode).toBe(400)
+    expect((await raise(employee.cookies, { ...valid, note: "x" })).statusCode).toBe(400)
+
+    const future = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
+    expect((await raise(employee.cookies, { ...valid, date: future })).statusCode).toBe(422)
+
+    expect((await raise(employee.cookies, valid)).statusCode).toBe(201)
+    const second = await raise(employee.cookies, valid)
+    expect(second.statusCode).toBe(409)
+    expect(second.json().error).toBe("ALREADY_PENDING")
+  })
+
+  it("refuses to touch a locked month — a paid period is corrected by an adjustment run", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-07" },
+    })
+    const employee = await asEmployee()
+    const locked = await raise(employee.cookies, { ...valid, date: "2026-07-15" })
+    expect(locked.statusCode).toBe(409)
+    expect(locked.json().error).toBe("MONTH_LOCKED")
+  })
+
+  it("approval appends REGULARISED punches — never edits, never double-writes", async () => {
+    const employee = await asEmployee()
+    const approvalId = (await raise(employee.cookies, { ...valid, inTime: "09:05" })).json().approval
+      .id
+
+    const manager = await asOps()
+    const decided = await app.inject({
+      method: "POST",
+      url: `/approvals/${approvalId}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "verified with the gate log" },
+    })
+    expect(decided.statusCode).toBe(200)
+
+    const written = store.punches.filter(
+      (punch) => punch.businessDate === "2026-08-07" && punch.flags.includes("REGULARISED")
+    )
+    expect(written).toHaveLength(2)
+    // 09:05 against a 09:00 shift start is +5; 18:30 is +570.
+    expect(written.find((punch) => punch.type === "IN")!.offsetMin).toBe(5)
+    expect(written.find((punch) => punch.type === "OUT")!.offsetMin).toBe(570)
+
+    // The corrected day now computes from those punches.
+    const register = await app.inject({
+      method: "GET",
+      url: "/attendance/days?date=2026-08-07",
+      headers: { cookie: manager.cookies },
+    })
+    const row = register
+      .json()
+      .rows.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
+    expect(row.firstInAt).toBe("09:05")
+    expect(row.lastOutAt).toBe("18:30")
+
+    // Deciding again is refused, so punches cannot be written twice.
+    const twice = await app.inject({
+      method: "POST",
+      url: `/approvals/${approvalId}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "again" },
+    })
+    expect(twice.statusCode).toBe(409)
+    expect(
+      store.punches.filter((punch) => punch.flags.includes("REGULARISED")).length
+    ).toBe(2)
+  })
+
+  it("a rejected regularisation writes nothing", async () => {
+    const employee = await asEmployee()
+    const approvalId = (await raise(employee.cookies, valid)).json().approval.id
+    const manager = await asOps()
+    await app.inject({
+      method: "POST",
+      url: `/approvals/${approvalId}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "REJECT", remarks: "no gate record" },
+    })
+    expect(store.punches.filter((punch) => punch.flags.includes("REGULARISED"))).toHaveLength(0)
+  })
+
+  it("nobody can approve their own regularisation", async () => {
+    const employee = await asEmployee()
+    const approvalId = (await raise(employee.cookies, valid)).json().approval.id
+    const own = await app.inject({
+      method: "POST",
+      url: `/approvals/${approvalId}/decide`,
+      headers: { cookie: employee.cookies },
+      payload: { action: "APPROVE", remarks: "trust me" },
+    })
+    expect(own.statusCode).toBe(403)
+  })
+})

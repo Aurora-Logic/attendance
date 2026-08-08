@@ -17,6 +17,7 @@ import { evaluateLate, type LateEvaluation } from "@attendance/shared"
 import { checkGeofence, mapsLinkFor, type LatLng } from "@/lib/geo"
 import { cn } from "@/lib/utils"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
+import { RegulariseSheet } from "@/components/regularise-sheet"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -385,6 +386,7 @@ export function PunchPage() {
         description="Server time is authoritative — the device clock is never trusted."
         actions={
           <>
+            <RegulariseSheet />
             <Badge variant={user?.source === "api" ? "info" : "outline"} className="h-7 px-3">
               {user?.source === "api" ? "Live API" : "Demo mode"}
             </Badge>

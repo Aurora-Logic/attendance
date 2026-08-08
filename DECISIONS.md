@@ -262,6 +262,17 @@ A six-dimension audit (security, robustness, performance, responsiveness, operat
 | T5 | Bank details sit behind `payroll.manage`, are masked (`****7890`) in every read, and the audit log stores only the masked tail | They gate money, so they are payroll data rather than employee data; an append-only log is the last place a full account number belongs. |
 | T6 | The transfer sheet **holds people back with a reason** rather than dropping them | A missing account is a person who will not be paid. Everyone appears in either the payable file or the held list, and the count travels in a response header so the UI can warn before the file is uploaded. |
 
+## 13. Attendance regularisation (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| R1 | An approved regularisation **appends punches; it never edits or deletes one** | The register recomputes from punches, so the corrected day falls out automatically, and what the device actually recorded survives beside the correction. That pair is the entire value of the audit trail when someone disputes a payslip months later. Corrections carry the `REGULARISED` flag, which no device can write. |
+| R2 | Raising a request changes nothing; **approval is the only thing that writes** | Otherwise the employee edits their own attendance, and the approval step is theatre. Nobody may decide their own request, as with every other approval kind. |
+| R3 | Idempotency keys are **deterministic** (`reg_<approvalId>_<IN\|OUT>`) | A replayed or retried decision cannot double-write punches and silently double the day's worked hours. |
+| R4 | Refused for a **locked month** (409) and a **future date** (422) | A locked month has been paid; correcting it is an adjustment run, not a silent rewrite of a closed period. A future day has nothing to correct. |
+| R5 | One **pending request per employee per day** | Two open corrections for the same day would both apply on approval and double the hours. |
+| R6 | The note is **required** (min 5 chars) and the request carries `inTime`/`outTime`, not a free-text description | A manager cannot judge "please fix Tuesday". Structured times are also what the approval replays into punches, so there is nothing to re-interpret. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

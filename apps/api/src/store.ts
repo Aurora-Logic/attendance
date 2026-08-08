@@ -6,6 +6,7 @@ import {
   DEFAULT_MATRIX,
   type AttendanceSettings,
   type BankDetails,
+  type RegularisationReason,
   type Challan,
   type Customer,
   type Estimate,
@@ -99,6 +100,12 @@ export interface StoredApproval {
   createdAt: string
   decidedBy?: string
   remarks?: string
+  /** Present on REGULARISATION requests — what approval will write. */
+  regularisation?: {
+    inTime?: string
+    outTime?: string
+    reason: RegularisationReason
+  }
 }
 
 export interface LedgerRow {

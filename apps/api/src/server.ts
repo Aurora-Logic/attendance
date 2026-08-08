@@ -19,6 +19,9 @@ import {
   offsetFromShiftStart,
   punchWindowFlag,
   reduceLedger,
+  regularisationPunches,
+  regularisationRequestSchema,
+  regularisationSubject,
   resolveBusinessDate,
   scopeSchema,
   shiftSpecSchema,
@@ -1356,6 +1359,69 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     }
   )
 
+  /**
+   * §3 regularisation: the employee's own route to fix a day the machine got
+   * wrong. Raising one changes nothing — approval is what writes punches, and
+   * it appends rather than edits (see the decide route).
+   */
+  app.post(
+    "/regularisations",
+    { preHandler: [authenticate, requirePermission("punch.self")] },
+    async (request, reply) => {
+      const parsed = regularisationRequestSchema.safeParse(request.body)
+      if (!parsed.success)
+        return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+      const body = parsed.data
+
+      // A future date has nothing to correct yet.
+      const today = new Date().toISOString().slice(0, 10)
+      if (body.date > today) return reply.code(422).send({ error: "FUTURE_DATE" })
+
+      // A locked month is closed for payroll; corrections there are an
+      // adjustment run, not a silent rewrite of a paid period.
+      if (store.monthLocks.some((lock) => lock.month === body.date.slice(0, 7)))
+        return reply.code(409).send({ error: "MONTH_LOCKED" })
+
+      // One open request per day: two pending corrections for the same day
+      // would apply twice and double the worked hours.
+      const duplicate = store.approvals.find(
+        (approval) =>
+          approval.kind === "REGULARISATION" &&
+          approval.employeeId === request.auth.employeeId &&
+          approval.dateFrom === body.date &&
+          approval.status === "PENDING"
+      )
+      if (duplicate) return reply.code(409).send({ error: "ALREADY_PENDING" })
+
+      const approval = {
+        id: id(store, "req"),
+        kind: "REGULARISATION" as const,
+        employeeId: request.auth.employeeId,
+        subject: regularisationSubject(body),
+        detail: body.note,
+        dateFrom: body.date,
+        dateTo: body.date,
+        units: 0,
+        status: "PENDING" as const,
+        level: 1 as const,
+        createdAt: new Date().toISOString(),
+        // Carried so the decide route can rebuild the punches verbatim.
+        regularisation: { inTime: body.inTime, outTime: body.outTime, reason: body.reason },
+      }
+      store.approvals.push(approval)
+      persistApproval(approval)
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "regularisation.raise",
+        entity: "approval_requests",
+        entityId: approval.id,
+        after: { date: body.date, reason: body.reason, in: body.inTime, out: body.outTime },
+        ip: request.ip,
+      })
+      return reply.code(201).send({ approval })
+    }
+  )
+
   // ---- approvals ----------------------------------------------------------
   app.get("/approvals", { preHandler: [authenticate] }, async (request) => {
     const leaveScope = store.matrix["leave.approve"][request.auth.role]
@@ -1433,6 +1499,57 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       after: { status: approval.status, remarks: approval.remarks },
       ip: request.ip,
     })
+
+    /**
+     * An approved regularisation appends punches — it never edits or deletes
+     * one. The register recomputes from punches, so the corrected day falls
+     * out automatically, and what the device actually recorded survives beside
+     * the correction. That pair is the whole value of the audit trail when
+     * someone disputes a payslip months later.
+     */
+    if (approval.status === "APPROVED" && approval.kind === "REGULARISATION" && approval.regularisation) {
+      const employee = employeeById(approval.employeeId)!
+      const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)
+      if (!shift) return reply.code(422).send({ error: "UNKNOWN_SHIFT" })
+
+      const punches = regularisationPunches(
+        {
+          date: approval.dateFrom,
+          reason: approval.regularisation.reason,
+          inTime: approval.regularisation.inTime,
+          outTime: approval.regularisation.outTime,
+          note: approval.detail,
+        },
+        shift.startMin
+      )
+      for (const punch of punches) {
+        const stored = {
+          id: id(store, "p"),
+          employeeId: approval.employeeId,
+          type: punch.type,
+          businessDate: approval.dateFrom,
+          offsetMin: punch.offsetMin,
+          at: `${approval.dateFrom}T${punch.clock}`,
+          accuracyM: 0,
+          dayPart: "FULL" as const,
+          flags: ["REGULARISED" as const],
+          // Deterministic, so replaying this decision cannot double-write.
+          idempotencyKey: `reg_${approval.id}_${punch.type}`,
+        }
+        if (store.punches.some((existing) => existing.idempotencyKey === stored.idempotencyKey))
+          continue
+        store.punches.push(stored)
+        persistPunch(stored)
+      }
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "regularisation.apply",
+        entity: "punches",
+        entityId: approval.id,
+        after: { date: approval.dateFrom, punches: punches.length },
+        ip: request.ip,
+      })
+    }
 
     if (approval.status === "APPROVED" && approval.kind === "LEAVE" && approval.leaveType) {
       store.ledger.push({

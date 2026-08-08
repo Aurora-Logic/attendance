@@ -10,6 +10,7 @@ import { exportDailyRegisterExcel } from "@/lib/attendance-export"
 import { useAttendanceDays } from "@/lib/queries"
 import { DataTable } from "@/components/data-table"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
+import { RegulariseSheet } from "@/components/regularise-sheet"
 import { StatusBadge, StatusLegend } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -217,6 +218,7 @@ export function AttendancePage() {
         }
         actions={
           <>
+            <RegulariseSheet defaultDate={format(date, "yyyy-MM-dd")} />
             {source === "api" ? (
               <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
                 <PopoverTrigger asChild>
