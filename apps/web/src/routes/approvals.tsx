@@ -135,10 +135,10 @@ export function ApprovalsPage() {
       decideMutation.mutate(
         { ids, action: intent, remarks },
         {
-          onSuccess: ({ done, failed }) => {
+          onSuccess: ({ done, failed, reasons }) => {
             if (failed > 0) {
               toast.warning(`${done} ${intent.toLowerCase()}d · ${failed} failed`, {
-                description: "Failures are usually scope: OWN_TEAM only reaches your reports.",
+                description: reasons.join(" · "),
               })
             } else {
               toast.success(`${done} request${done === 1 ? "" : "s"} ${intent.toLowerCase()}d`, {

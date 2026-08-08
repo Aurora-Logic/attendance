@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { ApiError, apiFetch } from "@/lib/api"
+import { ApiError, SESSION_EXPIRED_EVENT, apiFetch } from "@/lib/api"
 import {
   DEFAULT_MATRIX,
   ROLE_LABEL,
@@ -60,6 +60,22 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       return null
     }
   })
+  // Access token gone AND refresh failed: the session is really over — one
+  // honest sign-out beats an app full of scattered 401 toasts.
+  React.useEffect(() => {
+    const onExpired = () => {
+      setUser((current) => {
+        if (current?.source === "api") {
+          localStorage.removeItem(STORAGE_KEY)
+          return null
+        }
+        return current
+      })
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
+  }, [])
+
   const matrix = DEFAULT_MATRIX
 
   // An API session lives in httpOnly cookies; on boot, confirm it is still

@@ -27,7 +27,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
 
-import { ApiError, ApiUnreachable, apiFetch } from "@/lib/api"
+import { ApiError, ApiUnreachable, apiFetch, describeApiError } from "@/lib/api"
 import { enqueuePunch, flushQueue, queuedCount } from "@/lib/offline-queue"
 import { useAttendanceDays } from "@/lib/queries"
 import { captureSelfie, type SelfieDerivatives } from "@/lib/selfie"
@@ -371,7 +371,7 @@ export function PunchPage() {
           description: "It will sync automatically when the connection returns.",
         })
       } else {
-        toast.error("Punch failed", { description: String(error) })
+        toast.error("Punch failed", { description: describeApiError(error) })
       }
     } finally {
       setPosting(false)

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { AttendanceDay } from "@attendance/shared"
 
-import { apiFetch } from "@/lib/api"
+import { apiFetch, describeApiError } from "@/lib/api"
 import { useSession } from "@/lib/session"
 import {
   DEPARTMENTS as SEED_DEPARTMENTS,
@@ -170,8 +170,13 @@ export function useDecideApprovals() {
           })
         )
       )
-      const failed = results.filter((result) => result.status === "rejected").length
-      return { done: input.ids.length - failed, failed }
+      // Report WHY things failed, deduped — "usually scope" was a guess that
+      // hid session expiry behind a misleading message.
+      const rejected = results.filter(
+        (result): result is PromiseRejectedResult => result.status === "rejected"
+      )
+      const reasons = [...new Set(rejected.map((result) => describeApiError(result.reason)))]
+      return { done: input.ids.length - rejected.length, failed: rejected.length, reasons }
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["approvals"] })
