@@ -31,6 +31,7 @@ const ROUTES = [
   "/estimates/new",
   "/estimates/est1",
   "/sales-orders",
+  "/fulfilment",
   "/stock",
   "/vendor-bills",
   "/indents",

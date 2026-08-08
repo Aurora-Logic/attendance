@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   TrendingUp,
+  Truck,
   Warehouse,
   Users,
   Wallet,
@@ -126,6 +127,23 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: "attendance.approve",
       },
       { title: "Leave", url: "/leave", icon: Plane, phase: 5 },
+    ],
+  },
+  {
+    /**
+     * Between the order and the invoice. Its own group because this is where a
+     * picker lives — their whole day is this one entry, and burying it under
+     * Sales would put it behind screens they cannot open.
+     */
+    label: "Fulfilment",
+    items: [
+      {
+        title: "Dispatch board",
+        url: "/fulfilment",
+        icon: Truck,
+        phase: 4,
+        permission: "dispatch.view",
+      },
     ],
   },
   {

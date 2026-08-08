@@ -2,10 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   DEFAULT_OPERATIONS_SETTINGS,
   type AttendanceDay,
+  type FulfilmentStage,
   type OperationsSettings,
+  type PickList,
 } from "@attendance/shared"
 
-import { apiFetch, describeApiError } from "@/lib/api"
+import { ApiError, apiFetch, describeApiError } from "@/lib/api"
 import { useSession } from "@/lib/session"
 import {
   DEPARTMENTS as SEED_DEPARTMENTS,
@@ -969,4 +971,109 @@ export function useSaveOperationsSettings() {
       queryClient.setQueryData(["settings", "operations"], payload)
     },
   })
+}
+
+// ---------------------------------------------------------------- fulfilment
+
+export interface FulfilmentOrderRow {
+  soId: string
+  number: string
+  customerId: string
+  orderDate: string
+  stage: FulfilmentStage
+  summary: string
+  awaitingPod: string[]
+  missingLrCopies: string[]
+}
+
+interface FulfilmentBoard {
+  orders: FulfilmentOrderRow[]
+  podOverdue: { consignmentId: string; number: string; daysOut: number }[]
+  missingLrCopies: { consignmentId: string; number: string; missing: string[] }[]
+}
+
+export function useFulfilmentBoard() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+
+  const query = useQuery({
+    queryKey: ["fulfilment", "board"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<FulfilmentBoard>("/fulfilment"),
+  })
+
+  return {
+    board: query.data ?? { orders: [], podOverdue: [], missingLrCopies: [] },
+    isLoading: enabled && query.isLoading,
+    enabled,
+  }
+}
+
+export function usePickLists(soId?: string) {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+  const query = useQuery({
+    queryKey: ["fulfilment", "picks", soId ?? "all"],
+    enabled,
+    retry: false,
+    queryFn: () =>
+      apiFetch<{ picks: PickList[] }>(`/fulfilment/picks${soId ? `?soId=${soId}` : ""}`),
+    select: (payload) => payload.picks,
+  })
+  return { picks: query.data ?? [], isLoading: enabled && query.isLoading }
+}
+
+export function usePickableLines(soId: string | null) {
+  const { user } = useSession()
+  const enabled = user?.source === "api" && Boolean(soId)
+  const query = useQuery({
+    queryKey: ["fulfilment", "pickable", soId],
+    enabled,
+    retry: false,
+    queryFn: () =>
+      apiFetch<{
+        lines: { soLineId: string; itemId: string; orderedQty: number; pickableQty: number }[]
+      }>(`/fulfilment/picks/available/${soId}`),
+    select: (payload) => payload.lines,
+  })
+  return { lines: query.data ?? [] }
+}
+
+/** Everything the fulfilment screens write. Refusals carry the rules' own words. */
+export function useFulfilmentActions() {
+  const queryClient = useQueryClient()
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["fulfilment"] })
+
+  return {
+    createPick: useMutation({
+      mutationFn: (body: {
+        soId: string
+        assignedTo: string | null
+        lines: { soLineId: string; requestedQty: number; location?: string }[]
+      }) =>
+        apiFetch<{ pick: PickList }>("/fulfilment/picks", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      onSuccess: invalidate,
+    }),
+    updatePick: useMutation({
+      mutationFn: ({ id, ...patch }: { id: string } & Record<string, unknown>) =>
+        apiFetch<{ pick: PickList }>(`/fulfilment/picks/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify(patch),
+        }),
+      onSuccess: invalidate,
+    }),
+  }
+}
+
+/** The rules' own words, so a refusal reads the same everywhere. */
+export function describeRefusal(error: unknown): string {
+  if (error instanceof ApiError) {
+    const body = error.body as { issues?: { message: string }[] } | null
+    if (body?.issues?.length) return body.issues.map((issue) => issue.message).join(" ")
+  }
+  return describeApiError(error)
 }

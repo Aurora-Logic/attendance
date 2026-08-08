@@ -86,6 +86,10 @@ const SalesOrdersPage = lazyRoute(
   () => import("@/routes/sales-orders"),
   "SalesOrdersPage",
 );
+const FulfilmentPage = lazyRoute(
+  () => import("@/routes/fulfilment"),
+  "FulfilmentPage",
+);
 const ReportsPage = lazyRoute(() => import("@/routes/reports"), "ReportsPage");
 const RolesPage = lazyRoute(() => import("@/routes/roles"), "RolesPage");
 const RosterPage = lazyRoute(() => import("@/routes/roster"), "RosterPage");
@@ -205,6 +209,11 @@ export default function App() {
           <Route path="customers" element={
               <RequirePermission permission="sales.view">
                 <CustomersPage />
+              </RequirePermission>
+            } />
+          <Route path="fulfilment" element={
+              <RequirePermission permission="dispatch.view">
+                <FulfilmentPage />
               </RequirePermission>
             } />
           <Route path="sales-orders" element={
