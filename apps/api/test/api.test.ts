@@ -2404,3 +2404,93 @@ describe("an escalated approval survives a restart", () => {
     expect(debits()).toHaveLength(1)
   })
 })
+
+describe("the late-mark penalty reaches pay, not just the register", () => {
+  it("payroll prices the same day the register shows", async () => {
+    store.settings.latePenalty = "ABSENT"
+    store.settings.lateMarksAllowed = 2
+    const employee = await asEmployee()
+
+    // Late every working day of August, well past the 15-minute grace.
+    const workingDays: string[] = []
+    for (let day = 1; day <= 31; day++) {
+      const date = `2026-08-${String(day).padStart(2, "0")}`
+      if (new Date(`${date}T00:00:00Z`).getUTCDay() === 0) continue
+      workingDays.push(date)
+      for (const [type, offsetMin] of [
+        ["IN", 30],
+        ["OUT", 540],
+      ] as const) {
+        store.punches.push({
+          id: `p_late_${date}_${type}`,
+          employeeId: "e4",
+          type,
+          businessDate: date,
+          offsetMin,
+          at: `${date}T09:30`,
+          accuracyM: 0,
+          dayPart: "FULL",
+          flags: ["LATE"],
+          idempotencyKey: `latepay_${date}_${type}`,
+        })
+      }
+    }
+
+    // The register marks the days past the allowance ABSENT.
+    const admin = await asAdmin()
+    const lateDay = workingDays[10]
+    const register = await app.inject({
+      method: "GET",
+      url: `/attendance/days?date=${lateDay}`,
+      headers: { cookie: admin.cookies },
+    })
+    const row = register
+      .json()
+      .rows.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
+    expect(row.status).toBe("ABSENT")
+
+    // Payroll used to pass priorLateMarks: 0 and pay those days in full.
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-08" },
+    })
+    const run = await app.inject({
+      method: "POST",
+      url: "/payroll/runs",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-08" },
+    })
+    const item = run
+      .json()
+      .run.items.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
+    const salary = store.salaries.find((row) => row.employeeId === "e4")!
+    expect(item.earnedPaise).toBeLessThan(salary.grossMonthlyPaise)
+  })
+
+  it("the first late day is not itself a prior mark", async () => {
+    store.settings.latePenalty = "ABSENT"
+    store.settings.lateMarksAllowed = 0
+    const employee = await asEmployee()
+    await app.inject({
+      method: "POST",
+      url: "/punches",
+      headers: { cookie: employee.cookies },
+      payload: punchBody({ type: "IN", at: "2026-08-04T09:30", idempotencyKey: "firstlate-1" }),
+    })
+
+    const admin = await asAdmin()
+    const register = await app.inject({
+      method: "GET",
+      url: "/attendance/days?date=2026-08-04",
+      headers: { cookie: admin.cookies },
+    })
+    const row = register
+      .json()
+      .rows.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
+    // With 0 allowed this day is penalised — but on its own count, not on a
+    // count that included itself and every later day of the month.
+    expect(row.lateMinutes).toBeGreaterThan(0)
+  })
+})

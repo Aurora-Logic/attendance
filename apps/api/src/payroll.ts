@@ -1,5 +1,6 @@
 import {
   computeAttendanceDay,
+  countPriorLateMarks,
   earnedPaise,
   otPaise,
   perDayPaise,
@@ -83,7 +84,13 @@ export function computeRunItems(
           ? { part: approvedLeave.leavePart ?? "FULL", isPaid: approvedLeave.leaveType !== "LOP" }
           : null,
         punches,
-        priorLateMarks: 0,
+        // The register applies the late penalty; payroll must price the same
+        // day. Passing 0 here paid days the register showed as ABSENT.
+        priorLateMarks: countPriorLateMarks(
+          store.punches.filter((punch) => punch.employeeId === employee.id),
+          dateISO,
+          settings.lateGraceMinutes
+        ),
         settings,
       })
       payableDays += result.payableUnits

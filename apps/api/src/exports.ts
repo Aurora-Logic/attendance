@@ -1,7 +1,12 @@
 import { mkdirSync, createReadStream, existsSync, statSync } from "node:fs"
 import { join } from "node:path"
 import ExcelJS from "exceljs"
-import { computeAttendanceDay, minutesToClock, type AttendanceSettings } from "@attendance/shared"
+import {
+  computeAttendanceDay,
+  countPriorLateMarks,
+  minutesToClock,
+  type AttendanceSettings,
+} from "@attendance/shared"
 
 import type { Store } from "./store"
 import { id } from "./store"
@@ -98,7 +103,11 @@ async function buildDailyRegister(
       dayKind: holiday ? "HOLIDAY" : isWeeklyOff ? "WEEKLY_OFF" : "WORKING",
       leave: null,
       punches,
-      priorLateMarks: 0,
+      priorLateMarks: countPriorLateMarks(
+        store.punches.filter((punch) => punch.employeeId === employee.id),
+        date,
+        settings.lateGraceMinutes
+      ),
       settings,
     })
     const inPunch = punches.find((punch) => punch.type === "IN")

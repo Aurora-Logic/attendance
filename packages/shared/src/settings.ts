@@ -232,3 +232,31 @@ export function evaluateLate(
         : `Late mark ${markNumber} this ${period}, past the ${lateMarksAllowed} allowed — day marked ${penalty.replace("_", " ").toLowerCase()}.`,
   }
 }
+
+/**
+ * Late marks accrued **before** a given day, within its month.
+ *
+ * Three callers disagreed. The register counted every late IN in the month —
+ * including the day being computed and days after it — so the penalty fired
+ * one late early, and a day's status changed retroactively as later days were
+ * punched. Payroll and the workbook export simply passed 0, so the penalty
+ * never reached pay at all: a person late every working day under a
+ * "2 allowed, then ABSENT" policy was paid in full while the register showed
+ * those days absent.
+ *
+ * Strictly before, because a day cannot be its own prior.
+ */
+export function countPriorLateMarks(
+  punches: ReadonlyArray<{ type: string; businessDate: string; offsetMin: number }>,
+  dateISO: string,
+  graceMinutes: number
+): number {
+  const month = dateISO.slice(0, 7)
+  return punches.filter(
+    (punch) =>
+      punch.type === "IN" &&
+      punch.businessDate.startsWith(month) &&
+      punch.businessDate < dateISO &&
+      punch.offsetMin > graceMinutes
+  ).length
+}

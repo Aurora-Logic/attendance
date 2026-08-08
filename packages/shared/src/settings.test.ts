@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  DEFAULT_ATTENDANCE_SETTINGS,
-  attendanceSettingsSchema,
-  estimateSelfieStorage,
-  evaluateLate,
-} from "./settings"
+import { DEFAULT_ATTENDANCE_SETTINGS, attendanceSettingsSchema, countPriorLateMarks, estimateSelfieStorage, evaluateLate } from "./settings"
 
 const s = (over: Partial<typeof DEFAULT_ATTENDANCE_SETTINGS> = {}) => ({
   ...DEFAULT_ATTENDANCE_SETTINGS,
@@ -96,5 +91,37 @@ describe("estimateSelfieStorage", () => {
     const off = estimateSelfieStorage(s(), 500)
     const on = estimateSelfieStorage(s({ selfieKeepOriginal: true }), 500)
     expect(on.monthlyGb / off.monthlyGb).toBeGreaterThan(10)
+  })
+})
+
+describe("countPriorLateMarks", () => {
+  const punches = [
+    { type: "IN", businessDate: "2026-08-03", offsetMin: 30 },
+    { type: "IN", businessDate: "2026-08-04", offsetMin: 30 },
+    { type: "IN", businessDate: "2026-08-05", offsetMin: 30 },
+    { type: "IN", businessDate: "2026-08-06", offsetMin: 5 },
+    { type: "OUT", businessDate: "2026-08-03", offsetMin: 600 },
+    { type: "IN", businessDate: "2026-07-31", offsetMin: 45 },
+  ]
+
+  it("counts only days before the one being computed", () => {
+    // The bug: counting the current day made the penalty fire one late early.
+    expect(countPriorLateMarks(punches, "2026-08-03", 15)).toBe(0)
+    expect(countPriorLateMarks(punches, "2026-08-04", 15)).toBe(1)
+    expect(countPriorLateMarks(punches, "2026-08-05", 15)).toBe(2)
+  })
+
+  it("ignores later days, so a computed day never changes retroactively", () => {
+    expect(countPriorLateMarks(punches, "2026-08-04", 15)).toBe(1)
+  })
+
+  it("respects the grace period and only counts in-punches", () => {
+    expect(countPriorLateMarks(punches, "2026-08-07", 15)).toBe(3)
+    // At a 60-minute grace nothing is late.
+    expect(countPriorLateMarks(punches, "2026-08-07", 60)).toBe(0)
+  })
+
+  it("does not reach into the previous month — the allowance resets", () => {
+    expect(countPriorLateMarks(punches, "2026-08-01", 15)).toBe(0)
   })
 })

@@ -436,6 +436,19 @@ Two more confirmed P0s from the audit of this session's code.
 | N11 | "Out after in" moved **out of the schema and into the route** | The schema has no idea whether the employee works nights, and a string comparison refused every night-shift correction outright — those employees could not file one at all. |
 | N12 | The client no longer duplicates the ordering check | Only the server knows the shift. The sheet surfaces the server's reason instead of guessing, so the two cannot disagree. |
 
+## 27. One rule for late marks (8 Aug 2026)
+
+The last of the eight P0s. Three places decided how many late marks an employee had accrued, and all three disagreed.
+
+- **Payroll and the workbook export passed `0`.** The penalty never reached pay. Reproduced: someone 30 minutes late every working day under a "2 allowed, then ABSENT" policy was paid the **full ₹26,000** while the register showed those days ABSENT. After the fix the same month pays ₹2,000.
+- **The register counted the day being computed, and every later day of the month.** So the penalty fired one late early, and a day's status changed retroactively as subsequent days were punched — a payslip could disagree with a register someone screenshotted a week before.
+
+| # | Decision | Why |
+|---|---|---|
+| K1 | `countPriorLateMarks` in shared is the only implementation, used by the register, payroll and the export | A policy that prices money must not have three interpretations. This is the same reason `evaluateLate` was made a single function. |
+| K2 | Marks are counted **strictly before** the day | A day cannot be its own prior. Including it fired the penalty one late early; including later days made a computed day mutate after the fact. |
+| K3 | The count does not cross the month boundary | The allowance resets per period, so reaching into the previous month would carry a spent allowance forward. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

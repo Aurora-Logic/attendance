@@ -15,6 +15,7 @@ import {
   compOffCredit,
   computeAttendanceDay,
   countLeaveUnits,
+  countPriorLateMarks,
   crossesMidnight,
   DEFAULT_MATRIX,
   evaluateLate,
@@ -376,14 +377,13 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         .map((row) => ({ type: row.type, units: row.units }))
     )
 
-  const priorLateMarks = (employeeId: string, month: string) =>
-    store.punches.filter(
-      (punch) =>
-        punch.employeeId === employeeId &&
-        punch.type === "IN" &&
-        punch.businessDate.startsWith(month) &&
-        punch.offsetMin > store.settings.lateGraceMinutes
-    ).length
+  /** Marks accrued strictly before `dateISO`, shared with payroll and exports. */
+  const priorLateMarks = (employeeId: string, dateISO: string) =>
+    countPriorLateMarks(
+      store.punches.filter((punch) => punch.employeeId === employeeId),
+      dateISO,
+      store.settings.lateGraceMinutes
+    )
 
   // ---- health -------------------------------------------------------------
   app.get("/health", async () => ({ ok: true, uptimeSec: Math.round(process.uptime()) }))
@@ -1364,7 +1364,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
 
       const evaluation = evaluateLate(
         Math.max(offsetMin, 0),
-        priorLateMarks(employee.id, businessDate.slice(0, 7)),
+        priorLateMarks(employee.id, businessDate),
         store.settings
       )
 
@@ -1419,7 +1419,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
             explicitDayPart: store.punches.find(
               (punch) => punch.employeeId === employee.id && punch.businessDate === targetDate
             )?.dayPart,
-            priorLateMarks: priorLateMarks(employee.id, targetDate.slice(0, 7)),
+            priorLateMarks: priorLateMarks(employee.id, targetDate),
             settings: store.settings,
           })
 
