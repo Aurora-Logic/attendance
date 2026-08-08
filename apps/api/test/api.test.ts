@@ -519,8 +519,9 @@ describe("leave — apply, balance guard, approve", () => {
 })
 
 describe("nightly close — §3 missed punch-out", () => {
-  it("raises one regularisation per open day, idempotently", async () => {
+  it("tells the employee once, and never files on their behalf", async () => {
     const { runNightlyClose } = await import("../src/nightly")
+    const notify = makeNotifier(store)
     const employee = await asEmployee()
     await app.inject({
       method: "POST",
@@ -529,13 +530,36 @@ describe("nightly close — §3 missed punch-out", () => {
       payload: punchBody({ at: "2026-08-04T09:00", idempotencyKey: "key-nightly-1" }),
     })
 
-    const first = runNightlyClose(store, "2026-08-04")
+    const first = runNightlyClose(store, "2026-08-04", notify)
     expect(first.closed).toEqual(["e4"])
-    const second = runNightlyClose(store, "2026-08-04")
+    const second = runNightlyClose(store, "2026-08-04", notify)
     expect(second.closed).toEqual([])
+
+    const told = store.notifications.filter(
+      (entry) => entry.employeeId === "e4" && entry.kind === "PUNCH_FLAGGED"
+    )
+    expect(told).toHaveLength(1)
+    expect(told[0].body).toContain("2026-08-04")
+
+    // Crucially it raises nothing: a placeholder approval blocked the employee
+    // from filing the real correction, and carried no times to write anyway.
     expect(
-      store.approvals.filter((approval) => approval.subject.startsWith("Missed punch-out"))
-    ).toHaveLength(1)
+      store.approvals.filter((approval) => approval.dateFrom === "2026-08-04")
+    ).toHaveLength(0)
+
+    // So the employee can still file their own.
+    const raised = await app.inject({
+      method: "POST",
+      url: "/regularisations",
+      headers: { cookie: employee.cookies },
+      payload: {
+        date: "2026-08-04",
+        reason: "MISSED_OUT",
+        outTime: "18:30",
+        note: "forgot to punch out",
+      },
+    })
+    expect(raised.statusCode).toBe(201)
   })
 
   it("a completed day is left alone", async () => {
@@ -1420,21 +1444,18 @@ describe("nightly close runs on the company's calendar and self-heals", () => {
       payload: punchBody({ type: "IN", at: "2026-08-05T09:00", idempotencyKey: "close-in-1" }),
     })
 
-    const first = runNightlyClose(store, "2026-08-05")
+    const notify = makeNotifier(store)
+    const first = runNightlyClose(store, "2026-08-05", notify)
     expect(first.closed).toContain("e4")
-    const raised = store.approvals.filter(
-      (approval) =>
-        approval.kind === "REGULARISATION" && approval.subject.startsWith("Missed punch-out")
-    ).length
+    const told = () =>
+      store.notifications.filter(
+        (entry) => entry.kind === "PUNCH_FLAGGED" && entry.body.includes("2026-08-05")
+      ).length
+    expect(told()).toBe(1)
 
-    const second = runNightlyClose(store, "2026-08-05")
+    const second = runNightlyClose(store, "2026-08-05", notify)
     expect(second.closed).toHaveLength(0)
-    expect(
-      store.approvals.filter(
-        (approval) =>
-          approval.kind === "REGULARISATION" && approval.subject.startsWith("Missed punch-out")
-      )
-    ).toHaveLength(raised)
+    expect(told()).toBe(1)
   })
 
   it("a day that was already closed out is left alone", async () => {
@@ -2619,5 +2640,109 @@ describe("the bank sheet says who it leaves out", () => {
     })
     expect(csv.statusCode).toBe(200)
     expect(csv.headers["content-type"]).toContain("text/csv")
+  })
+})
+
+describe("a month that closes mid-flight cannot be written into", () => {
+  it("refuses to approve leave once its month is locked", async () => {
+    const employee = await asEmployee()
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+    expect(applied.statusCode).toBe(201)
+
+    // The lock lands between raising and deciding — the gap the raise-time
+    // check alone could not cover.
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+
+    const manager = await asOps()
+    const decided = await app.inject({
+      method: "POST",
+      url: `/approvals/${applied.json().approval.id}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "ok" },
+    })
+    expect(decided.statusCode).toBe(409)
+    expect(decided.json().error).toBe("MONTH_LOCKED")
+    // Nothing was written to the ledger.
+    expect(
+      store.ledger.filter((row) => row.remarks.includes(applied.json().approval.id))
+    ).toHaveLength(0)
+  })
+
+  it("comp-off is exempt — its credit does not change the paid month", async () => {
+    const employee = await asEmployee()
+    for (const [type, at, key] of [
+      ["IN", "2026-08-02T09:00", "lockco-in-1"],
+      ["OUT", "2026-08-02T19:00", "lockco-out-1"],
+    ] as const) {
+      await app.inject({
+        method: "POST",
+        url: "/punches",
+        headers: { cookie: employee.cookies },
+        payload: punchBody({ type, at, idempotencyKey: key }),
+      })
+    }
+    const claim = await app.inject({
+      method: "POST",
+      url: "/comp-off/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: "2026-08-02" },
+    })
+    expect(claim.statusCode).toBe(201)
+
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-08" },
+    })
+
+    const manager = await asOps()
+    const decided = await app.inject({
+      method: "POST",
+      url: `/approvals/${claim.json().approval.id}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "earned it" },
+    })
+    // Stranding a day the employee earned, because a manager was slow, would
+    // punish them for someone else's delay.
+    expect(decided.statusCode).toBe(200)
+  })
+
+  it("a request carrying no times cannot be approved into a no-op", async () => {
+    // The shape the nightly close used to create on the employee's behalf.
+    store.approvals.push({
+      id: "req_placeholder",
+      kind: "REGULARISATION",
+      employeeId: "e4",
+      subject: "Missed punch-out · 2026-08-06",
+      detail: "auto-raised, no times",
+      dateFrom: "2026-08-06",
+      dateTo: "2026-08-06",
+      units: 0,
+      status: "PENDING",
+      level: 1,
+      createdAt: new Date().toISOString(),
+    })
+    const manager = await asOps()
+    const decided = await app.inject({
+      method: "POST",
+      url: "/approvals/req_placeholder/decide",
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "sure" },
+    })
+    expect(decided.statusCode).toBe(422)
+    expect(store.punches.filter((punch) => punch.businessDate === "2026-08-06")).toHaveLength(0)
   })
 })

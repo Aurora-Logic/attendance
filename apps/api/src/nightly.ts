@@ -6,17 +6,32 @@ import {
 } from "@attendance/shared"
 
 import { applyApproval, canApplyApproval } from "./approve"
+import type { NotifyInput } from "./notify"
 import { persistApproval, persistLedgerEntry } from "./repositories"
 import type { Store } from "./store"
 import { id } from "./store"
 
 /**
- * §3 nightly close: anyone with an IN but no OUT for a business date gets the
- * day flagged MISSING_PUNCH_OUT and a regularisation request raised to them.
- * Idempotent — a re-run for the same date creates nothing twice — so the boot
+ * §3 nightly close: anyone with an IN and no OUT for a business date is told,
+ * so they can file the correction themselves.
+ *
+ * It used to *raise* a PENDING regularisation on their behalf, which did two
+ * things wrong. The employee could then not file their own — the duplicate
+ * guard refused it as ALREADY_PENDING — and the placeholder carried no times,
+ * because only the employee knows when they actually left. Approving it wrote
+ * nothing at all while reporting success and telling them the day was fixed.
+ *
+ * A prompt is the honest shape: the system noticed, the employee supplies the
+ * facts, a manager approves the real request.
+ *
+ * Idempotent — a re-run for the same date notifies nobody twice — so the boot
  * catch-up and the hourly timer can overlap safely.
  */
-export function runNightlyClose(store: Store, dateISO: string): { closed: string[] } {
+export function runNightlyClose(
+  store: Store,
+  dateISO: string,
+  notify?: (input: NotifyInput) => void
+): { closed: string[] } {
   const closed: string[] = []
 
   for (const employee of store.employees) {
@@ -27,30 +42,29 @@ export function runNightlyClose(store: Store, dateISO: string): { closed: string
     const hasOut = punches.some((punch) => punch.type === "OUT")
     if (!hasIn || hasOut) continue
 
-    const alreadyRaised = store.approvals.some(
-      (approval) =>
-        approval.kind === "REGULARISATION" &&
-        approval.employeeId === employee.id &&
-        approval.dateFrom === dateISO &&
-        approval.subject.startsWith("Missed punch-out")
-    )
-    if (alreadyRaised) continue
+    // Already told, or the employee has already filed for that day.
+    const known =
+      store.notifications.some(
+        (entry) =>
+          entry.employeeId === employee.id &&
+          entry.kind === "PUNCH_FLAGGED" &&
+          entry.body.includes(dateISO)
+      ) ||
+      store.approvals.some(
+        (approval) =>
+          approval.kind === "REGULARISATION" &&
+          approval.employeeId === employee.id &&
+          approval.dateFrom === dateISO
+      )
+    if (known) continue
 
-    store.approvals.push({
-      id: id(store, "req"),
-      kind: "REGULARISATION",
+    notify?.({
       employeeId: employee.id,
-      subject: `Missed punch-out · ${dateISO}`,
-      detail:
-        "The day auto-closed with no OUT punch. Confirm the actual leaving time so the day can be computed.",
-      dateFrom: dateISO,
-      dateTo: dateISO,
-      units: 0,
-      status: "PENDING",
-      level: 1,
-      createdAt: new Date().toISOString(),
+      kind: "PUNCH_FLAGGED",
+      title: "You did not punch out",
+      body: `${dateISO} closed with no out-punch. Regularise it so the day can be computed.`,
+      href: "/attendance",
     })
-    persistApproval(store.approvals.at(-1)!)
     closed.push(employee.id)
   }
 
@@ -69,14 +83,14 @@ const LOOKBACK_DAYS = 7
 export function scheduleNightlyClose(
   store: Store,
   log = console.log,
-  notify?: Parameters<typeof escalateStaleApprovals>[2]
+  notify?: (input: NotifyInput) => void
 ): void {
   const run = () => {
     // The company's calendar, not the server's: in Asia/Kolkata anything
     // before 05:30 local still reports the previous day in UTC, so a job that
     // used toISOString() closed the wrong date every early morning.
     for (const date of recentCompanyDates(store.settings.timezone, LOOKBACK_DAYS)) {
-      const { closed } = runNightlyClose(store, date)
+      const { closed } = runNightlyClose(store, date, notify)
       if (closed.length > 0) {
         log(`nightly close: ${closed.length} missed punch-out(s) for ${date}`)
       }
@@ -155,13 +169,7 @@ export function expireCompOff(store: Store, todayISO: string): { expired: number
 export function escalateStaleApprovals(
   store: Store,
   nowISO: string,
-  notify: (input: {
-    employeeId: string
-    kind: "APPROVAL_ESCALATED"
-    title: string
-    body: string
-    href: string
-  }) => void
+  notify: (input: NotifyInput) => void
 ): { escalated: number; autoApproved: number } {
   let escalated = 0
   let autoApproved = 0

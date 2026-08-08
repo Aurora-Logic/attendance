@@ -1920,7 +1920,9 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       const check = canApplyApproval(store, approval)
       if (!check.ok)
         return reply
-          .code(check.reason === "INSUFFICIENT_BALANCE" ? 409 : 422)
+          .code(
+            check.reason === "INSUFFICIENT_BALANCE" || check.reason === "MONTH_LOCKED" ? 409 : 422
+          )
           .send({ error: check.reason, detail: check.detail })
     }
 

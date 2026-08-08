@@ -458,6 +458,19 @@ The last of the eight P0s. Three places decided how many late marks an employee 
 | V3 | A beneficiary name may not **begin like a formula**, and the CSV writer prefixes one anyway | The bank upload is a CSV somebody opens in Excel, and the name is user-controlled: `=HYPERLINK(...)` was written raw. Validation refuses it now, and the writer still neutralises it — a file that pays people is the wrong place to trust one layer, and rows written before the rule existed still flow through. |
 | V4 | The bank sheet **names who it leaves out, before the file is downloaded** | The held list already existed but travelled only in a response header, which `fetch` cannot read cross-origin and nothing looked at. The sheet quietly omitted people and looked complete. A preview now warns first, and refuses outright when nobody is payable. |
 
+## 29. The nightly close stops filing on your behalf (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| W1 | The close **notifies**; it no longer raises a regularisation for the employee | The placeholder blocked them from filing their own (the duplicate guard refused it as `ALREADY_PENDING`) and carried no times, because only the employee knows when they left. Approving it wrote nothing while reporting success and telling them the day was fixed. A prompt is the honest shape: the system noticed, the employee supplies the facts. |
+| W2 | A regularisation with **no times is refused**, not approved into a no-op | Defence for anything of that shape already in the data. An approval that changes nothing must not report success. |
+| W3 | The **month lock is enforced when deciding**, not only when raising | The lock can land between the two, so an approval could still write punches or a leave debit into a paid period behind payroll's back. It lives in `canApplyApproval`, so the decide route and the escalation sweep are covered by one rule. |
+| W4 | **Comp-off is exempt** from that lock | Its credit grants a future day off and changes nothing about the locked month's pay. Stranding a day the employee earned, because the month closed while a manager sat on it, would punish them for someone else's delay. |
+
+### Considered and deliberately not changed
+
+The audit reported that approving leave early "shields" a comp-off credit from expiry, because a future-dated debit counts as consumption. Reproduced, and left alone: the employee has committed the credit to a booked date, consumption-at-approval is the employee-favourable reading, and there is no cancellation route that would let it be abused. Changing it is a **policy decision for the owner**, not a defect fix.
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

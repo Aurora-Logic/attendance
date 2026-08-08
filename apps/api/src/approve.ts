@@ -20,6 +20,7 @@ import { id, type Store, type StoredApproval } from "./store"
 export type ApplyRefusal =
   | { ok: false; reason: "INSUFFICIENT_BALANCE"; detail: string }
   | { ok: false; reason: "UNKNOWN_SHIFT"; detail: string }
+  | { ok: false; reason: "MONTH_LOCKED"; detail: string }
 
 export type ApplyResult = { ok: true } | ApplyRefusal
 
@@ -36,6 +37,27 @@ const balanceOf = (store: Store, employeeId: string, type: string): number =>
  * end up inconsistent.
  */
 export function canApplyApproval(store: Store, approval: StoredApproval): ApplyResult {
+  /**
+   * A locked month has been paid. Raising into one was already refused, but the
+   * lock could land *between* raising and deciding — so an approval could still
+   * write punches or a leave debit into a closed period, behind payroll's back.
+   *
+   * Comp-off is deliberately exempt: its credit grants a future day off and
+   * changes nothing about the locked month's pay. Stranding a claim the
+   * employee earned, because the month closed while a manager sat on it, would
+   * punish them for someone else's delay.
+   */
+  if (approval.kind === "LEAVE" || approval.kind === "REGULARISATION") {
+    const month = approval.dateFrom.slice(0, 7)
+    if (store.monthLocks.some((lock) => lock.month === month)) {
+      return {
+        ok: false,
+        reason: "MONTH_LOCKED",
+        detail: `${month} is locked for payroll. Correct a paid month with an adjustment run.`,
+      }
+    }
+  }
+
   if (approval.kind === "LEAVE" && approval.leaveType && approval.leaveType !== "LOP") {
     const available = balanceOf(store, approval.employeeId, approval.leaveType)
     if (approval.units > available) {
@@ -47,7 +69,17 @@ export function canApplyApproval(store: Store, approval: StoredApproval): ApplyR
     }
   }
 
-  if (approval.kind === "REGULARISATION" && approval.regularisation) {
+  if (approval.kind === "REGULARISATION") {
+    // A correction with no times cannot correct anything. Approving one used to
+    // report success and write nothing, telling the employee their day was
+    // fixed when it was untouched.
+    if (!approval.regularisation) {
+      return {
+        ok: false,
+        reason: "UNKNOWN_SHIFT",
+        detail: "This request carries no times, so there is nothing to write.",
+      }
+    }
     const employee = store.employees.find((row) => row.id === approval.employeeId)
     const shift = employee
       ? store.shifts.find((candidate) => candidate.id === employee.shiftId)
