@@ -20,25 +20,33 @@ export function perDayPaise(grossMonthlyPaise: Paise, basis: RateBasis, ctx: Rat
 }
 
 /**
- * Payable days per §6: total − LOP − unapproved absents. Paid leave and
- * holidays are already inside `total` as paid, so they are not subtracted.
+ * Earned pay is the **salary minus what was not earned**, never a per-day rate
+ * multiplied up.
+ *
+ * Multiplying overpaid every single employee. A weekly off and a holiday each
+ * accrue a payable unit — correctly, they are paid days — so a fully present
+ * employee in a 31-day month accrues 31 units. Priced at gross/26 under
+ * FIXED_26 that is 1.19 × salary, and gross/25 under WORKING_DAYS is 1.24 ×.
+ * A ₹26,000 contract paid ₹31,000. Only CALENDAR_DAYS happened to be
+ * self-consistent.
+ *
+ * Deducting instead is both the standard Indian payroll model and
+ * self-correcting: full attendance is exactly the contracted salary on every
+ * basis, whatever the month's length, because nothing was lost.
+ *
+ * @param unpaidUnits Units lost on days the employee was expected to work —
+ *   the sum of (1 − payableUnits) over working and declared-half days. Weekly
+ *   offs and holidays contribute nothing: the divisor already assumes they are
+ *   paid without being worked.
  */
-export function payableDays(input: {
-  totalDays: number
-  lopDays: number
-  unapprovedAbsentDays: number
-}): number {
-  return Math.max(input.totalDays - input.lopDays - input.unapprovedAbsentDays, 0)
-}
-
-/** Earned pay = per-day rate × payable days (halves allowed), rounded once. */
 export function earnedPaise(
   grossMonthlyPaise: Paise,
   basis: RateBasis,
   ctx: RateContext,
-  days: number
+  unpaidUnits: number
 ): Paise {
-  return Math.round(perDayPaise(grossMonthlyPaise, basis, ctx) * days)
+  const deduction = Math.round(perDayPaise(grossMonthlyPaise, basis, ctx) * unpaidUnits)
+  return Math.max(grossMonthlyPaise - deduction, 0)
 }
 
 /**

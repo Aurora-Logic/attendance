@@ -39,6 +39,13 @@ export function computeRunItems(
     const salary = store.salaries.find((candidate) => candidate.employeeId === employee.id)
 
     let payableDays = 0
+    /**
+     * Units lost on days the employee was expected to work. This — not the sum
+     * of payable units — is what prices a month: a weekly off and a holiday
+     * each accrue a payable unit, so summing them and multiplying by gross/26
+     * paid a 31-day month as 31 days of salary.
+     */
+    let unpaidUnits = 0
     let workingDays = 0
     let otMinutes = 0
 
@@ -80,6 +87,11 @@ export function computeRunItems(
         settings,
       })
       payableDays += result.payableUnits
+      // Only a day the company expected to be worked can be lost. Weekly offs
+      // and holidays are already paid inside the divisor.
+      if (dayKind === "WORKING" || dayKind === "HALF_DAY") {
+        unpaidUnits += Math.max(1 - result.payableUnits, 0)
+      }
 
       /**
        * The day records what was *worked*; payroll pays what was *approved*.
@@ -110,7 +122,7 @@ export function computeRunItems(
     const basis: RateBasis = salary?.basis ?? "FIXED_26"
     const ctx = { calendarDays: daysInMonth, workingDays }
     const perDay = perDayPaise(grossMonthly, basis, ctx)
-    const earned = earnedPaise(grossMonthly, basis, ctx, payableDays)
+    const earned = earnedPaise(grossMonthly, basis, ctx, unpaidUnits)
     const otPay = otPaise(
       grossMonthly,
       basis,

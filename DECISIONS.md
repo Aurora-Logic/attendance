@@ -382,6 +382,22 @@ Found by auditing this session's own new code rather than waiting for it to fail
 | A12 | The gate is **separate from the write** | A caller refuses *before* flipping the status. Half-applied approvals are how ledgers become inconsistent. |
 | A13 | An auto-approval that cannot be applied leaves the request **PENDING at L2** and notifies the employee why | Silently approving something the ledger cannot absorb is worse than leaving it for a person. The sweep escalates; it does not force. |
 
+## 23. Payroll paid 19% too much (8 Aug 2026)
+
+Found by an adversarial audit of this session's own code, and reproduced by executing the real functions before anything was changed: **a ₹26,000 contract paid ₹31,000.**
+
+`computeAttendanceDay` returns `payableUnits = 1` for a weekly off and a holiday — correctly, they are paid days. `computeRunItems` summed those units across the whole calendar month, so a fully present employee accrued 31 units in a 31-day month, and then priced them at `gross / 26` under FIXED_26. That is 1.192 × salary. WORKING_DAYS was worse at 1.24 ×. Only CALENDAR_DAYS was accidentally self-consistent. Every payroll run, bank transfer file and Tally voucher produced before this overstated pay.
+
+| # | Decision | Why |
+|---|---|---|
+| P1 | Earned pay is **salary minus what was not earned**, never a day rate multiplied up | `earnedPaise(gross, basis, ctx, unpaidUnits)` deducts. Full attendance is then exactly the contract on every basis, whatever the month's length, because nothing was lost. This is also the standard Indian model. |
+| P2 | `unpaidUnits` counts only days the company **expected** to be worked | Weekly offs and holidays contribute nothing: the divisor already assumes they are paid without being worked. Counting them was the bug. |
+| P3 | The deduction is clamped at zero | Absent all month owes nothing; it must not invert into a negative salary. |
+| P4 | The unused `payableDays()` helper is **deleted** | Its test passed `totalDays: 26` while production summed 31 — dead code that made the overpay look tested. Dead code that misleads is worse than no code. |
+| P5 | Two previously "passing" tests were **wrong and are corrected** | The §6 worked example asserted that an employee with no punches all September still earned ₹4,000 "for the four Sundays". Under the corrected model they earn ₹0. Nobody earns paid weekly offs by being absent all month. |
+
+New invariants pinned end to end through `computeRunItems`, not through a helper: full attendance equals the contract on all three bases; each absent working day costs exactly one twenty-sixth; an unworked weekly off costs nothing.
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

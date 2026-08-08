@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { formatPaise, paiseToRupees, rupeesToPaise } from "./money"
-import { earnedPaise, otPaise, payableDays, perDayPaise } from "./payroll"
+import { earnedPaise, otPaise, perDayPaise } from "./payroll"
 import { DEFAULT_MATRIX, PERMISSIONS, allowedScopes } from "./rbac"
 
 const ctx = { calendarDays: 31, workingDays: 26 }
@@ -43,26 +43,28 @@ describe("per-day rate bases (§6)", () => {
   })
 })
 
-describe("payable days = total − LOP − unapproved absents (§6)", () => {
-  it("worked example", () => {
-    expect(payableDays({ totalDays: 31, lopDays: 2, unapprovedAbsentDays: 1 })).toBe(28)
-  })
-
-  it("never goes negative", () => {
-    expect(payableDays({ totalDays: 2, lopDays: 3, unapprovedAbsentDays: 1 })).toBe(0)
-  })
-})
-
 describe("earned + overtime — the §11 worked example", () => {
   const gross = rupeesToPaise(26_000)
 
-  it("₹26,000 gross, FIXED_26, 2 LOP days → ₹24,000.00 exactly", () => {
-    const days = payableDays({ totalDays: 26, lopDays: 2, unapprovedAbsentDays: 0 })
-    expect(earnedPaise(gross, "FIXED_26", ctx, days)).toBe(rupeesToPaise(24_000))
+  it("₹26,000 gross, FIXED_26, 2 unpaid days → ₹24,000.00 exactly", () => {
+    expect(earnedPaise(gross, "FIXED_26", ctx, 2)).toBe(rupeesToPaise(24_000))
   })
 
-  it("half days multiply cleanly: 25.5 payable days → ₹25,500.00", () => {
-    expect(earnedPaise(gross, "FIXED_26", ctx, 25.5)).toBe(rupeesToPaise(25_500))
+  it("half days deduct cleanly: 0.5 unpaid → ₹25,500.00", () => {
+    expect(earnedPaise(gross, "FIXED_26", ctx, 0.5)).toBe(rupeesToPaise(25_500))
+  })
+
+  it("full attendance is exactly the contracted salary on every basis", () => {
+    // The invariant the multiply-up model broke: nothing lost, nothing
+    // deducted, whatever the month's length or the divisor. Summing payable
+    // units instead paid a 31-day month as 31 days against a 26-day divisor.
+    for (const basis of ["FIXED_26", "WORKING_DAYS", "CALENDAR_DAYS"] as const) {
+      expect(earnedPaise(gross, basis, ctx, 0)).toBe(gross)
+    }
+  })
+
+  it("losing every expected day cannot pay a negative salary", () => {
+    expect(earnedPaise(gross, "FIXED_26", ctx, 40)).toBe(0)
   })
 
   it("90 min OT at 1.5× on an 8h day of ₹1,000 → ₹281.25 exactly", () => {

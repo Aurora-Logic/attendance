@@ -626,14 +626,22 @@ describe("§6 payroll — lock then run, exact paise", () => {
     expect(run.statusCode).toBe(201)
     const body = run.json().run
 
-    // Sept 2026 with no punches: only the 4 Sundays are payable (paid weekly
-    // offs); every working day is ABSENT. Kabir: ₹26,000 FIXED_26 → ₹1,000/day
-    // → exactly ₹4,000.00.
+    /**
+     * Sept 2026 with no punches at all. The register still marks the 4 Sundays
+     * payable — they are paid days — but every one of the 26 expected working
+     * days was lost, so the whole salary is deducted and the month pays ₹0.
+     *
+     * This assertion used to read ₹4,000, on the reasoning that the Sundays
+     * were "payable" and could be multiplied by the day rate. That is how the
+     * overpay got in: paying for weekly offs an employee never earned by
+     * working. Somebody absent all month is owed nothing, and a fully present
+     * employee is owed exactly their contract — both now hold.
+     */
     const kabir = body.items.find((item: { code: string }) => item.code === "DLT0004")
     expect(kabir.payableDays).toBe(4)
     expect(kabir.perDayPaise).toBe(100_000)
-    expect(kabir.earnedPaise).toBe(400_000)
-    expect(kabir.grossPaise).toBe(400_000)
+    expect(kabir.earnedPaise).toBe(0)
+    expect(kabir.grossPaise).toBe(0)
     expect(body.totalGrossPaise).toBe(
       body.items.reduce((sum: number, item: { grossPaise: number }) => sum + item.grossPaise, 0)
     )
@@ -1060,6 +1068,30 @@ describe("salary disbursement — bank details and the transfer sheet", () => {
 
   it("builds a bank CSV for a released run and reports who was held back", async () => {
     const admin = await asAdmin()
+    // Somebody has to have earned something: with no attendance at all every
+    // salary deducts to zero and the route correctly refuses (NOBODY_PAYABLE).
+    for (const employee of store.employees) {
+      for (let day = 1; day <= 30; day++) {
+        const date = `2026-09-${String(day).padStart(2, "0")}`
+        for (const [type, offsetMin] of [
+          ["IN", 0],
+          ["OUT", 540],
+        ] as const) {
+          store.punches.push({
+            id: `p_bank_${employee.id}_${date}_${type}`,
+            employeeId: employee.id,
+            type,
+            businessDate: date,
+            offsetMin,
+            at: `${date}T09:00`,
+            accuracyM: 0,
+            dayPart: "FULL",
+            flags: ["ON_TIME"],
+            idempotencyKey: `bank_${employee.id}_${date}_${type}`,
+          })
+        }
+      }
+    }
     await app.inject({
       method: "POST",
       url: "/payroll/locks",
@@ -2185,5 +2217,81 @@ describe("auto-approval on escalation does everything a human decision does", ()
 
     escalateStaleApprovals(store, later(), makeNotifier(store))
     expect(balanceOf("e4", "COMP_OFF")).toBe(1)
+  })
+})
+
+describe("payroll pays the contracted salary, not a multiplied-up day rate", () => {
+  /** Punch a full day for e4 on every date given. */
+  const workDays = (dates: string[]) => {
+    for (const date of dates) {
+      for (const [type, offsetMin] of [
+        ["IN", 0],
+        ["OUT", 540],
+      ] as const) {
+        store.punches.push({
+          id: `p_${date}_${type}`,
+          employeeId: "e4",
+          type,
+          businessDate: date,
+          offsetMin,
+          at: `${date}T09:00`,
+          accuracyM: 0,
+          dayPart: "FULL",
+          flags: ["ON_TIME"],
+          idempotencyKey: `pay_${date}_${type}`,
+        })
+      }
+    }
+  }
+  const august = Array.from({ length: 31 }, (_, i) => `2026-08-${String(i + 1).padStart(2, "0")}`)
+
+  const runFor = async (month: string) => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month },
+    })
+    const run = await app.inject({
+      method: "POST",
+      url: "/payroll/runs",
+      headers: { cookie: admin.cookies },
+      payload: { month },
+    })
+    expect(run.statusCode).toBe(201)
+    return run.json().run.items.find((i: { employeeId: string }) => i.employeeId === "e4")
+  }
+
+  it("full attendance pays exactly the contract on each basis", async () => {
+    const salary = store.salaries.find((row) => row.employeeId === "e4")!
+    workDays(august)
+    for (const basis of ["FIXED_26", "WORKING_DAYS", "CALENDAR_DAYS"] as const) {
+      salary.basis = basis
+      const item = await runFor("2026-08")
+      // A 31-day month must not pay 31 days against a 26-day divisor.
+      expect(item.earnedPaise, `basis ${basis}`).toBe(salary.grossMonthlyPaise)
+    }
+  })
+
+  it("each absent working day costs exactly one twenty-sixth", async () => {
+    const salary = store.salaries.find((row) => row.employeeId === "e4")!
+    salary.basis = "FIXED_26"
+    // 2026-08-04 and 08-05 are a Tuesday and Wednesday.
+    workDays(august.filter((date) => !["2026-08-04", "2026-08-05"].includes(date)))
+    const item = await runFor("2026-08")
+    const perDay = Math.round(salary.grossMonthlyPaise / 26)
+    expect(item.earnedPaise).toBe(salary.grossMonthlyPaise - 2 * perDay)
+  })
+
+  it("a weekly off is paid without being worked — it costs nothing", async () => {
+    const salary = store.salaries.find((row) => row.employeeId === "e4")!
+    salary.basis = "FIXED_26"
+    // Every day except the Sundays.
+    const sundays = august.filter((date) => new Date(`${date}T00:00:00Z`).getUTCDay() === 0)
+    expect(sundays.length).toBeGreaterThan(3)
+    workDays(august.filter((date) => !sundays.includes(date)))
+    const item = await runFor("2026-08")
+    expect(item.earnedPaise).toBe(salary.grossMonthlyPaise)
   })
 })
