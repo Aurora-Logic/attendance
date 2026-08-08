@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { AttendanceDay } from "@attendance/shared"
+import {
+  DEFAULT_OPERATIONS_SETTINGS,
+  type AttendanceDay,
+  type OperationsSettings,
+} from "@attendance/shared"
 
 import { apiFetch, describeApiError } from "@/lib/api"
 import { useSession } from "@/lib/session"
@@ -917,5 +921,52 @@ export function useReviewTallyConflict() {
         method: "POST",
       }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["tally"] }),
+  })
+}
+
+// ------------------------------------------------------- operations settings
+
+interface OperationsPayload {
+  operations: OperationsSettings
+  /** Rules that contradict each other. Reported, never silently corrected. */
+  warnings: string[]
+}
+
+/**
+ * The commercial modules' rules. Separate from the attendance settings because
+ * they govern different work and are edited by different people.
+ */
+export function useOperationsSettings() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+
+  const query = useQuery({
+    queryKey: ["settings", "operations"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<OperationsPayload>("/settings/operations"),
+  })
+
+  return {
+    operations: query.data?.operations ?? DEFAULT_OPERATIONS_SETTINGS,
+    warnings: query.data?.warnings ?? [],
+    isLoading: enabled && query.isLoading,
+    enabled,
+  }
+}
+
+export function useSaveOperationsSettings() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (patch: Partial<OperationsSettings>) =>
+      apiFetch<OperationsPayload>("/settings/operations", {
+        method: "PUT",
+        body: JSON.stringify(patch),
+      }),
+    onSuccess: (payload) => {
+      // Seed the cache from the response so the screen reflects what the server
+      // stored, not what the form hoped it would store.
+      queryClient.setQueryData(["settings", "operations"], payload)
+    },
   })
 }

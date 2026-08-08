@@ -8,6 +8,9 @@ import bcrypt from "bcryptjs"
 import * as z from "zod"
 import {
   attendanceSettingsSchema,
+  operationsSettingsSchema,
+  operationsSettingsWarnings,
+  OPERATIONS_MODULES,
   bankDetailsSchema,
   buildBankTransferCsv,
   buildPayrollJournal,
@@ -716,6 +719,59 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
 
   // ---- settings & permissions & branding ----------------------------------
   app.get("/settings", { preHandler: [authenticate] }, async () => ({ settings: store.settings }))
+
+  /**
+   * The commercial modules' rules, kept on their own route rather than folded
+   * into the attendance settings. They govern different work and are edited by
+   * different people; one endpoint would mean a change to a picking rule
+   * rewriting the payroll configuration in the same request.
+   */
+  app.get("/settings/operations", { preHandler: [authenticate] }, async () => ({
+    operations: store.operations,
+    warnings: operationsSettingsWarnings(store.operations),
+  }))
+
+  app.put(
+    "/settings/operations",
+    { preHandler: [authenticate, requirePermission("config.manage", { write: true })] },
+    async (request, reply) => {
+      const body = (request.body ?? {}) as Record<string, unknown>
+      /**
+       * Merged per module, so sending one module does not reset the others to
+       * their defaults. A screen that edits dispatch must not silently return
+       * procurement to how it shipped.
+       */
+      const merged = operationsSettingsSchema.safeParse({
+        ...store.operations,
+        ...Object.fromEntries(
+          OPERATIONS_MODULES.filter((key) => key in body).map((key) => [
+            key,
+            { ...store.operations[key], ...(body[key] as object) },
+          ])
+        ),
+      })
+      if (!merged.success)
+        return reply.code(400).send({ error: "BAD_REQUEST", issues: merged.error.issues })
+
+      const before = store.operations
+      store.operations = merged.data
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "settings.operations_update",
+        entity: "settings",
+        entityId: "operations",
+        before,
+        after: store.operations,
+        ip: request.ip,
+      })
+      return {
+        operations: store.operations,
+        // Contradictions are reported, never rejected: a half-configured
+        // company still has to be able to save the half it has decided.
+        warnings: operationsSettingsWarnings(store.operations),
+      }
+    }
+  )
 
   app.put(
     "/settings",

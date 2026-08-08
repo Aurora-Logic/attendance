@@ -4,9 +4,11 @@ import type { ExportJobRecord } from "./exports"
 import {
   DEFAULT_ATTENDANCE_SETTINGS,
   DEFAULT_MATRIX,
+  DEFAULT_OPERATIONS_SETTINGS,
   type AttendanceSettings,
   type BankDetails,
   type Notification,
+  type OperationsSettings,
   type SyncConflict,
   type SyncRecord,
   type RegularisationReason,
@@ -192,6 +194,8 @@ export interface Store {
   ledger: LedgerRow[]
   holidays: Record<string, string>
   settings: AttendanceSettings
+  /** Rules for the commercial modules — kept apart from the attendance blob. */
+  operations: OperationsSettings
   matrix: PermissionMatrix
   branding: Branding
   exportJobs: ExportJobRecord[]
@@ -283,6 +287,7 @@ export function seedStore(): Store {
     ],
     holidays: { "2026-08-15": "Independence Day" },
     settings: { ...DEFAULT_ATTENDANCE_SETTINGS },
+    operations: structuredClone(DEFAULT_OPERATIONS_SETTINGS),
     matrix: structuredClone(DEFAULT_MATRIX),
     branding: { companyName: "Delta Attendance", logoDataUrl: null, address: "", gstin: "", phone: "", email: "" },
     exportJobs: [],

@@ -8,8 +8,13 @@ import {
   CalendarDays,
   Camera,
   ClipboardCheck,
+  Boxes,
   FileCode2,
+  HandCoins,
+  PackageSearch,
   PlugZap,
+  Receipt,
+  Truck,
   Palette,
   RotateCcw,
   Smartphone,
@@ -23,6 +28,7 @@ import {
   estimateSelfieStorage,
   evaluateLate,
   type AttendanceSettings,
+  type OperationsModule,
 } from "@attendance/shared"
 
 import { ApiError, ApiUnreachable, apiFetch } from "@/lib/api"
@@ -60,6 +66,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { MobileNavSettings } from "@/components/settings-mobile-nav"
 import { TallySettings } from "@/components/settings-tally"
+import { OperationsSettingsPanel } from "@/components/settings-operations"
 import { TallyConnectorSettings } from "@/components/settings-tally-connector"
 
 function NumberField({
@@ -246,6 +253,13 @@ interface SettingsSection {
   /** One line under the section title — says what lives here, not how it works. */
   blurb: string
   adminOnly?: boolean
+  /**
+   * The section saves itself, so the page-level Save and Reset must not appear
+   * while it is open. Those two act on the attendance settings alone: somebody
+   * editing dispatch rules who reached for the obvious button in the top right
+   * would have saved a different module and lost their work.
+   */
+  ownsSaving?: boolean
 }
 
 /**
@@ -292,12 +306,59 @@ const SECTION_GROUPS: { group: string; sections: SettingsSection[] }[] = [
         label: "Roster & shifts",
         icon: CalendarDays,
         blurb: "Weekly offs, holidays and half days — the roster derives from these rules.",
+        ownsSaving: true,
       },
       {
         key: "departments",
         label: "Departments",
         icon: Building2,
         blurb: "Create and retire departments; employees keep their history either way.",
+        ownsSaving: true,
+      },
+    ],
+  },
+  {
+    /**
+     * The commercial side of the business. Every module that has rules has a
+     * section here — a settings screen that covered only attendance and payroll
+     * left the impression that nothing else was configurable at all.
+     */
+    group: "Operations",
+    sections: [
+      {
+        key: "ops-procurement",
+        label: "Procurement",
+        icon: PackageSearch,
+        blurb: "Approval limits, what the store may receive, and how tightly a bill must match.",
+        ownsSaving: true,
+      },
+      {
+        key: "ops-sales",
+        label: "Sales & pricing",
+        icon: Receipt,
+        blurb: "Estimate validity, the discount a salesperson may give, and how totals are struck.",
+        ownsSaving: true,
+      },
+      {
+        key: "ops-inventory",
+        label: "Inventory",
+        icon: Boxes,
+        blurb: "Negative stock, reservations, adjustment reasons and when a count falls due.",
+        ownsSaving: true,
+      },
+      {
+        key: "ops-credit",
+        label: "Credit control",
+        icon: HandCoins,
+        blurb: "Default terms and limits, and whether a breach holds an order or merely warns.",
+        ownsSaving: true,
+      },
+      {
+        key: "ops-dispatch",
+        label: "Dispatch & logistics",
+        icon: Truck,
+        blurb: "Picking and packing rules, the LR and its three copies, and proof of delivery.",
+        ownsSaving: true,
       },
     ],
   },
@@ -314,6 +375,7 @@ const SECTION_GROUPS: { group: string; sections: SettingsSection[] }[] = [
         label: "Connector",
         icon: PlugZap,
         blurb: "Whether the sync is running, what has come across, and anything it overwrote.",
+        ownsSaving: true,
       },
       {
         key: "tally",
@@ -350,12 +412,14 @@ const SECTION_GROUPS: { group: string; sections: SettingsSection[] }[] = [
         icon: Palette,
         blurb: "Company name and logo across the app and every export.",
         adminOnly: true,
+        ownsSaving: true,
       },
       {
         key: "guide",
         label: "Guide",
         icon: BookOpen,
         blurb: "Short how-tos for the tasks people ask about.",
+        ownsSaving: true,
       },
     ],
   },
@@ -449,22 +513,24 @@ export function SettingsPage() {
         title="Settings"
         description="Every rule is data. Nothing here is compiled into the app."
         actions={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                resetSettings()
-                toast("Reset to system defaults")
-              }}
-            >
-              <RotateCcw />
-              Reset
-            </Button>
-            <Button size="sm" onClick={() => void save()}>
-              Save changes
-            </Button>
-          </>
+          current.ownsSaving ? null : (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  resetSettings()
+                  toast("Reset to system defaults")
+                }}
+              >
+                <RotateCcw />
+                Reset
+              </Button>
+              <Button size="sm" onClick={() => void save()}>
+                Save changes
+              </Button>
+            </>
+          )
         }
       />
       <PageBodyFixed>
@@ -945,6 +1011,12 @@ export function SettingsPage() {
             {active === "departments" ? <DepartmentsSettings /> : null}
             {active === "tally" ? <TallySettings /> : null}
             {active === "connector" ? <TallyConnectorSettings /> : null}
+            {active.startsWith("ops-") ? (
+              <OperationsSettingsPanel
+                key={active}
+                module={active.slice(4) as OperationsModule}
+              />
+            ) : null}
             {active === "guide" ? <GuideSettings /> : null}
             {active === "branding" && isAdmin ? <BrandingSettings /> : null}
           </div>

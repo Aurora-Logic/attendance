@@ -2,6 +2,8 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import { dirname } from "node:path"
 import type { FastifyInstance } from "fastify"
 
+import { operationsSettingsSchema } from "@attendance/shared"
+
 import { seedStore, type Store } from "./store"
 
 /**
@@ -29,6 +31,9 @@ export function loadStore(path: string): Store {
       ...seed,
       ...parsed,
       settings: { ...seed.settings, ...parsed.settings },
+      // Merged per module so a module added since the file was written
+      // arrives with its defaults rather than undefined.
+      operations: operationsSettingsSchema.parse(parsed.operations ?? {}),
       matrix: { ...seed.matrix, ...parsed.matrix },
       branding: { ...seed.branding, ...parsed.branding },
       exportJobs: parsed.exportJobs ?? [],

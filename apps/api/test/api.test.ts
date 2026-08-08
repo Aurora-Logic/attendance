@@ -2855,6 +2855,95 @@ describe("overtime a corrected day earns is not stranded", () => {
   })
 })
 
+describe("operations settings", () => {
+  it("serves every module's rules, with contradictions flagged rather than hidden", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "GET",
+      url: "/settings/operations",
+      headers: { cookie: admin.cookies },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(Object.keys(response.json().operations).sort()).toEqual([
+      "credit",
+      "dispatch",
+      "inventory",
+      "procurement",
+      "sales",
+    ])
+    expect(response.json().warnings).toEqual([])
+  })
+
+  it("editing one module leaves the others exactly as they were", async () => {
+    // A screen that edits dispatch must not silently return procurement to how
+    // it shipped.
+    const admin = await asAdmin()
+    const before = (
+      await app.inject({
+        method: "GET",
+        url: "/settings/operations",
+        headers: { cookie: admin.cookies },
+      })
+    ).json().operations
+
+    await app.inject({
+      method: "PUT",
+      url: "/settings/operations",
+      headers: { cookie: admin.cookies },
+      payload: { procurement: { receiptTolerancePct: 5 } },
+    })
+
+    const after = (
+      await app.inject({
+        method: "GET",
+        url: "/settings/operations",
+        headers: { cookie: admin.cookies },
+      })
+    ).json().operations
+
+    expect(after.procurement.receiptTolerancePct).toBe(5)
+    // Untouched fields within the edited module survive too.
+    expect(after.procurement.blockOverReceipt).toBe(before.procurement.blockOverReceipt)
+    expect(after.dispatch).toEqual(before.dispatch)
+    expect(after.credit).toEqual(before.credit)
+  })
+
+  it("reports a contradiction but still saves the half that was decided", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "PUT",
+      url: "/settings/operations",
+      headers: { cookie: admin.cookies },
+      payload: { dispatch: { requirePickList: false } },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().operations.dispatch.requirePickList).toBe(false)
+    expect(response.json().warnings.join(" ")).toMatch(/nobody picked/)
+  })
+
+  it("refuses a value outside its range", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "PUT",
+      url: "/settings/operations",
+      headers: { cookie: admin.cookies },
+      payload: { sales: { maxDiscountPct: 140 } },
+    })
+    expect(response.statusCode).toBe(400)
+  })
+
+  it("only someone who may manage configuration can change them", async () => {
+    const employee = await asEmployee()
+    const response = await app.inject({
+      method: "PUT",
+      url: "/settings/operations",
+      headers: { cookie: employee.cookies },
+      payload: { sales: { maxDiscountPct: 50 } },
+    })
+    expect(response.statusCode).toBe(403)
+  })
+})
+
 describe("the Tally connector", () => {
   const SECRET = "dev-only-tally-agent-secret"
   const agent = { "x-agent-secret": SECRET }
