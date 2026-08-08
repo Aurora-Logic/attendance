@@ -1,15 +1,8 @@
 
-import { DEMO_ACCOUNTS, ROLE_LABEL, useSession } from "@/lib/session"
+import { DEMO_ACCOUNTS, ROLE_LABEL, demoPasswordFor, useSession } from "@/lib/session"
 import { LoginForm } from "@/components/login-form"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
-
-const DEMO_PASSWORDS: Record<string, string> = {
-  ADMIN: "Admin@123",
-  HR: "Hr@12345",
-  OPERATIONS: "Ops@1234",
-  EMPLOYEE: "Emp@1234",
-}
 
 /** login-05 page shell: muted backdrop, centred narrow column. */
 export function LoginPage() {
@@ -31,7 +24,7 @@ export function LoginPage() {
               key={account.email}
               type="button"
               className="hover:bg-muted flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors"
-              onClick={() => void login(account.email, DEMO_PASSWORDS[account.role])}
+              onClick={() => void login(account.email, demoPasswordFor(account.email))}
             >
               <span className="truncate">{account.email}</span>
               <Badge variant="outline">{ROLE_LABEL[account.role]}</Badge>

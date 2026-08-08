@@ -30,10 +30,22 @@ const ACCOUNTS: Array<Omit<SessionUser, "source"> & { password: string }> = [
   { name: "Virag Jain", email: "admin@delta.dev", password: "Admin@123", role: "ADMIN", employeeId: "emp_1", initials: "VJ" },
   { name: "Priya Nair", email: "hr@delta.dev", password: "Hr@12345", role: "HR", employeeId: "emp_2", initials: "PN" },
   { name: "Rohan Desai", email: "ops@delta.dev", password: "Ops@1234", role: "OPERATIONS", employeeId: "emp_8", initials: "RD" },
+  { name: "Sanjay Yadav", email: "picker@delta.dev", password: "Pick@1234", role: "PICKER", employeeId: "emp_7", initials: "SY" },
   { name: "Kabir Singh", email: "employee@delta.dev", password: "Emp@1234", role: "EMPLOYEE", employeeId: "emp_5", initials: "KS" },
 ]
 
 export const DEMO_ACCOUNTS = ACCOUNTS.map(({ password: _password, ...user }) => user)
+
+/**
+ * The password for a demo account, read from the one list that has it.
+ *
+ * The sign-in screen used to keep its own map keyed by role, which meant a new
+ * role logged in with `undefined` and the button simply did nothing — no error,
+ * no clue. One list, or the two drift the first time somebody adds an account.
+ */
+export function demoPasswordFor(email: string): string {
+  return ACCOUNTS.find((account) => account.email === email)?.password ?? ""
+}
 
 interface SessionValue {
   user: SessionUser | null

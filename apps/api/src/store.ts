@@ -288,6 +288,7 @@ export function seedStore(): Store {
     { id: "e4", code: "DLT0004", name: "Kabir Singh", email: "kabir@delta.dev", department: "Operations", branchId: "b1", shiftId: "gen", managerId: "e3", isFieldEmployee: false },
     { id: "e5", code: "DLT0005", name: "Meera Joshi", email: "meera@delta.dev", department: "Sales", branchId: "b1", shiftId: "gen", managerId: "e3", isFieldEmployee: true },
     { id: "e6", code: "DLT0006", name: "Aditya Rao", email: "aditya@delta.dev", department: "Production", branchId: "b1", shiftId: "night", managerId: "e3", isFieldEmployee: false },
+    { id: "e7", code: "DLT0007", name: "Sanjay Yadav", email: "sanjay@delta.dev", department: "Stores", branchId: "b1", shiftId: "gen", managerId: "e3", isFieldEmployee: false },
   ]
 
   return {
@@ -295,7 +296,10 @@ export function seedStore(): Store {
       { id: "u1", name: "Virag Jain", email: "admin@delta.dev", passwordHash: hash("Admin@123"), role: "ADMIN", employeeId: "e1" },
       { id: "u2", name: "Priya Nair", email: "hr@delta.dev", passwordHash: hash("Hr@12345"), role: "HR", employeeId: "e2" },
       { id: "u3", name: "Rohan Desai", email: "ops@delta.dev", passwordHash: hash("Ops@1234"), role: "OPERATIONS", employeeId: "e3" },
+      // A shop-floor login, so the picker role can actually be used rather than
+      // existing only in the permission matrix.
       { id: "u4", name: "Kabir Singh", email: "employee@delta.dev", passwordHash: hash("Emp@1234"), role: "EMPLOYEE", employeeId: "e4" },
+      { id: "u5", name: "Sanjay Yadav", email: "picker@delta.dev", passwordHash: hash("Pick@1234"), role: "PICKER", employeeId: "e7" },
     ],
     employees,
     branches: [{ id: "b1", name: "Mumbai HO", lat: 19.076, lng: 72.8777 }],
@@ -335,6 +339,7 @@ export function seedStore(): Store {
       },
       { employeeId: "e5", grossMonthlyPaise: 3_900_000, basis: "CALENDAR_DAYS" },
       { employeeId: "e6", grossMonthlyPaise: 3_100_000, basis: "FIXED_26" },
+      { employeeId: "e7", grossMonthlyPaise: 2_400_000, basis: "FIXED_26" },
     ],
     monthLocks: [],
     payrollRuns: [],

@@ -3817,3 +3817,56 @@ describe("credit control", () => {
     ).toBe(404)
   })
 })
+
+describe("the picker, end to end", () => {
+  const asPicker = () => login("picker@delta.dev", "Pick@1234")
+
+  it("signs in and is told exactly what it may do", async () => {
+    const picker = await asPicker()
+    const me = (
+      await app.inject({ method: "GET", url: "/auth/me", headers: { cookie: picker.cookies } })
+    ).json()
+    expect(me.user.role).toBe("PICKER")
+    expect(me.permissions["dispatch.pick"]).toBe("ALL")
+    expect(me.permissions["dispatch.manage"]).toBe("NONE")
+  })
+
+  it("can see the board and work a list", async () => {
+    const picker = await asPicker()
+    expect(
+      (await app.inject({ method: "GET", url: "/fulfilment", headers: { cookie: picker.cookies } }))
+        .statusCode
+    ).toBe(200)
+  })
+
+  it("cannot record a dispatch or certify a delivery", async () => {
+    // The person who sealed the carton should not be the one who says it arrived.
+    const picker = await asPicker()
+    for (const url of ["/fulfilment/consignments", "/fulfilment/pods"]) {
+      const response = await app.inject({
+        method: "POST",
+        url,
+        headers: { cookie: picker.cookies },
+        payload: {},
+      })
+      expect(response.statusCode).toBe(403)
+    }
+  })
+
+  it("cannot reach the customer master or prices", async () => {
+    const picker = await asPicker()
+    for (const url of ["/customers", "/estimates", "/invoices"]) {
+      const response = await app.inject({ method: "GET", url, headers: { cookie: picker.cookies } })
+      expect(response.statusCode).toBe(403)
+    }
+  })
+
+  it("is still an employee: punches in and sees their own payslip", async () => {
+    const picker = await asPicker()
+    const me = (
+      await app.inject({ method: "GET", url: "/auth/me", headers: { cookie: picker.cookies } })
+    ).json()
+    expect(me.permissions["punch.self"]).toBe("SELF")
+    expect(me.permissions["payroll.viewOwn"]).toBe("SELF")
+  })
+})
