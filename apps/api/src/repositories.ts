@@ -225,7 +225,23 @@ export function persistApprovalDecision(approval: StoredApproval): void {
   fire("persist decision", () =>
     db.approvalRequest.update({
       where: { id: approval.id },
-      data: { status: approval.status },
+      // `level` too: an escalation is a decision about who decides, and
+      // losing it on restart silently un-escalates every stale request.
+      data: { status: approval.status, level: approval.level },
+    })
+  )
+  // approval_actions is append-only and, per the schema, IS the turnaround
+  // report — yet nothing ever wrote to it. Without this row, who approved and
+  // why vanished on restart, leaving an approved request with no approver.
+  if (approval.status === "PENDING" || !approval.decidedBy) return
+  fire("persist decision action", () =>
+    db.approvalAction.create({
+      data: {
+        requestId: approval.id,
+        actorId: approval.decidedBy!,
+        action: approval.status === "APPROVED" ? "APPROVE" : "REJECT",
+        remarks: approval.remarks ?? "",
+      },
     })
   )
 }
@@ -329,11 +345,18 @@ export async function hydrateFromDb(store: Store): Promise<{
     })
   }
 
-  const [punches, approvals, ledger] = await Promise.all([
+  const [punches, approvals, ledger, actions] = await Promise.all([
     db.punch.findMany({ orderBy: { at: "asc" } }),
     db.approvalRequest.findMany(),
     db.leaveLedgerEntry.findMany({ orderBy: { date: "asc" } }),
+    db.approvalAction.findMany({ orderBy: { at: "asc" } }),
   ])
+
+  // Latest action per request: who decided it and what they said.
+  const lastAction = new Map<string, { actorId: string; remarks: string }>()
+  for (const action of actions) {
+    lastAction.set(action.requestId, { actorId: action.actorId, remarks: action.remarks })
+  }
 
   if (punches.length > 0) {
     // Selfies live only in the store file — merge them back onto DB rows.
@@ -380,6 +403,8 @@ export async function hydrateFromDb(store: Store): Promise<{
         createdAt: meta.createdAt ?? row.dateFrom.toISOString(),
         leaveType: meta.leaveType ?? undefined,
         leavePart: meta.leavePart ?? undefined,
+        decidedBy: lastAction.get(row.id)?.actorId,
+        remarks: lastAction.get(row.id)?.remarks,
       }
     })
   }

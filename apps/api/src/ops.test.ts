@@ -379,13 +379,26 @@ describe("commercial chain", () => {
       headers: { cookie: ops },
       payload: { action: "APPROVE" },
     })
-    const ordered = await app.inject({
+    // A poId that names no purchase order is refused: an indent that reads as
+    // fulfilled but points nowhere is worse than one with no link at all.
+    const bogus = await app.inject({
       method: "POST",
       url: `/indents/${indent.id}/mark-ordered`,
       headers: { cookie: ops },
       payload: { poId: "po_x" },
     })
+    expect(bogus.statusCode).toBe(422)
+    expect(bogus.json().error).toBe("PO_NOT_FOUND")
+
+    // Ordering without a linked PO yet is legitimate.
+    const ordered = await app.inject({
+      method: "POST",
+      url: `/indents/${indent.id}/mark-ordered`,
+      headers: { cookie: ops },
+      payload: { poId: null },
+    })
     expect(ordered.json().indent.status).toBe("ORDERED")
+    expect(ordered.json().indent.poId).toBeNull()
 
     const { claim } = (
       await app.inject({

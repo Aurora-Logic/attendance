@@ -343,6 +343,17 @@ Eleven non-null assertions on store lookups sat in request paths. Each was an un
 
 The rule this encodes: degrade where a reader just wants the rest of the data, and refuse loudly where money is involved.
 
+## 20. Measured, then fixed (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| M1 | The "providers write to localStorage on every state change" P2 was **measured and closed with no code** | A Playwright probe counting `setItem` calls found **zero writes during SPA navigation** and exactly one ~2.3KB write per real state change, with no redundant writes. Persisting a change is the point; there was no churn to remove. Recorded here so nobody re-opens it on the strength of the original claim. |
+| M2 | `seedAttendanceDays` is **cached per date** | The seed is deterministic, so a fresh array per call was waste — and worse, a new identity every render, which defeats every downstream `useMemo` and effect dependency in demo mode. Asserted with `toBe`, not `toEqual`: identity is the thing being fixed. |
+| M3 | `approval_actions` is finally written, and read back on boot | The schema calls that table the turnaround report, and **nothing ever wrote to it**. Who approved a request and why vanished on restart, leaving approved requests with no approver. `level` now persists too, so an escalation is not silently undone by a restart. |
+| M4 | `POST /indents/:id/mark-ordered` gained a schema and a reference check | It was the one write path with no validation at all — the body was cast, so any shape passed. A `poId` naming no purchase order is refused: an indent that reads as fulfilled but points nowhere is worse than one with no link. |
+
+Note on M4: the existing test passed `poId: "po_x"`, a fake id, and started failing once the guard landed. The test was updated to match corrected behaviour — the guard was not weakened to keep a green suite.
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

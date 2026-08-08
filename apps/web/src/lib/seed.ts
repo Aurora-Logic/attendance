@@ -78,7 +78,22 @@ export const EMPLOYEES: Employee[] = FIRST.map((first, index) => {
 
 export const TODAY = "2026-08-03"
 
+/**
+ * Cached per date. The seed is deterministic, so a fresh array each call was
+ * pure waste — and worse, a new identity every render, which defeats every
+ * `useMemo` and effect dependency downstream of it in demo mode.
+ */
+const seedDayCache = new Map<string, AttendanceDay[]>()
+
 export function seedAttendanceDays(date = TODAY): AttendanceDay[] {
+  const cached = seedDayCache.get(date)
+  if (cached) return cached
+  const rows = buildSeedAttendanceDays(date)
+  seedDayCache.set(date, rows)
+  return rows
+}
+
+function buildSeedAttendanceDays(date: string): AttendanceDay[] {
   return EMPLOYEES.map((employee, index) => {
     const r = seeded(index + 7)
     const shiftStartMin = employee.shift.startsWith("Night") ? 22 * 60 : 9 * 60

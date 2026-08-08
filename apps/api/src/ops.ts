@@ -212,12 +212,26 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
   /** Stamped when the PO raised from this indent is created. */
   app.post("/indents/:id/mark-ordered", { preHandler: procManage }, async (request, reply) => {
     const { id: indentId } = request.params as { id: string }
-    const { poId } = (request.body ?? {}) as { poId?: string }
+    // This was the one write path with no schema at all: the body was cast,
+    // so any shape passed and a typo'd poId linked an indent to nothing.
+    const parsed = z
+      .object({ poId: z.string().min(1).nullable().default(null) })
+      .safeParse(request.body ?? {})
+    if (!parsed.success)
+      return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+
     const indent = store.indents.find((candidate) => candidate.id === indentId)
     if (!indent) return reply.code(404).send({ error: "NOT_FOUND" })
     if (indent.status !== "APPROVED") return reply.code(409).send({ error: "NOT_APPROVED" })
+
+    const { poId } = parsed.data
+    // A reference to a purchase order that does not exist is worse than none:
+    // the indent reads as fulfilled and points nowhere.
+    if (poId && !store.pos.some((po) => po.id === poId))
+      return reply.code(422).send({ error: "PO_NOT_FOUND", poId })
+
     indent.status = "ORDERED"
-    indent.poId = poId ?? null
+    indent.poId = poId
     return { indent }
   })
 

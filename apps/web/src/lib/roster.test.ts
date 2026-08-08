@@ -1,3 +1,4 @@
+import { seedAttendanceDays } from "./seed"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -96,5 +97,25 @@ describe("generateRoster — derived from configuration, never copied", () => {
 
   it("covers every seeded employee", () => {
     expect(generateRoster(2026, 7, config())).toHaveLength(EMPLOYEES.length)
+  })
+})
+
+describe("seedAttendanceDays identity", () => {
+  it("returns the same array for the same date, so memo dependencies hold", () => {
+    const first = seedAttendanceDays("2026-08-03")
+    const second = seedAttendanceDays("2026-08-03")
+    // Identity, not just equality — this is what downstream useMemo compares.
+    expect(second).toBe(first)
+  })
+
+  it("still gives a distinct array per date", () => {
+    expect(seedAttendanceDays("2026-08-04")).not.toBe(seedAttendanceDays("2026-08-03"))
+  })
+
+  it("the cached rows are the real shape, not an empty placeholder", () => {
+    const rows = seedAttendanceDays("2026-08-03")
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows[0]).toHaveProperty("employeeCode")
+    expect(rows[0]).toHaveProperty("payableUnits")
   })
 })
