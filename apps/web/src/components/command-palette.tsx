@@ -3,7 +3,7 @@ import { useNavigate } from "react-router"
 import { Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 
-import { NAV_GROUPS } from "@/lib/nav"
+import { NAV_GROUPS, canSeeNavItem } from "@/lib/nav"
 import { useSession } from "@/lib/session"
 import {
   CommandDialog,
@@ -33,7 +33,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
   const [open, setOpen] = React.useState(false)
   const navigate = useNavigate()
   const { setTheme } = useTheme()
-  const { can } = useSession()
+  const session = useSession()
 
   /**
    * ⌘K / Ctrl-K anywhere, plus "/" as a no-modifier fallback.
@@ -100,7 +100,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
           <CommandEmpty>No match.</CommandEmpty>
           {NAV_GROUPS.map((group) => {
             const items = group.items.filter(
-              (item) => !item.permission || can(item.permission)
+              (item) => canSeeNavItem(session, item)
             )
             if (items.length === 0) return null
             return (

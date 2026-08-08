@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router"
 import { LayoutGrid, Settings2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { NAV_GROUPS, type NavItem } from "@/lib/nav"
+import { NAV_GROUPS, canSeeNavItem, type NavItem } from "@/lib/nav"
 import { useAppConfig } from "@/lib/app-config"
 import { useSession } from "@/lib/session"
 import { Button } from "@/components/ui/button"
@@ -31,13 +31,13 @@ import {
 export const DEFAULT_BOTTOM_NAV = ["/", "/punch", "/attendance", "/approvals"]
 
 export function usePermittedNavItems(): NavItem[] {
-  const { can } = useSession()
+  const session = useSession()
   return React.useMemo(
     () =>
       NAV_GROUPS.flatMap((group) => group.items).filter(
-        (item) => !item.permission || can(item.permission)
+        (item) => canSeeNavItem(session, item)
       ),
-    [can]
+    [session]
   )
 }
 

@@ -279,3 +279,22 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
 ]
+
+
+/**
+ * Can this session see this nav entry?
+ *
+ * The sidebar, the phone bottom bar and the command palette each had their own
+ * copy of this test, and two of them checked only `can()` — so a screen marked
+ * `requiresFullScope` stayed reachable from ⌘K and from mobile after the
+ * sidebar had been fixed. One predicate, three callers.
+ */
+export function canSeeNavItem(
+  session: { can: (key: string) => boolean; scopeFor: (key: string) => string },
+  item: NavItem
+): boolean {
+  if (!item.permission) return true
+  return item.requiresFullScope
+    ? session.scopeFor(item.permission) === "ALL"
+    : session.can(item.permission)
+}

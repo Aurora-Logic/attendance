@@ -57,7 +57,16 @@ function CommandDialog({
         )}
         showCloseButton={showCloseButton}
       >
-        {children}
+        {/*
+          The cmdk root. Its children — input, list, items — read the cmdk
+          store through context, so without it every one of them dereferences
+          an undefined store and the whole app unmounts with
+          "Cannot read properties of undefined (reading 'subscribe')".
+          The palette therefore crashed the app on open rather than opening.
+        */}
+        <Command className="[&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-input-wrapper]_svg]:size-5 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3">
+          {children}
+        </Command>
       </DialogContent>
     </Dialog>
   )

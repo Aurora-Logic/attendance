@@ -33,6 +33,10 @@ function SearchTrigger() {
       variant="outline"
       size="sm"
       className="text-muted-foreground gap-2"
+      // The label is visually hidden below sm, leaving an icon-only button
+      // with no accessible name — unusable with a screen reader and
+      // unaddressable in a test.
+      aria-label="Search"
       onClick={() => setOpen(true)}
     >
       <Search />

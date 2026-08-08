@@ -2,7 +2,7 @@ import { ChevronsUpDown, Clock, LogOut } from "lucide-react"
 import { NavLink } from "react-router"
 
 import { useAppConfig } from "@/lib/app-config"
-import { NAV_GROUPS } from "@/lib/nav"
+import { NAV_GROUPS, canSeeNavItem } from "@/lib/nav"
 import { ROLE_LABEL, useSession } from "@/lib/session"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -68,11 +68,7 @@ export function AppSidebar() {
           // Entries the signed-in role has no grant for are not rendered. The
           // check is against the permission matrix, never a role name.
           const items = group.items.filter(
-            (item) =>
-              !item.permission ||
-              (item.requiresFullScope
-                ? session.scopeFor(item.permission) === "ALL"
-                : session.can(item.permission))
+            (item) => canSeeNavItem(session, item)
           )
           if (items.length === 0) return null
 

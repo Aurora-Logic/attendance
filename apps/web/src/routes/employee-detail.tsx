@@ -241,7 +241,7 @@ function EditEmployeeSheet({
 export function EmployeeDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { scopeFor } = useSession()
+  const { scopeFor, user } = useSession()
   const { employees: liveEmployees } = useEmployeesList()
   const employee =
     EMPLOYEES.find((entry) => entry.id === id) ??
@@ -249,6 +249,17 @@ export function EmployeeDetailPage() {
     null
   const liveRow = liveEmployees.find((entry) => entry.id === id && entry.shiftId) ?? null
   const canEdit = scopeFor("employee.manage") !== "NONE"
+  /**
+   * Anyone could open any colleague's profile by id — their email, manager,
+   * and three months of attendance analytics. The route was never guarded
+   * because it is reached by clicking a row on a list that *is* guarded, but
+   * the URL was always there to type.
+   *
+   * Viewing your own is always fine; viewing anyone else's needs the same
+   * capability the employee list does.
+   */
+  const isSelf = user?.employeeId === id
+  const mayView = isSelf || scopeFor("employee.manage") !== "NONE"
 
   // Seeded employees carry three months of synthetic history; a live-API
   // employee has only what has actually been punched, so charts wait.
@@ -257,6 +268,27 @@ export function EmployeeDetailPage() {
     () => (employee && hasHistory ? buildEmployeeAnalytics(employee) : null),
     [employee, hasHistory]
   )
+
+  if (!mayView) {
+    return (
+      <Page>
+        <PageHeader title="Not available to you" />
+        <PageBody>
+          <Empty className="border border-dashed">
+            <EmptyHeader>
+              <EmptyTitle>This is someone else's profile</EmptyTitle>
+              <EmptyDescription>
+                Viewing another employee's attendance needs the employee.manage permission.
+              </EmptyDescription>
+            </EmptyHeader>
+            <Button variant="outline" size="sm" onClick={() => navigate("/")}>
+              Back to your dashboard
+            </Button>
+          </Empty>
+        </PageBody>
+      </Page>
+    )
+  }
 
   if (!employee) {
     return (

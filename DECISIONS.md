@@ -488,6 +488,20 @@ The half-day test asserting "overtime starts after the shortened expectation" en
 | O9 | An overtime claim covers **only the minutes not yet claimed** for that day | "One claim per day" stranded overtime genuinely earned: regularise a forgotten punch-out, the day grows by two hours, and those hours could never be claimed. A top-up claims the difference, so nothing is double-paid and nothing is lost. |
 | O10 | Payroll still pays `min(sum of approved, what the day computes)` | The claim path is now more permissive, so the cap matters more. Tested by inflating an approved figure directly: payroll pays what the day earned, not what the record says. |
 
+## 32. The command palette crashed the app (8 Aug 2026)
+
+Found while probing a P2 about nav filtering, not by the audit — no auditor and no sweep had ever opened it.
+
+`CommandDialog` rendered the cmdk children — input, list, items — **without the `<Command>` root they read their store from**. Every one of them dereferenced an undefined store, so opening the palette threw `Cannot read properties of undefined (reading 'subscribe')` and unmounted the entire application. It had never worked, on any commit; ⌘K, Ctrl-K, "/" and the Search button all did the same thing.
+
+| # | Decision | Why |
+|---|---|---|
+| Q1 | `CommandDialog` wraps children in `<Command>`, as the registry does | Restoring the root the primitives require. Verified per role: 28 entries for Admin, 27 for HR. |
+| Q2 | One `canSeeNavItem` predicate for the sidebar, phone bar and palette | Two of the three checked only `can()`, so a screen marked `requiresFullScope` stayed reachable from ⌘K and mobile after the sidebar was fixed. Confirmed by the counts above: Roles & Permissions is in Admin's palette and not HR's. |
+| Q3 | The sweep **opens the palette** on every viewport | Chrome that appears on every screen, yet a route sweep that never opens it can never notice it is broken. |
+| Q4 | The Search trigger carries an `aria-label` | Its text is hidden below `sm`, leaving an icon-only button with no accessible name — unusable with a screen reader, and the reason the sweep could not address it at 390px. |
+| Q5 | `/employees/:id` is guarded, self-view always allowed | Anyone could open a colleague's profile by id and read their email, manager and three months of attendance analytics. It was never guarded because it is reached from a list that is — but the URL was always there to type. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

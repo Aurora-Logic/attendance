@@ -110,6 +110,24 @@ for (const viewport of VIEWPORTS) {
       })
     }
 
+    // The command palette is chrome on every screen and crashed the whole app
+    // when opened — a route sweep that never opens it will never notice.
+    if (route === "/") {
+      await page.getByRole("button", { name: /Search/ }).first().click()
+      await page.waitForTimeout(600)
+      const paletteItems = await page.locator("[cmdk-item]").count()
+      if (paletteItems === 0) {
+        findings.push({
+          viewport: viewport.name,
+          route,
+          kind: "palette",
+          text: "command palette opened with no items — it is broken",
+        })
+      }
+      await page.keyboard.press("Escape")
+      await page.waitForTimeout(300)
+    }
+
     const slug = route === "/" ? "dashboard" : route.slice(1).replaceAll("/", "_")
     await page.screenshot({ path: `${SHOTS}/${viewport.name}-${slug}.png`, fullPage: false })
   }
