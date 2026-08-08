@@ -2,6 +2,40 @@
 import { chromium } from "playwright"
 
 const BASE = "http://localhost:5177"
+const API = process.env.API_URL ?? "http://localhost:3000"
+const TARGET_DATE = "2026-07-15"
+
+/**
+ * Clear any request this test left behind on an earlier run. The API refuses a
+ * second pending request for the same day — correctly — so without this the
+ * test fails on its own history rather than on a real defect.
+ */
+async function clearPrevious() {
+  const login = await fetch(`${API}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "ops@delta.dev", password: "Ops@1234" }),
+  })
+  const cookie = login.headers
+    .getSetCookie()
+    .map((entry) => entry.split(";")[0])
+    .join("; ")
+  const approvals = await (await fetch(`${API}/approvals`, { headers: { cookie } })).json()
+  for (const approval of approvals.approvals ?? []) {
+    if (
+      approval.kind === "REGULARISATION" &&
+      approval.status === "PENDING" &&
+      approval.dateFrom === TARGET_DATE
+    ) {
+      await fetch(`${API}/approvals/${approval.id}/decide`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ action: "REJECT", remarks: "cleanup from a previous test run" }),
+      })
+    }
+  }
+}
+await clearPrevious()
 const SHOTS = process.env.SHOTS_DIR ?? "./shots"
 const errors = []
 const browser = await chromium.launch()

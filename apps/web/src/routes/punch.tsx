@@ -1,6 +1,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import {
+  CalendarPlus,
   Camera,
   CheckCircle2,
   Clock,
@@ -31,7 +32,7 @@ import { format } from "date-fns"
 
 import { ApiError, ApiUnreachable, apiFetch, describeApiError } from "@/lib/api"
 import { enqueuePunch, flushQueue, queuedCount } from "@/lib/offline-queue"
-import { useAttendanceDays, useClaimOvertime } from "@/lib/queries"
+import { useAttendanceDays, useClaimCompOff, useClaimOvertime } from "@/lib/queries"
 import { captureSelfie, type SelfieDerivatives } from "@/lib/selfie"
 import { useAppConfig } from "@/lib/app-config"
 import { useSession } from "@/lib/session"
@@ -265,6 +266,42 @@ export function PunchPage() {
 
   const [posting, setPosting] = React.useState(false)
   const claimOvertime = useClaimOvertime()
+  const claimCompOff = useClaimCompOff()
+
+  /**
+   * Working a weekly off or holiday earns the day back. Shown only when the
+   * day is actually an off-day that has been worked, so it is never a control
+   * that does nothing.
+   */
+  const claimCompOffDay = () => {
+    if (user?.source !== "api") {
+      toast.success("Comp-off claimed (demo)")
+      return
+    }
+    claimCompOff.mutate(
+      { date: todayISO },
+      {
+        onSuccess: ({ credit }) =>
+          toast.success("Comp-off claim sent", {
+            description: `${credit} day — it lands in your balance once approved.`,
+          }),
+        onError: (error) => {
+          const code =
+            error instanceof ApiError ? ((error.body as { error?: string })?.error ?? "") : ""
+          toast.error("Could not claim", {
+            description:
+              code === "ALREADY_CLAIMED"
+                ? "You have already claimed this day."
+                : code === "NOT_ENOUGH_HOURS"
+                  ? "Too few hours worked to earn a comp-off."
+                  : code === "NOT_AN_OFF_DAY"
+                    ? "Comp-off is earned only on a weekly off or a holiday."
+                    : "Try again in a moment.",
+          })
+        },
+      }
+    )
+  }
 
   /** Claims the overtime this day already earned; the server re-derives it. */
   const claimOt = () => {
@@ -667,6 +704,28 @@ export function PunchPage() {
                   <CardDescription>Append-only — corrections add a row</CardDescription>
                 </CardHeader>
                 <CardContent className="min-h-0 flex-1 overflow-y-auto">
+                  {ownDay &&
+                  settings.compOffEnabled &&
+                  (ownDay.status === "WEEKLY_OFF" || ownDay.status === "HOLIDAY") &&
+                  ownDay.workedMinutes >= settings.halfDayMinHours * 60 ? (
+                    <div className="border-status-leave/40 bg-status-leave/8 mb-3 flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
+                      <CalendarPlus className="text-status-leave size-4 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">You worked a day off</p>
+                        <p className="text-muted-foreground text-xs">
+                          Claim the day back — it reaches your balance once approved.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={claimCompOff.isPending}
+                        onClick={claimCompOffDay}
+                      >
+                        Claim
+                      </Button>
+                    </div>
+                  ) : null}
                   {ownDay && ownDay.otMinutes > 0 ? (
                     <div className="border-status-wfh/40 bg-status-wfh/8 mb-3 flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
                       <Timer className="text-status-wfh size-4 shrink-0" />

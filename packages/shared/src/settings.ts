@@ -82,6 +82,12 @@ export const attendanceSettingsSchema = z.object({
    */
   otRequiresApproval: z.boolean().default(true),
 
+  // --- comp-off -------------------------------------------------------------
+  /** Working a weekly off or holiday can earn a day back. */
+  compOffEnabled: z.boolean().default(true),
+  /** Days a credit stays usable. Unused credits expire — see §15. */
+  compOffExpiryDays: z.number().int().positive().default(90),
+
   timezone: z.string().default("Asia/Kolkata"),
 
   // ---- Tally export (§ accounting hand-off) -------------------------------

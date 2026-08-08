@@ -896,6 +896,21 @@ export function SettingsPage() {
                     onChange={(checked) => set("otEnabled", checked)}
                   />
                   <SwitchField
+                    id="comp-off-enabled"
+                    label="Comp-off enabled"
+                    description="Working a weekly off or a holiday earns the day back, subject to approval."
+                    checked={settings.compOffEnabled}
+                    onChange={(checked) => set("compOffEnabled", checked)}
+                  />
+                  <NumberField
+                    id="comp-off-expiry"
+                    label="Comp-off expires after"
+                    unit="days"
+                    description="Unused credits lapse; the oldest is always spent first, so a day off is never lost while a newer one survives."
+                    value={settings.compOffExpiryDays}
+                    onChange={(value) => set("compOffExpiryDays", value)}
+                  />
+                  <SwitchField
                     id="ot-approval"
                     label="Overtime must be approved before it is paid"
                     description="On: a day records the extra time, but payroll pays only what a manager approved. Off: eligible overtime is paid automatically."

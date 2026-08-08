@@ -380,6 +380,21 @@ export function useClaimOvertime() {
   })
 }
 
+export function useClaimCompOff() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { date: string; note?: string }) =>
+      apiFetch<{ approval: ApiApproval; credit: number }>("/comp-off/claims", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["approvals"] })
+      void queryClient.invalidateQueries({ queryKey: ["leave-balances"] })
+    },
+  })
+}
+
 export function useMyLeaveRequests(): MyLeaveRequestView[] | null {
   const { user } = useSession()
   const enabled = user?.source === "api"

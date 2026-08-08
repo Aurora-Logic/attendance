@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify"
 
 import { buildServer } from "../src/server"
 import { seedStore, type Store } from "../src/store"
-import { runNightlyClose } from "../src/nightly"
+import { expireCompOff, runNightlyClose } from "../src/nightly"
 
 let store: Store
 let app: FastifyInstance
@@ -1422,5 +1422,197 @@ describe("nightly close runs on the company's calendar and self-heals", () => {
       })
     }
     expect(runNightlyClose(store, "2026-08-04").closed).not.toContain("e4")
+  })
+})
+
+describe("comp-off — earn a day back, spend it, and lose it if unused", () => {
+  // 2026-08-02 is a Sunday: the seed's weekly off.
+  const OFF_DAY = "2026-08-02"
+
+  const workTheOffDay = async (cookie: string, hours: number) => {
+    for (const [type, at, key] of [
+      ["IN", `${OFF_DAY}T09:00`, "compoff-in-1"],
+      ["OUT", `${OFF_DAY}T${String(9 + hours).padStart(2, "0")}:00`, "compoff-out-1"],
+    ] as const) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/punches",
+        headers: { cookie },
+        payload: punchBody({ type, at, idempotencyKey: key }),
+      })
+      expect([200, 201]).toContain(response.statusCode)
+    }
+  }
+
+  it("a full day worked on a weekly off earns one credit, once approved", async () => {
+    const employee = await asEmployee()
+    await workTheOffDay(employee.cookies, 9)
+
+    const claim = await app.inject({
+      method: "POST",
+      url: "/comp-off/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: OFF_DAY, note: "stock count" },
+    })
+    expect(claim.statusCode).toBe(201)
+    expect(claim.json().credit).toBe(1)
+
+    // Claiming alone credits nothing.
+    expect(store.ledger.filter((row) => row.type === "COMP_OFF" && row.units > 0)).toHaveLength(0)
+
+    const manager = await asOps()
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/approvals/${claim.json().approval.id}/decide`,
+          headers: { cookie: manager.cookies },
+          payload: { action: "APPROVE", remarks: "confirmed" },
+        })
+      ).statusCode
+    ).toBe(200)
+
+    const credit = store.ledger.find(
+      (row) => row.employeeId === "e4" && row.type === "COMP_OFF" && row.units > 0
+    )!
+    expect(credit.units).toBe(1)
+    // Dated the day that was worked, because expiry counts from there.
+    expect(credit.date).toBe(OFF_DAY)
+    expect(credit.txnType).toBe("COMP_OFF_CREDIT")
+
+    const balances = await app.inject({
+      method: "GET",
+      url: "/leave/balances/e4",
+      headers: { cookie: manager.cookies },
+    })
+    expect(balances.json().balances.COMP_OFF).toBe(1)
+  })
+
+  it("half a day worked earns half a credit", async () => {
+    const employee = await asEmployee()
+    await workTheOffDay(employee.cookies, 5)
+    const claim = await app.inject({
+      method: "POST",
+      url: "/comp-off/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: OFF_DAY },
+    })
+    expect(claim.json().credit).toBe(0.5)
+  })
+
+  it("refuses a working day, too few hours, a future date, and a second claim", async () => {
+    const employee = await asEmployee()
+    // A Tuesday is a normal working day — nothing to give back.
+    const working = await app.inject({
+      method: "POST",
+      url: "/comp-off/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: "2026-08-04" },
+    })
+    expect(working.statusCode).toBe(422)
+    expect(working.json().error).toBe("NOT_AN_OFF_DAY")
+
+    await workTheOffDay(employee.cookies, 2)
+    const tooShort = await app.inject({
+      method: "POST",
+      url: "/comp-off/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: OFF_DAY },
+    })
+    expect(tooShort.statusCode).toBe(422)
+    expect(tooShort.json().error).toBe("NOT_ENOUGH_HOURS")
+
+    const future = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/comp-off/claims",
+          headers: { cookie: employee.cookies },
+          payload: { date: future },
+        })
+      ).statusCode
+    ).toBe(422)
+  })
+
+  it("an earned credit is spendable as leave, and the balance guard still holds", async () => {
+    const employee = await asEmployee()
+    await workTheOffDay(employee.cookies, 9)
+    const claim = await app.inject({
+      method: "POST",
+      url: "/comp-off/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: OFF_DAY },
+    })
+    const manager = await asOps()
+    await app.inject({
+      method: "POST",
+      url: `/approvals/${claim.json().approval.id}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "ok" },
+    })
+
+    // Spend it: a Monday, so it is one whole leave unit.
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "COMP_OFF", from: "2026-08-10", to: "2026-08-10", part: "FULL", reason: "rest" },
+    })
+    expect(applied.statusCode).toBe(201)
+    await app.inject({
+      method: "POST",
+      url: `/approvals/${applied.json().approval.id}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "ok" },
+    })
+
+    const balances = await app.inject({
+      method: "GET",
+      url: "/leave/balances/e4",
+      headers: { cookie: manager.cookies },
+    })
+    expect(balances.json().balances.COMP_OFF).toBe(0)
+
+    // Spending a credit that is no longer there is refused at apply time.
+    const overdrawn = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "COMP_OFF", from: "2026-08-11", to: "2026-08-11", part: "FULL", reason: "again" },
+    })
+    expect(overdrawn.statusCode).toBe(422)
+    expect(overdrawn.json().error).toBe("INSUFFICIENT_BALANCE")
+  })
+
+  it("an unused credit expires, and the sweep never expires it twice", async () => {
+    const employee = await asEmployee()
+    await workTheOffDay(employee.cookies, 9)
+    const claim = await app.inject({
+      method: "POST",
+      url: "/comp-off/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: OFF_DAY },
+    })
+    const manager = await asOps()
+    await app.inject({
+      method: "POST",
+      url: `/approvals/${claim.json().approval.id}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "ok" },
+    })
+
+    // Well past the 90-day window.
+    const first = expireCompOff(store, "2026-12-31")
+    expect(first.expired).toBe(1)
+    const second = expireCompOff(store, "2026-12-31")
+    expect(second.expired).toBe(0)
+
+    const balances = await app.inject({
+      method: "GET",
+      url: "/leave/balances/e4",
+      headers: { cookie: manager.cookies },
+    })
+    expect(balances.json().balances.COMP_OFF).toBe(0)
   })
 })

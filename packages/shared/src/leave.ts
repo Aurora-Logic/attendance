@@ -104,3 +104,61 @@ export function compOffUsable(earnedISO: string, expiryDays: number, onISO: stri
   const diffDays = Math.floor((on - earned) / 86_400_000)
   return diffDays >= 0 && diffDays <= expiryDays
 }
+
+/* ------------------------------------------------------------- comp-off */
+
+/**
+ * What working an off-day earns. The same hour thresholds that decide a
+ * normal day's payable units decide the credit, so "a full day is a full day"
+ * means one thing across the system rather than two.
+ */
+export function compOffCredit(
+  workedMinutes: number,
+  settings: { halfDayMinHours: number; fullDayMinHours: number }
+): number {
+  if (workedMinutes >= settings.fullDayMinHours * 60) return 1
+  if (workedMinutes >= settings.halfDayMinHours * 60) return 0.5
+  return 0
+}
+
+export interface CompOffLot {
+  /** Date the credit was earned — expiry counts from here. */
+  earnedISO: string
+  units: number
+}
+
+export interface CompOffExpiry {
+  earnedISO: string
+  units: number
+}
+
+/**
+ * Which credits have gone stale. Credits are consumed **oldest first**, so a
+ * debit always burns the credit closest to expiring — the arrangement that
+ * loses the employee the least. Whatever is left un-consumed and past its
+ * window is returned so the caller can write the expiry entries.
+ *
+ * Pure and FIFO, because an un-expiring credit is a liability that grows
+ * forever, and expiring the wrong lot silently costs someone a day off.
+ */
+export function compOffExpiries(
+  credits: CompOffLot[],
+  debitUnits: number,
+  expiryDays: number,
+  todayISO: string
+): CompOffExpiry[] {
+  const ordered = [...credits].sort((a, b) => a.earnedISO.localeCompare(b.earnedISO))
+  let remaining = debitUnits
+
+  const expired: CompOffExpiry[] = []
+  for (const lot of ordered) {
+    const consumed = Math.min(remaining, lot.units)
+    remaining -= consumed
+    const left = lot.units - consumed
+    if (left <= 0) continue
+    if (!compOffUsable(lot.earnedISO, expiryDays, todayISO)) {
+      expired.push({ earnedISO: lot.earnedISO, units: left })
+    }
+  }
+  return expired
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { compOffUsable, countLeaveUnits, prorateAnnualQuota, reduceLedger } from "./leave"
+import { compOffCredit, compOffExpiries, compOffUsable, countLeaveUnits, prorateAnnualQuota, reduceLedger } from "./leave"
 
 describe("reduceLedger — balances are a projection of the ledger", () => {
   it("sums credits and debits per type", () => {
@@ -94,5 +94,57 @@ describe("compOffUsable — expiry window", () => {
 
   it("cannot be used before it was earned", () => {
     expect(compOffUsable("2026-08-10", 60, "2026-08-05")).toBe(false)
+  })
+})
+
+describe("compOffCredit", () => {
+  const settings = { halfDayMinHours: 4, fullDayMinHours: 8 }
+
+  it("uses the same thresholds a normal day uses", () => {
+    expect(compOffCredit(8 * 60, settings)).toBe(1)
+    expect(compOffCredit(9 * 60, settings)).toBe(1)
+    expect(compOffCredit(4 * 60, settings)).toBe(0.5)
+    expect(compOffCredit(7 * 60 + 59, settings)).toBe(0.5)
+  })
+
+  it("earns nothing for a token appearance", () => {
+    expect(compOffCredit(0, settings)).toBe(0)
+    expect(compOffCredit(3 * 60 + 59, settings)).toBe(0)
+  })
+})
+
+describe("compOffExpiries", () => {
+  const credits = [
+    { earnedISO: "2026-01-10", units: 1 },
+    { earnedISO: "2026-05-01", units: 1 },
+    { earnedISO: "2026-08-01", units: 0.5 },
+  ]
+
+  it("consumes oldest first, so a debit burns the credit closest to expiring", () => {
+    // One day spent: it comes off the January lot, which is the one at risk.
+    const expired = compOffExpiries(credits, 1, 90, "2026-08-08")
+    expect(expired.map((entry) => entry.earnedISO)).toEqual(["2026-05-01"])
+    expect(expired[0].units).toBe(1)
+  })
+
+  it("reports every un-consumed lot past its window", () => {
+    const expired = compOffExpiries(credits, 0, 90, "2026-08-08")
+    expect(expired).toEqual([
+      { earnedISO: "2026-01-10", units: 1 },
+      { earnedISO: "2026-05-01", units: 1 },
+    ])
+  })
+
+  it("expires nothing while every credit is still inside the window", () => {
+    expect(compOffExpiries(credits, 0, 365, "2026-08-08")).toEqual([])
+  })
+
+  it("expires a partially consumed lot only for what is left", () => {
+    const expired = compOffExpiries([{ earnedISO: "2026-01-10", units: 1 }], 0.5, 90, "2026-08-08")
+    expect(expired).toEqual([{ earnedISO: "2026-01-10", units: 0.5 }])
+  })
+
+  it("a debit larger than the stale lots leaves nothing to expire", () => {
+    expect(compOffExpiries(credits, 3, 90, "2026-08-08")).toEqual([])
   })
 })

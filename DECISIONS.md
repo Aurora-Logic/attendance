@@ -283,6 +283,18 @@ A six-dimension audit (security, robustness, performance, responsiveness, operat
 | O4 | A claim **cannot state its own amount** — the server re-derives minutes from punches | The approval decision is then only ever "yes, pay this", never "how much?", which is the question a manager has no way to audit. |
 | O5 | Claims are refused for a day with no overtime, a future date, a locked month, and a second time | Same guards as regularisation, for the same reasons: nothing to claim, nothing has happened, the period is paid, and a duplicate would double the money. |
 
+## 15. Comp-off (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| C1 | A credit is earned by **working a weekly off or a holiday**, and the amount comes from the same hour thresholds a normal day uses | "A full day is a full day" then means one thing across the system. Below `halfDayMinHours` earns nothing — a token appearance is not a day. |
+| C2 | The claim states the **date, never the amount** — the server derives the credit from punches | Same rule as overtime: the approver answers "yes, give this back", not "how much?", which is a question they cannot audit. |
+| C3 | The ledger entry is dated **the day that was worked**, not the day it was approved | Expiry counts from there, so a credit is worth exactly what the employee gave up. Approving late does not quietly extend it. |
+| C4 | Credits **expire** after `compOffExpiryDays` (default 90), swept nightly | A credit that never expires is a liability that grows forever, and a balance that includes unusable days is a lie. |
+| C5 | Consumption is **oldest-first (FIFO)** | A debit always burns the credit closest to expiring — the arrangement that loses the employee the least. Expiring the wrong lot silently costs someone a day off. |
+| C6 | Expiry writes a negative `ADJUST` row that the next sweep counts as consumption | Makes the sweep idempotent: re-running never expires the same credit twice, which matters because the nightly job re-examines a 7-day window. |
+| C7 | Spending goes through the **existing leave path** (`type: "COMP_OFF"`) | The balance guard, the approval routing and the ledger debit already work and are tested; a parallel spend path would be a second place for them to drift. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

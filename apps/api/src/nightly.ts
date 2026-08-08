@@ -1,6 +1,6 @@
-import { recentCompanyDates } from "@attendance/shared"
+import { compOffExpiries, companyToday, recentCompanyDates } from "@attendance/shared"
 
-import { persistApproval } from "./repositories"
+import { persistApproval, persistLedgerEntry } from "./repositories"
 import type { Store } from "./store"
 import { id } from "./store"
 
@@ -71,7 +71,52 @@ export function scheduleNightlyClose(store: Store, log = console.log): void {
         log(`nightly close: ${closed.length} missed punch-out(s) for ${date}`)
       }
     }
+    const { expired } = expireCompOff(store, companyToday(store.settings.timezone))
+    if (expired > 0) log(`comp-off: ${expired} unused day(s) expired`)
   }
   run()
   setInterval(run, 3_600_000).unref()
+}
+
+/**
+ * Expire stale comp-off credits. A credit that never expires is a liability
+ * that grows forever, and the employee's balance stops meaning "days I can
+ * actually take". Consumption is oldest-first, so a debit always burns the
+ * credit nearest expiry — the arrangement that loses the employee the least.
+ *
+ * Idempotent: an expiry writes a negative ADJUST row that the next sweep
+ * counts as consumption, so re-running never expires the same credit twice.
+ */
+export function expireCompOff(store: Store, todayISO: string): { expired: number } {
+  if (!store.settings.compOffEnabled) return { expired: 0 }
+  let expired = 0
+
+  for (const employee of store.employees) {
+    const rows = store.ledger.filter(
+      (row) => row.employeeId === employee.id && row.type === "COMP_OFF"
+    )
+    const credits = rows
+      .filter((row) => row.units > 0)
+      .map((row) => ({ earnedISO: row.date, units: row.units }))
+    // Everything that has already left the balance — leave taken and earlier
+    // expiries alike — is consumption for FIFO purposes.
+    const debits = rows
+      .filter((row) => row.units < 0)
+      .reduce((sum, row) => sum + Math.abs(row.units), 0)
+
+    for (const lot of compOffExpiries(credits, debits, store.settings.compOffExpiryDays, todayISO)) {
+      store.ledger.push({
+        id: id(store, "l"),
+        employeeId: employee.id,
+        type: "COMP_OFF",
+        txnType: "ADJUST",
+        units: -lot.units,
+        date: todayISO,
+        remarks: `Expired — earned ${lot.earnedISO}, unused after ${store.settings.compOffExpiryDays} days`,
+      })
+      persistLedgerEntry(store.ledger.at(-1)!)
+      expired += lot.units
+    }
+  }
+  return { expired }
 }

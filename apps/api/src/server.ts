@@ -12,6 +12,7 @@ import {
   buildBankTransferCsv,
   buildPayrollJournal,
   checkGeofence,
+  compOffCredit,
   computeAttendanceDay,
   countLeaveUnits,
   evaluateLate,
@@ -1528,6 +1529,84 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     }
   )
 
+  /**
+   * Claim the day back for working a weekly off or a holiday. As with
+   * overtime, the server derives the credit from real punches — the employee
+   * states the date, never the amount.
+   */
+  app.post(
+    "/comp-off/claims",
+    { preHandler: [authenticate, requirePermission("punch.self")] },
+    async (request, reply) => {
+      const parsed = z
+        .object({
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          note: z.string().max(300).default(""),
+        })
+        .safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+      const { date, note } = parsed.data
+
+      if (!store.settings.compOffEnabled) return reply.code(422).send({ error: "COMP_OFF_DISABLED" })
+      if (date > new Date().toISOString().slice(0, 10))
+        return reply.code(422).send({ error: "FUTURE_DATE" })
+
+      // Only a day the company did not expect you to work can be given back.
+      const dayKind = dayKindFor(date)
+      if (dayKind !== "WEEKLY_OFF" && dayKind !== "HOLIDAY")
+        return reply.code(422).send({ error: "NOT_AN_OFF_DAY", dayKind })
+
+      const employee = employeeById(request.auth.employeeId)!
+      const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)!
+      const day = computeAttendanceDay({
+        shift,
+        dayKind,
+        leave: null,
+        punches: store.punches
+          .filter((punch) => punch.employeeId === employee.id && punch.businessDate === date)
+          .map((punch) => ({ type: punch.type, offsetMin: punch.offsetMin })),
+        priorLateMarks: 0,
+        settings: store.settings,
+      })
+      const credit = compOffCredit(day.workedMinutes, store.settings)
+      if (credit <= 0) return reply.code(422).send({ error: "NOT_ENOUGH_HOURS" })
+
+      const duplicate = store.approvals.find(
+        (approval) =>
+          approval.kind === "COMP_OFF" &&
+          approval.employeeId === employee.id &&
+          approval.dateFrom === date &&
+          approval.status !== "REJECTED"
+      )
+      if (duplicate) return reply.code(409).send({ error: "ALREADY_CLAIMED" })
+
+      const approval = {
+        id: id(store, "req"),
+        kind: "COMP_OFF" as const,
+        employeeId: employee.id,
+        subject: `Comp-off ${credit} day for working a ${dayKind === "HOLIDAY" ? "holiday" : "weekly off"}`,
+        detail: note || `${Math.round(day.workedMinutes)} minutes worked`,
+        dateFrom: date,
+        dateTo: date,
+        units: credit,
+        status: "PENDING" as const,
+        level: 1 as const,
+        createdAt: new Date().toISOString(),
+      }
+      store.approvals.push(approval)
+      persistApproval(approval)
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "compoff.claim",
+        entity: "approval_requests",
+        entityId: approval.id,
+        after: { date, credit, workedMinutes: day.workedMinutes },
+        ip: request.ip,
+      })
+      return reply.code(201).send({ approval, credit })
+    }
+  )
+
   // ---- approvals ----------------------------------------------------------
   app.get("/approvals", { preHandler: [authenticate] }, async (request) => {
     const leaveScope = store.matrix["leave.approve"][request.auth.role]
@@ -1655,6 +1734,24 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         after: { date: approval.dateFrom, punches: punches.length },
         ip: request.ip,
       })
+    }
+
+    /**
+     * An approved comp-off credits the ledger, dated the day that was worked.
+     * Expiry counts from that date, so the credit is worth exactly what the
+     * employee gave up and no more.
+     */
+    if (approval.status === "APPROVED" && approval.kind === "COMP_OFF") {
+      store.ledger.push({
+        id: id(store, "l"),
+        employeeId: approval.employeeId,
+        type: "COMP_OFF",
+        txnType: "COMP_OFF_CREDIT",
+        units: approval.units,
+        date: approval.dateFrom,
+        remarks: `${approval.id} approved — worked ${approval.dateFrom}`,
+      })
+      persistLedgerEntry(store.ledger.at(-1)!)
     }
 
     if (approval.status === "APPROVED" && approval.kind === "LEAVE" && approval.leaveType) {
