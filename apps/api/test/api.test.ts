@@ -3789,7 +3789,7 @@ describe("credit control", () => {
       reference: "test",
       amountPaise: 10_000,
       allocations: [{ docId: invoice.id, amountPaise: 10_000 }],
-      idempotencyKey: `credit-test-${store.nextId}`,
+      remarks: "",
       recordedBy: "e1",
     })
 
