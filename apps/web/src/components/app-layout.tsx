@@ -3,6 +3,7 @@ import { Search } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { BottomNav } from "@/components/bottom-nav"
+import { NotificationBell } from "@/components/notification-bell"
 import { CommandPaletteProvider, useCommandPalette } from "@/components/command-palette"
 import { ModeToggle } from "@/components/mode-toggle"
 import { resolveCrumbs } from "@/lib/nav"
@@ -66,6 +67,7 @@ function Shell() {
         </Breadcrumb>
         <div className="ml-auto flex items-center gap-2">
           <SearchTrigger />
+          <NotificationBell />
           <ModeToggle />
         </div>
       </header>

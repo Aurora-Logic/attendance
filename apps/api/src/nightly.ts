@@ -1,4 +1,9 @@
-import { compOffExpiries, companyToday, recentCompanyDates } from "@attendance/shared"
+import {
+  compOffExpiries,
+  companyToday,
+  recentCompanyDates,
+  shouldEscalate,
+} from "@attendance/shared"
 
 import { persistApproval, persistLedgerEntry } from "./repositories"
 import type { Store } from "./store"
@@ -60,7 +65,11 @@ export function runNightlyClose(store: Store, dateISO: string): { closed: string
 const LOOKBACK_DAYS = 7
 
 /** Boot catch-up over the recent window, then an hourly re-check. */
-export function scheduleNightlyClose(store: Store, log = console.log): void {
+export function scheduleNightlyClose(
+  store: Store,
+  log = console.log,
+  notify?: Parameters<typeof escalateStaleApprovals>[2]
+): void {
   const run = () => {
     // The company's calendar, not the server's: in Asia/Kolkata anything
     // before 05:30 local still reports the previous day in UTC, so a job that
@@ -73,6 +82,16 @@ export function scheduleNightlyClose(store: Store, log = console.log): void {
     }
     const { expired } = expireCompOff(store, companyToday(store.settings.timezone))
     if (expired > 0) log(`comp-off: ${expired} unused day(s) expired`)
+
+    if (notify) {
+      const { escalated, autoApproved } = escalateStaleApprovals(
+        store,
+        new Date().toISOString(),
+        notify
+      )
+      if (escalated > 0)
+        log(`approvals: ${escalated} escalated to L2${autoApproved > 0 ? `, ${autoApproved} auto-approved` : ""}`)
+    }
   }
   run()
   setInterval(run, 3_600_000).unref()
@@ -119,4 +138,74 @@ export function expireCompOff(store: Store, todayISO: string): { expired: number
     }
   }
   return { expired }
+}
+
+/**
+ * Move stale requests up. `approvalEscalateAfterDays` and
+ * `autoApproveOnEscalation` were configurable from the first commit and had
+ * never once fired: a manager on leave silently stalled every request routed
+ * to them, with nothing surfacing that anywhere.
+ *
+ * Escalation is a state change, not a decision — an L2 request still needs
+ * someone to act on it, unless the company explicitly opted into auto-approve.
+ * Idempotent: a request already at L2 is skipped, so the hourly sweep cannot
+ * escalate the same thing twice.
+ */
+export function escalateStaleApprovals(
+  store: Store,
+  nowISO: string,
+  notify: (input: {
+    employeeId: string
+    kind: "APPROVAL_ESCALATED"
+    title: string
+    body: string
+    href: string
+  }) => void
+): { escalated: number; autoApproved: number } {
+  let escalated = 0
+  let autoApproved = 0
+
+  for (const approval of store.approvals) {
+    if (approval.status !== "PENDING" || approval.level !== 1) continue
+    if (!shouldEscalate(approval.createdAt, store.settings.approvalEscalateAfterDays, nowISO))
+      continue
+
+    approval.level = 2
+    escalated += 1
+
+    if (store.settings.autoApproveOnEscalation) {
+      approval.status = "APPROVED"
+      approval.remarks = `Auto-approved after ${store.settings.approvalEscalateAfterDays} day(s) without a decision`
+      autoApproved += 1
+      notify({
+        employeeId: approval.employeeId,
+        kind: "APPROVAL_ESCALATED",
+        title: "Request auto-approved",
+        body: `${approval.subject} — nobody decided it within ${store.settings.approvalEscalateAfterDays} day(s).`,
+        href: "/leave",
+      })
+    } else {
+      // Tell HR, and tell the person still waiting.
+      for (const user of store.users) {
+        if (store.matrix["leave.approve"]?.[user.role] !== "ALL") continue
+        if (user.employeeId === approval.employeeId) continue
+        notify({
+          employeeId: user.employeeId,
+          kind: "APPROVAL_ESCALATED",
+          title: "Escalated to you",
+          body: `${approval.subject} — waiting ${store.settings.approvalEscalateAfterDays}+ day(s) at L1.`,
+          href: "/approvals",
+        })
+      }
+      notify({
+        employeeId: approval.employeeId,
+        kind: "APPROVAL_ESCALATED",
+        title: "Your request was escalated",
+        body: `${approval.subject} — it has moved to HR for a decision.`,
+        href: "/leave",
+      })
+    }
+    persistApproval(approval)
+  }
+  return { escalated, autoApproved }
 }

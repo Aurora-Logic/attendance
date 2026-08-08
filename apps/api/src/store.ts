@@ -6,6 +6,7 @@ import {
   DEFAULT_MATRIX,
   type AttendanceSettings,
   type BankDetails,
+  type Notification,
   type RegularisationReason,
   type Challan,
   type Customer,
@@ -184,6 +185,8 @@ export interface Store {
   salaries: SalaryRecord[]
   monthLocks: MonthLock[]
   payrollRuns: PayrollRunRecord[]
+  /** In-app notification feed, newest first. */
+  notifications: Notification[]
   vendors: Vendor[]
   items: Item[]
   /** Master lists behind the item form's pickers — grown inline, never typo'd. */
@@ -275,6 +278,7 @@ export function seedStore(): Store {
     ],
     monthLocks: [],
     payrollRuns: [],
+    notifications: [],
     vendors: [
       { id: "v1", code: "VND001", name: "Shree Steel Traders", gstin: "27AABCS1429B1ZP", contact: "Mahesh Kulkarni", email: "sales@shreesteel.in", phone: "+91 98200 11223", address: "Kalbadevi Road", city: "Mumbai", state: "Maharashtra", paymentTermsDays: 30, leadTimeDays: 7, active: true },
       { id: "v2", code: "VND002", name: "Om Packaging Co", gstin: null, contact: "Sunita Shah", email: "om.pack@gmail.com", phone: "+91 98111 44556", address: "MIDC Phase II", city: "Pune", state: "Maharashtra", paymentTermsDays: 15, leadTimeDays: 4, active: true },

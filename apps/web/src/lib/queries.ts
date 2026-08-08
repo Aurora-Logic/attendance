@@ -395,6 +395,51 @@ export function useClaimCompOff() {
   })
 }
 
+export interface NotificationRow {
+  id: string
+  kind: "APPROVAL_RAISED" | "APPROVAL_DECIDED" | "APPROVAL_ESCALATED" | "PUNCH_FLAGGED" | "COMP_OFF_EXPIRING"
+  title: string
+  body: string
+  href: string
+  createdAt: string
+  readAt: string | null
+}
+
+/**
+ * The bell's feed. Polled rather than pushed: a websocket for a handful of
+ * approval notices is infrastructure this system does not need yet, and a
+ * 60-second poll is well inside how fast anyone acts on one.
+ */
+export function useNotifications() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+  const query = useQuery({
+    queryKey: ["notifications"],
+    enabled,
+    retry: false,
+    refetchInterval: enabled ? 60_000 : false,
+    queryFn: () =>
+      apiFetch<{ notifications: NotificationRow[]; unread: number }>("/notifications"),
+  })
+  return {
+    notifications: query.data?.notifications ?? [],
+    unread: query.data?.unread ?? 0,
+    enabled,
+  }
+}
+
+export function useMarkNotificationsRead() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (ids?: string[]) =>
+      apiFetch<{ marked: number }>("/notifications/read", {
+        method: "POST",
+        body: JSON.stringify(ids ? { ids } : {}),
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  })
+}
+
 export function useMyLeaveRequests(): MyLeaveRequestView[] | null {
   const { user } = useSession()
   const enabled = user?.source === "api"

@@ -3,7 +3,8 @@ import type { FastifyInstance } from "fastify"
 
 import { buildServer } from "../src/server"
 import { seedStore, type Store } from "../src/store"
-import { expireCompOff, runNightlyClose } from "../src/nightly"
+import { escalateStaleApprovals, expireCompOff, runNightlyClose } from "../src/nightly"
+import { makeNotifier } from "../src/notify"
 
 let store: Store
 let app: FastifyInstance
@@ -1692,5 +1693,140 @@ describe("/me/requests — scoped to the caller", () => {
 
   it("requires a session", async () => {
     expect((await app.inject({ method: "GET", url: "/me/requests" })).statusCode).toBe(401)
+  })
+})
+
+describe("notifications and escalation actually reach people", () => {
+  const feedFor = async (cookie: string) =>
+    (await app.inject({ method: "GET", url: "/notifications", headers: { cookie } })).json()
+
+  it("raising a request notifies the approver, not the whole company", async () => {
+    const employee = await asEmployee()
+    await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+
+    // e4 reports to e3, whose account is ops@delta.dev.
+    const manager = await asOps()
+    const managerFeed = await feedFor(manager.cookies)
+    expect(managerFeed.unread).toBeGreaterThan(0)
+    expect(managerFeed.notifications[0].kind).toBe("APPROVAL_RAISED")
+    expect(managerFeed.notifications[0].body).toContain("Kabir Singh")
+
+    // The requester is not told about their own request.
+    const ownFeed = await feedFor(employee.cookies)
+    expect(
+      ownFeed.notifications.filter((n: { kind: string }) => n.kind === "APPROVAL_RAISED")
+    ).toHaveLength(0)
+  })
+
+  it("a decision notifies the person who was waiting", async () => {
+    const employee = await asEmployee()
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+    const manager = await asOps()
+    await app.inject({
+      method: "POST",
+      url: `/approvals/${applied.json().approval.id}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "enjoy" },
+    })
+
+    const feed = await feedFor(employee.cookies)
+    const decided = feed.notifications.find((n: { kind: string }) => n.kind === "APPROVAL_DECIDED")
+    expect(decided).toBeDefined()
+    expect(decided.title).toContain("approved")
+    expect(decided.body).toContain("enjoy")
+  })
+
+  it("marks everything read, and one feed is never another's", async () => {
+    const employee = await asEmployee()
+    await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+    const manager = await asOps()
+    expect((await feedFor(manager.cookies)).unread).toBeGreaterThan(0)
+
+    const marked = await app.inject({
+      method: "POST",
+      url: "/notifications/read",
+      headers: { cookie: manager.cookies },
+      payload: {},
+    })
+    expect(marked.json().marked).toBeGreaterThan(0)
+    expect((await feedFor(manager.cookies)).unread).toBe(0)
+
+    // Marking read on one account never touches another's feed.
+    const admin = await asAdmin()
+    const adminFeed = await feedFor(admin.cookies)
+    for (const entry of adminFeed.notifications) {
+      expect(entry.employeeId).toBe("e1")
+    }
+  })
+
+  it("requires a session", async () => {
+    expect((await app.inject({ method: "GET", url: "/notifications" })).statusCode).toBe(401)
+  })
+
+  it("escalates a stale request to L2 once, and tells both sides", async () => {
+    const employee = await asEmployee()
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+    const approvalId = applied.json().approval.id
+    const notify = makeNotifier(store)
+
+    // Not yet due.
+    expect(escalateStaleApprovals(store, new Date().toISOString(), notify).escalated).toBe(0)
+
+    // Two days later, the configured default.
+    const later = new Date(Date.now() + 3 * 86_400_000).toISOString()
+    const first = escalateStaleApprovals(store, later, notify)
+    expect(first.escalated).toBeGreaterThan(0)
+    expect(first.autoApproved).toBe(0)
+    expect(store.approvals.find((a) => a.id === approvalId)!.level).toBe(2)
+
+    // The sweep runs hourly — it must not escalate the same thing again.
+    expect(escalateStaleApprovals(store, later, notify).escalated).toBe(0)
+
+    const hr = await login("hr@delta.dev", "Hr@12345")
+    const hrFeed = await feedFor(hr.cookies)
+    expect(
+      hrFeed.notifications.some((n: { kind: string }) => n.kind === "APPROVAL_ESCALATED")
+    ).toBe(true)
+    const ownFeed = await feedFor(employee.cookies)
+    expect(
+      ownFeed.notifications.some((n: { kind: string }) => n.kind === "APPROVAL_ESCALATED")
+    ).toBe(true)
+  })
+
+  it("auto-approves on escalation only when the company opted in", async () => {
+    store.settings.autoApproveOnEscalation = true
+    const employee = await asEmployee()
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+    const later = new Date(Date.now() + 3 * 86_400_000).toISOString()
+    const result = escalateStaleApprovals(store, later, makeNotifier(store))
+    expect(result.autoApproved).toBeGreaterThan(0)
+    expect(store.approvals.find((a) => a.id === applied.json().approval.id)!.status).toBe(
+      "APPROVED"
+    )
   })
 })

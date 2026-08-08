@@ -35,6 +35,7 @@ export function loadStore(path: string): Store {
       salaries: parsed.salaries ?? seed.salaries,
       monthLocks: parsed.monthLocks ?? [],
       payrollRuns: parsed.payrollRuns ?? [],
+      notifications: parsed.notifications ?? [],
     }
   } catch (error) {
     // The file exists but will not parse. Silently reseeding here would

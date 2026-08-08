@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url"
 import { buildServer } from "./server"
 import { exportsDir, startExportWorker, stopExports } from "./exports"
 import { scheduleNightlyClose } from "./nightly"
+import { makeNotifier } from "./notify"
 import { hydrateFromDb } from "./repositories"
 import { loadStore, persistOnWrite } from "./persist"
 
@@ -24,7 +25,9 @@ if (hydrated) {
 const filesDir = exportsDir(fileURLToPath(new URL("../.data", import.meta.url)))
 const app = buildServer(store, { exportsDir: filesDir })
 const { flush } = persistOnWrite(app, store, dataFile)
-scheduleNightlyClose(store)
+// The sweep writes to the same feed the routes do, so escalation notices
+// reach people rather than only appearing in a log line.
+scheduleNightlyClose(store, console.log, makeNotifier(store))
 void startExportWorker(store, filesDir)
 
 app

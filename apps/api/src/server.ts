@@ -27,12 +27,14 @@ import {
   scopeSchema,
   shiftSpecSchema,
   splitForDisbursement,
+  unreadCount,
   type PunchFlag,
   type Role,
   type Scope,
 } from "@attendance/shared"
 
 import { auditPage, prisma, recordAudit } from "./db"
+import { makeNotifier } from "./notify"
 import { computeRunItems } from "./payroll"
 import { enqueueExport, exportFileStream } from "./exports"
 import {
@@ -258,6 +260,24 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       if (options.write && scope === "VIEW")
         return reply.code(403).send({ error: "READ_ONLY", permission: key })
     }
+
+  const notify = makeNotifier(store)
+
+  /** Who decides this request — the approver's feed is where it must land. */
+  const approversFor = (employeeId: string): string[] => {
+    const employee = employeeById(employeeId)
+    // The reporting manager if there is one; otherwise everyone whose role
+    // reaches the whole company, so a request never lands nowhere.
+    if (employee?.managerId) return [employee.managerId]
+    return store.users
+      .filter(
+        (user) =>
+          user.employeeId !== employeeId &&
+          (store.matrix["leave.approve"]?.[user.role] === "ALL" ||
+            store.matrix["attendance.approve"]?.[user.role] === "ALL")
+      )
+      .map((user) => user.employeeId)
+  }
 
   const employeeById = (employeeId: string) =>
     store.employees.find((employee) => employee.id === employeeId)
@@ -1382,6 +1402,15 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       }
       store.approvals.push(approval)
       persistApproval(approval)
+      for (const approverId of approversFor(request.auth.employeeId)) {
+        notify({
+          employeeId: approverId,
+          kind: "APPROVAL_RAISED",
+          title: "Leave request awaiting you",
+          body: `${employeeById(request.auth.employeeId)?.name ?? "An employee"} · ${body.type} · ${units} day(s)`,
+          href: "/approvals",
+        })
+      }
       return reply.code(201).send({ approval, units })
     }
   )
@@ -1437,6 +1466,15 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       }
       store.approvals.push(approval)
       persistApproval(approval)
+      for (const approverId of approversFor(request.auth.employeeId)) {
+        notify({
+          employeeId: approverId,
+          kind: "APPROVAL_RAISED",
+          title: "Regularisation awaiting you",
+          body: `${employeeById(request.auth.employeeId)?.name ?? "An employee"} · ${approval.subject}`,
+          href: "/approvals",
+        })
+      }
       recordAudit({
         actorId: request.auth.userId,
         action: "regularisation.raise",
@@ -1517,6 +1555,15 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       }
       store.approvals.push(approval)
       persistApproval(approval)
+      for (const approverId of approversFor(request.auth.employeeId)) {
+        notify({
+          employeeId: approverId,
+          kind: "APPROVAL_RAISED",
+          title: "Overtime claim awaiting you",
+          body: `${employeeById(request.auth.employeeId)?.name ?? "An employee"} · ${approval.subject}`,
+          href: "/approvals",
+        })
+      }
       recordAudit({
         actorId: request.auth.userId,
         action: "overtime.claim",
@@ -1595,6 +1642,15 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       }
       store.approvals.push(approval)
       persistApproval(approval)
+      for (const approverId of approversFor(request.auth.employeeId)) {
+        notify({
+          employeeId: approverId,
+          kind: "APPROVAL_RAISED",
+          title: "Comp-off claim awaiting you",
+          body: `${employeeById(request.auth.employeeId)?.name ?? "An employee"} · ${approval.subject}`,
+          href: "/approvals",
+        })
+      }
       recordAudit({
         actorId: request.auth.userId,
         action: "compoff.claim",
@@ -1635,6 +1691,34 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         remarks: approval.remarks,
       })),
     }
+  })
+
+  // ---- notifications ------------------------------------------------------
+  // Always scoped to the caller: a feed is one person's, and there is no route
+  // that reads someone else's.
+  app.get("/notifications", { preHandler: [authenticate] }, async (request) => {
+    const mine = store.notifications.filter(
+      (entry) => entry.employeeId === request.auth.employeeId
+    )
+    return { notifications: mine.slice(0, 50), unread: unreadCount(mine) }
+  })
+
+  app.post("/notifications/read", { preHandler: [authenticate] }, async (request) => {
+    const parsed = z
+      .object({ ids: z.array(z.string()).optional() })
+      .safeParse(request.body ?? {})
+    const ids = parsed.success ? parsed.data.ids : undefined
+    const now = new Date().toISOString()
+    let marked = 0
+    for (const entry of store.notifications) {
+      if (entry.employeeId !== request.auth.employeeId) continue
+      if (entry.readAt !== null) continue
+      // No ids given means "mark everything read" — the bell's usual action.
+      if (ids && !ids.includes(entry.id)) continue
+      entry.readAt = now
+      marked += 1
+    }
+    return { marked }
   })
 
   // ---- approvals ----------------------------------------------------------
@@ -1702,6 +1786,15 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
 
     const beforeApproval = { status: approval.status }
     approval.status = parsed.data.action === "APPROVE" ? "APPROVED" : "REJECTED"
+    notify({
+      employeeId: approval.employeeId,
+      kind: "APPROVAL_DECIDED",
+      title: `${approval.kind === "LEAVE" ? "Leave" : approval.kind === "OVERTIME" ? "Overtime" : approval.kind === "COMP_OFF" ? "Comp-off" : "Regularisation"} ${approval.status.toLowerCase()}`,
+      body: parsed.data.remarks
+        ? `${approval.subject} — ${parsed.data.remarks}`
+        : approval.subject,
+      href: approval.kind === "LEAVE" ? "/leave" : "/attendance",
+    })
     approval.decidedBy = request.auth.userId
     approval.remarks = parsed.data.remarks
     persistApprovalDecision(approval)

@@ -295,6 +295,20 @@ A six-dimension audit (security, robustness, performance, responsiveness, operat
 | C6 | Expiry writes a negative `ADJUST` row that the next sweep counts as consumption | Makes the sweep idempotent: re-running never expires the same credit twice, which matters because the nightly job re-examines a 7-day window. |
 | C7 | Spending goes through the **existing leave path** (`type: "COMP_OFF"`) | The balance guard, the approval routing and the ledger debit already work and are tested; a parallel spend path would be a second place for them to drift. |
 
+## 16. Notifications and escalation (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| N1 | **In-app only**, and the gap is stated rather than faked | Email and WhatsApp need SMTP/provider credentials the company has not supplied. A delivery channel that silently drops messages is worse than one that visibly does not exist yet. The feed is the durable record; a channel adapter can read from it later. |
+| N2 | A feed belongs to **one person** and there is no route that reads another's | Notifications quote leave reasons and decision remarks. Scoping at the route, not the client, is what makes that safe. |
+| N3 | Requests route to the **reporting manager**, falling back to everyone who approves company-wide | Without the fallback a request from someone with no manager lands in nobody's feed — invisible, forever. |
+| N4 | The requester is **not** notified of their own request | A feed that tells you what you just did trains people to ignore it. |
+| N5 | Escalation is a **state change, not a decision** — L2 still needs someone to act, unless `autoApproveOnEscalation` is on | `approvalEscalateAfterDays` and `autoApproveOnEscalation` were configurable from the first commit and had **never fired**: a manager on leave silently stalled every request routed to them. |
+| N6 | The sweep is **idempotent** — a request already at L2 is skipped | It runs hourly; without that guard the same request would escalate and re-notify every hour. |
+| N7 | Feeds are capped at 100 entries per person | An uncapped feed eventually becomes the largest thing in the store, and nobody reads a two-year-old notification. |
+| N8 | One notifier (`makeNotifier`) shared by routes and the nightly sweep | Two copies would be two places for the cap and the shape to drift, and the sweep's notices are the ones nobody is watching when they break. |
+| N9 | The bell **polls every 60s** rather than opening a websocket | A websocket for a handful of approval notices is infrastructure this system does not need, and 60 seconds is well inside how fast anyone acts on one. It is hidden entirely in a demo session — a bell that can never fill is chrome that teaches people to ignore bells. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.
