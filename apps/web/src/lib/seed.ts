@@ -244,7 +244,7 @@ export const LEAVE_BALANCES: LeaveBalance[] = [
   { code: "CL", name: "Casual Leave", entitled: 12, availed: 5, balance: 7, isPaid: true },
   { code: "SL", name: "Sick Leave", entitled: 12, availed: 3, balance: 9, isPaid: true },
   { code: "EL", name: "Earned Leave", entitled: 18, availed: 6.5, balance: 11.5, isPaid: true },
-  { code: "CO", name: "Comp-Off", entitled: 4, availed: 1, balance: 3, isPaid: true },
+  { code: "COMP_OFF", name: "Comp-Off", entitled: 4, availed: 1, balance: 3, isPaid: true },
   { code: "LOP", name: "Loss of Pay", entitled: 0, availed: 2, balance: 0, isPaid: false },
 ]
 
@@ -265,7 +265,7 @@ export function seedLeaveLedger(): LeaveLedgerRow[] {
     { date: "2026-02-28", type: "EL", txnType: "ACCRUAL", units: 1.5, remarks: "Monthly accrual" },
     { date: "2026-03-14", type: "EL", txnType: "AVAIL", units: -2, remarks: "REQ-1043 approved by HR" },
     { date: "2026-03-31", type: "EL", txnType: "ACCRUAL", units: 1.5, remarks: "Monthly accrual" },
-    { date: "2026-04-22", type: "CO", txnType: "COMP_OFF_CREDIT", units: 1, remarks: "Holiday working 26 Jan" },
+    { date: "2026-04-22", type: "COMP_OFF", txnType: "COMP_OFF_CREDIT", units: 1, remarks: "Holiday working 26 Jan" },
     { date: "2026-04-30", type: "EL", txnType: "ACCRUAL", units: 1.5, remarks: "Monthly accrual" },
     { date: "2026-05-18", type: "EL", txnType: "AVAIL", units: -4.5, remarks: "REQ-1188 approved by HR" },
     { date: "2026-06-30", type: "EL", txnType: "ACCRUAL", units: 1.5, remarks: "Monthly accrual" },
@@ -564,5 +564,5 @@ export const LEAVE_UTILISATION = [
   { type: "CL", used: 42, remaining: 58 },
   { type: "SL", used: 25, remaining: 75 },
   { type: "EL", used: 36, remaining: 64 },
-  { type: "CO", used: 25, remaining: 75 },
+  { type: "COMP_OFF", used: 25, remaining: 75 },
 ]

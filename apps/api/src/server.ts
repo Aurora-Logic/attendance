@@ -19,6 +19,7 @@ import {
   crossesMidnight,
   DEFAULT_MATRIX,
   evaluateLate,
+  isLeaveTypeCode,
   isoDateSchema,
   isoMonthSchema,
   minutesToClock,
@@ -135,7 +136,9 @@ const punchBodySchema = z.object({
 })
 
 const leaveApplySchema = z.object({
-  type: z.string().min(1),
+  // A closed vocabulary: an unknown code used to create a ledger row under a
+  // type nothing else recognised, which is unspendable and invisible.
+  type: z.string().refine(isLeaveTypeCode, "Unknown leave type."),
   from: isoDateSchema,
   to: isoDateSchema,
   part: z.enum(["FULL", "FIRST_HALF", "SECOND_HALF"]).default("FULL"),
@@ -1148,6 +1151,22 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
           }
         })
       )
+      // A preview, so the UI can warn before anyone uploads a file that quietly
+      // omits people. The header alone was unreadable from fetch and unread.
+      if ((request.query as { preview?: string }).preview === "1") {
+        return {
+          month: run.month,
+          version: run.version,
+          payable: split.payable.length,
+          totalPayablePaise: split.totalPayablePaise,
+          held: split.held.map((entry) => ({
+            code: entry.row.code,
+            name: entry.row.name,
+            reason: entry.reason,
+          })),
+        }
+      }
+
       if (split.payable.length === 0)
         return reply.code(422).send({
           error: "NOBODY_PAYABLE",

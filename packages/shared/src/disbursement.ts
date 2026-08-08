@@ -17,8 +17,20 @@ export const PAN_PATTERN = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 /** UAN is exactly twelve digits. */
 export const UAN_PATTERN = /^[0-9]{12}$/
 
+/**
+ * A spreadsheet treats a leading =, +, - or @ as a formula. The bank upload is
+ * a CSV somebody opens in Excel, and the beneficiary name is user-controlled,
+ * so a name beginning with one of those is a formula waiting to run on the
+ * finance team's machine. No real beneficiary name starts with them.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r]/
+
 export const bankDetailsSchema = z.object({
-  accountName: z.string().min(2).max(80),
+  accountName: z
+    .string()
+    .min(2)
+    .max(80)
+    .refine((value) => !FORMULA_LEAD.test(value), "A name cannot begin with = + - or @."),
   accountNumber: z.string().regex(/^[0-9]{6,20}$/, "6–20 digits, no spaces."),
   ifsc: z.string().regex(IFSC_PATTERN, "Format: HDFC0001234."),
   bankName: z.string().max(80).default(""),
@@ -95,7 +107,16 @@ export function buildBankTransferCsv(
   split: DisbursementSplit,
   meta: { month: string; debitAccount: string }
 ): string {
-  const escape = (value: string) => `"${value.replaceAll('"', '""')}"`
+  /**
+   * Quote for CSV, and neutralise anything a spreadsheet would evaluate.
+   * Input validation already refuses such names, but a file that pays people
+   * is the wrong place to rely on one layer: rows written before that rule
+   * existed, or imported from elsewhere, still pass through here.
+   */
+  const escape = (value: string) => {
+    const safe = FORMULA_LEAD.test(value) ? `'${value}` : value
+    return `"${safe.replaceAll('"', '""')}"`
+  }
   const header = [
     "Beneficiary Name",
     "Account Number",

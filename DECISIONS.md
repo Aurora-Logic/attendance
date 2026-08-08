@@ -449,6 +449,15 @@ The last of the eight P0s. Three places decided how many late marks an employee 
 | K2 | Marks are counted **strictly before** the day | A day cannot be its own prior. Including it fired the penalty one late early; including later days made a computed day mutate after the fact. |
 | K3 | The count does not cross the month boundary | The allowance resets per period, so reaching into the previous month would carry a spent allowance forward. |
 
+## 28. The first P1s (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| V1 | One shared **leave vocabulary** (`LEAVE_TYPES`), replacing the duplicate lists | The web app offered `CO` for comp-off while the ledger credited `COMP_OFF`. An employee could earn a comp-off day and then never spend it: the balance was filed under one code and the application asked for the other, so it was refused for insufficient balance against a balance sitting right there. The whole feature was unusable through the UI. |
+| V2 | `/leave/apply` accepts only a **known** type | `z.string().min(1)` let any code through, creating a ledger row under a type nothing else recognises — unspendable and invisible. |
+| V3 | A beneficiary name may not **begin like a formula**, and the CSV writer prefixes one anyway | The bank upload is a CSV somebody opens in Excel, and the name is user-controlled: `=HYPERLINK(...)` was written raw. Validation refuses it now, and the writer still neutralises it — a file that pays people is the wrong place to trust one layer, and rows written before the rule existed still flow through. |
+| V4 | The bank sheet **names who it leaves out, before the file is downloaded** | The held list already existed but travelled only in a response header, which `fetch` cannot read cross-origin and nothing looked at. The sheet quietly omitted people and looked complete. A preview now warns first, and refuses outright when nobody is payable. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

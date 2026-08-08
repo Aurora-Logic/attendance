@@ -2494,3 +2494,130 @@ describe("the late-mark penalty reaches pay, not just the register", () => {
     expect(row.lateMinutes).toBeGreaterThan(0)
   })
 })
+
+describe("an earned comp-off day can actually be spent", () => {
+  it("earn on a weekly off, then take it as leave", async () => {
+    const employee = await asEmployee()
+    // 2026-08-02 is a Sunday.
+    for (const [type, at, key] of [
+      ["IN", "2026-08-02T09:00", "spend-co-in-1"],
+      ["OUT", "2026-08-02T19:00", "spend-co-out-1"],
+    ] as const) {
+      await app.inject({
+        method: "POST",
+        url: "/punches",
+        headers: { cookie: employee.cookies },
+        payload: punchBody({ type, at, idempotencyKey: key }),
+      })
+    }
+    const claim = await app.inject({
+      method: "POST",
+      url: "/comp-off/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: "2026-08-02" },
+    })
+    expect(claim.statusCode).toBe(201)
+
+    const manager = await asOps()
+    await app.inject({
+      method: "POST",
+      url: `/approvals/${claim.json().approval.id}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "ok" },
+    })
+
+    // The whole point: the code the balance is filed under is the code the
+    // application asks for. These used to be COMP_OFF and CO respectively, so
+    // a real balance was refused for insufficient balance.
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: {
+        type: "COMP_OFF",
+        from: "2026-09-07",
+        to: "2026-09-07",
+        part: "FULL",
+        reason: "taking the day back",
+      },
+    })
+    expect(applied.statusCode).toBe(201)
+  })
+
+  it("a leave type nobody defined is refused rather than filed", async () => {
+    const employee = await asEmployee()
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CO", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+    expect(applied.statusCode).toBe(400)
+  })
+})
+
+describe("the bank sheet says who it leaves out", () => {
+  it("previews the held list instead of hiding it in a header", async () => {
+    const admin = await asAdmin()
+    // Give everyone a payable month so the file is genuinely producible.
+    for (const employee of store.employees) {
+      for (let day = 1; day <= 30; day++) {
+        const date = `2026-09-${String(day).padStart(2, "0")}`
+        for (const [type, offsetMin] of [
+          ["IN", 0],
+          ["OUT", 540],
+        ] as const) {
+          store.punches.push({
+            id: `p_prev_${employee.id}_${date}_${type}`,
+            employeeId: employee.id,
+            type,
+            businessDate: date,
+            offsetMin,
+            at: `${date}T09:00`,
+            accuracyM: 0,
+            dayPart: "FULL",
+            flags: ["ON_TIME"],
+            idempotencyKey: `prev_${employee.id}_${date}_${type}`,
+          })
+        }
+      }
+    }
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+    const run = (
+      await app.inject({
+        method: "POST",
+        url: "/payroll/runs",
+        headers: { cookie: admin.cookies },
+        payload: { month: "2026-09" },
+      })
+    ).json().run
+
+    const preview = await app.inject({
+      method: "GET",
+      url: `/payroll/runs/${run.id}/bank-transfer.csv?preview=1`,
+      headers: { cookie: admin.cookies },
+    })
+    expect(preview.statusCode).toBe(200)
+    const body = preview.json()
+    // Only e4 has bank details seeded, so everyone else is named and explained.
+    expect(body.payable).toBe(1)
+    expect(body.held.length).toBeGreaterThan(0)
+    expect(body.held[0]).toHaveProperty("reason")
+    expect(body.held[0]).toHaveProperty("name")
+    expect(body.held.every((entry: { reason: string }) => entry.reason.length > 0)).toBe(true)
+
+    // The file itself is unchanged.
+    const csv = await app.inject({
+      method: "GET",
+      url: `/payroll/runs/${run.id}/bank-transfer.csv`,
+      headers: { cookie: admin.cookies },
+    })
+    expect(csv.statusCode).toBe(200)
+    expect(csv.headers["content-type"]).toContain("text/csv")
+  })
+})

@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest"
 
-import { compOffCredit, compOffExpiries, compOffUsable, countLeaveUnits, overdrawnTypes, prorateAnnualQuota, reduceLedger } from "./leave"
+import {
+  LEAVE_TYPE_CODES,
+  compOffCredit,
+  compOffExpiries,
+  compOffUsable,
+  countLeaveUnits,
+  isLeaveTypeCode,
+  leaveTypeName,
+  overdrawnTypes,
+  prorateAnnualQuota,
+  reduceLedger,
+} from "./leave"
 
 describe("reduceLedger — balances are a projection of the ledger", () => {
   it("sums credits and debits per type", () => {
@@ -178,5 +189,25 @@ describe("compOffExpiries", () => {
 
   it("a debit larger than the stale lots leaves nothing to expire", () => {
     expect(compOffExpiries(credits, 3, 90, "2026-08-08")).toEqual([])
+  })
+})
+
+describe("the leave vocabulary is shared", () => {
+  it("comp-off has one code, so an earned day can actually be spent", () => {
+    // The bug: the UI applied for "CO" while the ledger credited "COMP_OFF",
+    // so a real balance was refused for insufficient balance.
+    expect(LEAVE_TYPE_CODES).toContain("COMP_OFF")
+    expect(LEAVE_TYPE_CODES).not.toContain("CO")
+  })
+
+  it("rejects a code nobody defined", () => {
+    expect(isLeaveTypeCode("COMP_OFF")).toBe(true)
+    expect(isLeaveTypeCode("CO")).toBe(false)
+    expect(isLeaveTypeCode("HOLIDAY_PARTY")).toBe(false)
+  })
+
+  it("names are resolvable, and an unknown code degrades to itself", () => {
+    expect(leaveTypeName("COMP_OFF")).toBe("Comp-Off")
+    expect(leaveTypeName("XX")).toBe("XX")
   })
 })

@@ -86,3 +86,44 @@ describe("buildBankTransferCsv", () => {
     expect(paiseToRupeeString(123_456)).toBe("1234.56")
   })
 })
+
+describe("the bank file cannot carry a spreadsheet formula", () => {
+  const formulaName = '=HYPERLINK("http://evil.example","Click")'
+
+  it("refuses a beneficiary name that begins like a formula", () => {
+    for (const lead of ["=", "+", "-", "@"]) {
+      expect(
+        bankDetailsSchema.safeParse({ ...bank, accountName: `${lead}payload` }).success,
+        `leading ${lead}`
+      ).toBe(false)
+    }
+    expect(bankDetailsSchema.safeParse({ ...bank, accountName: "Kabir Singh" }).success).toBe(true)
+  })
+
+  it("neutralises one that got in before the rule existed", () => {
+    const split = splitForDisbursement([
+      {
+        employeeId: "e1",
+        code: "DLT0001",
+        name: "x",
+        amountPaise: 900_000,
+        bank: { ...bank, accountName: formulaName },
+      },
+    ])
+    const row = buildBankTransferCsv(split, { month: "2026-08", debitAccount: "001100" }).split(
+      "\r\n"
+    )[1]
+    // Prefixed, so a spreadsheet reads it as text rather than running it.
+    expect(row.startsWith(`"'=HYPERLINK`)).toBe(true)
+  })
+
+  it("ordinary names are untouched", () => {
+    const split = splitForDisbursement([
+      { employeeId: "e1", code: "DLT0001", name: "x", amountPaise: 900_000, bank },
+    ])
+    const row = buildBankTransferCsv(split, { month: "2026-08", debitAccount: "001100" }).split(
+      "\r\n"
+    )[1]
+    expect(row.startsWith(`"${bank.accountName}"`)).toBe(true)
+  })
+})

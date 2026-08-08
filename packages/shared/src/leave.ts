@@ -184,3 +184,34 @@ export function compOffExpiries(
   }
   return expired
 }
+
+/* ------------------------------------------------------ the leave vocabulary */
+
+/**
+ * The leave type codes, in one place.
+ *
+ * They were duplicated: the web app offered `CO` for comp-off while the server
+ * credited `COMP_OFF`. An employee could earn a comp-off day and then never
+ * spend it — the balance was filed under one code and the application asked
+ * for the other, so it was refused for insufficient balance against a balance
+ * that was sitting right there.
+ *
+ * `LOP` is the only type allowed to go negative: it is unpaid by definition.
+ */
+export const LEAVE_TYPES = [
+  { code: "CL", name: "Casual Leave", isPaid: true },
+  { code: "SL", name: "Sick Leave", isPaid: true },
+  { code: "EL", name: "Earned Leave", isPaid: true },
+  { code: "COMP_OFF", name: "Comp-Off", isPaid: true },
+  { code: "LOP", name: "Loss of Pay", isPaid: false },
+] as const
+
+export type LeaveTypeCode = (typeof LEAVE_TYPES)[number]["code"]
+
+export const LEAVE_TYPE_CODES: readonly string[] = LEAVE_TYPES.map((type) => type.code)
+
+export const isLeaveTypeCode = (value: string): value is LeaveTypeCode =>
+  LEAVE_TYPE_CODES.includes(value)
+
+export const leaveTypeName = (code: string): string =>
+  LEAVE_TYPES.find((type) => type.code === code)?.name ?? code

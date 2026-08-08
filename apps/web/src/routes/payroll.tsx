@@ -4,7 +4,7 @@ import { Banknote, FileCode2, Landmark, Lock, LockOpen, Play, Printer } from "lu
 import type { ColumnDef } from "@tanstack/react-table"
 import { formatPaise } from "@attendance/shared"
 
-import { API_BASE, ApiError } from "@/lib/api"
+import { API_BASE, ApiError, apiFetch } from "@/lib/api"
 import {
   usePayroll,
   usePayrollActions,
@@ -57,7 +57,8 @@ const statusTone: Record<PayrollRun["status"], "default" | "secondary" | "outlin
 
 const buildColumns = (
   isApi: boolean,
-  onPayslips: (runId: string) => void
+  onPayslips: (runId: string) => void,
+  onBankSheet: (runId: string) => void
 ): ColumnDef<PayrollRun>[] => [
   {
     accessorKey: "period",
@@ -141,12 +142,7 @@ const buildColumns = (
           <Button
             variant="outline"
             size="sm"
-            onClick={() =>
-              window.open(
-                `${API_BASE}/payroll/runs/${row.original.id}/bank-transfer.csv`,
-                "_blank"
-              )
-            }
+            onClick={() => onBankSheet(row.original.id)}
           >
             <Banknote />
             Bank sheet
@@ -446,6 +442,41 @@ export function PayrollPage() {
   const [payslipRunId, setPayslipRunId] = React.useState<string | null>(null)
   const [bankOpen, setBankOpen] = React.useState(false)
   const payslipRun = data?.runs.find((run) => run.id === payslipRunId) ?? null
+
+  /**
+   * Check who cannot be paid *before* handing a file to a bank. The route
+   * already computed the held list; it used to travel only in a response
+   * header, which fetch cannot read cross-origin and nothing looked at — so
+   * the sheet silently omitted people and looked complete.
+   */
+  const downloadBankSheet = async (runId: string) => {
+    const url = `${API_BASE}/payroll/runs/${runId}/bank-transfer.csv`
+    try {
+      const preview = await apiFetch<{
+        payable: number
+        held: Array<{ code: string; name: string; reason: string }>
+      }>(`/payroll/runs/${runId}/bank-transfer.csv?preview=1`)
+
+      if (preview.held.length > 0) {
+        toast.warning(`${preview.held.length} not in this file`, {
+          description: preview.held
+            .slice(0, 3)
+            .map((entry) => `${entry.name}: ${entry.reason}`)
+            .join(" · "),
+          duration: 10_000,
+        })
+      }
+      if (preview.payable === 0) {
+        toast.error("Nobody can be paid from this run", {
+          description: "Add bank details before generating a transfer file.",
+        })
+        return
+      }
+      window.open(url, "_blank")
+    } catch {
+      toast.error("Could not prepare the bank sheet")
+    }
+  }
   const currentMonth = new Date().toISOString().slice(0, 7)
   const isLocked = data?.locks.some((lock) => lock.month === currentMonth) ?? false
 
@@ -548,7 +579,7 @@ export function PayrollPage() {
         ) : null}
 
         <DataTable
-          columns={buildColumns(source === "api", setPayslipRunId)}
+          columns={buildColumns(source === "api", setPayslipRunId, downloadBankSheet)}
           data={rows}
           searchColumn="period"
           searchPlaceholder="Search period…"
