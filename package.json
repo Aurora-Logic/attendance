@@ -11,7 +11,8 @@
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
     "test": "pnpm -r --if-present test",
-    "dev:api": "pnpm --filter @attendance/api dev"
+    "dev:api": "pnpm --filter @attendance/api dev",
+    "build:agent": "pnpm --filter @attendance/tally-agent build"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

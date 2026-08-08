@@ -2989,6 +2989,44 @@ describe("the Tally connector", () => {
     expect(after.json().agent.agentVersion).toBe("1.0.0")
   })
 
+  it("distinguishes a dead connector from a connector whose Tally is closed", async () => {
+    // These need different responses — one means go and look at that PC, the
+    // other means wait until morning — so the heartbeat carries both facts.
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/heartbeat",
+      headers: agent,
+      payload: {
+        agentVersion: "1.0.0",
+        company: "Delta Books",
+        tallyReachable: false,
+        queuedRecords: 12,
+      },
+    })
+    const status = (
+      await app.inject({ method: "GET", url: "/tally/status", headers: { cookie: admin.cookies } })
+    ).json()
+    expect(status.agent.state).toBe("live")
+    expect(status.agent.tallyReachable).toBe(false)
+    expect(status.agent.queuedRecords).toBe(12)
+  })
+
+  it("an older connector that sends neither field still counts as alive", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/heartbeat",
+      headers: agent,
+      payload: { agentVersion: "0.9.0", company: "Delta Books" },
+    })
+    const status = (
+      await app.inject({ method: "GET", url: "/tally/status", headers: { cookie: admin.cookies } })
+    ).json()
+    expect(status.agent.state).toBe("live")
+    expect(status.agent.tallyReachable).toBeNull()
+  })
+
   it("a conflict can be marked reviewed, and only by someone who may manage sales", async () => {
     await app.inject({
       method: "POST",

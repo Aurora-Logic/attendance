@@ -211,6 +211,15 @@ export interface Store {
     company: string
     lastPulled: number
     lastPushed: number
+    /**
+     * Whether the agent could reach Tally at its last heartbeat. This is a
+     * different fault from the agent itself being down — Tally is closed every
+     * evening, and telling the two apart is the difference between "wait" and
+     * "go and look at that PC".
+     */
+    tallyReachable: boolean | null
+    /** Masters read from Tally but not yet accepted here. */
+    queuedRecords: number
   }
   vendors: Vendor[]
   items: Item[]
@@ -312,6 +321,8 @@ export function seedStore(): Store {
       company: "",
       lastPulled: 0,
       lastPushed: 0,
+      tallyReachable: null,
+      queuedRecords: 0,
     },
     vendors: [
       { id: "v1", code: "VND001", name: "Shree Steel Traders", gstin: "27AABCS1429B1ZP", contact: "Mahesh Kulkarni", email: "sales@shreesteel.in", phone: "+91 98200 11223", address: "Kalbadevi Road", city: "Mumbai", state: "Maharashtra", paymentTermsDays: 30, leadTimeDays: 7, active: true },

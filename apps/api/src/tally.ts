@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import * as z from "zod"
 import {
+  AGENT_HEARTBEAT_STALE_MS,
   agentHealth,
   reconcile,
   syncPushRequestSchema,
@@ -81,17 +82,23 @@ export function registerTallyRoutes(app: FastifyInstance, store: Store, guards: 
 
   // ---- the agent's three routes -------------------------------------------
 
-  app.post(
-    "/tally/sync/heartbeat",
-    { preHandler: [authenticateAgent] },
-    async (request) => {
-      const parsed = z
-        .object({ agentVersion: z.string().default(""), company: z.string().default("") })
-        .safeParse(request.body ?? {})
-      touchAgent(parsed.success ? parsed.data : {})
-      return { ok: true, staleAfterMs: 10 * 60 * 1000 }
-    }
-  )
+  app.post("/tally/sync/heartbeat", { preHandler: [authenticateAgent] }, async (request) => {
+    const parsed = z
+      .object({
+        agentVersion: z.string().default(""),
+        company: z.string().default(""),
+        /**
+         * The agent beats even when Tally will not answer, so these two say
+         * what kind of quiet it is: Tally closed for the evening, or a backlog
+         * building up because this server is unreachable.
+         */
+        tallyReachable: z.boolean().nullable().default(null),
+        queuedRecords: z.number().int().nonnegative().default(0),
+      })
+      .safeParse(request.body ?? {})
+    touchAgent(parsed.success ? parsed.data : {})
+    return { ok: true, staleAfterMs: AGENT_HEARTBEAT_STALE_MS }
+  })
 
   /**
    * The agent sends masters it saw change in Tally. Each is reconciled against

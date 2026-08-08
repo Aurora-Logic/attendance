@@ -46,3 +46,7 @@ docker-data/
 prisma/*.db
 prisma/*.db-journal
 apps/api/.data/
+
+# Tally connector runtime state (queued batches, watermarks) — never committed
+tools/tally-agent/state/
+tools/tally-agent/tally-agent.json
