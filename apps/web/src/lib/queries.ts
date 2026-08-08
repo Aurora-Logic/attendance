@@ -1156,3 +1156,34 @@ export function useDispatchActions() {
     }),
   }
 }
+
+// -------------------------------------------------------------- credit control
+
+export interface OverdueRowView {
+  customerId: string
+  customerName: string
+  overduePaise: number
+  oldestOverdueDays: number
+  oldestDocNumber: string
+  bucket: string
+  docCount: number
+}
+
+export function useOverdue() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+  const query = useQuery({
+    queryKey: ["credit", "overdue"],
+    enabled,
+    retry: false,
+    queryFn: () =>
+      apiFetch<{
+        rows: OverdueRowView[]
+        asOf: string
+        totalOverduePaise: number
+        holdOrdersOnBreach: boolean
+        chaseMinimumPaise: number
+      }>("/credit/overdue"),
+  })
+  return { overdue: query.data ?? null, isLoading: enabled && query.isLoading, enabled }
+}

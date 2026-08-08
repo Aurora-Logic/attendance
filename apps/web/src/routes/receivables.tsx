@@ -1,5 +1,6 @@
 import { useSales } from "@/lib/sales"
 import { useSession } from "@/lib/session"
+import { CreditChaseList } from "@/components/credit-chase-list"
 import { PartyLedgerPage } from "@/components/party-ledger"
 
 export function ReceivablesPage() {
@@ -24,6 +25,9 @@ export function ReceivablesPage() {
       payments={receipts}
       canRecord={can("sales.manage")}
       onRecord={(input) => recordReceipt(input, user?.email ?? "")}
+      /* The chase list sits above the ledger: the ageing table says who owes
+         what, this says who to ring first. */
+      banner={<CreditChaseList />}
     />
   )
 }

@@ -60,6 +60,7 @@ export function PartyLedgerPage({
   payments,
   canRecord,
   onRecord,
+  banner,
 }: {
   title: string
   description: string
@@ -69,6 +70,9 @@ export function PartyLedgerPage({
   docs: LedgerDoc[]
   payments: PaymentEntry[]
   canRecord: boolean
+  /** Shown above the ledger — the ageing table says who owes what, a banner
+      can say what to do about it first. */
+  banner?: React.ReactNode
   onRecord: (
     input: Omit<PaymentEntry, "id" | "allocations" | "recordedBy">
   ) => PaymentEntry | null
@@ -120,6 +124,7 @@ export function PartyLedgerPage({
         }
       />
       <PageBody>
+        {banner}
         <div className="grid gap-4 sm:grid-cols-2">
           <Card>
             <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">

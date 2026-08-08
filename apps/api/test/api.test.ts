@@ -3676,3 +3676,144 @@ describe("the fulfilment chain", () => {
     expect(Array.isArray(body.missingLrCopies)).toBe(true)
   })
 })
+
+describe("credit control", () => {
+  const overdueInvoice = (customerId: string, dueDate: string, qty = 100) => {
+    const invoice = {
+      id: `inv_test_${store.nextId++}`,
+      number: `INV-2026-${store.nextId}`,
+      customerId,
+      soId: null,
+      date: "2026-06-01",
+      dueDate,
+      status: "OPEN" as const,
+      lines: [
+        {
+          id: "il1",
+          itemId: store.items[0].id,
+          qty,
+          unitPricePaise: 10_000,
+          gstRatePct: 0,
+          discountPct: 0,
+        },
+      ],
+      terms: "",
+      createdBy: "e1",
+    }
+    store.invoices.push(invoice)
+    return invoice
+  }
+
+  it("lists who is overdue, oldest debt first", async () => {
+    // Sorted by age rather than amount: a small invoice ninety days old is
+    // closer to being written off than a large one that fell due last week.
+    const admin = await asAdmin()
+    const [first, second] = store.customers
+    overdueInvoice(first.id, "2026-01-10")
+    overdueInvoice(second.id, "2026-07-25")
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/credit/overdue",
+      headers: { cookie: admin.cookies },
+    })
+    expect(response.statusCode).toBe(200)
+    const rows = response.json().rows
+    expect(rows.length).toBeGreaterThanOrEqual(2)
+    expect(rows[0].customerId).toBe(first.id)
+    expect(rows[0].oldestOverdueDays).toBeGreaterThan(rows[1].oldestOverdueDays)
+  })
+
+  it("holds an order for an account past the grace period, and says why", async () => {
+    const admin = await asAdmin()
+    const customer = store.customers[0]
+    overdueInvoice(customer.id, "2026-02-01")
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/credit/customers/${customer.id}`,
+      headers: { cookie: admin.cookies },
+    })
+    expect(response.statusCode).toBe(200)
+    const { decision } = response.json()
+    expect(decision.verdict).toBe("HOLD")
+    expect(decision.reason).toMatch(/days past due/)
+    // Lateness and the limit are different conversations, so the reason names
+    // only the one that actually stopped it.
+    expect(decision.reason).not.toMatch(/limit/)
+  })
+
+  it("weighs a proposed order against the limit without saving anything", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "PUT",
+      url: "/settings/operations",
+      headers: { cookie: admin.cookies },
+      payload: { credit: { defaultTerms: { creditLimitPaise: 500_00 } } },
+    })
+    const customer = store.customers[1]
+    // Not yet due, so only the limit can stop it.
+    overdueInvoice(customer.id, "2099-01-01", 10)
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/credit/customers/${customer.id}?orderValuePaise=100000`,
+      headers: { cookie: admin.cookies },
+    })
+    const { decision } = response.json()
+    expect(decision.verdict).toBe("HOLD")
+    expect(decision.reason).toMatch(/credit limit/)
+    expect(decision.headroomPaise).toBeLessThan(0)
+  })
+
+  it("says whether the overdue list is advice or a gate", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "GET",
+      url: "/credit/overdue",
+      headers: { cookie: admin.cookies },
+    })
+    // A screen must never have to guess which one it is showing.
+    expect(typeof response.json().holdOrdersOnBreach).toBe("boolean")
+  })
+
+  it("leaves a settled invoice out of the list entirely", async () => {
+    const admin = await asAdmin()
+    const customer = store.customers[2] ?? store.customers[0]
+    const invoice = overdueInvoice(customer.id, "2026-01-05", 1)
+    store.receipts.push({
+      id: `rcpt_${store.nextId++}`,
+      date: "2026-08-01",
+      partyId: customer.id,
+      mode: "BANK",
+      reference: "test",
+      amountPaise: 10_000,
+      allocations: [{ docId: invoice.id, amountPaise: 10_000 }],
+      idempotencyKey: `credit-test-${store.nextId}`,
+      recordedBy: "e1",
+    })
+
+    const rows = (
+      await app.inject({
+        method: "GET",
+        url: "/credit/overdue",
+        headers: { cookie: admin.cookies },
+      })
+    ).json().rows
+    const row = rows.find((entry: { customerId: string }) => entry.customerId === customer.id)
+    expect(row?.oldestDocNumber).not.toBe(invoice.number)
+  })
+
+  it("refuses a customer who does not exist rather than reporting zero owed", async () => {
+    const admin = await asAdmin()
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/credit/customers/ghost",
+          headers: { cookie: admin.cookies },
+        })
+      ).statusCode
+    ).toBe(404)
+  })
+})

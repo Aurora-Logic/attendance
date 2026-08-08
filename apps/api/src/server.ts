@@ -64,6 +64,7 @@ import {
 } from "./repositories"
 import { registerProcurementRoutes } from "./procurement"
 import { registerOpsRoutes } from "./ops"
+import { registerCreditRoutes } from "./credit"
 import { registerFulfilmentRoutes } from "./fulfilment"
 import { registerSalesRoutes } from "./sales"
 import { registerTallyRoutes } from "./tally"
@@ -2065,6 +2066,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
   registerProcurementRoutes(app, store, { authenticate, requirePermission })
   registerSalesRoutes(app, store, { authenticate, requirePermission })
   registerFulfilmentRoutes(app, store, { authenticate, requirePermission })
+  registerCreditRoutes(app, store, { authenticate, requirePermission })
   registerOpsRoutes(app, store, { authenticate, requirePermission })
   registerTallyRoutes(app, store, { authenticate, requirePermission })
 
