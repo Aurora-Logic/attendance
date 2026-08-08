@@ -368,6 +368,20 @@ Found by signing in as an employee and using the app, rather than from the audit
 
 Note: three browser tests waited on an h1 of "Dashboard" and one asserted an employee could see `/approvals`. Both assumptions were the *old* behaviour. The waits are now role-agnostic and the regularisation test verifies the request reaching the approver's inbox — the truthful end state — rather than a screen the employee should never have seen.
 
+## 22. An approval means one thing (8 Aug 2026)
+
+Found by auditing this session's own new code rather than waiting for it to fail in production.
+
+**The defect:** `escalateStaleApprovals` implemented auto-approval as `status = "APPROVED"` and nothing else. Every consequence of an approval lived inside the decide route, so an auto-approved request performed **none** of them — leave was granted without debiting the ledger (a free day, and a balance wrong forever), comp-off was approved without crediting anything, and a regularisation was approved without writing the punches that are its entire purpose. It also skipped the balance re-check, so an auto-approval could drive the ledger negative, which `reduceLedger` refuses — permanently 500ing that employee's balance and apply routes.
+
+`autoApproveOnEscalation` defaults to off, which is the only reason this had limited blast radius.
+
+| # | Decision | Why |
+|---|---|---|
+| A11 | `canApplyApproval` and `applyApproval` in `approve.ts` are the **single implementation**, used by the decide route and the escalation sweep | An approval must mean the same thing however it was reached. Two copies of "what approving does" is how one of them silently loses a ledger write. |
+| A12 | The gate is **separate from the write** | A caller refuses *before* flipping the status. Half-applied approvals are how ledgers become inconsistent. |
+| A13 | An auto-approval that cannot be applied leaves the request **PENDING at L2** and notifies the employee why | Silently approving something the ledger cannot absorb is worse than leaving it for a person. The sweep escalates; it does not force. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

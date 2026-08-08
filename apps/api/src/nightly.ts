@@ -5,6 +5,7 @@ import {
   shouldEscalate,
 } from "@attendance/shared"
 
+import { applyApproval, canApplyApproval } from "./approve"
 import { persistApproval, persistLedgerEntry } from "./repositories"
 import type { Store } from "./store"
 import { id } from "./store"
@@ -174,8 +175,33 @@ export function escalateStaleApprovals(
     escalated += 1
 
     if (store.settings.autoApproveOnEscalation) {
+      /**
+       * Auto-approval used to set the status and stop there: leave was granted
+       * without ever debiting the ledger, comp-off without a credit, and a
+       * regularisation without the punches that are its whole point. It now
+       * goes through the same gate and the same applier as a human decision.
+       *
+       * If it cannot be applied — a balance that no longer covers it — the
+       * request stays PENDING at L2 for a person to resolve. Silently approving
+       * something the ledger cannot absorb would drive the balance negative and
+       * permanently break that employee's leave routes.
+       */
+      const check = canApplyApproval(store, approval)
+      if (!check.ok) {
+        notify({
+          employeeId: approval.employeeId,
+          kind: "APPROVAL_ESCALATED",
+          title: "Escalated — needs a person",
+          body: `${approval.subject} could not be auto-approved: ${check.detail}`,
+          href: "/leave",
+        })
+        persistApproval(approval)
+        continue
+      }
       approval.status = "APPROVED"
+      approval.decidedBy = "system"
       approval.remarks = `Auto-approved after ${store.settings.approvalEscalateAfterDays} day(s) without a decision`
+      applyApproval(store, approval)
       autoApproved += 1
       notify({
         employeeId: approval.employeeId,

@@ -40,6 +40,7 @@ import {
 
 import { auditPage, prisma, recordAudit } from "./db"
 import { makeNotifier } from "./notify"
+import { applyApproval, canApplyApproval } from "./approve"
 import { computeRunItems } from "./payroll"
 import { enqueueExport, ExportQueueUnavailable, exportFileStream } from "./exports"
 import {
@@ -1869,24 +1870,14 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       return reply.code(403).send({ error: "CANNOT_DECIDE_OWN" })
     }
 
-    // Balance is re-checked at APPROVAL, not just at apply. Two requests can
-    // each pass the apply-time check and then both be approved; the resulting
-    // debit drives the ledger negative, and reduceLedger throws on a negative
-    // balance — which would 500 this employee's balance and apply routes for
-    // good. Refusing here keeps the ledger a valid document.
-    if (
-      parsed.data.action === "APPROVE" &&
-      approval.kind === "LEAVE" &&
-      approval.leaveType &&
-      approval.leaveType !== "LOP"
-    ) {
-      const available = balancesFor(approval.employeeId)[approval.leaveType] ?? 0
-      if (approval.units > available) {
-        return reply.code(409).send({
-          error: "INSUFFICIENT_BALANCE",
-          detail: `${approval.leaveType}: ${available} available, ${approval.units} requested. Balance changed since the request was raised.`,
-        })
-      }
+    // One implementation of "can this be approved", shared with the nightly
+    // escalation sweep so an auto-approval cannot skip it.
+    if (parsed.data.action === "APPROVE") {
+      const check = canApplyApproval(store, approval)
+      if (!check.ok)
+        return reply
+          .code(check.reason === "INSUFFICIENT_BALANCE" ? 409 : 422)
+          .send({ error: check.reason, detail: check.detail })
     }
 
     const beforeApproval = { status: approval.status }
@@ -1913,89 +1904,10 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       ip: request.ip,
     })
 
-    /**
-     * An approved regularisation appends punches — it never edits or deletes
-     * one. The register recomputes from punches, so the corrected day falls
-     * out automatically, and what the device actually recorded survives beside
-     * the correction. That pair is the whole value of the audit trail when
-     * someone disputes a payslip months later.
-     */
-    if (approval.status === "APPROVED" && approval.kind === "REGULARISATION" && approval.regularisation) {
-      const target = employeeById(approval.employeeId)
-      const shift = target
-        ? store.shifts.find((candidate) => candidate.id === target.shiftId)
-        : undefined
-      if (!shift) return reply.code(422).send({ error: "UNKNOWN_SHIFT" })
-
-      const punches = regularisationPunches(
-        {
-          date: approval.dateFrom,
-          reason: approval.regularisation.reason,
-          inTime: approval.regularisation.inTime,
-          outTime: approval.regularisation.outTime,
-          note: approval.detail,
-        },
-        shift.startMin
-      )
-      for (const punch of punches) {
-        const stored = {
-          id: id(store, "p"),
-          employeeId: approval.employeeId,
-          type: punch.type,
-          businessDate: approval.dateFrom,
-          offsetMin: punch.offsetMin,
-          at: `${approval.dateFrom}T${punch.clock}`,
-          accuracyM: 0,
-          dayPart: "FULL" as const,
-          flags: ["REGULARISED" as const],
-          // Deterministic, so replaying this decision cannot double-write.
-          idempotencyKey: `reg_${approval.id}_${punch.type}`,
-        }
-        if (store.punches.some((existing) => existing.idempotencyKey === stored.idempotencyKey))
-          continue
-        store.punches.push(stored)
-        persistPunch(stored)
-      }
-      recordAudit({
-        actorId: request.auth.userId,
-        action: "regularisation.apply",
-        entity: "punches",
-        entityId: approval.id,
-        after: { date: approval.dateFrom, punches: punches.length },
-        ip: request.ip,
-      })
-    }
-
-    /**
-     * An approved comp-off credits the ledger, dated the day that was worked.
-     * Expiry counts from that date, so the credit is worth exactly what the
-     * employee gave up and no more.
-     */
-    if (approval.status === "APPROVED" && approval.kind === "COMP_OFF") {
-      store.ledger.push({
-        id: id(store, "l"),
-        employeeId: approval.employeeId,
-        type: "COMP_OFF",
-        txnType: "COMP_OFF_CREDIT",
-        units: approval.units,
-        date: approval.dateFrom,
-        remarks: `${approval.id} approved — worked ${approval.dateFrom}`,
-      })
-      persistLedgerEntry(store.ledger.at(-1)!)
-    }
-
-    if (approval.status === "APPROVED" && approval.kind === "LEAVE" && approval.leaveType) {
-      store.ledger.push({
-        id: id(store, "l"),
-        employeeId: approval.employeeId,
-        type: approval.leaveType,
-        txnType: "AVAIL",
-        units: -approval.units,
-        date: approval.dateFrom,
-        remarks: `${approval.id} approved`,
-      })
-      persistLedgerEntry(store.ledger.at(-1)!)
-    }
+    // Everything an approval causes — the leave debit, the comp-off credit,
+    // the regularisation punches — lives in applyApproval so the escalation
+    // sweep performs exactly the same work.
+    applyApproval(store, approval)
 
     return { approval }
   })

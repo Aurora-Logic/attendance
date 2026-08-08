@@ -2062,3 +2062,128 @@ describe("broken references fail by name, not by crashing", () => {
     expect(run.json().message ?? "").toContain("DLT0004")
   })
 })
+
+describe("auto-approval on escalation does everything a human decision does", () => {
+  const balanceOf = (employeeId: string, type: string) =>
+    store.ledger
+      .filter((row) => row.employeeId === employeeId && row.type === type)
+      .reduce((sum, row) => sum + row.units, 0)
+
+  const later = () => new Date(Date.now() + 3 * 86_400_000).toISOString()
+
+  it("debits the leave ledger — an auto-approved day is not a free day", async () => {
+    store.settings.autoApproveOnEscalation = true
+    const employee = await asEmployee()
+    const before = balanceOf("e4", "CL")
+    expect(before).toBeGreaterThan(0)
+
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+    const units = applied.json().units
+
+    const result = escalateStaleApprovals(store, later(), makeNotifier(store))
+    expect(result.autoApproved).toBeGreaterThan(0)
+    // The whole point: the balance actually moved.
+    expect(balanceOf("e4", "CL")).toBe(before - units)
+  })
+
+  it("refuses to auto-approve past the balance, leaving it for a person", async () => {
+    store.settings.autoApproveOnEscalation = true
+    const employee = await asEmployee()
+
+    // Trim CL to exactly one day, then raise two single-day requests.
+    const available = balanceOf("e4", "CL")
+    store.ledger.push({
+      id: "l_trim2",
+      employeeId: "e4",
+      type: "CL",
+      txnType: "ADJUST",
+      units: -(available - 1),
+      date: "2026-09-01",
+      remarks: "test fixture",
+    })
+    const ids: string[] = []
+    for (const date of ["2026-09-07", "2026-09-14"]) {
+      const raised = await app.inject({
+        method: "POST",
+        url: "/leave/apply",
+        headers: { cookie: employee.cookies },
+        payload: { type: "CL", from: date, to: date, part: "FULL", reason: "x" },
+      })
+      ids.push(raised.json().approval.id)
+    }
+
+    escalateStaleApprovals(store, later(), makeNotifier(store))
+
+    const statuses = ids.map((id) => store.approvals.find((a) => a.id === id)!.status)
+    // One approved, one held back — never both.
+    expect(statuses.filter((s) => s === "APPROVED")).toHaveLength(1)
+    expect(statuses.filter((s) => s === "PENDING")).toHaveLength(1)
+    // And the ledger never went negative, so the balance route still answers.
+    expect(balanceOf("e4", "CL")).toBe(0)
+    const manager = await asOps()
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/leave/balances/e4",
+          headers: { cookie: manager.cookies },
+        })
+      ).statusCode
+    ).toBe(200)
+  })
+
+  it("writes the punches for an auto-approved regularisation", async () => {
+    store.settings.autoApproveOnEscalation = true
+    const employee = await asEmployee()
+    await app.inject({
+      method: "POST",
+      url: "/regularisations",
+      headers: { cookie: employee.cookies },
+      payload: {
+        date: "2026-08-05",
+        reason: "MISSED_OUT",
+        inTime: "09:05",
+        outTime: "18:30",
+        note: "gate reader missed my exit",
+      },
+    })
+
+    escalateStaleApprovals(store, later(), makeNotifier(store))
+
+    const written = store.punches.filter(
+      (punch) => punch.businessDate === "2026-08-05" && punch.flags.includes("REGULARISED")
+    )
+    // Approving a regularisation without writing punches corrects nothing.
+    expect(written).toHaveLength(2)
+  })
+
+  it("credits an auto-approved comp-off claim", async () => {
+    store.settings.autoApproveOnEscalation = true
+    const employee = await asEmployee()
+    for (const [type, at, key] of [
+      ["IN", "2026-08-02T09:00", "esc-co-in-1"],
+      ["OUT", "2026-08-02T19:00", "esc-co-out-1"],
+    ] as const) {
+      await app.inject({
+        method: "POST",
+        url: "/punches",
+        headers: { cookie: employee.cookies },
+        payload: punchBody({ type, at, idempotencyKey: key }),
+      })
+    }
+    await app.inject({
+      method: "POST",
+      url: "/comp-off/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: "2026-08-02" },
+    })
+
+    escalateStaleApprovals(store, later(), makeNotifier(store))
+    expect(balanceOf("e4", "COMP_OFF")).toBe(1)
+  })
+})
