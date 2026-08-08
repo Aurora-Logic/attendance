@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Camera,
   ClipboardCheck,
+  FileCode2,
   Palette,
   RotateCcw,
   Smartphone,
@@ -57,6 +58,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { MobileNavSettings } from "@/components/settings-mobile-nav"
+import { TallySettings } from "@/components/settings-tally"
 
 function NumberField({
   id,
@@ -318,6 +320,12 @@ const SECTION_GROUPS: { group: string; sections: SettingsSection[] }[] = [
         blurb: "Pick the four screens pinned to the phone bottom bar.",
       },
       {
+        key: "tally",
+        label: "Tally integration",
+        icon: FileCode2,
+        blurb: "Map salary posting to your Tally ledgers, then export a run as a voucher.",
+      },
+      {
         key: "branding",
         label: "Branding",
         icon: Palette,
@@ -346,7 +354,7 @@ function SectionRail({
   return (
     <nav
       aria-label="Settings sections"
-      className="hidden w-52 shrink-0 flex-col gap-4 overflow-y-auto overscroll-contain md:flex"
+      className="hidden w-52 shrink-0 flex-col gap-4 overflow-y-auto overscroll-contain lg:flex"
     >
       {SECTION_GROUPS.map(({ group, sections }) => {
         const visible = sections.filter((section) => !section.adminOnly || isAdmin)
@@ -443,7 +451,7 @@ export function SettingsPage() {
       <PageBodyFixed>
         {/* Phone: the rail collapses into one labelled control. */}
         <Select value={active} onValueChange={setActive}>
-          <SelectTrigger className="md:hidden" aria-label="Settings section">
+          <SelectTrigger className="lg:hidden" aria-label="Settings section">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -500,7 +508,7 @@ export function SettingsPage() {
               </CardHeader>
               <CardContent>
                 <FieldSet>
-                  <FieldGroup className="sm:grid sm:grid-cols-2 sm:gap-4">
+                  <FieldGroup className="lg:grid lg:grid-cols-2 lg:gap-4">
                     <NumberField
                       id="late-grace"
                       label="Grace period"
@@ -584,7 +592,7 @@ export function SettingsPage() {
                 <CardDescription>Mirrors the late rule at the other end of the shift.</CardDescription>
               </CardHeader>
               <CardContent>
-                <FieldGroup className="sm:grid sm:grid-cols-3 sm:gap-4">
+                <FieldGroup className="lg:grid lg:grid-cols-3 lg:gap-4">
                   <NumberField
                     id="early-grace"
                     label="Grace period"
@@ -639,7 +647,7 @@ export function SettingsPage() {
               </CardHeader>
               <CardContent>
                 <FieldSet>
-                  <FieldGroup className="sm:grid sm:grid-cols-2 sm:gap-4">
+                  <FieldGroup className="lg:grid lg:grid-cols-2 lg:gap-4">
                     <NumberField
                       id="in-before"
                       label="Punch-in window before shift start"
@@ -703,7 +711,7 @@ export function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <FieldGroup className="sm:grid sm:grid-cols-2 sm:gap-4">
+                <FieldGroup className="lg:grid lg:grid-cols-2 lg:gap-4">
                   <NumberField
                     id="half-hours"
                     label="Half-day minimum hours"
@@ -759,7 +767,7 @@ export function SettingsPage() {
               </CardHeader>
               <CardContent>
                 <FieldSet>
-                  <FieldGroup className="sm:grid sm:grid-cols-2 sm:gap-4">
+                  <FieldGroup className="lg:grid lg:grid-cols-2 lg:gap-4">
                     <NumberField
                       id="thumb-px"
                       label="Thumbnail size"
@@ -846,7 +854,7 @@ export function SettingsPage() {
               </CardHeader>
               <CardContent>
                 <FieldSet>
-                  <FieldGroup className="sm:grid sm:grid-cols-2 sm:gap-4">
+                  <FieldGroup className="lg:grid lg:grid-cols-2 lg:gap-4">
                     <NumberField
                       id="escalate"
                       label="Escalate to L2 after"
@@ -894,6 +902,7 @@ export function SettingsPage() {
 
             {active === "roster" ? <RosterSettings /> : null}
             {active === "departments" ? <DepartmentsSettings /> : null}
+            {active === "tally" ? <TallySettings /> : null}
             {active === "guide" ? <GuideSettings /> : null}
             {active === "branding" && isAdmin ? <BrandingSettings /> : null}
           </div>

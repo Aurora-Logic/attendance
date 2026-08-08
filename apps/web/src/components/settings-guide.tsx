@@ -189,6 +189,50 @@ const SECTIONS: Array<{ heading: string; entries: GuideEntry[] }> = [
       },
     ],
   },
+  {
+    heading: "Tally integration",
+    entries: [
+      {
+        id: "tally-setup",
+        title: "Set Tally up to receive salary vouchers",
+        who: "Admin · your accountant",
+        steps: [
+          "In Tally Prime, open the company you keep books in and note its name exactly — spelling, spacing and case all matter.",
+          "Create the two ledgers if they do not exist: Gateway of Tally → Create → Ledger. One expense ledger under Indirect Expenses (e.g. Salary & Wages), one liability ledger under Current Liabilities (e.g. Salary Payable).",
+          "If you want a separate payable ledger per employee, create those under Sundry Creditors named exactly “Name (CODE)” — for example “Kabir Singh (DLT0004)”.",
+          "Back here: Settings → Tally. Type the company name and the two ledger names, and choose control ledger or per-employee. Save changes.",
+        ],
+        effect:
+          "The system now knows where the money lands. Nothing is created inside Tally by us — masters stay under your accountant's control.",
+      },
+      {
+        id: "tally-export",
+        title: "Post a month's salary to Tally",
+        who: "Admin · HR (payroll.manage)",
+        steps: [
+          "Payroll → lock the month, then run it. A run is immutable; corrections are a new version.",
+          "On the run's row press Tally XML. A voucher file downloads.",
+          "In Tally Prime: Gateway of Tally → Import → Vouchers, pick the file, and import.",
+          "Alternatively, if your Tally has ODBC/HTTP enabled (F1 → Settings → Connectivity, port 9000), the same file can be POSTed straight to http://localhost:9000.",
+        ],
+        effect:
+          "One Journal voucher dated the last day of the month: the expense ledger is debited by the total gross, the payable side credited. The file is refused rather than written if the two sides do not balance, so your books cannot be corrupted by a bad export.",
+      },
+      {
+        id: "tally-troubleshoot",
+        title: "When Tally rejects the import",
+        who: "Admin",
+        steps: [
+          "“Ledger does not exist” — the ledger name in Settings differs from Tally, usually by an ampersand, extra space or case. Copy it from Tally exactly.",
+          "“Company not found” — the company name in Settings must match the loaded company, and that company must be open in Tally at import time.",
+          "Voucher lands in the wrong period — check the run's month; the voucher is always dated the month's last day.",
+          "Nothing downloads with a 422 — the month's total was zero, so there is no voucher to write.",
+        ],
+        effect:
+          "Every export is written to the audit log with who exported which run, so a disputed posting can always be traced.",
+      },
+    ],
+  },
 ]
 
 export function GuideSettings() {

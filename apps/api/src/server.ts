@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs"
 import * as z from "zod"
 import {
   attendanceSettingsSchema,
+  buildPayrollJournal,
   checkGeofence,
   computeAttendanceDay,
   countLeaveUnits,
@@ -751,6 +752,47 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         ip: request.ip,
       })
       return reply.code(201).send({ run })
+    }
+  )
+
+  // The accounting hand-off: a released run downloads as a balanced Tally
+  // journal voucher (Gateway of Tally → Import Data, or POST to :9000).
+  app.get(
+    "/payroll/runs/:id/tally.xml",
+    { preHandler: [authenticate, requirePermission("payroll.manage")] },
+    async (request, reply) => {
+      const run = store.payrollRuns.find(
+        (candidate) => candidate.id === (request.params as { id: string }).id
+      )
+      if (!run) return reply.code(404).send({ error: "NOT_FOUND" })
+      try {
+        const xml = buildPayrollJournal({
+          company: store.settings.tallyCompanyName || store.branding.companyName,
+          month: run.month,
+          items: run.items,
+          expenseLedger: store.settings.tallySalaryExpenseLedger,
+          payableLedger: store.settings.tallySalaryPayableLedger,
+          perEmployeeLedgers: store.settings.tallyPerEmployeeLedgers,
+        })
+        recordAudit({
+          actorId: request.auth.userId,
+          action: "payroll.tally_export",
+          entity: "payroll_runs",
+          entityId: run.id,
+          after: { month: run.month, version: run.version },
+          ip: request.ip,
+        })
+        return reply
+          .header("content-type", "application/xml; charset=utf-8")
+          .header(
+            "content-disposition",
+            `attachment; filename="Tally_Salary_${run.month}_v${run.version}.xml"`
+          )
+          .send(xml)
+      } catch (error) {
+        // e.g. an all-zero month — refuse honestly rather than emit bad books.
+        return reply.code(422).send({ error: "NO_VOUCHER", detail: (error as Error).message })
+      }
     }
   )
 

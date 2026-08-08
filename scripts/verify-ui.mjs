@@ -42,8 +42,12 @@ const ROUTES = [
   "/audit",
 ]
 
+// Four real classes of device, not two: the tablet widths are where a layout
+// that only carries sm:/lg: variants collapses into a single wasteland column.
 const VIEWPORTS = [
   { name: "desktop", width: 1440, height: 900 },
+  { name: "laptop", width: 1280, height: 800 },
+  { name: "tablet", width: 820, height: 1180 },
   { name: "mobile", width: 390, height: 844 },
 ]
 
@@ -75,7 +79,9 @@ for (const viewport of VIEWPORTS) {
   // ---- login through the real screen --------------------------------------
   await page.goto(BASE, { waitUntil: "domcontentloaded" })
   await page.getByRole("button", { name: /admin@delta\.dev/ }).click()
-  await page.getByText("Dashboard").first().waitFor({ timeout: 5_000 })
+  // The page heading, not the sidebar label — the rail may be collapsed at
+  // tablet widths, and a nav-state-dependent assertion is a false failure.
+  await page.getByRole("heading", { name: "Dashboard", level: 1 }).waitFor({ timeout: 10_000 })
 
   for (const route of ROUTES) {
     await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 60_000 })

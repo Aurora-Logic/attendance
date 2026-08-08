@@ -1,9 +1,9 @@
 import { toast } from "sonner"
-import { Lock, LockOpen, Play } from "lucide-react"
+import { FileCode2, Lock, LockOpen, Play } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { formatPaise } from "@attendance/shared"
 
-import { ApiError } from "@/lib/api"
+import { API_BASE, ApiError } from "@/lib/api"
 import { usePayroll, usePayrollActions } from "@/lib/queries"
 import { PAYROLL_RUNS, type PayrollRun } from "@/lib/seed"
 import { DataTable } from "@/components/data-table"
@@ -11,6 +11,7 @@ import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 const statusTone: Record<PayrollRun["status"], "default" | "secondary" | "outline"> = {
   RELEASED: "default",
@@ -19,7 +20,7 @@ const statusTone: Record<PayrollRun["status"], "default" | "secondary" | "outlin
   DRAFT: "outline",
 }
 
-const columns: ColumnDef<PayrollRun>[] = [
+const buildColumns = (isApi: boolean): ColumnDef<PayrollRun>[] => [
   {
     accessorKey: "period",
     header: "Period",
@@ -87,6 +88,36 @@ const columns: ColumnDef<PayrollRun>[] = [
     cell: ({ row }) => (
       <Badge variant={statusTone[row.original.status]}>{row.original.status}</Badge>
     ),
+  },
+  {
+    id: "tally",
+    header: "Accounting",
+    meta: { label: "Accounting" },
+    cell: ({ row }) =>
+      isApi ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            window.open(`${API_BASE}/payroll/runs/${row.original.id}/tally.xml`, "_blank")
+          }
+        >
+          <FileCode2 />
+          Tally XML
+        </Button>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button variant="outline" size="sm" disabled>
+                <FileCode2 />
+                Tally XML
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Sign in with the API — the voucher is built server-side.</TooltipContent>
+        </Tooltip>
+      ),
   },
 ]
 
@@ -186,7 +217,7 @@ export function PayrollPage() {
         ) : null}
 
         <DataTable
-          columns={columns}
+          columns={buildColumns(source === "api")}
           data={rows}
           searchColumn="period"
           searchPlaceholder="Search period…"

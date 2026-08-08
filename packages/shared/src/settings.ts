@@ -77,6 +77,14 @@ export const attendanceSettingsSchema = z.object({
   otMultiplier: z.number().positive().default(1.5),
 
   timezone: z.string().default("Asia/Kolkata"),
+
+  // ---- Tally export (§ accounting hand-off) -------------------------------
+  /** Exact company name as it appears in Tally — vouchers import into it. */
+  tallyCompanyName: z.string().default(""),
+  tallySalaryExpenseLedger: z.string().min(1).default("Salary & Wages"),
+  tallySalaryPayableLedger: z.string().min(1).default("Salary Payable"),
+  /** true → one credit ledger per employee; false → one control ledger. */
+  tallyPerEmployeeLedgers: z.boolean().default(false),
 })
 
 export type AttendanceSettings = z.infer<typeof attendanceSettingsSchema>

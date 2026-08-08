@@ -774,3 +774,48 @@ describe("employees & shifts — full CRUD surface", () => {
     expect(bad.statusCode).toBe(400)
   })
 })
+
+describe("Tally export — balanced journal from a released run", () => {
+  it("locks, runs, then downloads a balanced voucher XML; guards work", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+    const runResponse = await app.inject({
+      method: "POST",
+      url: "/payroll/runs",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+    expect(runResponse.statusCode).toBe(201)
+    const runId = runResponse.json().run.id
+
+    const xml = await app.inject({
+      method: "GET",
+      url: `/payroll/runs/${runId}/tally.xml`,
+      headers: { cookie: admin.cookies },
+    })
+    expect(xml.statusCode).toBe(200)
+    expect(xml.headers["content-type"]).toContain("application/xml")
+    expect(xml.headers["content-disposition"]).toContain("Tally_Salary_2026-09")
+    const body = xml.body
+    expect(body).toContain("<TALLYREQUEST>Import Data</TALLYREQUEST>")
+    expect(body).toContain('VCHTYPE="Journal"')
+    // Balanced: the debit is the negated sum of the credit side.
+    const amounts = [...body.matchAll(/<AMOUNT>(-?\d+\.\d{2})<\/AMOUNT>/g)].map((m) => Number(m[1]))
+    expect(amounts.reduce((a, b) => a + b, 0)).toBeCloseTo(0, 5)
+
+    expect(
+      (await app.inject({ method: "GET", url: "/payroll/runs/ghost/tally.xml", headers: { cookie: admin.cookies } }))
+        .statusCode
+    ).toBe(404)
+    const employee = await asEmployee()
+    expect(
+      (await app.inject({ method: "GET", url: `/payroll/runs/${runId}/tally.xml`, headers: { cookie: employee.cookies } }))
+        .statusCode
+    ).toBe(403)
+  })
+})

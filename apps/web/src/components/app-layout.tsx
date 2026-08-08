@@ -80,13 +80,20 @@ function Shell() {
 }
 
 export function AppLayout() {
+  // Tablet-width laptops and iPads in either orientation start with the rail
+  // collapsed: 256px of nav out of 820px of screen is a third of the window
+  // spent on wayfinding the user already knows. The trigger reopens it, and
+  // the choice persists — this is only the first-visit default.
+  const defaultOpen =
+    typeof window === "undefined" ? true : window.matchMedia("(min-width: 1152px)").matches
+
   return (
     <TooltipProvider>
       {/*
         The shell is exactly one viewport tall and never scrolls. Header and
         sidebar are structurally fixed; each page owns its own scroll region.
       */}
-      <SidebarProvider className="h-svh overflow-hidden">
+      <SidebarProvider defaultOpen={defaultOpen} className="h-svh overflow-hidden">
         <CommandPaletteProvider>
           <AppSidebar />
           <Shell />
