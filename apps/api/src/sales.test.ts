@@ -162,3 +162,131 @@ describe("sales", () => {
     expect(duplicate.statusCode).toBe(409)
   })
 })
+
+describe("receipt allocations are validated against the ledger, not trusted", () => {
+  /** Estimate → accept → convert → invoice, so there is one real open invoice. */
+  const openInvoice = async (cookie: string) => {
+    const { estimate } = (await draftEstimate(cookie)).json()
+    await app.inject({ method: "POST", url: `/estimates/${estimate.id}/send`, headers: { cookie } })
+    await app.inject({
+      method: "POST",
+      url: `/estimates/${estimate.id}/decide`,
+      headers: { cookie },
+      payload: { action: "ACCEPT" },
+    })
+    const { salesOrder } = (
+      await app.inject({
+        method: "POST",
+        url: `/estimates/${estimate.id}/convert`,
+        headers: { cookie },
+        payload: { orderDate: "2026-08-07" },
+      })
+    ).json()
+    const invoiced = await app.inject({
+      method: "POST",
+      url: "/invoices",
+      headers: { cookie },
+      payload: { soId: salesOrder.id, date: "2026-08-08", dueDate: "2026-09-07" },
+    })
+    expect(invoiced.statusCode).toBe(201)
+    return invoiced.json().invoice
+  }
+
+  it("refuses a fabricated allocation against a real invoice", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const invoice = await openInvoice(ops)
+
+    // The invoice is 7,67,000 paise. Claiming to settle ten times that used to
+    // pass, because the cap was computed from the client's own numbers.
+    const phantom = await app.inject({
+      method: "POST",
+      url: "/receipts",
+      headers: { cookie: ops },
+      payload: {
+        partyId: invoice.customerId,
+        date: "2026-08-09",
+        mode: "BANK",
+        amountPaise: 7_670_000,
+        allocations: [{ docId: invoice.id, amountPaise: 7_670_000 }],
+      },
+    })
+    expect(phantom.statusCode).toBe(422)
+    expect(["EXCEEDS_OUTSTANDING", "ALLOCATION_EXCEEDS_INVOICE"]).toContain(
+      phantom.json().error
+    )
+  })
+
+  it("refuses an allocation pointing at an invoice that is not this party's", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const invoice = await openInvoice(ops)
+    const ghost = await app.inject({
+      method: "POST",
+      url: "/receipts",
+      headers: { cookie: ops },
+      payload: {
+        partyId: invoice.customerId,
+        date: "2026-08-09",
+        mode: "BANK",
+        amountPaise: 1_000,
+        allocations: [{ docId: "inv_does_not_exist", amountPaise: 1_000 }],
+      },
+    })
+    expect(ghost.statusCode).toBe(422)
+    expect(ghost.json().error).toBe("UNKNOWN_ALLOCATION")
+  })
+
+  it("refuses allocations that do not add up to the receipt amount", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const invoice = await openInvoice(ops)
+    const mismatch = await app.inject({
+      method: "POST",
+      url: "/receipts",
+      headers: { cookie: ops },
+      payload: {
+        partyId: invoice.customerId,
+        date: "2026-08-09",
+        mode: "BANK",
+        amountPaise: 500_000,
+        allocations: [{ docId: invoice.id, amountPaise: 100_000 }],
+      },
+    })
+    expect(mismatch.statusCode).toBe(422)
+    expect(mismatch.json().error).toBe("ALLOCATION_MISMATCH")
+  })
+
+  it("accepts an honest partial allocation and leaves the rest outstanding", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const invoice = await openInvoice(ops)
+    const good = await app.inject({
+      method: "POST",
+      url: "/receipts",
+      headers: { cookie: ops },
+      payload: {
+        partyId: invoice.customerId,
+        date: "2026-08-09",
+        mode: "BANK",
+        amountPaise: 267_000,
+        allocations: [{ docId: invoice.id, amountPaise: 267_000 }],
+      },
+    })
+    expect(good.statusCode).toBe(201)
+    expect(good.json().receipt.allocations).toEqual([
+      { docId: invoice.id, amountPaise: 267_000 },
+    ])
+
+    // A second receipt may only take the remaining 5,00,000.
+    const overshoot = await app.inject({
+      method: "POST",
+      url: "/receipts",
+      headers: { cookie: ops },
+      payload: {
+        partyId: invoice.customerId,
+        date: "2026-08-10",
+        mode: "BANK",
+        amountPaise: 600_000,
+      },
+    })
+    expect(overshoot.statusCode).toBe(422)
+    expect(overshoot.json().maxPaise).toBe(500_000)
+  })
+})

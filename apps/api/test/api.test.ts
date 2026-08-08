@@ -819,3 +819,182 @@ describe("Tally export — balanced journal from a released run", () => {
     ).toBe(403)
   })
 })
+
+describe("password lifecycle — the seeded logins are no longer permanent", () => {
+  it("changes own password, invalidates the old one, and never leaks the hash", async () => {
+    const admin = await asAdmin()
+    const wrong = await app.inject({
+      method: "POST",
+      url: "/auth/change-password",
+      headers: { cookie: admin.cookies },
+      payload: { currentPassword: "NotMyPassword", newPassword: "a-much-longer-secret" },
+    })
+    expect(wrong.statusCode).toBe(403)
+
+    const short = await app.inject({
+      method: "POST",
+      url: "/auth/change-password",
+      headers: { cookie: admin.cookies },
+      payload: { currentPassword: "Admin@123", newPassword: "short" },
+    })
+    expect(short.statusCode).toBe(400)
+
+    const changed = await app.inject({
+      method: "POST",
+      url: "/auth/change-password",
+      headers: { cookie: admin.cookies },
+      payload: { currentPassword: "Admin@123", newPassword: "correct-horse-battery" },
+    })
+    expect(changed.statusCode).toBe(200)
+    expect(JSON.stringify(changed.json())).not.toContain("$2")
+
+    expect((await login("admin@delta.dev", "Admin@123")).response.statusCode).toBe(401)
+    expect((await login("admin@delta.dev", "correct-horse-battery")).response.statusCode).toBe(200)
+  })
+
+  it("anonymous cannot change a password; a plain employee cannot reset someone else's", async () => {
+    expect(
+      (await app.inject({ method: "POST", url: "/auth/change-password", payload: {} })).statusCode
+    ).toBe(401)
+    const employee = await asEmployee()
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/users/u1/reset-password",
+          headers: { cookie: employee.cookies },
+          payload: { newPassword: "another-long-password" },
+        })
+      ).statusCode
+    ).toBe(403)
+  })
+
+  it("admin resets a locked-out user's password and clears the lockout", async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await login("employee@delta.dev", "wrong-password")
+    }
+    expect((await login("employee@delta.dev", "Emp@1234")).response.statusCode).toBe(423)
+
+    const admin = await asAdmin()
+    const target = store.users.find((user) => user.email === "employee@delta.dev")!
+    const reset = await app.inject({
+      method: "POST",
+      url: `/users/${target.id}/reset-password`,
+      headers: { cookie: admin.cookies },
+      payload: { newPassword: "issued-by-admin-2026" },
+    })
+    expect(reset.statusCode).toBe(200)
+    expect((await login("employee@delta.dev", "issued-by-admin-2026")).response.statusCode).toBe(200)
+  })
+})
+
+describe("referential guards on employee creation", () => {
+  it("refuses an unknown shift, an unknown branch and a duplicate code", async () => {
+    const admin = await asAdmin()
+    const base = {
+      code: "DLT9001",
+      name: "New Hire",
+      email: "new.hire@delta.dev",
+      department: "Operations",
+      branchId: "b1",
+      shiftId: "gen",
+      isFieldEmployee: false,
+    }
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/employees",
+          headers: { cookie: admin.cookies },
+          payload: { ...base, shiftId: "ghost" },
+        })
+      ).json().error
+    ).toBe("UNKNOWN_SHIFT")
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/employees",
+          headers: { cookie: admin.cookies },
+          payload: { ...base, branchId: "ghost" },
+        })
+      ).json().error
+    ).toBe("UNKNOWN_BRANCH")
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/employees",
+      headers: { cookie: admin.cookies },
+      payload: base,
+    })
+    expect(created.statusCode).toBe(201)
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/employees",
+      headers: { cookie: admin.cookies },
+      payload: { ...base, email: "other@delta.dev" },
+    })
+    expect(duplicate.statusCode).toBe(409)
+    expect(duplicate.json().error).toBe("DUPLICATE_CODE")
+  })
+})
+
+describe("leave balance is re-checked at approval, not only at apply", () => {
+  it("refuses the second approval instead of driving the ledger negative", async () => {
+    const employee = await asEmployee()
+    const target = store.employees.find((row) => row.id === "e4")!
+
+    // Trim the CL balance to exactly one day so two single-day requests are
+    // each individually affordable but not both — the race the guard exists for.
+    const available = store.ledger
+      .filter((row) => row.employeeId === target.id && row.type === "CL")
+      .reduce((sum, row) => sum + row.units, 0)
+    expect(available).toBeGreaterThan(1)
+    store.ledger.push({
+      id: "l_trim",
+      employeeId: target.id,
+      type: "CL",
+      txnType: "ADJUST",
+      units: -(available - 1),
+      date: "2026-09-01",
+      remarks: "test fixture",
+    })
+
+    const raise = async (date: string) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/leave/apply",
+        headers: { cookie: employee.cookies },
+        payload: { type: "CL", from: date, to: date, part: "FULL", reason: "test" },
+      })
+      expect(response.statusCode).toBe(201)
+      return response.json().approval.id
+    }
+    // Mondays — never a weekly off, so each is exactly one leave unit.
+    const first = await raise("2026-09-07")
+    const second = await raise("2026-09-14")
+
+    const manager = await asOps()
+    const decide = (approvalId: string) =>
+      app.inject({
+        method: "POST",
+        url: `/approvals/${approvalId}/decide`,
+        headers: { cookie: manager.cookies },
+        payload: { action: "APPROVE", remarks: "ok" },
+      })
+
+    expect((await decide(first)).statusCode).toBe(200)
+    const overdrawn = await decide(second)
+    expect(overdrawn.statusCode).toBe(409)
+    expect(overdrawn.json().error).toBe("INSUFFICIENT_BALANCE")
+
+    // The balance route still answers — the ledger was never poisoned.
+    const balances = await app.inject({
+      method: "GET",
+      url: `/leave/balances/${target.id}`,
+      headers: { cookie: manager.cookies },
+    })
+    expect(balances.statusCode).toBe(200)
+    expect(balances.json().balances.CL).toBe(0)
+  })
+})

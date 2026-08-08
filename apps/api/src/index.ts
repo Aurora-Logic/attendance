@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url"
 
 import { buildServer } from "./server"
-import { exportsDir, startExportWorker } from "./exports"
+import { exportsDir, startExportWorker, stopExports } from "./exports"
 import { scheduleNightlyClose } from "./nightly"
 import { hydrateFromDb } from "./repositories"
 import { loadStore, persistOnWrite } from "./persist"
@@ -23,7 +23,7 @@ if (hydrated) {
 }
 const filesDir = exportsDir(fileURLToPath(new URL("../.data", import.meta.url)))
 const app = buildServer(store, { exportsDir: filesDir })
-persistOnWrite(app, store, dataFile)
+const { flush } = persistOnWrite(app, store, dataFile)
 scheduleNightlyClose(store)
 void startExportWorker(store, filesDir)
 
@@ -34,3 +34,37 @@ app
     console.error(error)
     process.exit(1)
   })
+
+/**
+ * Graceful shutdown: stop taking new requests, let in-flight ones finish,
+ * drain the export worker's Redis connections, and flush the debounced store
+ * write. A container restart mid-punch should cost nothing.
+ */
+let shuttingDown = false
+const shutdown = async (signal: string) => {
+  if (shuttingDown) return
+  shuttingDown = true
+  console.log(`${signal} — draining`)
+  const failsafe = setTimeout(() => {
+    console.error("shutdown took over 10s — exiting anyway")
+    process.exit(1)
+  }, 10_000)
+  failsafe.unref()
+  try {
+    await app.close()
+    await stopExports()
+    flush()
+    console.log("shutdown clean")
+    process.exit(0)
+  } catch (error) {
+    console.error("shutdown error:", error)
+    process.exit(1)
+  }
+}
+
+process.on("SIGTERM", () => void shutdown("SIGTERM"))
+process.on("SIGINT", () => void shutdown("SIGINT"))
+
+// An unhandled rejection has already skipped its error path; log it loudly
+// rather than let Node's default kill the process mid-request.
+process.on("unhandledRejection", (reason) => console.error("unhandledRejection:", reason))

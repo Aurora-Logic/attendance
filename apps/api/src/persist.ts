@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 import type { FastifyInstance } from "fastify"
 
@@ -12,8 +12,15 @@ import { seedStore, type Store } from "./store"
  */
 
 export function loadStore(path: string): Store {
+  let raw: string
   try {
-    const raw = readFileSync(path, "utf8")
+    raw = readFileSync(path, "utf8")
+  } catch {
+    // No file yet — a genuinely fresh install. Seed is correct here.
+    return seedStore()
+  }
+
+  try {
     const parsed = JSON.parse(raw) as Partial<Store>
     // Merge over a fresh seed so new fields added since the file was written
     // (matrix keys, settings, branding) exist with defaults.
@@ -29,24 +36,68 @@ export function loadStore(path: string): Store {
       monthLocks: parsed.monthLocks ?? [],
       payrollRuns: parsed.payrollRuns ?? [],
     }
-  } catch {
-    return seedStore()
+  } catch (error) {
+    // The file exists but will not parse. Silently reseeding here would
+    // replace live business data with demo rows and look like a working boot,
+    // so the corrupt file is preserved for recovery and the process stops.
+    const quarantine = `${path}.corrupt-${Date.now()}`
+    try {
+      renameSync(path, quarantine)
+    } catch {
+      /* best effort — the throw below is what matters */
+    }
+    throw new Error(
+      `Data file ${path} is corrupt and was moved to ${quarantine}. ` +
+        `Refusing to start with seed data over live records. ` +
+        `Restore a backup and restart. Parse error: ${(error as Error).message}`
+    )
   }
 }
 
-export function persistOnWrite(app: FastifyInstance, store: Store, path: string): void {
+/**
+ * Returns a synchronous flush. Writes are debounced by 300ms, so a process
+ * killed inside that window would drop the last mutation — shutdown calls the
+ * flush to close that gap.
+ */
+export function persistOnWrite(
+  app: FastifyInstance,
+  store: Store,
+  path: string
+): { flush: () => void } {
   mkdirSync(dirname(path), { recursive: true })
   let timer: NodeJS.Timeout | null = null
+
+  // Write to a sibling temp file then rename. rename(2) is atomic within a
+  // filesystem, so a crash mid-write leaves the previous good file intact
+  // instead of a half-written one that fails to parse on the next boot.
+  const write = () => {
+    const temp = `${path}.tmp`
+    try {
+      writeFileSync(temp, JSON.stringify(store))
+      renameSync(temp, path)
+    } catch (error) {
+      app.log.error?.(error)
+      try {
+        rmSync(temp, { force: true })
+      } catch {
+        /* nothing further to do */
+      }
+    }
+  }
 
   app.addHook("onResponse", async (request) => {
     if (request.method === "GET") return
     if (timer) clearTimeout(timer)
-    timer = setTimeout(() => {
-      try {
-        writeFileSync(path, JSON.stringify(store))
-      } catch (error) {
-        app.log.error?.(error)
-      }
-    }, 300)
+    timer = setTimeout(write, 300)
   })
+
+  return {
+    flush: () => {
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+      write()
+    },
+  }
 }

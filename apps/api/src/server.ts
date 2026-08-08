@@ -1,6 +1,7 @@
 import cookie from "@fastify/cookie"
 import rateLimit from "@fastify/rate-limit"
 import cors from "@fastify/cors"
+import helmet from "@fastify/helmet"
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify"
 import jwt from "jsonwebtoken"
 import bcrypt from "bcryptjs"
@@ -47,7 +48,43 @@ import { id, seedStore, type Store, type StoredEmployee } from "./store"
 
 const ACCESS_TTL_SEC = 15 * 60
 const REFRESH_TTL_SEC = 30 * 24 * 3600
-const SECRET = process.env.JWT_ACCESS_SECRET ?? "dev-only-secret-change-me"
+
+const IS_PRODUCTION = process.env.NODE_ENV === "production"
+
+/**
+ * The signing secret is the whole authentication system. A deployment that
+ * forgot to set it would issue tokens anyone with the source could forge, so
+ * production refuses to boot rather than run insecure — a crash at start is
+ * loud and fixable; a silent default is neither.
+ */
+function resolveSecret(): string {
+  const configured = process.env.JWT_ACCESS_SECRET
+  if (IS_PRODUCTION) {
+    if (!configured || configured.length < 32)
+      throw new Error(
+        "JWT_ACCESS_SECRET must be set to at least 32 characters in production. " +
+          "Generate one with: openssl rand -base64 48"
+      )
+    return configured
+  }
+  return configured ?? "dev-only-secret-change-me"
+}
+
+const SECRET = resolveSecret()
+
+/**
+ * Browsers may only send credentialed requests to an origin the server names
+ * explicitly — reflecting whatever Origin arrived is the same as allowing all
+ * of them. In development the Vite ports are the allowlist; in production
+ * CORS_ORIGINS carries the real ones.
+ */
+const ALLOWED_ORIGINS = (
+  process.env.CORS_ORIGINS ??
+  "http://localhost:5173,http://localhost:5174,http://localhost:5177"
+)
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean)
 
 interface AuthContext {
   userId: string
@@ -139,7 +176,18 @@ function scopeReaches(
 export function buildServer(store: Store = seedStore(), options: { exportsDir?: string } = {}) {
   const app = Fastify({ logger: false })
 
-  app.register(cors, { origin: true, credentials: true })
+  // Same-origin API responses carry no HTML, but the headers cost nothing and
+  // close off sniffing, framing and referrer leakage. CSP is left to whatever
+  // serves the SPA — setting it here would only govern JSON.
+  app.register(helmet, { contentSecurityPolicy: false, crossOriginEmbedderPolicy: false })
+  app.register(cors, {
+    origin: (origin, callback) => {
+      // No Origin header: same-origin, curl, or a native app — not a CORS case.
+      if (!origin) return callback(null, true)
+      callback(null, ALLOWED_ORIGINS.includes(origin))
+    },
+    credentials: true,
+  })
   app.register(cookie)
   // §8.6: global ceiling; auth and punch carry tighter per-route limits below.
   app.register(rateLimit, { global: true, max: 300, timeWindow: "1 minute" })
@@ -148,7 +196,14 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     jwt.sign(payload, SECRET, { expiresIn: ttlSec })
 
   const setAuthCookies = (reply: FastifyReply, auth: AuthContext) => {
-    const base = { path: "/", httpOnly: true, sameSite: "lax" as const }
+    // `secure` only in production: localhost development is plain HTTP, and a
+    // secure cookie there would simply never be stored.
+    const base = {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax" as const,
+      secure: IS_PRODUCTION,
+    }
     reply.setCookie("access_token", sign(auth, ACCESS_TTL_SEC), { ...base, maxAge: ACCESS_TTL_SEC })
     reply.setCookie("refresh_token", sign(auth, REFRESH_TTL_SEC), { ...base, maxAge: REFRESH_TTL_SEC })
   }
@@ -290,6 +345,76 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     }
   })
 
+  /**
+   * Until this existed there was no way to change a password at all: the four
+   * seeded logins were permanent and their passwords are in the repo. Anyone
+   * signed in may change their own; nobody may change another's here.
+   */
+  const passwordChangeSchema = z.object({
+    currentPassword: z.string().min(1),
+    // Long enough to survive the offline attack a stolen hash enables.
+    newPassword: z.string().min(10).max(200),
+  })
+
+  app.post(
+    "/auth/change-password",
+    {
+      preHandler: [authenticate],
+      config: { rateLimit: { max: 5, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const parsed = passwordChangeSchema.safeParse(request.body)
+      if (!parsed.success)
+        return reply
+          .code(400)
+          .send({ error: "BAD_REQUEST", detail: "New password must be at least 10 characters." })
+      const user = store.users.find((candidate) => candidate.id === request.auth.userId)
+      if (!user) return reply.code(401).send({ error: "UNAUTHENTICATED" })
+      if (!bcrypt.compareSync(parsed.data.currentPassword, user.passwordHash))
+        return reply.code(403).send({ error: "WRONG_PASSWORD" })
+      if (bcrypt.compareSync(parsed.data.newPassword, user.passwordHash))
+        return reply.code(422).send({ error: "SAME_PASSWORD" })
+
+      user.passwordHash = bcrypt.hashSync(parsed.data.newPassword, 12)
+      // The hash itself is never logged — only that a change happened.
+      recordAudit({
+        actorId: user.id,
+        action: "auth.password_change",
+        entity: "users",
+        entityId: user.id,
+        ip: request.ip,
+      })
+      return { ok: true }
+    }
+  )
+
+  /** Admin-side reset for someone locked out. Returns nothing about the old one. */
+  app.post(
+    "/users/:id/reset-password",
+    { preHandler: [authenticate, requirePermission("config.manage", { write: true })] },
+    async (request, reply) => {
+      const parsed = z
+        .object({ newPassword: z.string().min(10).max(200) })
+        .safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+      const target = store.users.find(
+        (candidate) => candidate.id === (request.params as { id: string }).id
+      )
+      if (!target) return reply.code(404).send({ error: "NOT_FOUND" })
+
+      target.passwordHash = bcrypt.hashSync(parsed.data.newPassword, 12)
+      failedLogins.delete(target.email)
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "auth.password_reset",
+        entity: "users",
+        entityId: target.id,
+        ip: request.ip,
+      })
+      return { ok: true }
+    }
+  )
+
   app.post("/auth/logout", async (_request, reply) => {
     reply.clearCookie("access_token", { path: "/" })
     reply.clearCookie("refresh_token", { path: "/" })
@@ -339,6 +464,15 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     async (request, reply) => {
       const parsed = employeeCreateSchema.safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+      // Same referential guards as PATCH: a dangling shiftId reaches the day
+      // computation as `undefined` and crashes the register and payroll for
+      // everyone, not just this employee.
+      if (!store.shifts.some((shift) => shift.id === parsed.data.shiftId))
+        return reply.code(422).send({ error: "UNKNOWN_SHIFT" })
+      if (!store.branches.some((branch) => branch.id === parsed.data.branchId))
+        return reply.code(422).send({ error: "UNKNOWN_BRANCH" })
+      if (store.employees.some((existing) => existing.code === parsed.data.code))
+        return reply.code(409).send({ error: "DUPLICATE_CODE" })
       const employee: StoredEmployee = { id: id(store, "e"), managerId: null, ...parsed.data }
       store.employees.push(employee)
       recordAudit({
@@ -1155,6 +1289,26 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     // Approving your own request is never allowed, whatever the scope.
     if (approval.employeeId === request.auth.employeeId) {
       return reply.code(403).send({ error: "CANNOT_DECIDE_OWN" })
+    }
+
+    // Balance is re-checked at APPROVAL, not just at apply. Two requests can
+    // each pass the apply-time check and then both be approved; the resulting
+    // debit drives the ledger negative, and reduceLedger throws on a negative
+    // balance — which would 500 this employee's balance and apply routes for
+    // good. Refusing here keeps the ledger a valid document.
+    if (
+      parsed.data.action === "APPROVE" &&
+      approval.kind === "LEAVE" &&
+      approval.leaveType &&
+      approval.leaveType !== "LOP"
+    ) {
+      const available = balancesFor(approval.employeeId)[approval.leaveType] ?? 0
+      if (approval.units > available) {
+        return reply.code(409).send({
+          error: "INSUFFICIENT_BALANCE",
+          detail: `${approval.leaveType}: ${available} available, ${approval.units} requested. Balance changed since the request was raised.`,
+        })
+      }
     }
 
     const beforeApproval = { status: approval.status }

@@ -456,25 +456,70 @@ export function registerSalesRoutes(app: FastifyInstance, store: Store, guards: 
     if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
     const body = parsed.data
 
-    const allocations =
-      body.allocations ??
-      allocateOldestFirst(
-        body.amountPaise,
-        store.invoices
-          .filter((invoice) => invoice.customerId === body.partyId && invoice.status === "OPEN")
-          .map((invoice) => ({
-            id: invoice.id,
-            dueDate: invoice.dueDate,
-            outstandingPaise: outstandingPaise(invoice, store.receipts),
-          }))
-      )
-    if (allocations.length === 0) {
+    // What this party actually owes, per open invoice. Every allocation is
+    // measured against this — never against numbers the client sent.
+    const openInvoices = store.invoices
+      .filter((invoice) => invoice.customerId === body.partyId && invoice.status === "OPEN")
+      .map((invoice) => ({
+        id: invoice.id,
+        dueDate: invoice.dueDate,
+        outstandingPaise: outstandingPaise(invoice, store.receipts),
+      }))
+      .filter((invoice) => invoice.outstandingPaise > 0)
+
+    const totalOutstanding = openInvoices.reduce(
+      (sum, invoice) => sum + invoice.outstandingPaise,
+      0
+    )
+    if (totalOutstanding === 0) {
       return reply.code(422).send({ error: "NOTHING_OUTSTANDING" })
     }
-    // Excess money must never vanish into unallocated air — refuse with the max.
-    const allocatable = allocations.reduce((sum, allocation) => sum + allocation.amountPaise, 0)
-    if (body.amountPaise > allocatable) {
-      return reply.code(422).send({ error: "EXCEEDS_OUTSTANDING", maxPaise: allocatable })
+    if (body.amountPaise > totalOutstanding) {
+      return reply.code(422).send({ error: "EXCEEDS_OUTSTANDING", maxPaise: totalOutstanding })
+    }
+
+    let allocations
+    if (body.allocations) {
+      // Manual allocation is a real need (a customer paying a specific bill),
+      // but the figures are untrusted input. Validating them against the
+      // ledger is what stops a crafted request from writing off a debt that
+      // was never paid.
+      for (const allocation of body.allocations) {
+        const invoice = openInvoices.find((candidate) => candidate.id === allocation.docId)
+        if (!invoice)
+          return reply
+            .code(422)
+            .send({ error: "UNKNOWN_ALLOCATION", docId: allocation.docId })
+        if (allocation.amountPaise <= 0)
+          return reply.code(422).send({ error: "BAD_ALLOCATION", docId: allocation.docId })
+        if (allocation.amountPaise > invoice.outstandingPaise)
+          return reply.code(422).send({
+            error: "ALLOCATION_EXCEEDS_INVOICE",
+            docId: allocation.docId,
+            maxPaise: invoice.outstandingPaise,
+          })
+      }
+      const uniqueDocs = new Set(body.allocations.map((allocation) => allocation.docId))
+      if (uniqueDocs.size !== body.allocations.length)
+        return reply.code(422).send({ error: "DUPLICATE_ALLOCATION" })
+      // The receipt must be fully accounted for: money that lands nowhere is
+      // money the books cannot explain.
+      const allocated = body.allocations.reduce(
+        (sum, allocation) => sum + allocation.amountPaise,
+        0
+      )
+      if (allocated !== body.amountPaise)
+        return reply.code(422).send({
+          error: "ALLOCATION_MISMATCH",
+          detail: `Allocations total ${allocated} paise but the receipt is ${body.amountPaise}.`,
+        })
+      allocations = body.allocations
+    } else {
+      allocations = allocateOldestFirst(body.amountPaise, openInvoices)
+    }
+
+    if (allocations.length === 0) {
+      return reply.code(422).send({ error: "NOTHING_OUTSTANDING" })
     }
 
     const receipt = {
