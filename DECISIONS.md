@@ -502,6 +502,26 @@ Found while probing a P2 about nav filtering, not by the audit — no auditor an
 | Q4 | The Search trigger carries an `aria-label` | Its text is hidden below `sm`, leaving an icon-only button with no accessible name — unusable with a screen reader, and the reason the sweep could not address it at 390px. |
 | Q5 | `/employees/:id` is guarded, self-view always allowed | Anyone could open a colleague's profile by id and read their email, manager and three months of attendance analytics. It was never guarded because it is reached from a list that is — but the URL was always there to type. |
 
+## 33. Tally becomes the heart (8 Aug 2026)
+
+Direction set by the owner: **Tally is the system of record** for commercial masters and stock — customers, vendors, items, ledgers. This app is the operational layer on top, adding the workflow Tally has no opinion about (picking, packing, dispatch, proof of delivery) and pushing the resulting documents back. **Attendance and payroll stay outside that boundary** and never sync; they are this system's own domain.
+
+Answers given: a **connector agent** on the Windows machine, **two-way sync with last-write-wins**, and the overdue mailer **deferred**.
+
+| # | Decision | Why |
+|---|---|---|
+| Y1 | A connector agent on the Tally machine, not a direct call | Tally's XML gateway listens only on the local network and only while Tally is open, so nothing hosted elsewhere can reach it. The agent talks to Tally locally and to this API over HTTPS, and can queue while Tally is closed instead of losing the change. |
+| Y2 | `tallyGuid` is the join key, never the name | Master names get edited and reused; GUIDs do not. |
+| Y3 | Change detection uses Tally's **AlterID**, not a diff | It is Tally's own monotonic edit counter, so "everything since N" is one cheap question rather than pulling whole masters to compare. |
+| Y4 | A decision is `conflict` **only when both sides changed since the last sync** | Last-write-wins would otherwise label every ordinary one-sided edit a conflict. This is what keeps the conflict log short enough that somebody reads it. |
+| Y5 | The **losing copy is kept**, verbatim | Last-write-wins discards something. An accountant who finds a master wrong needs to see what the other side said, not be told a timestamp settled it. |
+| Y6 | Ties go to Tally, and an unreadable timestamp defers to Tally | Two edits in the same millisecond are almost certainly one change echoing back, and Tally is the accounting record. A malformed timestamp must not win by accident. |
+| Y7 | Agent liveness is tracked and surfaced | A sync layer that stops silently is worse than one never connected: screens keep showing masters that are quietly days out of date. |
+
+## 34. The sidebar animated layout (8 Aug 2026)
+
+Measured: **37 elements** were transitioning `width`, `height`, `padding` or `left` simultaneously on every toggle, each forcing a reflow per frame. Only two of them — the spacer and the fixed panel — actually need to, and everything else sits inside those and animates its own layout for no visible benefit. Now **2**, with a critically-damped curve in place of `ease-linear`, and the collapse verified unchanged (256px → 48px).
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.
