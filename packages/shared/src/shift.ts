@@ -88,3 +88,27 @@ export function punchWindowFlag(
   if (relativeToEnd < -settings.punchOutWindowBeforeMin) return "EARLY_EXIT"
   return "ON_TIME"
 }
+
+/**
+ * Today's date as the company sees it. `toISOString()` is UTC, so in
+ * Asia/Kolkata (UTC+5:30) anything before 05:30 local still reports the
+ * previous day — which silently shifts every "yesterday" job by one.
+ */
+export function companyToday(timezone: string, now: Date = new Date()): string {
+  // en-CA formats as YYYY-MM-DD, which is exactly the shape used everywhere.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now)
+}
+
+/** N days back from the company's today, oldest first. */
+export function recentCompanyDates(timezone: string, days: number, now: Date = new Date()): string[] {
+  const dates: string[] = []
+  for (let back = days; back >= 1; back--) {
+    dates.push(companyToday(timezone, new Date(now.getTime() - back * 86_400_000)))
+  }
+  return dates
+}

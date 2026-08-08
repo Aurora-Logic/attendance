@@ -184,7 +184,25 @@ function scopeReaches(
 }
 
 export function buildServer(store: Store = seedStore(), options: { exportsDir?: string } = {}) {
-  const app = Fastify({ logger: false })
+  const app = Fastify({
+    /**
+     * Behind a reverse proxy every request arrives from the proxy, so without
+     * this the rate limiter buckets the whole company into one counter, the
+     * login lockout locks everyone at once, and every audit row records the
+     * proxy's IP instead of the client's. TRUST_PROXY names the hops to trust
+     * — `true` is only safe when nothing but your own proxy can reach the API.
+     */
+    trustProxy: process.env.TRUST_PROXY ?? false,
+    /**
+     * Structured logs in production (one JSON line per request, shipped by
+     * whatever runs the container), quiet in tests. `console.*` scattered
+     * through the code told you nothing about which request failed.
+     */
+    logger:
+      process.env.NODE_ENV === "test"
+        ? false
+        : { level: process.env.LOG_LEVEL ?? (IS_PRODUCTION ? "info" : "warn") },
+  })
 
   // Same-origin API responses carry no HTML, but the headers cost nothing and
   // close off sniffing, framing and referrer leakage. CSP is left to whatever

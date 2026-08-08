@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { DEFAULT_ATTENDANCE_SETTINGS as S } from "./settings"
-import {
-  crossesMidnight,
-  offsetFromShiftStart,
-  punchWindowFlag,
-  resolveBusinessDate,
-  shiftLengthMin,
-  type ShiftSpec,
-} from "./shift"
+import { companyToday, crossesMidnight, offsetFromShiftStart, punchWindowFlag, recentCompanyDates, resolveBusinessDate, shiftLengthMin, type ShiftSpec } from "./shift"
 
 const DAY: ShiftSpec = { id: "gen", name: "General", short: "G", startMin: 540, endMin: 1080, breakMin: 60 }
 const NIGHT: ShiftSpec = { id: "night", name: "Night", short: "N", startMin: 1320, endMin: 360, breakMin: 30 }
@@ -84,5 +77,31 @@ describe("punchWindowFlag — window vs grace are different thresholds", () => {
 
   it("an OUT beyond the after-window is overtime, not a violation", () => {
     expect(punchWindowFlag("OUT", shiftLengthMin(DAY) + 90, DAY, S)).toBe("ON_TIME")
+  })
+})
+
+describe("companyToday", () => {
+  it("uses the company's calendar, not the server's UTC date", () => {
+    // 02:00 IST on 8 Aug is still 7 Aug in UTC — the off-by-one that made the
+    // nightly close examine the wrong day.
+    const earlyMorningIst = new Date("2026-08-07T20:30:00Z")
+    expect(companyToday("Asia/Kolkata", earlyMorningIst)).toBe("2026-08-08")
+    expect(companyToday("UTC", earlyMorningIst)).toBe("2026-08-07")
+  })
+
+  it("agrees with UTC in the middle of the day", () => {
+    const midday = new Date("2026-08-07T09:00:00Z")
+    expect(companyToday("Asia/Kolkata", midday)).toBe("2026-08-07")
+  })
+})
+
+describe("recentCompanyDates", () => {
+  it("returns the window oldest first, excluding today", () => {
+    const now = new Date("2026-08-08T09:00:00Z")
+    expect(recentCompanyDates("Asia/Kolkata", 3, now)).toEqual([
+      "2026-08-05",
+      "2026-08-06",
+      "2026-08-07",
+    ])
   })
 })

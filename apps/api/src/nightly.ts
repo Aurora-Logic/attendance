@@ -1,3 +1,5 @@
+import { recentCompanyDates } from "@attendance/shared"
+
 import { persistApproval } from "./repositories"
 import type { Store } from "./store"
 import { id } from "./store"
@@ -49,13 +51,25 @@ export function runNightlyClose(store: Store, dateISO: string): { closed: string
   return { closed }
 }
 
-/** Boot catch-up for yesterday, then an hourly re-check. */
-export function scheduleNightlyClose(store: Store): void {
+/**
+ * How many days back each sweep looks. Examining only yesterday meant a
+ * weekend outage, or a container that was down on Monday, silently skipped
+ * those days forever — nothing would ever raise their missed punch-outs. The
+ * close is idempotent, so re-examining a week costs nothing and self-heals.
+ */
+const LOOKBACK_DAYS = 7
+
+/** Boot catch-up over the recent window, then an hourly re-check. */
+export function scheduleNightlyClose(store: Store, log = console.log): void {
   const run = () => {
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
-    const { closed } = runNightlyClose(store, yesterday)
-    if (closed.length > 0) {
-      console.log(`nightly close: ${closed.length} missed punch-out(s) for ${yesterday}`)
+    // The company's calendar, not the server's: in Asia/Kolkata anything
+    // before 05:30 local still reports the previous day in UTC, so a job that
+    // used toISOString() closed the wrong date every early morning.
+    for (const date of recentCompanyDates(store.settings.timezone, LOOKBACK_DAYS)) {
+      const { closed } = runNightlyClose(store, date)
+      if (closed.length > 0) {
+        log(`nightly close: ${closed.length} missed punch-out(s) for ${date}`)
+      }
     }
   }
   run()

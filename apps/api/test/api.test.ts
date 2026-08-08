@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify"
 
 import { buildServer } from "../src/server"
 import { seedStore, type Store } from "../src/store"
+import { runNightlyClose } from "../src/nightly"
 
 let store: Store
 let app: FastifyInstance
@@ -1373,5 +1374,53 @@ describe("overtime is paid only when approved", () => {
     const admin = await asAdmin()
     const item = await lockAndRun(admin.cookies, "2026-08")
     expect(item.otMinutes).toBeGreaterThan(0)
+  })
+})
+
+describe("nightly close runs on the company's calendar and self-heals", () => {
+  it("re-running a date creates nothing twice", async () => {
+    const employee = await asEmployee()
+    await app.inject({
+      method: "POST",
+      url: "/punches",
+      headers: { cookie: employee.cookies },
+      payload: punchBody({ type: "IN", at: "2026-08-05T09:00", idempotencyKey: "close-in-1" }),
+    })
+
+    const first = runNightlyClose(store, "2026-08-05")
+    expect(first.closed).toContain("e4")
+    const raised = store.approvals.filter(
+      (approval) =>
+        approval.kind === "REGULARISATION" && approval.subject.startsWith("Missed punch-out")
+    ).length
+
+    const second = runNightlyClose(store, "2026-08-05")
+    expect(second.closed).toHaveLength(0)
+    expect(
+      store.approvals.filter(
+        (approval) =>
+          approval.kind === "REGULARISATION" && approval.subject.startsWith("Missed punch-out")
+      )
+    ).toHaveLength(raised)
+  })
+
+  it("a day that was already closed out is left alone", async () => {
+    const employee = await asEmployee()
+    for (const [type, key] of [
+      ["IN", "closed-in"],
+      ["OUT", "closed-out"],
+    ] as const) {
+      await app.inject({
+        method: "POST",
+        url: "/punches",
+        headers: { cookie: employee.cookies },
+        payload: punchBody({
+          type,
+          at: `2026-08-04T${type === "IN" ? "09:00" : "18:00"}`,
+          idempotencyKey: key,
+        }),
+      })
+    }
+    expect(runNightlyClose(store, "2026-08-04").closed).not.toContain("e4")
   })
 })
