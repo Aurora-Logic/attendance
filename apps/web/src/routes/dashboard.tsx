@@ -29,6 +29,8 @@ import {
   seedAttendanceDays,
 } from "@/lib/seed"
 import { rankedByPunctuality } from "@/lib/analytics"
+import { useSession } from "@/lib/session"
+import { MyDay } from "@/components/my-day"
 import { Page, PageBody, PageHeader } from "@/components/page-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -96,6 +98,34 @@ const deptConfig = {
 } satisfies ChartConfig
 
 export function DashboardPage() {
+  const { scopeFor } = useSession()
+  /**
+   * The dashboard answers management questions — headcount by department,
+   * overtime by department, approval turnaround. They are only meaningful to
+   * someone whose reporting reach extends past themselves.
+   *
+   * The gate is the *scope*, not the capability: every role holds
+   * `reports.view`, but an employee holds it at SELF, which is precisely the
+   * person for whom a company-wide chart is noise.
+   */
+  const reach = scopeFor("reports.view")
+  if (reach === "SELF" || reach === "NONE") {
+    return (
+      <Page>
+        <PageHeader
+          title="Your day"
+          description="Attendance, leave and requests — everything that is yours."
+        />
+        <PageBody>
+          <MyDay />
+        </PageBody>
+      </Page>
+    )
+  }
+  return <CompanyDashboard />
+}
+
+function CompanyDashboard() {
   const days = React.useMemo(() => seedAttendanceDays(), [])
   const approvals = React.useMemo(() => seedApprovals().slice(0, 5), [])
   const podium = React.useMemo(() => rankedByPunctuality().slice(0, 3), [])

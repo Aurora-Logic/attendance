@@ -47,7 +47,7 @@ page.on("pageerror", (e) => errors.push(String(e)))
 
 await page.goto(BASE, { waitUntil: "domcontentloaded" })
 await page.getByRole("button", { name: /employee@delta\.dev/ }).click()
-await page.getByRole("heading", { name: "Dashboard", level: 1 }).waitFor({ timeout: 10_000 })
+await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 10_000 })
 
 await page.goto(`${BASE}/punch`, { waitUntil: "domcontentloaded" })
 await page.waitForTimeout(800)
@@ -83,11 +83,18 @@ await sheet.getByLabel("Out time").fill("18:30")
 await sheet.getByRole("button", { name: "Send for approval" }).click()
 await page.getByText("Sent for approval").waitFor({ timeout: 6_000 })
 
-// It appears in the approvals inbox as a regularisation.
+// It reaches the approver's inbox. The employee cannot see /approvals — that
+// is the approver's screen, and the route guard now says so — so the honest
+// end-to-end check signs in as the manager the request routed to.
+await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" })
+await page.evaluate(() => window.localStorage.clear())
+await page.goto(BASE, { waitUntil: "domcontentloaded" })
+await page.getByRole("button", { name: /ops@delta\.dev/ }).click()
+await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 10_000 })
 await page.goto(`${BASE}/approvals`, { waitUntil: "domcontentloaded" })
-await page.waitForTimeout(900)
+await page.waitForTimeout(1200)
 const found = await page.getByText("Regularisation", { exact: false }).count()
-if (found === 0) throw new Error("raised request is not visible in approvals")
+if (found === 0) throw new Error("raised request never reached the approver's inbox")
 
 await browser.close()
 if (errors.length > 0) {

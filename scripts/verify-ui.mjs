@@ -81,7 +81,7 @@ for (const viewport of VIEWPORTS) {
   await page.getByRole("button", { name: /admin@delta\.dev/ }).click()
   // The page heading, not the sidebar label — the rail may be collapsed at
   // tablet widths, and a nav-state-dependent assertion is a false failure.
-  await page.getByRole("heading", { name: "Dashboard", level: 1 }).waitFor({ timeout: 10_000 })
+  await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 10_000 })
 
   for (const route of ROUTES) {
     await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 60_000 })

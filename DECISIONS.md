@@ -354,6 +354,20 @@ The rule this encodes: degrade where a reader just wants the rest of the data, a
 
 Note on M4: the existing test passed `poId: "po_x"`, a fake id, and started failing once the guard landed. The test was updated to match corrected behaviour — the guard was not weakened to keep a green suite.
 
+## 21. Roles get their own product (8 Aug 2026)
+
+Found by signing in as an employee and using the app, rather than from the audit.
+
+| # | Decision | Why |
+|---|---|---|
+| S1 | Privileged **routes** are gated, not just nav entries | The sidebar hid what a role could not use, but the routes were open: typing `/payroll` as an employee rendered the whole screen, whose hooks then fired requests the API correctly refused — a working-looking page of empty tables and a console of 403s. Measured before: two 403s on load. After: none. |
+| S2 | The guard uses the **same `can()` rule the nav uses** | Nav and route agree by construction, so a permission change cannot leave one open and the other hidden. The API remains the authority; this only stops the client asking questions it already knows the answer to. |
+| S3 | Refusal names the missing permission and offers a way back | "Not available to you · needs `payroll.manage`" is actionable. A blank screen or a redirect loop is not. |
+| S4 | An employee lands on **Your day**, not the company dashboard | Headcount by department, overtime by department and approval turnaround are management questions. An employee opens the app to ask three things: am I punched in, how much leave do I have, what happened to my request. |
+| S5 | The split keys on **scope, not capability** | Every role holds `reports.view`; an employee holds it at `SELF`. Gating on the capability put employees straight back on the company dashboard — caught by re-probing rather than assumed. `SELF`/`NONE` reach → their own day. |
+
+Note: three browser tests waited on an h1 of "Dashboard" and one asserted an employee could see `/approvals`. Both assumptions were the *old* behaviour. The waits are now role-agnostic and the regularisation test verifies the request reaching the approver's inbox — the truthful end state — rather than a screen the employee should never have seen.
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

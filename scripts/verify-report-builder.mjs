@@ -14,7 +14,7 @@ page.on("pageerror", (error) => errors.push(String(error)))
 // login through the real screen
 await page.goto(BASE, { waitUntil: "domcontentloaded" })
 await page.getByRole("button", { name: /admin@delta\.dev/ }).click()
-await page.getByRole("heading", { name: "Dashboard", level: 1 }).waitFor({ timeout: 10_000 })
+await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 10_000 })
 
 await page.goto(`${BASE}/reports`, { waitUntil: "domcontentloaded" })
 

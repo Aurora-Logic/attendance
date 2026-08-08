@@ -42,7 +42,7 @@ page.on("pageerror", (e) => errors.push(String(e)))
 // The manager (ops) is who the request routed to.
 await page.goto(BASE, { waitUntil: "domcontentloaded" })
 await page.getByRole("button", { name: /ops@delta\.dev/ }).click()
-await page.getByRole("heading", { name: "Dashboard", level: 1 }).waitFor({ timeout: 10_000 })
+await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 10_000 })
 
 const bell = page.getByRole("button", { name: /Notifications/ })
 await bell.waitFor({ timeout: 10_000 })
