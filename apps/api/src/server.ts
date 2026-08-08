@@ -62,6 +62,7 @@ import {
 import { registerProcurementRoutes } from "./procurement"
 import { registerOpsRoutes } from "./ops"
 import { registerSalesRoutes } from "./sales"
+import { registerTallyRoutes } from "./tally"
 import { id, seedStore, type Store, type StoredEmployee } from "./store"
 
 const ACCESS_TTL_SEC = 15 * 60
@@ -1980,6 +1981,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
   registerProcurementRoutes(app, store, { authenticate, requirePermission })
   registerSalesRoutes(app, store, { authenticate, requirePermission })
   registerOpsRoutes(app, store, { authenticate, requirePermission })
+  registerTallyRoutes(app, store, { authenticate, requirePermission })
 
   return app
 }

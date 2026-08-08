@@ -7,6 +7,8 @@ import {
   type AttendanceSettings,
   type BankDetails,
   type Notification,
+  type SyncConflict,
+  type SyncRecord,
   type RegularisationReason,
   type Challan,
   type Customer,
@@ -43,6 +45,17 @@ export interface StoredUser {
   passwordHash: string
   role: Role
   employeeId: string
+}
+
+/**
+ * A mirrored master plus its **watermark** — the state at the end of the last
+ * successful sync. It has to be stored apart from `updatedAt`, which moves
+ * whenever this side edits: comparing the record against itself makes an
+ * app-side change undetectable, and no conflict could ever be found.
+ */
+export interface StoredSyncRecord extends SyncRecord {
+  syncedUpdatedAt: string
+  syncedAlterId: number
 }
 
 export interface StoredEmployee {
@@ -187,6 +200,18 @@ export interface Store {
   payrollRuns: PayrollRunRecord[]
   /** In-app notification feed, newest first. */
   notifications: Notification[]
+  /** Masters mirrored from Tally, keyed by entity + tallyGuid. */
+  tallyRecords: StoredSyncRecord[]
+  /** Resolved conflicts, keeping whichever copy last-write-wins discarded. */
+  tallyConflicts: SyncConflict[]
+  /** Connector agent liveness and last sync outcome. */
+  tallyAgent: {
+    lastSeenAt: string | null
+    agentVersion: string
+    company: string
+    lastPulled: number
+    lastPushed: number
+  }
   vendors: Vendor[]
   items: Item[]
   /** Master lists behind the item form's pickers — grown inline, never typo'd. */
@@ -279,6 +304,15 @@ export function seedStore(): Store {
     monthLocks: [],
     payrollRuns: [],
     notifications: [],
+    tallyRecords: [],
+    tallyConflicts: [],
+    tallyAgent: {
+      lastSeenAt: null,
+      agentVersion: "",
+      company: "",
+      lastPulled: 0,
+      lastPushed: 0,
+    },
     vendors: [
       { id: "v1", code: "VND001", name: "Shree Steel Traders", gstin: "27AABCS1429B1ZP", contact: "Mahesh Kulkarni", email: "sales@shreesteel.in", phone: "+91 98200 11223", address: "Kalbadevi Road", city: "Mumbai", state: "Maharashtra", paymentTermsDays: 30, leadTimeDays: 7, active: true },
       { id: "v2", code: "VND002", name: "Om Packaging Co", gstin: null, contact: "Sunita Shah", email: "om.pack@gmail.com", phone: "+91 98111 44556", address: "MIDC Phase II", city: "Pune", state: "Maharashtra", paymentTermsDays: 15, leadTimeDays: 4, active: true },

@@ -522,6 +522,16 @@ Answers given: a **connector agent** on the Windows machine, **two-way sync with
 
 Measured: **37 elements** were transitioning `width`, `height`, `padding` or `left` simultaneously on every toggle, each forcing a reflow per frame. Only two of them — the spacer and the fixed panel — actually need to, and everything else sits inside those and animates its own layout for no visible benefit. Now **2**, with a critically-damped curve in place of `ease-linear`, and the collapse verified unchanged (256px → 48px).
 
+## 35. The connector's contract (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| Y8 | The agent authenticates with a **shared secret header**, not a session | It is a machine, not a person. Production refuses to boot without one of at least 32 characters, on the same reasoning as the JWT secret: these endpoints write the commercial masters. |
+| Y9 | The secret is compared in constant time, length first | A byte-by-byte early return leaks the secret to anyone patient enough to time it. |
+| Y10 | A **company mismatch is refused**, not merged | Merging one company's masters into another's is not recoverable by a later sync. If the agent is pointed at the wrong books, that is a stop, not a guess. |
+| Y11 | Each mirrored record stores a **watermark** (`syncedUpdatedAt`/`syncedAlterId`) apart from `updatedAt` | Found by a test that expected a conflict and got none: passing the record's *current* state as "the last sync" compares it against itself, so an app-side edit is undetectable and **no conflict can ever be raised**. The watermark is the state at the end of the last successful sync; `updatedAt` moves whenever this side edits. |
+| Y12 | Conflicts are read through session-authenticated routes, and marking one reviewed needs `sales.manage` | The agent writes; people read and triage. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

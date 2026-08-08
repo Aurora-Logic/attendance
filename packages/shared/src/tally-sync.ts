@@ -139,7 +139,8 @@ export type SyncConflict = z.infer<typeof syncConflictSchema>
 
 export const syncPullRequestSchema = z.object({
   /** Highest AlterID this side has already seen, per entity. */
-  since: z.record(tallyEntitySchema, z.number().int().nonnegative()).default({}),
+  /** Highest AlterID seen per entity; absent means never synced. */
+  since: z.partialRecord(tallyEntitySchema, z.number().int().nonnegative()).default({}),
 })
 
 export const syncPushRequestSchema = z.object({

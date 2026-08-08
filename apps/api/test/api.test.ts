@@ -2854,3 +2854,175 @@ describe("overtime a corrected day earns is not stranded", () => {
     expect(item.otMinutes).toBe(120)
   })
 })
+
+describe("the Tally connector", () => {
+  const SECRET = "dev-only-tally-agent-secret"
+  const agent = { "x-agent-secret": SECRET }
+
+  const record = (over: Record<string, unknown> = {}) => ({
+    entity: "customer",
+    tallyGuid: "guid-acme",
+    name: "Acme Traders",
+    alterId: 10,
+    updatedAt: "2026-08-08T10:00:00.000Z",
+    fields: { gstin: "27AAAPZ1234C1ZV" },
+    ...over,
+  })
+
+  it("refuses an agent with no secret, a wrong one, or one of the wrong length", async () => {
+    for (const headers of [{}, { "x-agent-secret": "nope" }, { "x-agent-secret": `${SECRET}x` }]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/tally/sync/heartbeat",
+        headers,
+        payload: {},
+      })
+      expect(response.statusCode).toBe(401)
+    }
+  })
+
+  it("pulls a new master in and reports it", async () => {
+    const pushed = await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: { company: "Delta Books", agentVersion: "1.0.0", records: [record()] },
+    })
+    expect(pushed.statusCode).toBe(200)
+    expect(pushed.json()).toMatchObject({ pulled: 1, conflicts: 0, received: 1 })
+    expect(store.tallyRecords).toHaveLength(1)
+    expect(store.tallyRecords[0].name).toBe("Acme Traders")
+  })
+
+  it("an unchanged master is not re-applied", async () => {
+    const body = { company: "Delta Books", records: [record()] }
+    await app.inject({ method: "POST", url: "/tally/sync/push", headers: agent, payload: body })
+    const again = await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: body,
+    })
+    expect(again.json()).toMatchObject({ pulled: 0, kept: 1 })
+  })
+
+  it("a genuine conflict keeps the copy that lost", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: { company: "Delta Books", records: [record()] },
+    })
+    // Our side edits it after that sync…
+    const mirrored = store.tallyRecords[0]
+    mirrored.updatedAt = "2026-08-08T12:00:00.000Z"
+    mirrored.fields = { gstin: "EDITED-HERE" }
+
+    // …and Tally reports its own newer edit.
+    const conflicting = await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: {
+        company: "Delta Books",
+        records: [
+          record({ alterId: 20, updatedAt: "2026-08-08T13:00:00.000Z", fields: { gstin: "FROM-TALLY" } }),
+        ],
+      },
+    })
+    expect(conflicting.json().conflicts).toBe(1)
+
+    const admin = await asAdmin()
+    const conflicts = await app.inject({
+      method: "GET",
+      url: "/tally/conflicts",
+      headers: { cookie: admin.cookies },
+    })
+    const conflict = conflicts.json().conflicts[0]
+    expect(conflict.winner).toBe("tally")
+    // The discarded copy survives, so nothing is lost to a timestamp.
+    expect(conflict.discarded).toMatchObject({ gstin: "EDITED-HERE" })
+    expect(conflict.reviewedAt).toBeNull()
+  })
+
+  it("refuses masters from a different company's books", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: { company: "Delta Books", records: [record()] },
+    })
+    const wrong = await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: { company: "Someone Else Ltd", records: [record({ tallyGuid: "guid-other" })] },
+    })
+    expect(wrong.statusCode).toBe(409)
+    expect(wrong.json().error).toBe("COMPANY_MISMATCH")
+    // Nothing from the wrong books was written.
+    expect(store.tallyRecords.every((row) => row.tallyGuid !== "guid-other")).toBe(true)
+  })
+
+  it("status reports liveness, counts and unreviewed conflicts", async () => {
+    const admin = await asAdmin()
+    const before = await app.inject({
+      method: "GET",
+      url: "/tally/status",
+      headers: { cookie: admin.cookies },
+    })
+    // Nothing has ever connected yet.
+    expect(before.json().agent.state).toBe("never")
+
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/heartbeat",
+      headers: agent,
+      payload: { agentVersion: "1.0.0", company: "Delta Books" },
+    })
+    const after = await app.inject({
+      method: "GET",
+      url: "/tally/status",
+      headers: { cookie: admin.cookies },
+    })
+    expect(after.json().agent.state).toBe("live")
+    expect(after.json().agent.agentVersion).toBe("1.0.0")
+  })
+
+  it("a conflict can be marked reviewed, and only by someone who may manage sales", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: { company: "Delta Books", records: [record()] },
+    })
+    store.tallyRecords[0].updatedAt = "2026-08-08T12:00:00.000Z"
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: { company: "Delta Books", records: [record({ alterId: 20, updatedAt: "2026-08-08T13:00:00.000Z" })] },
+    })
+    const conflictId = store.tallyConflicts[0].id
+
+    const employee = await asEmployee()
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/tally/conflicts/${conflictId}/reviewed`,
+          headers: { cookie: employee.cookies },
+        })
+      ).statusCode
+    ).toBe(403)
+
+    const admin = await asAdmin()
+    const reviewed = await app.inject({
+      method: "POST",
+      url: `/tally/conflicts/${conflictId}/reviewed`,
+      headers: { cookie: admin.cookies },
+    })
+    expect(reviewed.statusCode).toBe(200)
+    expect(reviewed.json().conflict.reviewedAt).not.toBeNull()
+  })
+})
