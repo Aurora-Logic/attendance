@@ -998,3 +998,102 @@ describe("leave balance is re-checked at approval, not only at apply", () => {
     expect(balances.json().balances.CL).toBe(0)
   })
 })
+
+describe("salary disbursement — bank details and the transfer sheet", () => {
+  const bank = {
+    accountName: "Meera Joshi",
+    accountNumber: "12345678901",
+    ifsc: "ICIC0004321",
+    bankName: "ICICI Bank",
+    pan: "AAAPZ1234C",
+    uan: "100200300401",
+  }
+
+  it("never returns a full account number, and validates before saving", async () => {
+    const admin = await asAdmin()
+    const listed = await app.inject({
+      method: "GET",
+      url: "/salaries",
+      headers: { cookie: admin.cookies },
+    })
+    expect(listed.statusCode).toBe(200)
+    const seeded = listed.json().salaries.find((row: { employeeId: string }) => row.employeeId === "e4")
+    expect(seeded.bank.accountNumber).toBe("****7890")
+    expect(JSON.stringify(listed.json())).not.toContain("50100234567890")
+
+    const badIfsc = await app.inject({
+      method: "PUT",
+      url: "/salaries/e5/bank",
+      headers: { cookie: admin.cookies },
+      payload: { ...bank, ifsc: "ICIC1004321" },
+    })
+    expect(badIfsc.statusCode).toBe(400)
+
+    const saved = await app.inject({
+      method: "PUT",
+      url: "/salaries/e5/bank",
+      headers: { cookie: admin.cookies },
+      payload: bank,
+    })
+    expect(saved.statusCode).toBe(200)
+  })
+
+  it("bank details are payroll-scoped — a plain employee cannot read or write them", async () => {
+    const employee = await asEmployee()
+    expect(
+      (await app.inject({ method: "GET", url: "/salaries", headers: { cookie: employee.cookies } }))
+        .statusCode
+    ).toBe(403)
+    expect(
+      (
+        await app.inject({
+          method: "PUT",
+          url: "/salaries/e5/bank",
+          headers: { cookie: employee.cookies },
+          payload: bank,
+        })
+      ).statusCode
+    ).toBe(403)
+  })
+
+  it("builds a bank CSV for a released run and reports who was held back", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-09" },
+    })
+    const run = (
+      await app.inject({
+        method: "POST",
+        url: "/payroll/runs",
+        headers: { cookie: admin.cookies },
+        payload: { month: "2026-09" },
+      })
+    ).json().run
+
+    const csv = await app.inject({
+      method: "GET",
+      url: `/payroll/runs/${run.id}/bank-transfer.csv`,
+      headers: { cookie: admin.cookies },
+    })
+    expect(csv.statusCode).toBe(200)
+    expect(csv.headers["content-type"]).toContain("text/csv")
+    expect(csv.headers["content-disposition"]).toContain("BankTransfer_2026-09")
+    expect(csv.body).toContain('"Beneficiary Name"')
+    expect(csv.body).toContain('"HDFC0001234"')
+    // Everyone without bank details is held back, not silently dropped.
+    expect(Number(csv.headers["x-held-count"])).toBeGreaterThan(0)
+
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/payroll/runs/ghost/bank-transfer.csv",
+          headers: { cookie: admin.cookies },
+        })
+      ).statusCode
+    ).toBe(404)
+  })
+})

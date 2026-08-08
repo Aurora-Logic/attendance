@@ -5,6 +5,7 @@ import {
   DEFAULT_ATTENDANCE_SETTINGS,
   DEFAULT_MATRIX,
   type AttendanceSettings,
+  type BankDetails,
   type Challan,
   type Customer,
   type Estimate,
@@ -114,6 +115,8 @@ export interface SalaryRecord {
   employeeId: string
   grossMonthlyPaise: number
   basis: "CALENDAR_DAYS" | "WORKING_DAYS" | "FIXED_26"
+  /** Where the salary is transferred. Absent until HR fills it in. */
+  bank?: BankDetails
 }
 
 export interface PayrollRunItem {
@@ -245,7 +248,21 @@ export function seedStore(): Store {
       { employeeId: "e1", grossMonthlyPaise: 9_100_000, basis: "FIXED_26" },
       { employeeId: "e2", grossMonthlyPaise: 6_500_000, basis: "FIXED_26" },
       { employeeId: "e3", grossMonthlyPaise: 5_200_000, basis: "FIXED_26" },
-      { employeeId: "e4", grossMonthlyPaise: 2_600_000, basis: "FIXED_26" },
+      {
+        employeeId: "e4",
+        grossMonthlyPaise: 2_600_000,
+        basis: "FIXED_26",
+        // One seeded employee carries bank details so the transfer sheet has
+        // something real to produce; the rest exercise the held-back path.
+        bank: {
+          accountName: "Kabir Singh",
+          accountNumber: "50100234567890",
+          ifsc: "HDFC0001234",
+          bankName: "HDFC Bank",
+          pan: "ABCDE1234F",
+          uan: "100200300400",
+        },
+      },
       { employeeId: "e5", grossMonthlyPaise: 3_900_000, basis: "CALENDAR_DAYS" },
       { employeeId: "e6", grossMonthlyPaise: 3_100_000, basis: "FIXED_26" },
     ],

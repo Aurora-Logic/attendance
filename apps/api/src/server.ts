@@ -8,6 +8,8 @@ import bcrypt from "bcryptjs"
 import * as z from "zod"
 import {
   attendanceSettingsSchema,
+  bankDetailsSchema,
+  buildBankTransferCsv,
   buildPayrollJournal,
   checkGeofence,
   computeAttendanceDay,
@@ -20,6 +22,7 @@ import {
   resolveBusinessDate,
   scopeSchema,
   shiftSpecSchema,
+  splitForDisbursement,
   type PunchFlag,
   type Role,
   type Scope,
@@ -149,6 +152,10 @@ const brandingSchema = z.object({
   phone: z.string().max(20).default(""),
   email: z.string().max(120).default(""),
 })
+
+/** Last four digits only — enough to confirm, useless if the log leaks. */
+const maskAccount = (accountNumber: string) =>
+  accountNumber.length <= 4 ? "****" : `****${accountNumber.slice(-4)}`
 
 /** Does the actor's scope reach this employee? VIEW is read-only reach-all. */
 function scopeReaches(
@@ -927,6 +934,107 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         // e.g. an all-zero month — refuse honestly rather than emit bad books.
         return reply.code(422).send({ error: "NO_VOUCHER", detail: (error as Error).message })
       }
+    }
+  )
+
+  // ---- bank details & disbursement ---------------------------------------
+  // Bank details are payroll data, not employee data: they gate money, so
+  // they sit behind payroll.manage rather than employee.manage.
+  app.get(
+    "/salaries",
+    { preHandler: [authenticate, requirePermission("payroll.manage")] },
+    async () => ({
+      salaries: store.salaries.map((salary) => ({
+        ...salary,
+        // Never ship a full account number to a list view.
+        bank: salary.bank
+          ? { ...salary.bank, accountNumber: maskAccount(salary.bank.accountNumber) }
+          : null,
+      })),
+    })
+  )
+
+  app.put(
+    "/salaries/:employeeId/bank",
+    { preHandler: [authenticate, requirePermission("payroll.manage", { write: true })] },
+    async (request, reply) => {
+      const { employeeId } = request.params as { employeeId: string }
+      if (!employeeById(employeeId)) return reply.code(404).send({ error: "EMPLOYEE_NOT_FOUND" })
+      const parsed = bankDetailsSchema.safeParse(request.body)
+      if (!parsed.success)
+        return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+
+      const salary = store.salaries.find((candidate) => candidate.employeeId === employeeId)
+      if (!salary) return reply.code(404).send({ error: "NO_SALARY_RECORD" })
+      const before = salary.bank ? maskAccount(salary.bank.accountNumber) : null
+      salary.bank = parsed.data
+      // The audit records that details changed and the masked tail only —
+      // an append-only log is the last place a full account number belongs.
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "salary.bank_update",
+        entity: "salaries",
+        entityId: employeeId,
+        before: { accountNumber: before },
+        after: { accountNumber: maskAccount(parsed.data.accountNumber), ifsc: parsed.data.ifsc },
+        ip: request.ip,
+      })
+      return { ok: true }
+    }
+  )
+
+  /** The bank upload for a released run, plus who could not be paid and why. */
+  app.get(
+    "/payroll/runs/:id/bank-transfer.csv",
+    { preHandler: [authenticate, requirePermission("payroll.manage")] },
+    async (request, reply) => {
+      const run = store.payrollRuns.find(
+        (candidate) => candidate.id === (request.params as { id: string }).id
+      )
+      if (!run) return reply.code(404).send({ error: "NOT_FOUND" })
+
+      const split = splitForDisbursement(
+        run.items.map((item) => {
+          const salary = store.salaries.find(
+            (candidate) => candidate.employeeId === item.employeeId
+          )
+          return {
+            employeeId: item.employeeId,
+            code: item.code,
+            name: item.name,
+            amountPaise: item.grossPaise,
+            bank: salary?.bank ?? null,
+          }
+        })
+      )
+      if (split.payable.length === 0)
+        return reply.code(422).send({
+          error: "NOBODY_PAYABLE",
+          held: split.held.map((entry) => ({ code: entry.row.code, reason: entry.reason })),
+        })
+
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "payroll.bank_export",
+        entity: "payroll_runs",
+        entityId: run.id,
+        after: { month: run.month, paid: split.payable.length, held: split.held.length },
+        ip: request.ip,
+      })
+      const csv = buildBankTransferCsv(split, {
+        month: run.month,
+        debitAccount: store.settings.payrollDebitAccount,
+      })
+      return reply
+        .header("content-type", "text/csv; charset=utf-8")
+        .header(
+          "content-disposition",
+          `attachment; filename="BankTransfer_${run.month}_v${run.version}.csv"`
+        )
+        // The held list travels in a header so the UI can warn without a
+        // second request; the file itself stays a clean bank upload.
+        .header("x-held-count", String(split.held.length))
+        .send(csv)
     }
   )
 

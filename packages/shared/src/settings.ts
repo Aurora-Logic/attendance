@@ -85,6 +85,9 @@ export const attendanceSettingsSchema = z.object({
   tallySalaryPayableLedger: z.string().min(1).default("Salary Payable"),
   /** true → one credit ledger per employee; false → one control ledger. */
   tallyPerEmployeeLedgers: z.boolean().default(false),
+
+  /** Company account the salary transfer is debited from, for the bank file. */
+  payrollDebitAccount: z.string().default(""),
 })
 
 export type AttendanceSettings = z.infer<typeof attendanceSettingsSchema>
