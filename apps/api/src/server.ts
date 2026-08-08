@@ -1607,6 +1607,36 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     }
   )
 
+  /**
+   * The signed-in employee's own requests. The leave screen used to fetch the
+   * whole company's approvals and filter client-side, which grows with
+   * headcount and ships other people's leave reasons to a browser that has no
+   * business seeing them.
+   */
+  app.get("/me/requests", { preHandler: [authenticate] }, async (request) => {
+    const kindFilter = (request.query as { kind?: string }).kind
+    const mine = store.approvals
+      .filter((approval) => approval.employeeId === request.auth.employeeId)
+      .filter((approval) => !kindFilter || approval.kind === kindFilter)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    return {
+      requests: mine.map((approval) => ({
+        id: approval.id,
+        kind: approval.kind,
+        subject: approval.subject,
+        detail: approval.detail,
+        dateFrom: approval.dateFrom,
+        dateTo: approval.dateTo,
+        units: approval.units,
+        leaveType: approval.leaveType,
+        leavePart: approval.leavePart,
+        status: approval.status,
+        createdAt: approval.createdAt,
+        remarks: approval.remarks,
+      })),
+    }
+  })
+
   // ---- approvals ----------------------------------------------------------
   app.get("/approvals", { preHandler: [authenticate] }, async (request) => {
     const leaveScope = store.matrix["leave.approve"][request.auth.role]

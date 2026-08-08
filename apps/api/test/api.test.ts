@@ -1616,3 +1616,81 @@ describe("comp-off — earn a day back, spend it, and lose it if unused", () => 
     expect(balances.json().balances.COMP_OFF).toBe(0)
   })
 })
+
+describe("/me/requests — scoped to the caller", () => {
+  it("returns only my own requests and never another employee's", async () => {
+    const employee = await asEmployee()
+    await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "mine" },
+    })
+
+    // Somebody else's request, so isolation is proven rather than assumed.
+    const admin = await asAdmin()
+    const theirs = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: admin.cookies },
+      // LOP: allowed to go negative, so this does not depend on the actor's balance.
+      payload: { type: "LOP", from: "2026-09-08", to: "2026-09-08", part: "FULL", reason: "theirs" },
+    })
+    expect(theirs.statusCode).toBe(201)
+
+    const mine = await app.inject({
+      method: "GET",
+      url: "/me/requests",
+      headers: { cookie: employee.cookies },
+    })
+    expect(mine.statusCode).toBe(200)
+    const requests = mine.json().requests
+    expect(requests.length).toBeGreaterThan(0)
+    expect(requests.map((request: { id: string }) => request.id)).not.toContain(
+      theirs.json().approval.id
+    )
+    for (const request of requests) {
+      expect(store.approvals.find((approval) => approval.id === request.id)!.employeeId).toBe("e4")
+    }
+  })
+
+  it("filters by kind, so the leave screen fetches only leave", async () => {
+    const employee = await asEmployee()
+    await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "mine" },
+    })
+    await app.inject({
+      method: "POST",
+      url: "/regularisations",
+      headers: { cookie: employee.cookies },
+      payload: {
+        date: "2026-08-05",
+        reason: "MISSED_OUT",
+        outTime: "18:30",
+        note: "battery died before punch out",
+      },
+    })
+
+    const leaveOnly = await app.inject({
+      method: "GET",
+      url: "/me/requests?kind=LEAVE",
+      headers: { cookie: employee.cookies },
+    })
+    const kinds = new Set(leaveOnly.json().requests.map((r: { kind: string }) => r.kind))
+    expect([...kinds]).toEqual(["LEAVE"])
+
+    const all = await app.inject({
+      method: "GET",
+      url: "/me/requests",
+      headers: { cookie: employee.cookies },
+    })
+    expect(new Set(all.json().requests.map((r: { kind: string }) => r.kind)).size).toBeGreaterThan(1)
+  })
+
+  it("requires a session", async () => {
+    expect((await app.inject({ method: "GET", url: "/me/requests" })).statusCode).toBe(401)
+  })
+})

@@ -402,12 +402,11 @@ export function useMyLeaveRequests(): MyLeaveRequestView[] | null {
   const query = useQuery({
     queryKey: ["my-leave", user?.employeeId],
     enabled,
-    queryFn: () => apiFetch<{ approvals: ApiApproval[] }>("/approvals"),
+    // Server-scoped: one employee's own leave, not the whole company's
+    // approvals filtered in the browser.
+    queryFn: () => apiFetch<{ requests: ApiApproval[] }>("/me/requests?kind=LEAVE"),
     select: (payload) =>
-      payload.approvals
-        .filter(
-          (approval) => approval.kind === "LEAVE" && approval.employeeId === user!.employeeId
-        )
+      payload.requests
         .map((approval) => ({
           id: approval.id,
           type: approval.leaveType ?? approval.subject,
