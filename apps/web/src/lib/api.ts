@@ -11,6 +11,11 @@
  * sign the user out with an honest message instead of scattering 401 toasts.
  */
 
+/**
+ * The localhost default is a development convenience only — vite.config.ts
+ * refuses to produce a production build unless VITE_API_URL names the real
+ * API, so this fallback can never reach a deployed bundle.
+ */
 export const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000"
 
 export const SESSION_EXPIRED_EVENT = "api:session-expired"
