@@ -3313,3 +3313,366 @@ describe("the Tally connector", () => {
     expect(reviewed.json().conflict.reviewedAt).not.toBeNull()
   })
 })
+
+describe("the fulfilment chain", () => {
+  /** A fresh order to work against, so tests do not fight over one. */
+  const orderWithLines = async (cookies: string, qty = 100) => {
+    const customer = (
+      await app.inject({
+        method: "POST",
+        url: "/customers",
+        headers: { cookie: cookies },
+        payload: {
+          code: `CUS${store.nextId}`,
+          name: "Fulfilment Test Co",
+          gstin: null,
+          contact: "",
+          email: "",
+          phone: "",
+          address: "",
+          city: "Mumbai",
+          state: "Maharashtra",
+          creditDays: 30,
+          creditLimitPaise: 0,
+          active: true,
+        },
+      })
+    ).json().customer
+
+    const so = {
+      id: `so_test_${store.nextId++}`,
+      number: `SO-2026-${store.nextId}`,
+      customerId: customer.id,
+      sourceEstimateId: null,
+      orderDate: "2026-08-01",
+      customerRef: "",
+      status: "OPEN" as const,
+      lines: [
+        {
+          id: "tl1",
+          itemId: store.items[0].id,
+          qty,
+          unitPricePaise: 1200,
+          gstRatePct: 18,
+          discountPct: 0,
+        },
+      ],
+      terms: "",
+      notes: "",
+      createdBy: "e1",
+    }
+    store.salesOrders.push(so)
+    return so
+  }
+
+  const createPick = (cookies: string, soId: string, requestedQty: number) =>
+    app.inject({
+      method: "POST",
+      url: "/fulfilment/picks",
+      headers: { cookie: cookies },
+      payload: { soId, assignedTo: "e4", lines: [{ soLineId: "tl1", requestedQty }] },
+    })
+
+  it("walks an order from picking to a signature", async () => {
+    const admin = await asAdmin()
+    const so = await orderWithLines(admin.cookies)
+
+    const created = await createPick(admin.cookies, so.id, 100)
+    expect(created.statusCode).toBe(201)
+    const pick = created.json().pick
+    expect(pick.number).toMatch(/^PL-\d{4}-\d{4}$/)
+
+    const picked = await app.inject({
+      method: "PATCH",
+      url: `/fulfilment/picks/${pick.id}`,
+      headers: { cookie: admin.cookies },
+      payload: { status: "PICKED", lines: [{ soLineId: "tl1", pickedQty: 100 }] },
+    })
+    expect(picked.statusCode).toBe(200)
+    expect(picked.json().pick.completedAt).not.toBeNull()
+
+    const packed = await app.inject({
+      method: "POST",
+      url: "/fulfilment/packs",
+      headers: { cookie: admin.cookies },
+      payload: {
+        pickListId: pick.id,
+        packages: [
+          { sequence: 1, description: "Carton", weightKg: 20, contents: [{ soLineId: "tl1", qty: 100 }] },
+        ],
+      },
+    })
+    expect(packed.statusCode).toBe(201)
+
+    const dispatched = await app.inject({
+      method: "POST",
+      url: "/fulfilment/consignments",
+      headers: { cookie: admin.cookies },
+      payload: {
+        soId: so.id,
+        challanId: null,
+        packId: packed.json().pack.id,
+        dispatchedAt: "2026-08-08T16:40:00.000Z",
+        transporterName: "VRL Logistics",
+        ownVehicle: false,
+        lrNumber: "44821",
+        lrDate: "2026-08-08",
+        vehicleNo: "MH-12-AB-1234",
+        driverName: "Ramesh",
+        freightPaise: 250000,
+        freightTerms: "PAID",
+        packageCount: 1,
+        weightKg: 20,
+      },
+    })
+    expect(dispatched.statusCode).toBe(201)
+    const consignment = dispatched.json().consignment
+
+    // All three LR copies before a delivery can be certified.
+    for (const copy of ["CONSIGNOR", "CONSIGNEE", "TRANSPORTER"]) {
+      const attached = await app.inject({
+        method: "POST",
+        url: `/fulfilment/consignments/${consignment.id}/lr-copies`,
+        headers: { cookie: admin.cookies },
+        payload: { copy, url: `https://files.example/${copy}.pdf` },
+      })
+      expect(attached.statusCode).toBe(200)
+    }
+
+    const delivered = await app.inject({
+      method: "POST",
+      url: "/fulfilment/pods",
+      headers: { cookie: admin.cookies },
+      payload: {
+        consignmentId: consignment.id,
+        deliveredAt: "2026-08-10T11:00:00.000Z",
+        receivedBy: "Sunita Shah",
+        condition: "OK",
+      },
+    })
+    expect(delivered.statusCode).toBe(201)
+  })
+
+  it("will not send two pickers for the same carton", async () => {
+    // The second picker would find an empty rack — a shortage the system caused.
+    const admin = await asAdmin()
+    const so = await orderWithLines(admin.cookies, 100)
+
+    expect((await createPick(admin.cookies, so.id, 70)).statusCode).toBe(201)
+    const second = await createPick(admin.cookies, so.id, 50)
+    expect(second.statusCode).toBe(422)
+    expect(JSON.stringify(second.json().issues)).toMatch(/Only 30 left/)
+  })
+
+  it("refuses picking more than was asked for", async () => {
+    const admin = await asAdmin()
+    const so = await orderWithLines(admin.cookies)
+    const pick = (await createPick(admin.cookies, so.id, 40)).json().pick
+
+    const over = await app.inject({
+      method: "PATCH",
+      url: `/fulfilment/picks/${pick.id}`,
+      headers: { cookie: admin.cookies },
+      payload: { status: "PICKING", lines: [{ soLineId: "tl1", pickedQty: 90 }] },
+    })
+    expect(over.statusCode).toBe(422)
+    // And the refusal left nothing half-applied.
+    expect(store.pickLists.find((row) => row.id === pick.id)!.lines[0].pickedQty).toBe(0)
+  })
+
+  it("refuses to pack more than was picked", async () => {
+    const admin = await asAdmin()
+    const so = await orderWithLines(admin.cookies)
+    const pick = (await createPick(admin.cookies, so.id, 100)).json().pick
+    await app.inject({
+      method: "PATCH",
+      url: `/fulfilment/picks/${pick.id}`,
+      headers: { cookie: admin.cookies },
+      payload: { status: "SHORT", lines: [{ soLineId: "tl1", pickedQty: 60, shortReason: "stock" }] },
+    })
+
+    const packed = await app.inject({
+      method: "POST",
+      url: "/fulfilment/packs",
+      headers: { cookie: admin.cookies },
+      payload: {
+        pickListId: pick.id,
+        packages: [{ sequence: 1, description: "", weightKg: 1, contents: [{ soLineId: "tl1", qty: 100 }] }],
+      },
+    })
+    expect(packed.statusCode).toBe(422)
+    expect(JSON.stringify(packed.json().issues)).toMatch(/only 60 was picked/)
+  })
+
+  it("refuses a dispatch on a hired lorry with no LR number", async () => {
+    const admin = await asAdmin()
+    const so = await orderWithLines(admin.cookies)
+    await createPick(admin.cookies, so.id, 10)
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/fulfilment/consignments",
+      headers: { cookie: admin.cookies },
+      payload: {
+        soId: so.id,
+        packId: null,
+        dispatchedAt: "2026-08-08T16:40:00.000Z",
+        transporterName: "VRL Logistics",
+        ownVehicle: false,
+        lrNumber: "",
+        lrDate: null,
+        vehicleNo: "MH-12-AB-1234",
+      },
+    })
+    expect(response.statusCode).toBe(422)
+    expect(JSON.stringify(response.json().issues)).toMatch(/LR number is required/)
+  })
+
+  it("treats a company vehicle as own, so nobody is trained to type a fake LR", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "PUT",
+      url: "/settings/operations",
+      headers: { cookie: admin.cookies },
+      payload: { dispatch: { ownVehicleNumbers: ["MH-01-XY-9999"], requirePacking: false } },
+    })
+    const so = await orderWithLines(admin.cookies)
+    await createPick(admin.cookies, so.id, 10)
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/fulfilment/consignments",
+      headers: { cookie: admin.cookies },
+      payload: {
+        soId: so.id,
+        packId: null,
+        dispatchedAt: "2026-08-08T16:40:00.000Z",
+        ownVehicle: false,
+        lrNumber: "",
+        lrDate: null,
+        vehicleNo: "MH-01-XY-9999",
+      },
+    })
+    expect(response.statusCode).toBe(201)
+    expect(response.json().consignment.ownVehicle).toBe(true)
+  })
+
+  it("a second scan of one LR copy replaces it rather than counting twice", async () => {
+    // Appending would let three scans of the same sheet satisfy "all three".
+    const admin = await asAdmin()
+    // Set the preconditions here rather than inheriting them from whichever
+    // test happened to run before — order-dependent tests fail for reasons
+    // that have nothing to do with what they are checking.
+    await app.inject({
+      method: "PUT",
+      url: "/settings/operations",
+      headers: { cookie: admin.cookies },
+      payload: { dispatch: { requirePacking: false } },
+    })
+    const so = await orderWithLines(admin.cookies)
+    await createPick(admin.cookies, so.id, 10)
+    const dispatchResponse = await app.inject({
+      method: "POST",
+      url: "/fulfilment/consignments",
+      headers: { cookie: admin.cookies },
+      payload: {
+        soId: so.id,
+        packId: null,
+        dispatchedAt: "2026-08-08T16:40:00.000Z",
+        ownVehicle: true,
+        vehicleNo: "MH-01-XY-9999",
+      },
+    })
+    expect(dispatchResponse.statusCode, dispatchResponse.body).toBe(201)
+    const consignment = dispatchResponse.json().consignment
+
+    for (const url of ["a.pdf", "b.pdf"]) {
+      await app.inject({
+        method: "POST",
+        url: `/fulfilment/consignments/${consignment.id}/lr-copies`,
+        headers: { cookie: admin.cookies },
+        payload: { copy: "CONSIGNOR", url },
+      })
+    }
+    const stored = store.consignments.find((row) => row.id === consignment.id)!
+    expect(stored.lrAttachments).toHaveLength(1)
+    expect(stored.lrAttachments[0].url).toBe("b.pdf")
+  })
+
+  it("refuses a second proof of delivery against one dispatch", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "PUT",
+      url: "/settings/operations",
+      headers: { cookie: admin.cookies },
+      payload: { dispatch: { requireAllLrCopies: false, requirePacking: false } },
+    })
+    const so = await orderWithLines(admin.cookies)
+    await createPick(admin.cookies, so.id, 10)
+    const consignment = (
+      await app.inject({
+        method: "POST",
+        url: "/fulfilment/consignments",
+        headers: { cookie: admin.cookies },
+        payload: {
+          soId: so.id,
+          packId: null,
+          dispatchedAt: "2026-08-08T16:40:00.000Z",
+          ownVehicle: true,
+          vehicleNo: "MH-01-XY-9999",
+        },
+      })
+    ).json().consignment
+
+    const body = {
+      consignmentId: consignment.id,
+      deliveredAt: "2026-08-10T11:00:00.000Z",
+      receivedBy: "Sunita Shah",
+      condition: "OK",
+    }
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/fulfilment/pods",
+          headers: { cookie: admin.cookies },
+          payload: body,
+        })
+      ).statusCode
+    ).toBe(201)
+    // Whichever arrived second would quietly bury the first.
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/fulfilment/pods",
+          headers: { cookie: admin.cookies },
+          payload: { ...body, receivedBy: "Someone Else" },
+        })
+      ).statusCode
+    ).toBe(409)
+  })
+
+  it("a picker may pick and pack, but may not certify a delivery", async () => {
+    // The person who sealed the carton should not be the one who says it arrived.
+    const matrix = store.matrix
+    expect(matrix["dispatch.pick"].PICKER).toBe("ALL")
+    expect(matrix["dispatch.manage"].PICKER).toBe("NONE")
+    expect(matrix["sales.manage"].PICKER).toBe("NONE")
+  })
+
+  it("the board says where each order is, and what is unacknowledged", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "GET",
+      url: "/fulfilment",
+      headers: { cookie: admin.cookies },
+    })
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(Array.isArray(body.orders)).toBe(true)
+    expect(body.orders.every((row: { stage: string }) => typeof row.stage === "string")).toBe(true)
+    expect(Array.isArray(body.podOverdue)).toBe(true)
+    expect(Array.isArray(body.missingLrCopies)).toBe(true)
+  })
+})

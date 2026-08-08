@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import * as z from "zod"
+import type { Role } from "@attendance/shared"
 import {
   allocateOldestFirst,
   expenseClaimSchema,
@@ -279,7 +280,7 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
   /** ALL reaches everyone; OWN_TEAM reaches the reporting chain; nothing else decides. */
   const approverReaches = (
     userId: string,
-    role: "ADMIN" | "HR" | "OPERATIONS" | "EMPLOYEE",
+    role: Role,
     claimantEmail: string
   ): boolean => {
     const scope = store.matrix["expense.approve"]?.[role] ?? "NONE"

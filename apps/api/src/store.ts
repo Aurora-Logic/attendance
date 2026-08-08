@@ -13,6 +13,10 @@ import {
   type SyncRecord,
   type RegularisationReason,
   type Challan,
+  type Consignment,
+  type Pack,
+  type PickList,
+  type ProofOfDelivery,
   type Customer,
   type Estimate,
   type ExpenseClaim,
@@ -236,6 +240,11 @@ export interface Store {
   estimates: Estimate[]
   salesOrders: SalesOrder[]
   challans: Challan[]
+  /** Picking, packing, dispatch and proof of delivery — the layer over Tally. */
+  pickLists: PickList[]
+  packs: Pack[]
+  consignments: Consignment[]
+  pods: ProofOfDelivery[]
   invoices: Invoice[]
   /** Money received from customers, allocated to invoices. */
   receipts: PaymentEntry[]
@@ -246,7 +255,19 @@ export interface Store {
   expenseClaims: ExpenseClaim[]
   stockAdjustments: StockAdjustment[]
   /** Per-year document sequences (PO-2026-0042); year rollover resets in Prisma. */
-  seq: { po: number; grn: number; est: number; so: number; ch: number; inv: number; ind: number; exp: number }
+  seq: {
+    po: number
+    grn: number
+    est: number
+    so: number
+    ch: number
+    inv: number
+    ind: number
+    exp: number
+    pick: number
+    pack: number
+    dsp: number
+  }
   nextId: number
 }
 
@@ -349,6 +370,10 @@ export function seedStore(): Store {
     estimates: [],
     salesOrders: [],
     challans: [],
+    pickLists: [],
+    packs: [],
+    consignments: [],
+    pods: [],
     invoices: [],
     receipts: [],
     vendorBills: [],
@@ -356,7 +381,7 @@ export function seedStore(): Store {
     indents: [],
     expenseClaims: [],
     stockAdjustments: [],
-    seq: { po: 0, grn: 0, est: 0, so: 0, ch: 0, inv: 0, ind: 0, exp: 0 },
+    seq: { po: 0, grn: 0, est: 0, so: 0, ch: 0, inv: 0, ind: 0, exp: 0, pick: 0, pack: 0, dsp: 0 },
     nextId: 1,
   }
 }

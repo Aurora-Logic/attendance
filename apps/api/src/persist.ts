@@ -41,6 +41,13 @@ export function loadStore(path: string): Store {
       monthLocks: parsed.monthLocks ?? [],
       payrollRuns: parsed.payrollRuns ?? [],
       notifications: parsed.notifications ?? [],
+      pickLists: parsed.pickLists ?? [],
+      packs: parsed.packs ?? [],
+      consignments: parsed.consignments ?? [],
+      pods: parsed.pods ?? [],
+      // A file written before these sequences existed must not restart
+      // numbering at 1 and collide with documents already issued.
+      seq: { ...seed.seq, ...parsed.seq },
       tallyRecords: parsed.tallyRecords ?? [],
       tallyConflicts: parsed.tallyConflicts ?? [],
       tallyAgent: { ...seed.tallyAgent, ...parsed.tallyAgent },
