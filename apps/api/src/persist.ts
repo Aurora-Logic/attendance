@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify"
 
 import { operationsSettingsSchema } from "@attendance/shared"
 
-import { seedStore, type Store } from "./store"
+import { safeNextId, seedStore, type Store } from "./store"
 
 /**
  * Dev persistence: the store is plain data, so it round-trips through one JSON
@@ -27,7 +27,7 @@ export function loadStore(path: string): Store {
     // Merge over a fresh seed so new fields added since the file was written
     // (matrix keys, settings, branding) exist with defaults.
     const seed = seedStore()
-    return {
+    const hydrated: Store = {
       ...seed,
       ...parsed,
       settings: { ...seed.settings, ...parsed.settings },
@@ -52,6 +52,8 @@ export function loadStore(path: string): Store {
       tallyConflicts: parsed.tallyConflicts ?? [],
       tallyAgent: { ...seed.tallyAgent, ...parsed.tallyAgent },
     }
+    hydrated.nextId = safeNextId(hydrated)
+    return hydrated
   } catch (error) {
     // The file exists but will not parse. Silently reseeding here would
     // replace live business data with demo rows and look like a working boot,

@@ -29,6 +29,57 @@ interface GuideEntry {
 
 const SECTIONS: Array<{ heading: string; entries: GuideEntry[] }> = [
   {
+    /**
+     * The person who installs the connector is standing at the Tally PC, not
+     * reading a repository. The full guide lives in docs/tally-setup.md; this
+     * is the same steps where they will actually look for them.
+     */
+    heading: "Tally",
+    entries: [
+      {
+        id: "tally-connect",
+        title: "Connect Tally to this system",
+        who: "Admin, at the PC where Tally is installed",
+        steps: [
+          "In Tally Prime: Gateway of Tally → F1 Settings → Connectivity → Client/Server configuration = Both, Port = 9000, Ctrl+A to accept. (Tally ERP 9: F12 → Advanced Configuration → Tally is acting as = Both, Port 9000.)",
+          "On that same PC, open http://localhost:9000 in a browser. A short XML page means the gateway is on; “cannot be reached” means Tally is closed or the setting did not save.",
+          "Install Node.js LTS from nodejs.org and accept the defaults.",
+          "Copy tally-agent.cjs into a folder such as C:\\TallyConnector and run it once with: node tally-agent.cjs. It writes a template tally-agent.json and stops.",
+          "Fill in tally-agent.json: the server address, the agent secret (ask whoever runs the server), and the company name exactly as Tally shows it. It refuses to start on the example values.",
+          "Run it again. Settings → Tally → Connector should show Live within a minute.",
+        ],
+        effect:
+          "Customers, vendors, stock items and ledgers flow from Tally into this system automatically, and masters created here flow back. Attendance and payroll never sync — they stay in this system and do not touch your books.",
+      },
+      {
+        id: "tally-service",
+        title: "Keep the connector running after logout",
+        who: "Admin or IT",
+        steps: [
+          "Download NSSM from nssm.cc and run, as Administrator: nssm install TallyConnector.",
+          "Path: C:\\Program Files\\nodejs\\node.exe · Startup directory: C:\\TallyConnector · Arguments: tally-agent.cjs.",
+          "On the I/O tab, point stdout and stderr at C:\\TallyConnector\\connector.log so there is something to read later.",
+          "Start it: nssm start TallyConnector.",
+        ],
+        effect:
+          "The connector starts with the PC and restarts itself if it stops. Nothing needs a person to be logged in. Windows Firewall needs no change — the connector only makes outbound connections and talks to Tally on localhost. Never forward port 9000 through a router: Tally's gateway has no authentication at all.",
+      },
+      {
+        id: "tally-stale",
+        title: "The connector says Stale, or Tally is not answering",
+        who: "Anyone",
+        steps: [
+          "Open Settings → Tally → Connector and read the first line.",
+          "“Running, but Tally is not answering” means the connector is fine and Tally is closed or has no company loaded. Normal after hours; during the day, open Tally.",
+          "“Connector silent for …” means the PC is off or the service stopped. Check connector.log, then restart the service.",
+          "Anything the connector had read is held on that PC and goes through when the connection returns. Nothing is lost.",
+        ],
+        effect:
+          "Masters on every screen stop updating while the connector is silent, so anything created in Tally since then is not here yet. The banner on the Connector screen says so rather than letting the screens look current.",
+      },
+    ],
+  },
+  {
     heading: "Calendar",
     entries: [
       {

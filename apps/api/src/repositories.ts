@@ -159,6 +159,7 @@ export async function clearCalendarDay(dateISO: string): Promise<void> {
  * DB); they stay in the store file until MinIO object storage lands.
  */
 
+import { safeNextId } from "./store"
 import type { LedgerRow, Store, StoredApproval, StoredPunch } from "./store"
 
 const fire = (label: string, work: () => Promise<unknown>) => {
@@ -436,6 +437,18 @@ export async function hydrateFromDb(store: Store): Promise<{
       remarks: row.remarks,
     }))
   }
+
+  /**
+   * Rows from the database bring their own ids, and they are almost always
+   * numbered far above a freshly seeded counter. Without re-basing here, the
+   * next request created after a boot is handed an id that already exists —
+   * which showed up as two approvals sharing a React key, one of them rendered
+   * away, and a pending request that is in the data but not on the screen.
+   *
+   * The seed and the file loader do the same thing; this is the third door
+   * into the store and it needs the same lock.
+   */
+  store.nextId = safeNextId(store)
 
   return { punches: punches.length, approvals: approvals.length, ledger: ledger.length }
 }

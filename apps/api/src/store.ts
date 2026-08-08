@@ -273,6 +273,37 @@ export interface Store {
 
 export const id = (store: Store, prefix: string) => `${prefix}_${store.nextId++}`
 
+/**
+ * A counter that is guaranteed to be past everything already issued.
+ *
+ * Ids are `prefix_<n>` from one shared counter. If the stored `nextId` is ever
+ * behind an id already in the file — a hand-edited file, a restore from an
+ * older backup, a merge — every new record collides with an existing one. That
+ * surfaced as two approvals sharing an id and React rendering one of them
+ * away, which means a request that exists in the data is invisible on screen.
+ *
+ * Scanning is cheap (once, at boot) and the failure it prevents is silent.
+ */
+export function safeNextId(store: Store): number {
+  let highest = 0
+  const consider = (value: unknown) => {
+    if (typeof value !== "string") return
+    const match = value.match(/_(\d+)$/)
+    if (!match) return
+    const suffix = Number(match[1])
+    if (Number.isFinite(suffix) && suffix > highest) highest = suffix
+  }
+
+  for (const value of Object.values(store)) {
+    if (!Array.isArray(value)) continue
+    for (const row of value) {
+      if (row && typeof row === "object" && "id" in row) consider((row as { id: unknown }).id)
+    }
+  }
+  return Math.max(store.nextId, highest + 1)
+}
+
+
 export function seedStore(): Store {
   const hash = (password: string) => bcrypt.hashSync(password, 4)
 
@@ -291,7 +322,7 @@ export function seedStore(): Store {
     { id: "e7", code: "DLT0007", name: "Sanjay Yadav", email: "sanjay@delta.dev", department: "Stores", branchId: "b1", shiftId: "gen", managerId: "e3", isFieldEmployee: false },
   ]
 
-  return {
+  const store: Store = {
     users: [
       { id: "u1", name: "Virag Jain", email: "admin@delta.dev", passwordHash: hash("Admin@123"), role: "ADMIN", employeeId: "e1" },
       { id: "u2", name: "Priya Nair", email: "hr@delta.dev", passwordHash: hash("Hr@12345"), role: "HR", employeeId: "e2" },
@@ -389,4 +420,13 @@ export function seedStore(): Store {
     seq: { po: 0, grn: 0, est: 0, so: 0, ch: 0, inv: 0, ind: 0, exp: 0, pick: 0, pack: 0, dsp: 0 },
     nextId: 1,
   }
+
+  /**
+   * The seed's own rows carry literal ids, so a counter starting at 1 hands
+   * the first new record an id that already exists. That surfaced as two
+   * approvals sharing a key and React rendering one of them away — a pending
+   * request, present in the data, invisible on screen.
+   */
+  store.nextId = safeNextId(store)
+  return store
 }
