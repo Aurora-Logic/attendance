@@ -10,25 +10,47 @@ export interface LedgerEntry {
 }
 
 /**
- * Project balances from the immutable ledger. Throws when a debit would push a
- * type negative unless that type explicitly allows it — the ledger must never
- * contain a row the policy forbids.
+ * Project balances from the immutable ledger. Order-independent, and never
+ * throws.
+ *
+ * It used to reject any *running* balance that went negative, which made the
+ * result depend on traversal order. Rows carry business dates, not write
+ * times — a comp-off credit is dated the day worked, a leave debit the day
+ * taken — so a debit can legitimately precede its funding credit by date.
+ * Boot hydration re-reads the ledger ordered by date, so after a restart that
+ * employee's balance projection threw, and with it every route that reads a
+ * balance: their leave list, their applications, and every approval decision
+ * about them. Permanently, because the ledger is append-only and each route
+ * that might repair it was itself broken.
+ *
+ * A projection is a summary of facts and has no business failing. Whether a
+ * debit was *allowed* is a decision made before writing it — see
+ * `overdrawnTypes` for detecting a ledger that got past that gate.
  */
-export function reduceLedger(
-  entries: LedgerEntry[],
-  allowNegative: ReadonlySet<string> = new Set(["LOP"])
-): Record<string, number> {
+export function reduceLedger(entries: LedgerEntry[]): Record<string, number> {
   const balances: Record<string, number> = {}
   for (const entry of entries) {
-    const next = (balances[entry.type] ?? 0) + entry.units
-    if (next < 0 && !allowNegative.has(entry.type)) {
-      throw new Error(
-        `Negative balance for ${entry.type}: ${next}. Debit exceeds available balance.`
-      )
-    }
-    balances[entry.type] = Number(next.toFixed(1))
+    balances[entry.type] = (balances[entry.type] ?? 0) + entry.units
+  }
+  // One rounding at the end: 0.5-unit half days must not drift over a year.
+  for (const type of Object.keys(balances)) {
+    balances[type] = Number(balances[type].toFixed(1))
   }
   return balances
+}
+
+/**
+ * Types whose final balance is negative when policy forbids it — a ledger that
+ * should not exist. Reported so it can be surfaced and repaired, rather than
+ * throwing and taking every leave route down with it.
+ */
+export function overdrawnTypes(
+  entries: LedgerEntry[],
+  allowNegative: ReadonlySet<string> = new Set(["LOP"])
+): string[] {
+  return Object.entries(reduceLedger(entries))
+    .filter(([type, balance]) => balance < 0 && !allowNegative.has(type))
+    .map(([type]) => type)
 }
 
 export interface LeaveCalendar {

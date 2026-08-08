@@ -1473,6 +1473,15 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       const body = parsed.data
       if (body.to < body.from) return reply.code(400).send({ error: "RANGE_INVERTED" })
 
+      /**
+       * A locked month has been paid. Leave applied into it would change a
+       * closed period's attendance behind payroll's back — the same rule
+       * regularisations and overtime claims already enforce, which leave was
+       * simply missing.
+       */
+      if (store.monthLocks.some((lock) => lock.month === body.from.slice(0, 7)))
+        return reply.code(409).send({ error: "MONTH_LOCKED" })
+
       const units = countLeaveUnits(body.from, body.to, body.part, calendar, store.settings.sandwichLeave)
       if (units <= 0) return reply.code(422).send({ error: "NO_WORKING_DAYS_IN_RANGE" })
 

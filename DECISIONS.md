@@ -398,6 +398,18 @@ Found by an adversarial audit of this session's own code, and reproduced by exec
 
 New invariants pinned end to end through `computeRunItems`, not through a helper: full attendance equals the contract on all three bases; each absent working day costs exactly one twenty-sixth; an unworked weekly off costs nothing.
 
+## 24. A projection must not throw (8 Aug 2026)
+
+`reduceLedger` rejected any *running* balance that went negative, which made its result depend on traversal order. Ledger rows carry **business dates, not write times** — a comp-off credit is dated the day worked, a leave debit the day taken — so a debit can legitimately precede its funding credit by date. Boot hydration re-reads the ledger ordered by date. After a restart, that employee's balance projection threw, and with it every route that reads a balance: their leave list, their applications, and every approval decision about them. Permanently, because the ledger is append-only and each route that might repair it was itself broken.
+
+Reproduced before the fix: the same two rows give `{ CL: 9 }` in write order and throw in date order.
+
+| # | Decision | Why |
+|---|---|---|
+| L1 | `reduceLedger` is **order-independent and never throws** | A projection summarises facts; it has no business failing. Whether a debit was allowed is a decision made *before* writing it, and both callers already compare balances explicitly afterwards. |
+| L2 | `overdrawnTypes` reports a ledger that got past the gate | Corruption should be surfaced and repaired, not converted into an outage on every leave route. |
+| L3 | Leave cannot be applied into a **locked month** | Regularisations and overtime claims already enforced this; leave was the one write path that did not, so a paid period could still be changed behind payroll's back. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

@@ -2295,3 +2295,78 @@ describe("payroll pays the contracted salary, not a multiplied-up day rate", () 
     expect(item.earnedPaise).toBe(salary.grossMonthlyPaise)
   })
 })
+
+describe("a ledger whose rows are out of date order still works", () => {
+  it("balance and apply routes survive a debit dated before its credit", async () => {
+    // Exactly what boot hydration produces: rows ordered by business date, so
+    // a backdated debit precedes the credit that funds it. This used to throw
+    // inside reduceLedger and 500 every route that reads a balance — for good,
+    // since the ledger is append-only and the repair routes were broken too.
+    store.ledger = [
+      {
+        id: "l_debit_first",
+        employeeId: "e4",
+        type: "CL",
+        txnType: "AVAIL",
+        units: -3,
+        date: "2025-12-29",
+        remarks: "backdated leave, approved later",
+      },
+      {
+        id: "l_credit_second",
+        employeeId: "e4",
+        type: "CL",
+        txnType: "OPENING",
+        units: 12,
+        date: "2026-01-01",
+        remarks: "annual opening",
+      },
+    ]
+
+    const manager = await asOps()
+    const balances = await app.inject({
+      method: "GET",
+      url: "/leave/balances/e4",
+      headers: { cookie: manager.cookies },
+    })
+    expect(balances.statusCode).toBe(200)
+    expect(balances.json().balances.CL).toBe(9)
+
+    const employee = await asEmployee()
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
+    })
+    expect(applied.statusCode).toBe(201)
+
+    // And a decision about that employee still resolves.
+    const decided = await app.inject({
+      method: "POST",
+      url: `/approvals/${applied.json().approval.id}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "ok" },
+    })
+    expect(decided.statusCode).toBe(200)
+  })
+
+  it("leave cannot be applied into a locked, already-paid month", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-07" },
+    })
+    const employee = await asEmployee()
+    const applied = await app.inject({
+      method: "POST",
+      url: "/leave/apply",
+      headers: { cookie: employee.cookies },
+      payload: { type: "CL", from: "2026-07-15", to: "2026-07-15", part: "FULL", reason: "x" },
+    })
+    expect(applied.statusCode).toBe(409)
+    expect(applied.json().error).toBe("MONTH_LOCKED")
+  })
+})

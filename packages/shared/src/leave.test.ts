@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { compOffCredit, compOffExpiries, compOffUsable, countLeaveUnits, prorateAnnualQuota, reduceLedger } from "./leave"
+import { compOffCredit, compOffExpiries, compOffUsable, countLeaveUnits, overdrawnTypes, prorateAnnualQuota, reduceLedger } from "./leave"
 
 describe("reduceLedger — balances are a projection of the ledger", () => {
   it("sums credits and debits per type", () => {
@@ -14,13 +14,45 @@ describe("reduceLedger — balances are a projection of the ledger", () => {
     expect(balances.CL).toBe(12)
   })
 
-  it("refuses a debit that would go negative", () => {
+  it("is order-independent — the same rows give the same balance either way", () => {
+    // The bug this replaces: a debit dated before its funding credit threw once
+    // boot hydration re-read the ledger in date order, permanently breaking
+    // every route that reads that employee's balance. Rows carry business
+    // dates, not write times, so this ordering is legitimate.
+    const rows = [
+      { type: "CL", units: 12 },
+      { type: "CL", units: -3 },
+    ]
+    expect(reduceLedger(rows)).toEqual({ CL: 9 })
+    expect(reduceLedger([...rows].reverse())).toEqual({ CL: 9 })
+  })
+
+  it("never throws — a projection summarises facts, it does not judge them", () => {
     expect(() =>
       reduceLedger([
         { type: "CL", units: 1 },
         { type: "CL", units: -2 },
       ])
-    ).toThrow(/negative/i)
+    ).not.toThrow()
+    expect(reduceLedger([{ type: "CL", units: -2 }])).toEqual({ CL: -2 })
+  })
+
+  it("overdrawnTypes reports the ledger that should not exist", () => {
+    expect(
+      overdrawnTypes([
+        { type: "CL", units: 1 },
+        { type: "CL", units: -2 },
+      ])
+    ).toEqual(["CL"])
+    // Order cannot change the verdict either.
+    expect(
+      overdrawnTypes([
+        { type: "CL", units: -3 },
+        { type: "CL", units: 12 },
+      ])
+    ).toEqual([])
+    // LOP is unpaid by definition and may run negative.
+    expect(overdrawnTypes([{ type: "LOP", units: -3 }])).toEqual([])
   })
 
   it("LOP is allowed to run negative — it is unpaid by definition", () => {
