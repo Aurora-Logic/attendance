@@ -71,7 +71,7 @@ function Shell() {
       </header>
 
       {/* Reserve the bottom-nav's height on phones so pages never hide under it. */}
-      <div className="min-h-0 flex-1 overflow-hidden max-sm:pb-16">
+      <div className="min-h-0 flex-1 overflow-hidden max-md:pb-16">
         <Outlet />
       </div>
       <BottomNav />

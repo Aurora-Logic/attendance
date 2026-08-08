@@ -446,7 +446,7 @@ export function PunchPage() {
                 <Separator />
 
                 {/* Camera fills the remaining height rather than leaving a gap. */}
-                <div className="grid flex-1 gap-4 sm:grid-cols-[minmax(0,1fr)_200px]">
+                <div className="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_200px]">
                   <div className="bg-muted relative min-h-44 flex-1 overflow-hidden rounded-lg border">
                     {/* Mirrored preview, un-mirrored capture — like every phone camera. */}
                     <video

@@ -193,7 +193,7 @@ export function BottomNav() {
     <>
       <nav
         aria-label="Primary"
-        className="bg-background/95 supports-[backdrop-filter]:bg-background/80 fixed inset-x-0 bottom-0 z-30 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden print:hidden"
+        className="bg-background/95 supports-[backdrop-filter]:bg-background/80 fixed inset-x-0 bottom-0 z-30 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden print:hidden"
       >
         <div className="grid h-16 auto-cols-fr grid-flow-col">
           {pins.map((item) => (
