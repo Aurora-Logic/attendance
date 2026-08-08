@@ -689,6 +689,46 @@ export function usePayroll() {
   }
 }
 
+export interface SalaryRow {
+  employeeId: string
+  grossMonthlyPaise: number
+  basis: string
+  bank: {
+    accountName: string
+    accountNumber: string
+    ifsc: string
+    bankName: string
+    pan: string
+    uan: string
+  } | null
+}
+
+/** Account numbers arrive masked from the server; nothing here unmasks them. */
+export function useSalaries() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+  const query = useQuery({
+    queryKey: ["salaries"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<{ salaries: SalaryRow[] }>("/salaries"),
+    select: (payload) => payload.salaries,
+  })
+  return {
+    salaries: enabled && !query.isError ? (query.data ?? []) : [],
+    source: (enabled ? "api" : "demo") as DataSource,
+  }
+}
+
+export function useSaveBankDetails() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ employeeId, ...bank }: { employeeId: string } & Record<string, string>) =>
+      apiFetch(`/salaries/${employeeId}/bank`, { method: "PUT", body: JSON.stringify(bank) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["salaries"] }),
+  })
+}
+
 export function usePayrollActions() {
   const queryClient = useQueryClient()
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["payroll"] })
