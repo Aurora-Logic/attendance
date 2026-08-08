@@ -219,6 +219,33 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         : { level: process.env.LOG_LEVEL ?? (IS_PRODUCTION ? "info" : "warn") },
   })
 
+  /**
+   * An empty body on a JSON request means "no arguments", not a malformed
+   * request.
+   *
+   * The browser client sets `content-type: application/json` on every call, and
+   * Fastify's default parser answers a bodyless POST with
+   * FST_ERR_CTP_EMPTY_JSON_BODY. Every action that takes no arguments — signing
+   * out, refreshing an expired token, marking something reviewed — therefore
+   * failed from the browser while passing in tests, because `app.inject` sends
+   * no content-type when there is no payload. Silent, and it would have taken
+   * out session refresh fifteen minutes into every visit.
+   */
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (_request, body: string, done) => {
+      if (body.trim().length === 0) return done(null, {})
+      try {
+        done(null, JSON.parse(body) as unknown)
+      } catch (error) {
+        const failure = error as Error & { statusCode?: number }
+        failure.statusCode = 400
+        done(failure, undefined)
+      }
+    }
+  )
+
   // Same-origin API responses carry no HTML, but the headers cost nothing and
   // close off sniffing, framing and referrer leakage. CSP is left to whatever
   // serves the SPA — setting it here would only govern JSON.

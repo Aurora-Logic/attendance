@@ -843,3 +843,79 @@ export function usePayrollActions() {
     }),
   }
 }
+
+// ------------------------------------------------------------ tally connector
+
+export interface TallyStatus {
+  agent: {
+    state: "never" | "live" | "stale"
+    staleForMs: number
+    lastSeenAt: string | null
+    agentVersion: string
+    company: string
+    lastPulled: number
+    lastPushed: number
+    tallyReachable: boolean | null
+    queuedRecords: number
+  }
+  records: { total: number; byEntity: Record<string, number> }
+  conflicts: { total: number; unreviewed: number }
+}
+
+export interface TallyConflictRow {
+  id: string
+  entity: string
+  tallyGuid: string
+  name: string
+  winner: "app" | "tally"
+  reason: string
+  discarded: Record<string, unknown>
+  at: string
+  reviewedAt: string | null
+}
+
+/**
+ * Connector liveness. Polled rather than fetched once: the whole value of this
+ * screen is telling somebody *now* that the sync stopped, and a figure that
+ * only updates on a page reload is how a stale sync goes unnoticed for a day.
+ */
+export function useTallyStatus() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+
+  const query = useQuery({
+    queryKey: ["tally", "status"],
+    enabled,
+    retry: false,
+    refetchInterval: 30_000,
+    queryFn: () => apiFetch<TallyStatus>("/tally/status"),
+  })
+
+  return { status: query.data ?? null, isLoading: enabled && query.isLoading, enabled }
+}
+
+export function useTallyConflicts() {
+  const { user } = useSession()
+  const enabled = user?.source === "api"
+
+  const query = useQuery({
+    queryKey: ["tally", "conflicts"],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<{ conflicts: TallyConflictRow[] }>("/tally/conflicts"),
+    select: (payload) => payload.conflicts,
+  })
+
+  return { conflicts: query.data ?? [], isLoading: enabled && query.isLoading }
+}
+
+export function useReviewTallyConflict() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ conflict: TallyConflictRow }>(`/tally/conflicts/${id}/reviewed`, {
+        method: "POST",
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["tally"] }),
+  })
+}

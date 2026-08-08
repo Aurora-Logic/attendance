@@ -205,13 +205,69 @@ export function registerTallyRoutes(app: FastifyInstance, store: Store, guards: 
     const pending = store.tallyRecords.filter((record) => {
       if (parsedEntity?.success && record.entity !== parsedEntity.data) return false
       // `alterId === 0` marks a record this side created that Tally has never
-      // seen; anything else is only pushed when we hold the newer edit.
-      return record.alterId === 0
+      // seen. Anything else goes only when this side holds the newer edit,
+      // measured against the watermark — comparing against the record's own
+      // current state would compare it with itself and never send anything.
+      if (record.alterId === 0) return true
+      return Date.parse(record.updatedAt) > Date.parse(record.syncedUpdatedAt)
     })
 
     touchAgent({ lastPulled: pending.length })
     return { records: pending, count: pending.length }
   })
+
+  // ---- what a person changes here -----------------------------------------
+
+  /**
+   * Editing a mirrored master from this side.
+   *
+   * Without this the sync is two-way in name only: nothing here could ever
+   * change a master, so no edit could ever be sent to Tally and no conflict
+   * could ever arise. The edit moves `updatedAt` and deliberately leaves
+   * `alterId` alone — that number belongs to Tally, and forging it would make
+   * the next reconcile think Tally had made the change.
+   */
+  app.patch(
+    "/tally/records/:entity/:guid",
+    { preHandler: [authenticate, requirePermission("sales.manage", { write: true })] },
+    async (request, reply) => {
+      const params = request.params as { entity: string; guid: string }
+      const parsedEntity = tallyEntitySchema.safeParse(params.entity)
+      if (!parsedEntity.success) return reply.code(400).send({ error: "UNKNOWN_ENTITY" })
+
+      const parsed = z
+        .object({
+          name: z.string().min(1).optional(),
+          fields: z.record(z.string(), z.unknown()).optional(),
+        })
+        .safeParse(request.body)
+      if (!parsed.success)
+        return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
+
+      const record = store.tallyRecords.find(
+        (candidate) =>
+          recordKey(candidate.entity, candidate.tallyGuid) ===
+          recordKey(parsedEntity.data, params.guid)
+      )
+      if (!record) return reply.code(404).send({ error: "NOT_FOUND" })
+
+      const before = { name: record.name, fields: { ...record.fields } }
+      if (parsed.data.name !== undefined) record.name = parsed.data.name
+      if (parsed.data.fields !== undefined) record.fields = { ...record.fields, ...parsed.data.fields }
+      record.updatedAt = new Date().toISOString()
+
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "tally.record_edited",
+        entity: "tally_records",
+        entityId: record.tallyGuid,
+        before,
+        after: { name: record.name, fields: record.fields },
+        ip: request.ip,
+      })
+      return { record }
+    }
+  )
 
   // ---- what a person reads ------------------------------------------------
 

@@ -9,6 +9,7 @@ import {
   Camera,
   ClipboardCheck,
   FileCode2,
+  PlugZap,
   Palette,
   RotateCcw,
   Smartphone,
@@ -59,6 +60,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { MobileNavSettings } from "@/components/settings-mobile-nav"
 import { TallySettings } from "@/components/settings-tally"
+import { TallyConnectorSettings } from "@/components/settings-tally-connector"
 
 function NumberField({
   id,
@@ -300,6 +302,29 @@ const SECTION_GROUPS: { group: string; sections: SettingsSection[] }[] = [
     ],
   },
   {
+    /**
+     * Tally gets its own group rather than a tab inside Workspace. It is the
+     * system of record for every commercial master in the product, so burying
+     * it beside the phone bottom-bar picker misrepresented what it is.
+     */
+    group: "Tally",
+    sections: [
+      {
+        key: "connector",
+        label: "Connector",
+        icon: PlugZap,
+        blurb: "Whether the sync is running, what has come across, and anything it overwrote.",
+      },
+      {
+        key: "tally",
+        label: "Payroll posting",
+        icon: FileCode2,
+        blurb:
+          "The one place payroll meets Tally: a salary journal you export by hand. Payroll never syncs.",
+      },
+    ],
+  },
+  {
     group: "Capture & privacy",
     sections: [
       {
@@ -318,12 +343,6 @@ const SECTION_GROUPS: { group: string; sections: SettingsSection[] }[] = [
         label: "Mobile navigation",
         icon: Smartphone,
         blurb: "Pick the four screens pinned to the phone bottom bar.",
-      },
-      {
-        key: "tally",
-        label: "Tally integration",
-        icon: FileCode2,
-        blurb: "Map salary posting to your Tally ledgers, then export a run as a voucher.",
       },
       {
         key: "branding",
@@ -925,6 +944,7 @@ export function SettingsPage() {
             {active === "roster" ? <RosterSettings /> : null}
             {active === "departments" ? <DepartmentsSettings /> : null}
             {active === "tally" ? <TallySettings /> : null}
+            {active === "connector" ? <TallyConnectorSettings /> : null}
             {active === "guide" ? <GuideSettings /> : null}
             {active === "branding" && isAdmin ? <BrandingSettings /> : null}
           </div>

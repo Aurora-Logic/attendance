@@ -2989,6 +2989,50 @@ describe("the Tally connector", () => {
     expect(after.json().agent.agentVersion).toBe("1.0.0")
   })
 
+  it("accepts an action with no arguments sent the way a browser sends it", async () => {
+    // The browser client sets content-type: application/json on every call.
+    // Fastify's default parser rejects a bodyless POST with 400, so every
+    // no-argument action failed in the browser while passing here — inject
+    // sends no content-type when there is no payload. This asserts the shape
+    // the browser actually produces.
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: { company: "Delta Books", records: [record({ tallyGuid: "guid-noargs" })] },
+    })
+    store.tallyConflicts.unshift({
+      id: "cfl_noargs",
+      entity: "customer",
+      tallyGuid: "guid-noargs",
+      name: "Acme Traders",
+      winner: "tally",
+      reason: "test",
+      discarded: {},
+      at: new Date().toISOString(),
+      reviewedAt: null,
+    })
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tally/conflicts/cfl_noargs/reviewed",
+      headers: { cookie: admin.cookies, "content-type": "application/json" },
+    })
+    expect(response.statusCode).toBe(200)
+  })
+
+  it("still refuses a body that is malformed rather than merely absent", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "POST",
+      url: "/tally/records/customer/guid-anything",
+      headers: { cookie: admin.cookies, "content-type": "application/json" },
+      payload: "{ not json",
+    })
+    expect(response.statusCode).toBe(400)
+  })
+
   it("distinguishes a dead connector from a connector whose Tally is closed", async () => {
     // These need different responses — one means go and look at that PC, the
     // other means wait until morning — so the heartbeat carries both facts.
@@ -3025,6 +3069,122 @@ describe("the Tally connector", () => {
     ).json()
     expect(status.agent.state).toBe("live")
     expect(status.agent.tallyReachable).toBeNull()
+  })
+
+  it("an edit made here is sent to Tally on the next pull", async () => {
+    // Without an app-side edit path the sync is two-way in name only: nothing
+    // could ever change a master here, so nothing could ever go back.
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: { company: "Delta Books", records: [record({ tallyGuid: "guid-editable" })] },
+    })
+
+    const empty = await app.inject({ method: "GET", url: "/tally/sync/pull", headers: agent })
+    expect(empty.json().count).toBe(0)
+
+    const edited = await app.inject({
+      method: "PATCH",
+      url: "/tally/records/customer/guid-editable",
+      headers: { cookie: admin.cookies },
+      payload: { fields: { partygstin: "27ZZZZZ9999Z1ZZ" } },
+    })
+    expect(edited.statusCode).toBe(200)
+
+    const pending = await app.inject({ method: "GET", url: "/tally/sync/pull", headers: agent })
+    expect(pending.json().count).toBe(1)
+    expect(pending.json().records[0].fields.partygstin).toBe("27ZZZZZ9999Z1ZZ")
+  })
+
+  it("an app-side edit does not forge Tally's AlterID", async () => {
+    // Bumping it would make the next reconcile believe Tally made the change,
+    // and the real Tally edit would then be discarded as the older one.
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: {
+        company: "Delta Books",
+        records: [record({ tallyGuid: "guid-alterid", alterId: 77 })],
+      },
+    })
+    await app.inject({
+      method: "PATCH",
+      url: "/tally/records/customer/guid-alterid",
+      headers: { cookie: admin.cookies },
+      payload: { name: "Renamed Here" },
+    })
+    const stored = store.tallyRecords.find((row) => row.tallyGuid === "guid-alterid")!
+    expect(stored.alterId).toBe(77)
+    expect(stored.name).toBe("Renamed Here")
+  })
+
+  it("an edit here and an edit in Tally between syncs is a conflict, and the copy is kept", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: {
+        company: "Delta Books",
+        records: [record({ tallyGuid: "guid-both", alterId: 100 })],
+      },
+    })
+    await app.inject({
+      method: "PATCH",
+      url: "/tally/records/customer/guid-both",
+      headers: { cookie: admin.cookies },
+      payload: { fields: { partygstin: "EDITED-HERE" } },
+    })
+
+    const before = store.tallyConflicts.length
+    await app.inject({
+      method: "POST",
+      url: "/tally/sync/push",
+      headers: agent,
+      payload: {
+        company: "Delta Books",
+        records: [
+          record({
+            tallyGuid: "guid-both",
+            alterId: 140,
+            updatedAt: "2099-01-01T00:00:00.000Z",
+            fields: { partygstin: "EDITED-IN-TALLY" },
+          }),
+        ],
+      },
+    })
+    expect(store.tallyConflicts.length).toBe(before + 1)
+    // The discarded copy is the one this side held, kept verbatim so somebody
+    // can see exactly what was overwritten.
+    expect(store.tallyConflicts[0].discarded).toMatchObject({ partygstin: "EDITED-HERE" })
+  })
+
+  it("refuses an edit to a master that is not mirrored, and an unknown entity", async () => {
+    const admin = await asAdmin()
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: "/tally/records/customer/guid-ghost",
+          headers: { cookie: admin.cookies },
+          payload: { name: "Nope" },
+        })
+      ).statusCode
+    ).toBe(404)
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: "/tally/records/invoice/guid-anything",
+          headers: { cookie: admin.cookies },
+          payload: { name: "Nope" },
+        })
+      ).statusCode
+    ).toBe(400)
   })
 
   it("a conflict can be marked reviewed, and only by someone who may manage sales", async () => {
