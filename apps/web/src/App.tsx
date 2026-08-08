@@ -151,8 +151,16 @@ export default function App() {
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<DashboardPage />} />
-          <Route path="punch" element={<PunchPage />} />
-          <Route path="attendance" element={<AttendancePage />} />
+          <Route path="punch" element={
+              <RequirePermission permission="punch.self">
+                <PunchPage />
+              </RequirePermission>
+            } />
+          <Route path="attendance" element={
+              <RequirePermission permission="reports.view">
+                <AttendancePage />
+              </RequirePermission>
+            } />
           <Route
             path="roster"
             element={
@@ -179,34 +187,114 @@ export default function App() {
           />
           <Route path="employees/:id" element={<EmployeeDetailPage />} />
           <Route path="leave" element={<LeavePage />} />
-          <Route path="estimates" element={<EstimatesPage />} />
-          <Route path="estimates/new" element={<EstimateNewPage />} />
-          <Route path="estimates/:id" element={<EstimateDetailPage />} />
-          <Route path="customers" element={<CustomersPage />} />
-          <Route path="sales-orders" element={<SalesOrdersPage />} />
-          <Route path="sales-orders/:id" element={<SalesOrderDetailPage />} />
-          <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
+          <Route path="estimates" element={
+              <RequirePermission permission="sales.view">
+                <EstimatesPage />
+              </RequirePermission>
+            } />
+          <Route path="estimates/new" element={
+              <RequirePermission permission="sales.manage">
+                <EstimateNewPage />
+              </RequirePermission>
+            } />
+          <Route path="estimates/:id" element={
+              <RequirePermission permission="sales.view">
+                <EstimateDetailPage />
+              </RequirePermission>
+            } />
+          <Route path="customers" element={
+              <RequirePermission permission="sales.view">
+                <CustomersPage />
+              </RequirePermission>
+            } />
+          <Route path="sales-orders" element={
+              <RequirePermission permission="sales.view">
+                <SalesOrdersPage />
+              </RequirePermission>
+            } />
+          <Route path="sales-orders/:id" element={
+              <RequirePermission permission="sales.view">
+                <SalesOrderDetailPage />
+              </RequirePermission>
+            } />
+          <Route path="purchase-orders" element={
+              <RequirePermission permission="procurement.view">
+                <PurchaseOrdersPage />
+              </RequirePermission>
+            } />
           <Route
             path="purchase-orders/new"
-            element={<PurchaseOrderNewPage />}
+            element={
+              <RequirePermission permission="procurement.manage">
+                <PurchaseOrderNewPage />
+              </RequirePermission>
+            }
           />
           <Route
             path="purchase-orders/:id"
-            element={<PurchaseOrderDetailPage />}
+            element={
+              <RequirePermission permission="procurement.view">
+                <PurchaseOrderDetailPage />
+              </RequirePermission>
+            }
           />
-          <Route path="vendors" element={<VendorsPage />} />
-          <Route path="items" element={<ItemsPage />} />
-          <Route path="stock" element={<StockPage />} />
-          <Route path="invoices" element={<InvoicesPage />} />
-          <Route path="invoices/:id" element={<InvoiceDetailPage />} />
-          <Route path="receivables" element={<ReceivablesPage />} />
-          <Route path="indents" element={<IndentsPage />} />
-          <Route path="vendor-bills" element={<VendorBillsPage />} />
-          <Route path="payables" element={<PayablesPage />} />
-          <Route path="expenses" element={<ExpensesPage />} />
+          <Route path="vendors" element={
+              <RequirePermission permission="procurement.view">
+                <VendorsPage />
+              </RequirePermission>
+            } />
+          <Route path="items" element={
+              <RequirePermission permission="procurement.view">
+                <ItemsPage />
+              </RequirePermission>
+            } />
+          <Route path="stock" element={
+              <RequirePermission permission="procurement.view">
+                <StockPage />
+              </RequirePermission>
+            } />
+          <Route path="invoices" element={
+              <RequirePermission permission="sales.view">
+                <InvoicesPage />
+              </RequirePermission>
+            } />
+          <Route path="invoices/:id" element={
+              <RequirePermission permission="sales.view">
+                <InvoiceDetailPage />
+              </RequirePermission>
+            } />
+          <Route path="receivables" element={
+              <RequirePermission permission="sales.view">
+                <ReceivablesPage />
+              </RequirePermission>
+            } />
+          <Route path="indents" element={
+              <RequirePermission permission="procurement.view">
+                <IndentsPage />
+              </RequirePermission>
+            } />
+          <Route path="vendor-bills" element={
+              <RequirePermission permission="procurement.view">
+                <VendorBillsPage />
+              </RequirePermission>
+            } />
+          <Route path="payables" element={
+              <RequirePermission permission="procurement.view">
+                <PayablesPage />
+              </RequirePermission>
+            } />
+          <Route path="expenses" element={
+              <RequirePermission permission="expense.claim">
+                <ExpensesPage />
+              </RequirePermission>
+            } />
           <Route
             path="procurement-analytics"
-            element={<ProcurementAnalyticsPage />}
+            element={
+              <RequirePermission permission="procurement.view">
+                <ProcurementAnalyticsPage />
+              </RequirePermission>
+            }
           />
           <Route
             path="reports"

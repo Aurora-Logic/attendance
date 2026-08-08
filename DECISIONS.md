@@ -410,6 +410,18 @@ Reproduced before the fix: the same two rows give `{ CL: 9 }` in write order and
 | L2 | `overdrawnTypes` reports a ledger that got past the gate | Corruption should be surfaced and repaired, not converted into an outage on every leave route. |
 | L3 | Leave cannot be applied into a **locked month** | Regularisations and overtime claims already enforced this; leave was the one write path that did not, so a paid period could still be changed behind payroll's back. |
 
+## 25. The sidebar was the only lock (8 Aug 2026)
+
+Guarding eight privileged routes earlier left the commercial suite untouched. Probed as a plain employee: **all 15 Sales, Procurement and Inventory screens opened**, including `/purchase-orders/new` and `/estimates/new` — so any signed-in employee could create and submit a real purchase order or estimate against a live vendor. The sidebar hid them; nothing stopped a URL.
+
+| # | Decision | Why |
+|---|---|---|
+| R4 | Every commercial route carries **the permission its own nav entry declares** | Nav and route then say the same thing by construction. Guessing per route is how the two drift. |
+| R5 | The two creation screens require the **write** capability (`sales.manage`, `procurement.manage`), not the read one | Opening a list and submitting a purchase order are not the same act. |
+| R6 | A test asserts **nav and router agree**, reading the router source | It found three more unguarded routes the moment it was written — `/punch`, `/attendance`, `/expenses`. A rendered-tree test would have needed a browser nobody runs on every change; this fails in `pnpm test`. |
+
+Verified per role after the change: an employee reaches none of the 15, Operations and Admin reach all 15.
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.
