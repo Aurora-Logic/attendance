@@ -2746,3 +2746,111 @@ describe("a month that closes mid-flight cannot be written into", () => {
     expect(store.punches.filter((punch) => punch.businessDate === "2026-08-06")).toHaveLength(0)
   })
 })
+
+describe("overtime a corrected day earns is not stranded", () => {
+  const punch = async (cookie: string, type: "IN" | "OUT", at: string, key: string) =>
+    app.inject({
+      method: "POST",
+      url: "/punches",
+      headers: { cookie },
+      payload: punchBody({ type, at, idempotencyKey: key }),
+    })
+
+  it("a top-up claims only the difference, never the whole day again", async () => {
+    const employee = await asEmployee()
+    // 09:00 → 20:00 on a 9h shift: two hours of overtime.
+    await punch(employee.cookies, "IN", "2026-08-05T09:00", "topup-in-1")
+    await punch(employee.cookies, "OUT", "2026-08-05T20:00", "topup-out-1")
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/overtime/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: "2026-08-05" },
+    })
+    expect(first.statusCode).toBe(201)
+    const firstMinutes = first.json().otMinutes
+    expect(firstMinutes).toBe(120)
+
+    // Claiming again with nothing new is still refused.
+    const again = await app.inject({
+      method: "POST",
+      url: "/overtime/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: "2026-08-05" },
+    })
+    expect(again.statusCode).toBe(409)
+    expect(again.json().claimedMinutes).toBe(120)
+
+    // The day grows by an hour — as an approved regularisation would do.
+    store.punches.push({
+      id: "p_topup_late_out",
+      employeeId: "e4",
+      type: "OUT",
+      businessDate: "2026-08-05",
+      offsetMin: 720,
+      at: "2026-08-05T21:00",
+      accuracyM: 0,
+      dayPart: "FULL",
+      flags: ["REGULARISED"],
+      idempotencyKey: "reg_topup_OUT",
+    })
+
+    const topUp = await app.inject({
+      method: "POST",
+      url: "/overtime/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: "2026-08-05" },
+    })
+    expect(topUp.statusCode).toBe(201)
+    // Only the extra hour, not the whole three.
+    expect(topUp.json().otMinutes).toBe(60)
+
+    const claimed = store.approvals
+      .filter((approval) => approval.kind === "OVERTIME" && approval.dateFrom === "2026-08-05")
+      .reduce((sum, approval) => sum + approval.units, 0)
+    expect(claimed).toBe(180)
+  })
+
+  it("payroll still refuses to pay more than the day earned", async () => {
+    const employee = await asEmployee()
+    await punch(employee.cookies, "IN", "2026-08-05T09:00", "cap-in-1")
+    await punch(employee.cookies, "OUT", "2026-08-05T20:00", "cap-out-1")
+    const claim = await app.inject({
+      method: "POST",
+      url: "/overtime/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: "2026-08-05" },
+    })
+    const manager = await asOps()
+    await app.inject({
+      method: "POST",
+      url: `/approvals/${claim.json().approval.id}/decide`,
+      headers: { cookie: manager.cookies },
+      payload: { action: "APPROVE", remarks: "ok" },
+    })
+
+    // Someone inflates the approved figure directly.
+    const approval = store.approvals.find((row) => row.id === claim.json().approval.id)!
+    approval.units = 10_000
+
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-08" },
+    })
+    const run = await app.inject({
+      method: "POST",
+      url: "/payroll/runs",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-08" },
+    })
+    const item = run
+      .json()
+      .run.items.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
+    // Capped at what the day actually earned.
+    expect(item.otMinutes).toBe(120)
+  })
+})

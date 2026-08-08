@@ -481,6 +481,13 @@ The audit reported that approving leave early "shields" a comp-off credit from e
 
 The half-day test asserting "overtime starts after the shortened expectation" encoded the double-pay; it now asserts the opposite, plus a long-break case that must earn nothing.
 
+## 31. Overtime a corrected day earns (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| O9 | An overtime claim covers **only the minutes not yet claimed** for that day | "One claim per day" stranded overtime genuinely earned: regularise a forgotten punch-out, the day grows by two hours, and those hours could never be claimed. A top-up claims the difference, so nothing is double-paid and nothing is lost. |
+| O10 | Payroll still pays `min(sum of approved, what the day computes)` | The claim path is now more permissive, so the cap matters more. Tested by inflating an approved figure directly: payroll pays what the day earned, not what the record says. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

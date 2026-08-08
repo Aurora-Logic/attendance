@@ -1673,26 +1673,44 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       if (day.otMinutes <= 0)
         return reply.code(422).send({ error: "NO_OVERTIME_ON_DAY" })
 
-      const duplicate = store.approvals.find(
-        (approval) =>
-          approval.kind === "OVERTIME" &&
-          approval.employeeId === employee.id &&
-          approval.dateFrom === date &&
-          approval.status !== "REJECTED"
-      )
-      if (duplicate) return reply.code(409).send({ error: "ALREADY_CLAIMED" })
+      /**
+       * Already claimed, in minutes. A flat "one claim per day" rule stranded
+       * overtime an employee genuinely earned: regularise a forgotten
+       * punch-out and the day grows, but the extra minutes could never be
+       * claimed. Only the difference is claimable, so nothing is double-paid
+       * and nothing is lost.
+       */
+      const alreadyClaimed = store.approvals
+        .filter(
+          (approval) =>
+            approval.kind === "OVERTIME" &&
+            approval.employeeId === employee.id &&
+            approval.dateFrom === date &&
+            approval.status !== "REJECTED"
+        )
+        .reduce((sum, approval) => sum + approval.units, 0)
 
-      const hours = (day.otMinutes / 60).toFixed(2)
+      const claimable = day.otMinutes - alreadyClaimed
+      if (claimable <= 0)
+        return reply
+          .code(409)
+          .send({ error: "ALREADY_CLAIMED", claimedMinutes: alreadyClaimed })
+
+      const hours = (claimable / 60).toFixed(2)
       const approval = {
         id: id(store, "req"),
         kind: "OVERTIME" as const,
         employeeId: employee.id,
         subject: `Overtime ${hours} h`,
-        detail: note || `${day.otMinutes} minutes past shift end`,
+        detail:
+          note ||
+          (alreadyClaimed > 0
+            ? `${claimable} further minutes after the day was corrected`
+            : `${claimable} minutes past shift end`),
         dateFrom: date,
         dateTo: date,
         // Minutes, so payroll multiplies without re-deriving anything.
-        units: day.otMinutes,
+        units: claimable,
         status: "PENDING" as const,
         level: 1 as const,
         createdAt: new Date().toISOString(),
@@ -1716,7 +1734,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         after: { date, minutes: day.otMinutes },
         ip: request.ip,
       })
-      return reply.code(201).send({ approval, otMinutes: day.otMinutes })
+      return reply.code(201).send({ approval, otMinutes: claimable })
     }
   )
 
