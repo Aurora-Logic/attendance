@@ -39,6 +39,13 @@ export interface NavItem {
    * matrix, never through a role name — see lib/session.tsx.
    */
   permission?: string
+  /**
+   * Require the capability at ALL scope, not merely "not NONE". Some screens
+   * are only meaningful company-wide: a read-only view of the permission
+   * matrix is not a lesser version of editing it, it is a different screen
+   * nobody asked for.
+   */
+  requiresFullScope?: boolean
 }
 
 export interface NavGroup {
@@ -261,9 +268,11 @@ export const NAV_GROUPS: NavGroup[] = [
         url: "/roles",
         icon: ShieldCheck,
         phase: 1,
-        // Admin is the only role granted config.manage at ALL scope, so this
-        // entry disappears for everyone else without a role check anywhere.
+        // Admin alone holds config.manage at ALL, and this entry now really
+        // does require that — `can()` alone passes at VIEW scope, which used
+        // to put HR and Operations on a screen meant for administrators.
         permission: "config.manage",
+        requiresFullScope: true,
       },
       { title: "Settings", url: "/settings", icon: Settings, phase: 8, permission: "config.manage" },
       { title: "Audit Log", url: "/audit", icon: ScrollText, phase: 8, permission: "audit.view" },

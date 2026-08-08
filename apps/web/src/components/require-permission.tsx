@@ -27,13 +27,17 @@ import {
  */
 export function RequirePermission({
   permission,
+  requiresFullScope = false,
   children,
 }: {
   permission: string
+  /** Require ALL scope, matching the nav entry's own rule. */
+  requiresFullScope?: boolean
   children: React.ReactNode
 }) {
-  const { can } = useSession()
-  if (can(permission)) return <>{children}</>
+  const { can, scopeFor } = useSession()
+  const allowed = requiresFullScope ? scopeFor(permission) === "ALL" : can(permission)
+  if (allowed) return <>{children}</>
 
   return (
     <Page>

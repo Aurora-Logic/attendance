@@ -227,7 +227,7 @@ export default function App() {
           <Route
             path="roles"
             element={
-              <RequirePermission permission="config.manage">
+              <RequirePermission permission="config.manage" requiresFullScope>
                 <RolesPage />
               </RequirePermission>
             }

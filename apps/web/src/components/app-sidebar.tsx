@@ -68,7 +68,11 @@ export function AppSidebar() {
           // Entries the signed-in role has no grant for are not rendered. The
           // check is against the permission matrix, never a role name.
           const items = group.items.filter(
-            (item) => !item.permission || session.can(item.permission)
+            (item) =>
+              !item.permission ||
+              (item.requiresFullScope
+                ? session.scopeFor(item.permission) === "ALL"
+                : session.can(item.permission))
           )
           if (items.length === 0) return null
 
