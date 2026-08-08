@@ -234,7 +234,36 @@ master) + `salePricePaise` on items + an Estimate document sheet (the PO sheet's
 skeleton) + the same draft → approve → fulfil lifecycle with derived statuses
 and append-only fulfilment — mostly assembly, not construction.
 
+## 11. Production hardening (8 Aug 2026)
+
+A six-dimension audit (security, robustness, performance, responsiveness, operations, feature gaps) with adversarial verification of every P0/P1 drove this batch. Decisions worth keeping:
+
+| # | Decision | Why |
+|---|---|---|
+| H1 | **Production refuses to boot without a strong `JWT_ACCESS_SECRET`** (≥32 chars) | The fallback `"dev-only-secret-change-me"` is in the repo, so a deploy that forgot the env var would let anyone mint an ADMIN token. A crash at startup is loud and fixable; a silent default is neither. Development keeps the fallback. |
+| H2 | CORS is an **explicit allowlist** from `CORS_ORIGINS`, never `origin: true` | Reflecting the caller's Origin alongside `credentials: true` is allow-all in everything but name. Requests with no Origin (curl, same-origin, native) still pass — they are not a CORS case. |
+| H3 | Cookies gain `Secure` in production only | localhost is plain HTTP; a Secure cookie there is simply never stored, which would break local development for no gain. |
+| H4 | **Password change and admin reset routes exist** | Before this, the four seeded logins were permanent and their passwords are published in the repo — there was no mechanism at all to rotate them. bcrypt cost 12 for real changes (the seed's cost 4 is a test-speed decision). |
+| H5 | The JSON store writes **temp-file + rename**, and a corrupt file **stops the API** | `rename(2)` is atomic, so a crash mid-write leaves the last good file. Silently reseeding a corrupt file would replace live business data with demo rows and still look like a healthy boot; instead the file is quarantined with a timestamp and the process refuses to start. |
+| H6 | Leave balance is re-checked **at approval**, not only at apply | Two requests can each pass the apply-time check and both be approved. The resulting debit drives the ledger negative, and `reduceLedger` throws on negative — which would 500 that employee's balance and apply routes permanently. |
+| H7 | Receipt allocations are validated against the **ledger**, not the request | The old cap was computed from the client's own allocation array, so any fabricated figure passed. Manual allocation stays (it is a real need); every line is now checked against a real open invoice for that party, capped at its outstanding, and required to sum to the receipt. |
+| H8 | Route-level `React.lazy` for every screen except the dashboard and punch kiosk | 35 static route imports produced a 1.6MB entry chunk; it is now 301KB (92KB gzipped). recharts and exceljs are separate chunks and excluded from PWA precache — a phone that never exports a workbook never downloads one. |
+| H9 | The API ships a real build (`tsup` → `dist`), and the web build **fails** without `VITE_API_URL` | `tsx` is a dev dependency and a runtime transpiler. A production bundle that baked `localhost:3000` cannot reach its backend from any device but the build machine, and the symptom — every screen falling back to demo data — looks like working software. |
+| H10 | Bottom nav runs to 767px, matching where the sidebar becomes off-canvas | At 640–767 (iPad mini portrait) there was neither a bottom bar nor a visible rail. The sweep now covers 1440 / 1280 / 820 / 390 so this class of gap fails CI rather than shipping. |
+
+## 12. Tally integration (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| T1 | Vouchers are built **server-side** and downloaded as XML; nothing is pushed into Tally automatically | Tally is the accountant's system of record. A tool that wrote into it unattended would be the first suspect for every discrepancy; an importable file keeps the accountant in the loop. |
+| T2 | **Masters are never created by us** — ledger and company names are typed in Settings and must match Tally exactly | Creating masters programmatically produces duplicates with subtly different names, which is worse than a failed import. The Settings screen previews the exact posting, and the Guide covers creating the ledgers and the three failures that actually happen. |
+| T3 | An **unbalanced voucher is refused**, not written | Debit ≠ credit corrupts books silently downstream. `buildTallyVoucherXml` throws; the route answers 422 with the reason. Zero-gross employees are skipped, since a zero AMOUNT line makes Tally reject the whole file. |
+| T4 | Tally's sign convention is encoded once: debit = `ISDEEMEDPOSITIVE=Yes` with a **negative** amount | It is counter-intuitive and getting it wrong reverses the entry. One helper, nine tests. |
+| T5 | Bank details sit behind `payroll.manage`, are masked (`****7890`) in every read, and the audit log stores only the masked tail | They gate money, so they are payroll data rather than employee data; an append-only log is the last place a full account number belongs. |
+| T6 | The transfer sheet **holds people back with a reason** rather than dropping them | A missing account is a person who will not be paid. Everyone appears in either the payable file or the held list, and the count travels in a response header so the UI can warn before the file is uploaded. |
+
 ## 4. Open items
 
-- **Phase 7b** (PF/ESI/PT/TDS, payslip PDF, bank upload) deferred until after Phase 8, per decision on 4 Aug 2026. Schema tables are created in Phase 1 and left empty so no migration is needed later.
+- **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.
+- Attendance regularization requests, notifications/escalation delivery, and comp-off earn/spend remain the top-ranked feature gaps from the 8 Aug audit.
 - Server-side face re-verification (A10) awaiting confirmation. If dropped, the §3 anti-spoof wording should be softened to "capture quality check".
