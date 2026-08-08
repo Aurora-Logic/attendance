@@ -309,6 +309,17 @@ A six-dimension audit (security, robustness, performance, responsiveness, operat
 | N8 | One notifier (`makeNotifier`) shared by routes and the nightly sweep | Two copies would be two places for the cap and the shape to drift, and the sweep's notices are the ones nobody is watching when they break. |
 | N9 | The bell **polls every 60s** rather than opening a websocket | A websocket for a handful of approval notices is infrastructure this system does not need, and 60 seconds is well inside how fast anyone acts on one. It is hidden entirely in a demo session — a bell that can never fill is chrome that teaches people to ignore bells. |
 
+## 17. Grid cost and failure honesty (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| G1 | The roster grid mounts a tooltip **only for the cell under the cursor** | A Radix Tooltip per cell meant 930 mounted trigger components at seed scale and roughly 15,000 at 500 employees. Measured before and after: 930 → 0 at rest, with hover behaviour unchanged (verified in a real browser, not assumed). |
+| G2 | Hover state lives on the **row**, which is memoised | Moving across a row re-renders 31 cells instead of the whole grid. Putting the state on the page would have traded one cost for another. |
+| G3 | The badge keeps `tabIndex` with focus handlers | Mounting on hover alone would have made the tooltip unreachable by keyboard — a perf fix that quietly removes access is not a fix. |
+| G4 | Export **queues first, registers second**, and a queue failure answers 503 | The other order left a permanently QUEUED ghost job whenever Redis was unreachable: the row existed, nothing would ever pick it up, and the caller got a raw 500 with no way to tell "queued" from "lost". |
+| G5 | `PUT /permissions` **merges** over the current matrix and drops unknown keys | A body that omitted a permission used to erase it, and routes indexing it directly then threw on every request — a save from a stale browser tab could take the approvals path down. The matrix is a closed vocabulary, not a bag. |
+| G6 | A matrix that leaves nobody with `config.manage: ALL` is **refused** (422) | Otherwise an admin can lock the company out of its own permission matrix permanently, with no route back short of editing the store by hand. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

@@ -5,7 +5,7 @@ import { Link } from "react-router"
 
 import { useAppConfig, type RosterRule } from "@/lib/app-config"
 import { useCalendarDays, useSetCalendarDay } from "@/lib/queries"
-import { generateRoster, type CellSource } from "@/lib/roster"
+import { generateRoster, type CellSource, type RosterRow } from "@/lib/roster"
 import { cn } from "@/lib/utils"
 import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { Badge } from "@/components/ui/badge"
@@ -208,6 +208,75 @@ function DayHeader({
   )
 }
 
+
+/**
+ * One employee's month. Memoised, and the tooltip is mounted only for the cell
+ * under the cursor: a Radix Tooltip per cell meant 930 mounted trigger
+ * components at seed scale and roughly 15,000 at 500 employees, which is the
+ * difference between a grid that scrolls and one that stutters.
+ *
+ * Hover state lives here rather than on the page, so moving across a row
+ * re-renders 31 cells instead of the whole grid.
+ */
+const RosterGridRow = React.memo(function RosterGridRow({ row }: { row: RosterRow }) {
+  const [hoveredDay, setHoveredDay] = React.useState<number | null>(null)
+
+  return (
+    <TableRow onMouseLeave={() => setHoveredDay(null)}>
+      <TableCell className="bg-background sticky left-0 z-10">
+        <div className="flex flex-col">
+          <span className="font-medium">{row.employee.name}</span>
+          <span className="text-muted-foreground">
+            {row.employee.code} · {row.employee.department}
+          </span>
+        </div>
+      </TableCell>
+      {row.cells.map((cell) => {
+        const badge = (
+          <Badge
+            variant={SOURCE_TONE[cell.source]}
+            className="w-9 justify-center px-0 font-mono"
+            tabIndex={0}
+            onFocus={() => setHoveredDay(cell.day)}
+            onBlur={() => setHoveredDay(null)}
+          >
+            {cell.status === "WEEKLY_OFF"
+              ? "WO"
+              : cell.status === "HOLIDAY"
+                ? "H"
+                : (cell.shift?.short ?? "—")}
+          </Badge>
+        )
+        return (
+          <TableCell
+            key={cell.day}
+            className="p-1 text-center"
+            onMouseEnter={() => setHoveredDay(cell.day)}
+          >
+            {hoveredDay === cell.day ? (
+              <Tooltip open>
+                <TooltipTrigger asChild>{badge}</TooltipTrigger>
+                <TooltipContent>
+                  <p className="font-medium">
+                    {row.employee.name} · {cell.day} Aug
+                  </p>
+                  <p>{cell.note}</p>
+                  <p className="opacity-70">Rule: {SOURCE_LABEL[cell.source]}</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              badge
+            )}
+          </TableCell>
+        )
+      })}
+      <TableCell className="bg-background sticky right-0 z-10 text-right font-medium tabular-nums">
+        {row.workingDays}
+      </TableCell>
+    </TableRow>
+  )
+})
+
 export function RosterPage() {
   const { roster, setRoster, declareDay, clearDay } = useAppConfig()
   const { days: apiDays } = useCalendarDays()
@@ -356,44 +425,7 @@ export function RosterPage() {
             </TableHeader>
             <TableBody>
               {grid.map((row) => (
-                <TableRow key={row.employee.id}>
-                  <TableCell className="bg-background sticky left-0 z-10">
-                    <div className="flex flex-col">
-                      <span className="font-medium">{row.employee.name}</span>
-                      <span className="text-muted-foreground">
-                        {row.employee.code} · {row.employee.department}
-                      </span>
-                    </div>
-                  </TableCell>
-                  {row.cells.map((cell) => (
-                    <TableCell key={cell.day} className="p-1 text-center">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Badge
-                            variant={SOURCE_TONE[cell.source]}
-                            className="w-9 justify-center px-0 font-mono"
-                          >
-                            {cell.status === "WEEKLY_OFF"
-                              ? "WO"
-                              : cell.status === "HOLIDAY"
-                                ? "H"
-                                : (cell.shift?.short ?? "—")}
-                          </Badge>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="font-medium">
-                            {row.employee.name} · {cell.day} Aug
-                          </p>
-                          <p>{cell.note}</p>
-                          <p className="opacity-70">Rule: {SOURCE_LABEL[cell.source]}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TableCell>
-                  ))}
-                  <TableCell className="bg-background sticky right-0 z-10 text-right font-medium tabular-nums">
-                    {row.workingDays}
-                  </TableCell>
-                </TableRow>
+                <RosterGridRow key={row.employee.id} row={row} />
               ))}
             </TableBody>
           </Table>

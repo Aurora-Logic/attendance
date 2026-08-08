@@ -26,6 +26,9 @@ import {
   resolveBusinessDate,
   scopeSchema,
   shiftSpecSchema,
+  DEFAULT_MATRIX,
+  PERMISSIONS,
+  ROLES,
   splitForDisbursement,
   unreadCount,
   type PunchFlag,
@@ -36,7 +39,7 @@ import {
 import { auditPage, prisma, recordAudit } from "./db"
 import { makeNotifier } from "./notify"
 import { computeRunItems } from "./payroll"
-import { enqueueExport, exportFileStream } from "./exports"
+import { enqueueExport, ExportQueueUnavailable, exportFileStream } from "./exports"
 import {
   clearCalendarDay,
   createDepartment,
@@ -676,8 +679,40 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
       const matrixSchema = z.record(z.string(), z.record(z.string(), scopeSchema))
       const parsed = matrixSchema.safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+
+      /**
+       * Merge, never replace. A body that omits a permission used to erase it
+       * from the matrix, and the routes that index it directly then threw on
+       * every request — a save from a stale browser tab could take the whole
+       * approvals path down. Unknown keys are dropped rather than stored: the
+       * matrix is a closed vocabulary, not a bag.
+       */
+      const merged: typeof store.matrix = { ...DEFAULT_MATRIX }
+      for (const permission of PERMISSIONS) {
+        merged[permission.key] = {
+          ...DEFAULT_MATRIX[permission.key],
+          ...store.matrix[permission.key],
+          ...(parsed.data[permission.key] as Record<string, Scope> | undefined),
+        }
+      }
+
+      /**
+       * Somebody must still be able to change permissions. Without this an
+       * admin can set config.manage to NONE for every role and lock the
+       * company out of its own matrix permanently — there is no route to
+       * recover from that short of editing the store by hand.
+       */
+      const stillAdministrable = ROLES.some(
+        (role) => merged["config.manage"]?.[role] === "ALL"
+      )
+      if (!stillAdministrable)
+        return reply.code(422).send({
+          error: "WOULD_LOCK_OUT",
+          detail: "At least one role must keep config.manage at ALL.",
+        })
+
       const beforeMatrix = store.matrix
-      store.matrix = parsed.data as typeof store.matrix
+      store.matrix = merged
       recordAudit({
         actorId: request.auth.userId,
         action: "permissions.update",
@@ -829,10 +864,19 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         })
         .safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
-      const job = await enqueueExport(store, {
-        ...parsed.data,
-        requestedBy: request.auth.userId,
-      })
+      let job
+      try {
+        job = await enqueueExport(store, {
+          ...parsed.data,
+          requestedBy: request.auth.userId,
+        })
+      } catch (error) {
+        // Redis refused it: say so honestly instead of a raw 500, and leave no
+        // row behind claiming a job is queued when nothing will run it.
+        if (error instanceof ExportQueueUnavailable)
+          return reply.code(503).send({ error: "QUEUE_UNAVAILABLE" })
+        throw error
+      }
       if (!job) return reply.code(503).send({ error: "QUEUE_UNAVAILABLE" })
       recordAudit({
         actorId: request.auth.userId,

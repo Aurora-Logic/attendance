@@ -1830,3 +1830,70 @@ describe("notifications and escalation actually reach people", () => {
     )
   })
 })
+
+describe("permissions matrix cannot be broken or locked out", () => {
+  it("a partial save keeps every other permission intact", async () => {
+    const admin = await asAdmin()
+    const before = JSON.parse(JSON.stringify(store.matrix))
+
+    // A stale tab sends one permission only — everything else must survive.
+    const saved = await app.inject({
+      method: "PUT",
+      url: "/permissions",
+      headers: { cookie: admin.cookies },
+      payload: { "reports.view": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "NONE", EMPLOYEE: "NONE" } },
+    })
+    expect(saved.statusCode).toBe(200)
+    expect(store.matrix["reports.view"].OPERATIONS).toBe("NONE")
+    expect(store.matrix["leave.approve"]).toEqual(before["leave.approve"])
+    expect(store.matrix["config.manage"]).toEqual(before["config.manage"])
+
+    // The routes that index the matrix directly still work.
+    const employee = await asEmployee()
+    expect(
+      (await app.inject({ method: "GET", url: "/approvals", headers: { cookie: employee.cookies } }))
+        .statusCode
+    ).toBe(200)
+  })
+
+  it("refuses a matrix that would leave nobody able to administer it", async () => {
+    const admin = await asAdmin()
+    const attempt = await app.inject({
+      method: "PUT",
+      url: "/permissions",
+      headers: { cookie: admin.cookies },
+      payload: {
+        "config.manage": { ADMIN: "NONE", HR: "NONE", OPERATIONS: "NONE", EMPLOYEE: "NONE" },
+      },
+    })
+    expect(attempt.statusCode).toBe(422)
+    expect(attempt.json().error).toBe("WOULD_LOCK_OUT")
+    // Nothing was written.
+    expect(store.matrix["config.manage"].ADMIN).toBe("ALL")
+  })
+
+  it("drops unknown keys instead of storing them", async () => {
+    const admin = await asAdmin()
+    await app.inject({
+      method: "PUT",
+      url: "/permissions",
+      headers: { cookie: admin.cookies },
+      payload: { "made.up.permission": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "ALL", EMPLOYEE: "ALL" } },
+    })
+    expect(store.matrix["made.up.permission"]).toBeUndefined()
+  })
+
+  it("still requires config.manage at write scope", async () => {
+    const hr = await asHr()
+    expect(
+      (
+        await app.inject({
+          method: "PUT",
+          url: "/permissions",
+          headers: { cookie: hr.cookies },
+          payload: { "reports.view": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "ALL", EMPLOYEE: "ALL" } },
+        })
+      ).statusCode
+    ).toBe(403)
+  })
+})

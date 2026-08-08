@@ -166,9 +166,25 @@ export async function enqueueExport(
     requestedBy: input.requestedBy,
     createdAt: new Date().toISOString(),
   }
+  // Queue first, register second. The other order left a permanently QUEUED
+  // ghost job whenever Redis was unreachable: the row existed, nothing would
+  // ever pick it up, and the caller got a raw 500 with no way to tell the
+  // difference between "queued" and "lost".
+  try {
+    await queue.add("export", { id: record.id }, { removeOnComplete: true, removeOnFail: true })
+  } catch (error) {
+    throw new ExportQueueUnavailable((error as Error).message)
+  }
   store.exportJobs.unshift(record)
-  await queue.add("export", { id: record.id }, { removeOnComplete: true, removeOnFail: true })
   return record
+}
+
+/** Redis refused the job. The caller answers 503, and no row is written. */
+export class ExportQueueUnavailable extends Error {
+  constructor(detail: string) {
+    super(`Export queue unavailable: ${detail}`)
+    this.name = "ExportQueueUnavailable"
+  }
 }
 
 export function exportFileStream(dir: string, jobId: string) {
