@@ -267,6 +267,20 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
 
   const dayTypeFor = (date: string) => calendarDays[date]?.type ?? null
 
+  /**
+   * Holiday beats weekly off beats declared half day. One helper, because a
+   * second copy of this ladder is a second place for the roster and the
+   * register to disagree about what a day is.
+   */
+  const dayKindFor = (date: string): "HOLIDAY" | "WEEKLY_OFF" | "HALF_DAY" | "WORKING" =>
+    calendar.isHoliday(date)
+      ? "HOLIDAY"
+      : calendar.isWeeklyOff(date)
+        ? "WEEKLY_OFF"
+        : dayTypeFor(date) === "HALF_DAY"
+          ? "HALF_DAY"
+          : "WORKING"
+
   const calendar = {
     isHoliday: (date: string) => dayTypeFor(date) === "HOLIDAY",
     isWeeklyOff: (date: string) => new Date(`${date}T00:00:00Z`).getUTCDay() === 0,
@@ -1261,13 +1275,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
 
           const result = computeAttendanceDay({
             shift,
-            dayKind: calendar.isHoliday(targetDate)
-              ? "HOLIDAY"
-              : calendar.isWeeklyOff(targetDate)
-                ? "WEEKLY_OFF"
-                : dayTypeFor(targetDate) === "HALF_DAY"
-                  ? "HALF_DAY"
-                  : "WORKING",
+            dayKind: dayKindFor(targetDate),
             leave: approvedLeave
               ? { part: approvedLeave.leavePart ?? "FULL", isPaid: approvedLeave.leaveType !== "LOP" }
               : null,
@@ -1419,6 +1427,86 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
         ip: request.ip,
       })
       return reply.code(201).send({ approval })
+    }
+  )
+
+  /**
+   * Claim the overtime a day already earned. The claim cannot invent minutes:
+   * it is measured against what the engine computed from real punches, so the
+   * approval decision is only ever "yes, pay this" — never "how much?".
+   */
+  app.post(
+    "/overtime/claims",
+    { preHandler: [authenticate, requirePermission("punch.self")] },
+    async (request, reply) => {
+      const parsed = z
+        .object({
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          note: z.string().max(300).default(""),
+        })
+        .safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+      const { date, note } = parsed.data
+
+      if (!store.settings.otEnabled)
+        return reply.code(422).send({ error: "OT_DISABLED" })
+      if (date > new Date().toISOString().slice(0, 10))
+        return reply.code(422).send({ error: "FUTURE_DATE" })
+      if (store.monthLocks.some((lock) => lock.month === date.slice(0, 7)))
+        return reply.code(409).send({ error: "MONTH_LOCKED" })
+
+      const employee = employeeById(request.auth.employeeId)!
+      const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)!
+      const day = computeAttendanceDay({
+        shift,
+        dayKind: dayKindFor(date),
+        leave: null,
+        punches: store.punches
+          .filter(
+            (punch) => punch.employeeId === employee.id && punch.businessDate === date
+          )
+          .map((punch) => ({ type: punch.type, offsetMin: punch.offsetMin })),
+        priorLateMarks: 0,
+        settings: store.settings,
+      })
+      if (day.otMinutes <= 0)
+        return reply.code(422).send({ error: "NO_OVERTIME_ON_DAY" })
+
+      const duplicate = store.approvals.find(
+        (approval) =>
+          approval.kind === "OVERTIME" &&
+          approval.employeeId === employee.id &&
+          approval.dateFrom === date &&
+          approval.status !== "REJECTED"
+      )
+      if (duplicate) return reply.code(409).send({ error: "ALREADY_CLAIMED" })
+
+      const hours = (day.otMinutes / 60).toFixed(2)
+      const approval = {
+        id: id(store, "req"),
+        kind: "OVERTIME" as const,
+        employeeId: employee.id,
+        subject: `Overtime ${hours} h`,
+        detail: note || `${day.otMinutes} minutes past shift end`,
+        dateFrom: date,
+        dateTo: date,
+        // Minutes, so payroll multiplies without re-deriving anything.
+        units: day.otMinutes,
+        status: "PENDING" as const,
+        level: 1 as const,
+        createdAt: new Date().toISOString(),
+      }
+      store.approvals.push(approval)
+      persistApproval(approval)
+      recordAudit({
+        actorId: request.auth.userId,
+        action: "overtime.claim",
+        entity: "approval_requests",
+        entityId: approval.id,
+        after: { date, minutes: day.otMinutes },
+        ip: request.ip,
+      })
+      return reply.code(201).send({ approval, otMinutes: day.otMinutes })
     }
   )
 

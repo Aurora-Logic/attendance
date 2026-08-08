@@ -895,6 +895,13 @@ export function SettingsPage() {
                     checked={settings.otEnabled}
                     onChange={(checked) => set("otEnabled", checked)}
                   />
+                  <SwitchField
+                    id="ot-approval"
+                    label="Overtime must be approved before it is paid"
+                    description="On: a day records the extra time, but payroll pays only what a manager approved. Off: eligible overtime is paid automatically."
+                    checked={settings.otRequiresApproval}
+                    onChange={(checked) => set("otRequiresApproval", checked)}
+                  />
                 </FieldSet>
               </CardContent>
             </Card>

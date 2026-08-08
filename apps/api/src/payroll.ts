@@ -73,7 +73,30 @@ export function computeRunItems(
         settings,
       })
       payableDays += result.payableUnits
-      otMinutes += result.otMinutes
+
+      /**
+       * The day records what was *worked*; payroll pays what was *approved*.
+       * Without this gate, staying late silently became money — the OVERTIME
+       * approval kind existed but nothing ever created or consumed it, so the
+       * whole claim path was decorative. `units` on an approved OT request is
+       * minutes, capped at what the day actually earned so an approval cannot
+       * conjure hours that were never worked.
+       */
+      if (settings.otRequiresApproval) {
+        const approvedOt = store.approvals
+          .filter(
+            (approval) =>
+              approval.kind === "OVERTIME" &&
+              approval.status === "APPROVED" &&
+              approval.employeeId === employee.id &&
+              approval.dateFrom <= dateISO &&
+              dateISO <= approval.dateTo
+          )
+          .reduce((sum, approval) => sum + approval.units, 0)
+        otMinutes += Math.min(approvedOt, result.otMinutes)
+      } else {
+        otMinutes += result.otMinutes
+      }
     }
 
     const grossMonthly = salary?.grossMonthlyPaise ?? 0

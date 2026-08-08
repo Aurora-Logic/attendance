@@ -75,6 +75,12 @@ export const attendanceSettingsSchema = z.object({
   otEnabled: z.boolean().default(true),
   otMinMinutes: z.number().int().nonnegative().default(30),
   otMultiplier: z.number().positive().default(1.5),
+  /**
+   * On (the default), payroll pays only overtime that someone approved — the
+   * day still records what was worked, but staying late does not silently
+   * become money. Off restores auto-pay for companies that want it.
+   */
+  otRequiresApproval: z.boolean().default(true),
 
   timezone: z.string().default("Asia/Kolkata"),
 

@@ -9,6 +9,7 @@ import {
   LogOut,
   MapPin,
   ShieldCheck,
+  Timer,
   TriangleAlert,
   WifiOff,
 } from "lucide-react"
@@ -30,7 +31,7 @@ import { format } from "date-fns"
 
 import { ApiError, ApiUnreachable, apiFetch, describeApiError } from "@/lib/api"
 import { enqueuePunch, flushQueue, queuedCount } from "@/lib/offline-queue"
-import { useAttendanceDays } from "@/lib/queries"
+import { useAttendanceDays, useClaimOvertime } from "@/lib/queries"
 import { captureSelfie, type SelfieDerivatives } from "@/lib/selfie"
 import { useAppConfig } from "@/lib/app-config"
 import { useSession } from "@/lib/session"
@@ -263,6 +264,38 @@ export function PunchPage() {
         : `${minutesFromStart} min after shift start`
 
   const [posting, setPosting] = React.useState(false)
+  const claimOvertime = useClaimOvertime()
+
+  /** Claims the overtime this day already earned; the server re-derives it. */
+  const claimOt = () => {
+    if (user?.source !== "api") {
+      toast.success("Overtime claimed (demo)")
+      return
+    }
+    claimOvertime.mutate(
+      { date: todayISO },
+      {
+        onSuccess: ({ otMinutes }) =>
+          toast.success("Overtime claim sent", {
+            description: `${(otMinutes / 60).toFixed(2)} h — your manager approves it before it is paid.`,
+          }),
+        onError: (error) => {
+          const code =
+            error instanceof ApiError ? ((error.body as { error?: string })?.error ?? "") : ""
+          toast.error("Could not claim", {
+            description:
+              code === "ALREADY_CLAIMED"
+                ? "You have already claimed this day."
+                : code === "MONTH_LOCKED"
+                  ? "That month is locked for payroll."
+                  : code === "NO_OVERTIME_ON_DAY"
+                    ? "This day has no overtime to claim."
+                    : "Try again in a moment.",
+          })
+        },
+      }
+    )
+  }
 
   /**
    * One short pulse on the frame the punch actually lands — the commit moment
@@ -634,6 +667,32 @@ export function PunchPage() {
                   <CardDescription>Append-only — corrections add a row</CardDescription>
                 </CardHeader>
                 <CardContent className="min-h-0 flex-1 overflow-y-auto">
+                  {ownDay && ownDay.otMinutes > 0 ? (
+                    <div className="border-status-wfh/40 bg-status-wfh/8 mb-3 flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
+                      <Timer className="text-status-wfh size-4 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">
+                          {Math.floor(ownDay.otMinutes / 60)}h{" "}
+                          {String(ownDay.otMinutes % 60).padStart(2, "0")}m past shift end
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          {settings.otRequiresApproval
+                            ? "Claim it — overtime is paid only once approved."
+                            : "Paid automatically; approval is not required."}
+                        </p>
+                      </div>
+                      {settings.otRequiresApproval ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={claimOvertime.isPending}
+                          onClick={claimOt}
+                        >
+                          Claim
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {ownDay?.firstInAt ? (
                     <ol className="flex flex-col">
                       {[

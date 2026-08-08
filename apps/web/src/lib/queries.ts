@@ -368,6 +368,18 @@ export function useRaiseRegularisation() {
   })
 }
 
+export function useClaimOvertime() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { date: string; note?: string }) =>
+      apiFetch<{ approval: ApiApproval; otMinutes: number }>("/overtime/claims", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["approvals"] }),
+  })
+}
+
 export function useMyLeaveRequests(): MyLeaveRequestView[] | null {
   const { user } = useSession()
   const enabled = user?.source === "api"

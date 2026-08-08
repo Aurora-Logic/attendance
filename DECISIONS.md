@@ -273,6 +273,16 @@ A six-dimension audit (security, robustness, performance, responsiveness, operat
 | R5 | One **pending request per employee per day** | Two open corrections for the same day would both apply on approval and double the hours. |
 | R6 | The note is **required** (min 5 chars) and the request carries `inTime`/`outTime`, not a free-text description | A manager cannot judge "please fix Tuesday". Structured times are also what the approval replays into punches, so there is nothing to re-interpret. |
 
+## 14. Overtime is paid only when approved (8 Aug 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| O1 | The day records **eligible** overtime; payroll pays **approved** overtime | The `OVERTIME` approval kind existed but nothing ever created or consumed it, so the documented claim path was decorative and staying late silently became money. The register still shows what was worked — that is a fact about the day, not a payment decision. |
+| O2 | `otRequiresApproval` (default **on**) keeps the rule dynamic | A company that wants auto-pay flips one switch in Settings and gets the old behaviour, tested. |
+| O3 | Payroll pays `min(approvedMinutes, eligibleMinutes)` | An approval cannot conjure hours that were never worked, even if someone edits the request. The engine's computation from real punches is the ceiling. |
+| O4 | A claim **cannot state its own amount** — the server re-derives minutes from punches | The approval decision is then only ever "yes, pay this", never "how much?", which is the question a manager has no way to audit. |
+| O5 | Claims are refused for a day with no overtime, a future date, a locked month, and a second time | Same guards as regularisation, for the same reasons: nothing to claim, nothing has happened, the period is paid, and a duplicate would double the money. |
+
 ## 4. Open items
 
 - **Statutory payroll** (PF/ESI/PT/TDS) still deferred per the 4 Aug decision. The payslip prints gross = net and says so explicitly rather than inventing deduction lines.

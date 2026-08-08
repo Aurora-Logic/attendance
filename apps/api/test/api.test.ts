@@ -1219,3 +1219,159 @@ describe("regularisation — the employee's route to fix a missed punch", () => 
     expect(own.statusCode).toBe(403)
   })
 })
+
+describe("overtime is paid only when approved", () => {
+  // Past dates: a claim for a day that has not happened is refused, and these
+  // tests are about the approval gate rather than that guard.
+  const OT_DAY = "2026-08-05"
+  const PLAIN_DAY = "2026-08-06"
+
+  /** e4 is the employee account's own employeeId, so it may punch for itself. */
+  const workLate = async (cookie: string, date: string) => {
+    for (const [type, at, key] of [
+      ["IN", `${date}T09:00`, `ot-in-${date}`],
+      ["OUT", `${date}T21:00`, `ot-out-${date}`],
+    ] as const) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/punches",
+        headers: { cookie },
+        payload: punchBody({ type, at, idempotencyKey: key }),
+      })
+      expect([200, 201]).toContain(response.statusCode)
+    }
+  }
+
+  const lockAndRun = async (cookie: string, month: string) => {
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie },
+      payload: { month },
+    })
+    const run = await app.inject({
+      method: "POST",
+      url: "/payroll/runs",
+      headers: { cookie },
+      payload: { month },
+    })
+    expect(run.statusCode).toBe(201)
+    return run
+      .json()
+      .run.items.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
+  }
+
+  it("a day records eligible overtime, but an unclaimed day pays none of it", async () => {
+    const employee = await asEmployee()
+    await workLate(employee.cookies, OT_DAY)
+
+    const admin = await asAdmin()
+    const register = await app.inject({
+      method: "GET",
+      url: `/attendance/days?date=${OT_DAY}`,
+      headers: { cookie: admin.cookies },
+    })
+    const row = register
+      .json()
+      .rows.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
+    expect(row.otMinutes).toBeGreaterThan(0)
+
+    // Worked late, nobody approved it — payroll pays zero overtime.
+    const item = await lockAndRun(admin.cookies, "2026-08")
+    expect(item.otMinutes).toBe(0)
+    expect(item.otPaise).toBe(0)
+  })
+
+  it("claiming then approving makes payroll pay exactly the approved minutes", async () => {
+    const employee = await asEmployee()
+    await workLate(employee.cookies, OT_DAY)
+
+    const claim = await app.inject({
+      method: "POST",
+      url: "/overtime/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: OT_DAY, note: "month-end dispatch" },
+    })
+    expect(claim.statusCode).toBe(201)
+    const claimedMinutes = claim.json().otMinutes
+    expect(claimedMinutes).toBeGreaterThan(0)
+
+    // A second claim for the same day is refused.
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/overtime/claims",
+          headers: { cookie: employee.cookies },
+          payload: { date: OT_DAY },
+        })
+      ).statusCode
+    ).toBe(409)
+
+    const manager = await asOps()
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/approvals/${claim.json().approval.id}/decide`,
+          headers: { cookie: manager.cookies },
+          payload: { action: "APPROVE", remarks: "dispatch confirmed" },
+        })
+      ).statusCode
+    ).toBe(200)
+
+    const admin = await asAdmin()
+    const item = await lockAndRun(admin.cookies, "2026-08")
+    expect(item.otMinutes).toBe(claimedMinutes)
+    expect(item.otPaise).toBeGreaterThan(0)
+  })
+
+  it("refuses a claim on a day with no overtime, a future date, and a locked month", async () => {
+    const employee = await asEmployee()
+    const noOt = await app.inject({
+      method: "POST",
+      url: "/overtime/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: PLAIN_DAY },
+    })
+    expect(noOt.statusCode).toBe(422)
+    expect(noOt.json().error).toBe("NO_OVERTIME_ON_DAY")
+
+    const future = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
+    const ahead = await app.inject({
+      method: "POST",
+      url: "/overtime/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: future },
+    })
+    expect(ahead.statusCode).toBe(422)
+    expect(ahead.json().error).toBe("FUTURE_DATE")
+
+    await workLate(employee.cookies, OT_DAY)
+    const admin = await asAdmin()
+    await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-08" },
+    })
+    const locked = await app.inject({
+      method: "POST",
+      url: "/overtime/claims",
+      headers: { cookie: employee.cookies },
+      payload: { date: OT_DAY },
+    })
+    expect(locked.statusCode).toBe(409)
+    expect(locked.json().error).toBe("MONTH_LOCKED")
+  })
+
+  it("with otRequiresApproval off, the old auto-pay behaviour returns", async () => {
+    store.settings.otRequiresApproval = false
+    const employee = await asEmployee()
+    await workLate(employee.cookies, OT_DAY)
+
+    const admin = await asAdmin()
+    const item = await lockAndRun(admin.cookies, "2026-08")
+    expect(item.otMinutes).toBeGreaterThan(0)
+  })
+})
