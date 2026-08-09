@@ -62,6 +62,7 @@ import {
 import { registerProcurementRoutes } from "./procurement"
 import { registerOpsRoutes } from "./ops"
 import { registerCreditRoutes } from "./credit"
+import { registerProductHistoryRoutes } from "./product-history"
 import { registerFulfilmentRoutes } from "./fulfilment"
 import { registerSalesRoutes } from "./sales"
 import { registerTallyRoutes } from "./tally"
@@ -1980,6 +1981,7 @@ export async function buildServer(
   registerSalesRoutes(app, store, { authenticate, requirePermission })
   registerFulfilmentRoutes(app, store, { authenticate, requirePermission })
   registerCreditRoutes(app, store, { authenticate, requirePermission })
+  registerProductHistoryRoutes(app, store, { authenticate, requirePermission })
   registerOpsRoutes(app, store, { authenticate, requirePermission })
   registerTallyRoutes(app, store, { authenticate, requirePermission })
 

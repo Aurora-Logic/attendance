@@ -19,6 +19,7 @@ import { useAppConfig } from "@/lib/app-config"
 import { Calendar } from "@/components/ui/calendar"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ProductHistoryPopover } from "@/components/product-history-popover"
 import {
   Command,
   CommandEmpty,
@@ -585,6 +586,23 @@ export function EstimateDocument({
                         </td>
                         {editable ? (
                           <td className={cn(CELL, "text-center print:hidden")}>
+                            {/*
+                              Quoting from history in one keystroke (5.8). Only
+                              once a product is actually on the line — there is
+                              no history for an empty row.
+                            */}
+                            {line.itemId && customer ? (
+                              <ProductHistoryPopover
+                                itemId={line.itemId}
+                                partyId={customer.id}
+                                onApplyRate={(rate) =>
+                                  onPatchLine?.(line.key, {
+                                    unitPricePaise: rate.unitPricePaise,
+                                    discountPct: rate.discountPct,
+                                  })
+                                }
+                              />
+                            ) : null}
                             <Tooltip>
                               <TooltipTrigger asChild>
                             <button

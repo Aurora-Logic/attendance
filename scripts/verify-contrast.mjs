@@ -87,6 +87,40 @@ const contrast = (foreground, background) => {
   return Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100
 }
 
+/**
+ * Give the badge something to show.
+ *
+ * It only renders when there is unread mail, so this test silently stopped
+ * testing anything the moment another script marked everything read — it
+ * reported "element not found" rather than a contrast figure. Raising a
+ * request here makes it independent of whatever ran before it.
+ */
+const API = process.env.API_URL ?? "http://localhost:3000"
+const cookieOf = (r) => r.headers.getSetCookie().map((e) => e.split(";")[0]).join("; ")
+const employee = cookieOf(
+  await fetch(`${API}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "employee@delta.dev", password: "Emp@1234" }),
+  })
+)
+const balances = await (
+  await fetch(`${API}/leave/balances/e4`, { headers: { cookie: employee } })
+).json()
+const usable = Object.entries(balances.balances ?? {}).find(([, days]) => Number(days) >= 1)
+if (!usable) {
+  console.error("no leave balance left to raise a request with; cannot make the badge appear")
+  process.exit(1)
+}
+const day = new Date(Date.UTC(2026, 9, 1) + Math.floor(Math.random() * 27) * 86_400_000)
+  .toISOString()
+  .slice(0, 10)
+await fetch(`${API}/leave/apply`, {
+  method: "POST",
+  headers: { "content-type": "application/json", cookie: employee },
+  body: JSON.stringify({ type: usable[0], from: day, to: day, part: "FULL", reason: "contrast gate" }),
+})
+
 const browser = await chromium.launch()
 const failures = []
 

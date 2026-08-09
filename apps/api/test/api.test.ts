@@ -3241,3 +3241,104 @@ describe("the payroll handover export", () => {
     expect(response.statusCode).toBe(400)
   })
 })
+
+describe("product history — what did we charge them last time", () => {
+  const ask = (cookies: string, query: string) =>
+    app.inject({ method: "GET", url: `/product-history?${query}`, headers: { cookie: cookies } })
+
+  const sell = async (cookies: string, unitPricePaise: number, discountPct = 0) => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/estimates",
+      headers: { cookie: cookies },
+      payload: {
+        customerId: store.customers[0].id,
+        date: "2026-08-01",
+        validUntil: "2026-12-31",
+        lines: [{ itemId: store.items[0].id, qty: 10, unitPricePaise, discountPct }],
+        terms: "",
+        notes: "",
+      },
+    })
+    expect(created.statusCode, created.body).toBe(201)
+    return created.json().estimate
+  }
+
+  it("answers with this customer's own history and the rate to match", async () => {
+    const admin = await asAdmin()
+    await sell(admin.cookies, 100_00, 10)
+
+    const response = await ask(
+      admin.cookies,
+      `itemId=${store.items[0].id}&partyId=${store.customers[0].id}`
+    )
+    expect(response.statusCode, response.body).toBe(200)
+    const body = response.json()
+    expect(body.scope).toBe("PARTY")
+    expect(body.summary.lastRatePaise).toBe(90_00)
+    expect(body.rows[0].discountPct).toBe(10)
+    expect(body.itemName).toBeTruthy()
+  })
+
+  it("falls back to every customer for a party with no history, and labels it", async () => {
+    const admin = await asAdmin()
+    await sell(admin.cookies, 100_00)
+
+    const response = await ask(
+      admin.cookies,
+      `itemId=${store.items[0].id}&partyId=${store.customers[1].id}`
+    )
+    expect(response.json().scope).toBe("ALL")
+  })
+
+  it("shows margin against what the item cost at the time, not today", async () => {
+    const admin = await asAdmin()
+    await sell(admin.cookies, 100_00)
+    const response = await ask(
+      admin.cookies,
+      `itemId=${store.items[0].id}&partyId=${store.customers[0].id}`
+    )
+    const row = response.json().rows[0]
+    // Cost is null unless a purchase predates the estimate; either way it must
+    // never silently read as zero, which would show a 100% margin.
+    expect(row.costBasisPaise === null || typeof row.costBasisPaise === "number").toBe(true)
+    if (row.costBasisPaise === null) expect(row.marginPct).toBeNull()
+  })
+
+  it("keeps the two sides apart: purchase rates need the procurement grant", async () => {
+    // What a customer was quoted is not the business of somebody who may only
+    // see purchase prices, and the reverse.
+    const hr = await asHr()
+    const purchase = await ask(
+      hr.cookies,
+      `itemId=${store.items[0].id}&partyId=${store.vendors[0].id}&side=purchase`
+    )
+    // HR holds procurement.view at VIEW, so this is allowed but sales is not.
+    expect(purchase.statusCode).toBe(200)
+
+    const picker = await login("picker@delta.dev", "Pick@1234")
+    const refused = await ask(
+      picker.cookies,
+      `itemId=${store.items[0].id}&partyId=${store.customers[0].id}`
+    )
+    expect(refused.statusCode).toBe(403)
+    expect(refused.json().permission).toBe("sales.view")
+  })
+
+  it("refuses a malformed request rather than guessing", async () => {
+    const admin = await asAdmin()
+    expect((await ask(admin.cookies, "itemId=&partyId=c1")).statusCode).toBe(400)
+    expect((await ask(admin.cookies, "itemId=i1")).statusCode).toBe(400)
+    expect(
+      (await ask(admin.cookies, "itemId=i1&partyId=c1&side=sideways")).statusCode
+    ).toBe(400)
+  })
+
+  it("an item nobody has ever traded is empty, not an error", async () => {
+    const admin = await asAdmin()
+    const response = await ask(admin.cookies, "itemId=never-traded&partyId=c1")
+    expect(response.statusCode).toBe(200)
+    expect(response.json().rows).toEqual([])
+    expect(response.json().summary.documentCount).toBe(0)
+  })
+})

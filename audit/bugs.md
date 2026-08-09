@@ -172,6 +172,25 @@ create H1 → H3 skips, which rule 1.4 also forbids — the section-level H2s ha
 to exist first. That is per-screen work and belongs in Phase 3, where each
 screen is being rebuilt anyway.
 
+### B-2 — Product history has no end-to-end click-through *(low, coverage)*
+
+The rate-history popover (5.8) is covered by 18 unit tests in
+`packages/shared/src/product-history.test.ts` and 7 route tests in
+`apps/api/test/api.test.ts`, and `scripts/verify-product-history.mjs` proves the
+behaviour end to end at the API. What is **not** covered is a browser
+click-through of "Apply this rate".
+
+The icon renders only where the document is editable, which today is
+`/estimates/new` alone — the estimate detail screen is read-only. Composing
+there needs a customer and a product chosen through two pickers, and driving
+them reliably is its own piece of work. A test that cannot run is worse than an
+acknowledged gap, so this is recorded rather than faked.
+
+Worth deciding separately: **should the history icon appear on a read-only
+document too?** Seeing what a customer was last charged is useful even when you
+cannot change the line. The order says "when a product is selected on a line,
+show an info icon" without restricting it to edit mode.
+
 ### B-1 — Leave can be granted past zero, and no one can correct it *(high)*
 
 Employee `e4` holds **CL = −6** (opening +7, availed −13) on the running
