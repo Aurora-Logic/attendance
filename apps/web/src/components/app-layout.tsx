@@ -1,3 +1,4 @@
+import * as React from "react"
 import { Outlet, useLocation } from "react-router"
 import { Search } from "lucide-react"
 
@@ -20,6 +21,31 @@ import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { Calculator } from "@/components/calculator"
+
+/**
+ * The calculator lives at the shell so it floats over whichever screen is open
+ * (5.6). `Alt+C` is Tally's own second calculator key — Tally's first is
+ * Ctrl+N, which a browser will not surrender, and 6.6 says to use the native
+ * alternative rather than invent one.
+ */
+function CalculatorHost() {
+  const [open, setOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.altKey || event.ctrlKey || event.metaKey) return
+      if (event.key.toLowerCase() !== "c") return
+      event.preventDefault()
+      setOpen((current) => !current)
+    }
+    // Capture phase: an input with its own Alt handling must not swallow it.
+    window.addEventListener("keydown", onKeyDown, true)
+    return () => window.removeEventListener("keydown", onKeyDown, true)
+  }, [])
+
+  return <Calculator open={open} onClose={() => setOpen(false)} />
+}
 
 function useCrumbs() {
   const { pathname } = useLocation()
@@ -103,6 +129,7 @@ export function AppLayout() {
         <CommandPaletteProvider>
           <AppSidebar />
           <Shell />
+          <CalculatorHost />
         </CommandPaletteProvider>
         <Toaster />
       </SidebarProvider>
