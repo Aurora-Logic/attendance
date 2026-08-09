@@ -13,6 +13,7 @@ import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
 import { RegulariseSheet } from "@/components/regularise-sheet"
 import { StatusBadge, StatusLegend } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Calendar } from "@/components/ui/calendar"
@@ -131,9 +132,12 @@ const makeColumns = (lateGraceMinutes: number): ColumnDef<AttendanceDay>[] => [
             ? "text-status-wfh"
             : "text-status-present"
       return (
-        <span className={`${tone} font-medium tabular-nums`} title={status}>
-          {firstInAt}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className={`${tone} font-medium tabular-nums`}>{firstInAt}</span>
+          </TooltipTrigger>
+          <TooltipContent>{status}</TooltipContent>
+        </Tooltip>
       )
     },
   },

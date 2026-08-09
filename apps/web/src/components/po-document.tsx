@@ -17,6 +17,8 @@ import {
 import { cn } from "@/lib/utils"
 import { useAppConfig } from "@/lib/app-config"
 import { Calendar } from "@/components/ui/calendar"
+import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   Command,
   CommandEmpty,
@@ -583,14 +585,19 @@ export function PoDocument({
             <div className="flex items-center justify-between gap-2">
               <Lbl>Order to</Lbl>
               {!editable ? null : vendor ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
                 <button
                   type="button"
                   onClick={onClearVendor}
                   className="inline-flex items-center gap-1 rounded border border-neutral-300 px-1.5 py-0.5 text-[9px] font-medium text-neutral-500 hover:bg-neutral-100"
-                  title="Pick a different vendor"
+                 
                 >
                   <X className="size-2.5" /> Change
                 </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Pick a different vendor</TooltipContent>
+                </Tooltip>
               ) : (
                 <PickerChip
                   options={vendors}
@@ -719,14 +726,19 @@ export function PoDocument({
                         </td>
                         {editable ? (
                           <td className={cn(CELL, "text-center print:hidden")}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
                             <button
                               type="button"
-                              title="Remove this line"
+                             
                               className="rounded p-1 text-neutral-300 hover:bg-red-50 hover:text-red-600"
                               onClick={() => onRemoveLine?.(line.key)}
                             >
                               <Trash2 className="size-3.5" />
                             </button>
+                              </TooltipTrigger>
+                              <TooltipContent>Remove this line</TooltipContent>
+                            </Tooltip>
                           </td>
                         ) : null}
                       </tr>
@@ -878,7 +890,7 @@ export function PoDocument({
         <div className="px-4 py-3 sm:px-5">
           <Lbl>Terms &amp; conditions</Lbl>
           {editable ? (
-            <textarea
+            <Textarea
               value={terms}
               rows={2}
               placeholder="Delivery point, freight, quality terms…"

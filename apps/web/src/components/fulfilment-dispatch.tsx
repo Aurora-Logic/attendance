@@ -12,6 +12,7 @@ import {
 } from "@/lib/queries"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -202,12 +203,10 @@ function DispatchCard({ soId }: { soId: string }) {
         </Field>
 
         <Field orientation="horizontal">
-          <input
+          <Checkbox
             id="dispatch-own"
-            type="checkbox"
-            className="size-4"
             checked={form.ownVehicle}
-            onChange={(event) => set("ownVehicle", event.target.checked)}
+            onCheckedChange={(checked) => set("ownVehicle", checked === true)}
           />
           <FieldLabel htmlFor="dispatch-own">Our own vehicle (no lorry receipt)</FieldLabel>
         </Field>

@@ -5,6 +5,7 @@ import { Clock, ImageUp, ShieldAlert, Trash2 } from "lucide-react"
 import { ApiUnreachable, apiFetch } from "@/lib/api"
 import { useAppConfig } from "@/lib/app-config"
 import { useSession } from "@/lib/session"
+import { cn } from "@/lib/utils"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -49,6 +50,8 @@ export function BrandingSettings() {
       )
     }
   }
+
+  const [draggingLogo, setDraggingLogo] = React.useState(false)
 
   const onLogoPicked = (file: File | undefined) => {
     if (!file) return
@@ -119,13 +122,34 @@ export function BrandingSettings() {
             </Field>
             <Field>
               <FieldLabel htmlFor="brand-logo">Logo</FieldLabel>
-              <div className="flex items-center gap-2">
+              {/*
+                Rule 1.1: a visually-hidden input behind a shadcn Button, in a
+                drop target. `sr-only` rather than `hidden` on purpose —
+                `display:none` takes the input out of the accessibility tree, so
+                a screen reader never learns there is a file field at all.
+              */}
+              <div
+                onDragOver={(event) => {
+                  event.preventDefault()
+                  setDraggingLogo(true)
+                }}
+                onDragLeave={() => setDraggingLogo(false)}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  setDraggingLogo(false)
+                  onLogoPicked(event.dataTransfer.files?.[0])
+                }}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg border border-dashed p-3 transition-colors",
+                  draggingLogo ? "border-primary bg-primary/5" : "border-input"
+                )}
+              >
                 <input
                   ref={fileRef}
                   id="brand-logo"
                   type="file"
                   accept="image/*"
-                  className="hidden"
+                  className="sr-only"
                   onChange={(event) => onLogoPicked(event.target.files?.[0])}
                 />
                 <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
