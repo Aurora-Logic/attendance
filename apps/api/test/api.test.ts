@@ -4007,3 +4007,91 @@ describe("permission reach is enforced, not just the capability", () => {
     expect(Array.isArray(rows)).toBe(true)
   })
 })
+
+describe("the payroll handover export", () => {
+  /**
+   * Payroll is run outside this product (work order Section 2). What this owes
+   * whoever runs it is one row per employee for a *locked* period.
+   */
+  const request = { report: "payroll-handover", from: "2026-08-01", to: "2026-08-31" }
+
+  it("refuses a period that is not locked, naming the month to lock", async () => {
+    // Payroll is calculated from this file. A period that can still change
+    // after it is sent produces a figure nobody can reconcile.
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "POST",
+      url: "/exports",
+      headers: { cookie: admin.cookies },
+      payload: request,
+    })
+    expect(response.statusCode, response.body).toBe(409)
+    expect(response.json()).toMatchObject({ error: "PERIOD_NOT_LOCKED", months: ["2026-08"] })
+  })
+
+  it("names every unlocked month a period spans, not just the first", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "POST",
+      url: "/exports",
+      headers: { cookie: admin.cookies },
+      payload: { report: "payroll-handover", from: "2026-07-28", to: "2026-08-02" },
+    })
+    expect(response.json().months).toEqual(["2026-07", "2026-08"])
+  })
+
+  it("accepts the period once it is locked", async () => {
+    const admin = await asAdmin()
+    const locked = await app.inject({
+      method: "POST",
+      url: "/payroll/locks",
+      headers: { cookie: admin.cookies },
+      payload: { month: "2026-08" },
+    })
+    expect(locked.statusCode, locked.body).toBe(201)
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/exports",
+      headers: { cookie: admin.cookies },
+      payload: request,
+    })
+    // 503 is the honest answer with no Redis under vitest; the point is that
+    // the lock guard no longer refuses it.
+    expect([201, 503]).toContain(response.statusCode)
+    expect(response.json().error).not.toBe("PERIOD_NOT_LOCKED")
+  })
+
+  it("refuses a period that runs backwards", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "POST",
+      url: "/exports",
+      headers: { cookie: admin.cookies },
+      payload: { report: "payroll-handover", from: "2026-08-31", to: "2026-08-01" },
+    })
+    expect(response.statusCode).toBe(400)
+  })
+
+  it("still accepts the daily register, which takes a date and no period", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "POST",
+      url: "/exports",
+      headers: { cookie: admin.cookies },
+      payload: { report: "daily-register", date: "2026-08-04" },
+    })
+    expect([201, 503]).toContain(response.statusCode)
+  })
+
+  it("refuses a report name it does not know", async () => {
+    const admin = await asAdmin()
+    const response = await app.inject({
+      method: "POST",
+      url: "/exports",
+      headers: { cookie: admin.cookies },
+      payload: { report: "everything", from: "2026-08-01", to: "2026-08-31" },
+    })
+    expect(response.statusCode).toBe(400)
+  })
+})

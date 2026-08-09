@@ -4,8 +4,11 @@ import ExcelJS from "exceljs"
 import {
   computeAttendanceDay,
   countPriorLateMarks,
+  datesInPeriod,
   minutesToClock,
+  summarisePeriod,
   type AttendanceSettings,
+  type PeriodDay,
 } from "@attendance/shared"
 
 import type { Store } from "./store"
@@ -24,10 +27,13 @@ import { id } from "./store"
 const REDIS = { host: "localhost", port: Number(process.env.REDIS_PORT ?? 6379) }
 const enabled = () => process.env.NODE_ENV !== "test" && process.env.EXPORTS_QUEUE !== "0"
 
+export type ExportReport = "daily-register" | "payroll-handover"
+
 export interface ExportJobRecord {
   id: string
-  report: "daily-register"
-  params: { date: string }
+  report: ExportReport
+  /** `date` for the daily register; `from`/`to` for a period handover. */
+  params: { date?: string; from?: string; to?: string }
   status: "QUEUED" | "RUNNING" | "READY" | "FAILED"
   filename: string
   rowCount: number
@@ -59,7 +65,11 @@ async function buildDailyRegister(
   job: ExportJobRecord
 ): Promise<number> {
   const { store } = context
+  // Params are a union across report types now; a register job without a date
+  // is a programming error, and failing here names it rather than producing a
+  // workbook full of "undefined".
   const date = job.params.date
+  if (!date) throw new Error(`Export ${job.id} is a daily register with no date.`)
   const settings: AttendanceSettings = store.settings
 
   const workbook = new ExcelJS.Workbook()
@@ -142,6 +152,139 @@ async function buildDailyRegister(
   return rows
 }
 
+/**
+ * The payroll handover (work order Section 2).
+ *
+ * Payroll is not run here. This is what the people who do run it receive: one
+ * row per employee for the period, with the counts salary is calculated from.
+ *
+ * Two properties the order asks for and this deliberately keeps:
+ *
+ *  - **No formulas.** Every cell is a computed value. A SUM the recipient can
+ *    edit is a number nobody can trace back, and this workbook leaves our
+ *    hands. The daily register writes formulas; this must not.
+ *  - **One row per employee.** No merged cells in the data region, so it
+ *    filters, sorts and imports cleanly.
+ *
+ * The period must be locked before this runs — enforced at the route, so the
+ * refusal reaches the person rather than failing later inside the worker.
+ */
+export async function buildPayrollHandover(
+  context: ExportContext,
+  job: ExportJobRecord
+): Promise<number> {
+  const { store } = context
+  const from = job.params.from!
+  const to = job.params.to!
+  const settings: AttendanceSettings = store.settings
+  const dates = datesInPeriod(from, to)
+
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet("Payroll handover", {
+    views: [{ state: "frozen", ySplit: 5 }],
+  })
+  sheet.columns = [12, 26, 16, 11, 10, 10, 12, 13, 11, 10, 11, 12].map((width) => ({ width }))
+
+  // A parameter block, unmerged: what this is, for whom, over what, and when
+  // it was produced. Without it a spreadsheet on somebody's desktop is
+  // untraceable a week later.
+  sheet.getCell("A1").value = `${store.branding.companyName} — Payroll handover`
+  sheet.getCell("A1").font = { bold: true, size: 14 }
+  sheet.getCell("A2").value = `Period: ${from} to ${to} (${dates.length} days)`
+  sheet.getCell("A3").value = `Generated: ${new Date().toLocaleString("en-IN")} (server)`
+  sheet.getCell("A4").value =
+    "Attendance only. Salary, deductions and statutory amounts are calculated outside this system."
+  for (const ref of ["A2", "A3", "A4"]) {
+    sheet.getCell(ref).font = { size: 10, color: { argb: "FF6B7280" } }
+  }
+
+  const header = sheet.addRow([
+    "Code", "Employee", "Department",
+    "Present", "Half", "Absent",
+    "Paid leave", "Unpaid leave", "Weekly off", "Holiday",
+    "OT (h)", "Payable days",
+  ])
+  header.font = { bold: true }
+  header.eachCell((cell) => (cell.border = { bottom: { style: "thin" } }))
+  sheet.autoFilter = { from: { row: 5, column: 1 }, to: { row: 5, column: 12 } }
+
+  let rows = 0
+  for (const employee of store.employees) {
+    const shift = store.shifts.find((candidate) => candidate.id === employee.shiftId)
+    if (!shift) {
+      // Never skip silently — that is somebody missing from a payroll run with
+      // no trace at all.
+      throw new Error(
+        `${employee.code} (${employee.name}) references shift ${employee.shiftId}, which does not exist. Fix the employee before running this.`
+      )
+    }
+
+    const days: PeriodDay[] = dates.map((date) => {
+      const punches = store.punches
+        .filter((punch) => punch.employeeId === employee.id && punch.businessDate === date)
+        .map((punch) => ({ type: punch.type, offsetMin: punch.offsetMin }))
+
+      // Resolved exactly as the live register does, so the handover and the
+      // screen can never disagree about somebody's day.
+      const approvedLeave = store.approvals.find(
+        (approval) =>
+          approval.kind === "LEAVE" &&
+          approval.status === "APPROVED" &&
+          approval.employeeId === employee.id &&
+          approval.dateFrom <= date &&
+          date <= approval.dateTo
+      )
+      const isPaidLeave = approvedLeave ? approvedLeave.leaveType !== "LOP" : undefined
+
+      const isWeeklyOff = new Date(`${date}T00:00:00Z`).getUTCDay() === 0
+      const result = computeAttendanceDay({
+        shift,
+        dayKind: store.holidays[date] ? "HOLIDAY" : isWeeklyOff ? "WEEKLY_OFF" : "WORKING",
+        leave: approvedLeave
+          ? { part: approvedLeave.leavePart ?? "FULL", isPaid: isPaidLeave! }
+          : null,
+        punches,
+        priorLateMarks: countPriorLateMarks(
+          store.punches.filter((punch) => punch.employeeId === employee.id),
+          date,
+          settings.lateGraceMinutes
+        ),
+        settings,
+      })
+
+      return {
+        dateISO: date,
+        status: result.status,
+        payableUnits: result.payableUnits,
+        otMinutes: result.otMinutes,
+        lateMinutes: result.lateMinutes,
+        leaveIsPaid: isPaidLeave,
+      }
+    })
+
+    const totals = summarisePeriod(days)
+    const row = sheet.addRow([
+      employee.code,
+      employee.name,
+      employee.department,
+      totals.presentDays,
+      totals.halfDays,
+      totals.absentDays,
+      totals.paidLeaveDays,
+      totals.unpaidLeaveDays,
+      totals.weeklyOffDays,
+      totals.holidayDays,
+      totals.overtimeHours,
+      totals.payableDays,
+    ])
+    for (const column of [5, 7, 8, 11, 12]) row.getCell(column).numFmt = "0.00"
+    rows += 1
+  }
+
+  await workbook.xlsx.writeFile(join(context.dir, `${job.id}.xlsx`))
+  return rows
+}
+
 export async function startExportWorker(store: Store, dir: string): Promise<void> {
   if (!enabled()) return
   const context: ExportContext = { store, dir }
@@ -155,7 +298,10 @@ export async function startExportWorker(store: Store, dir: string): Promise<void
       if (!record) return
       record.status = "RUNNING"
       try {
-        record.rowCount = await buildDailyRegister(context, record)
+        record.rowCount =
+          record.report === "payroll-handover"
+            ? await buildPayrollHandover(context, record)
+            : await buildDailyRegister(context, record)
         record.status = "READY"
       } catch (error) {
         record.status = "FAILED"
@@ -167,17 +313,28 @@ export async function startExportWorker(store: Store, dir: string): Promise<void
   worker.on("error", (error) => console.error("export worker:", error.message))
 }
 
+export type ExportRequest =
+  | { report: "daily-register"; date: string; requestedBy: string }
+  | { report: "payroll-handover"; from: string; to: string; requestedBy: string }
+
 export async function enqueueExport(
   store: Store,
-  input: { report: "daily-register"; date: string; requestedBy: string }
+  input: ExportRequest
 ): Promise<ExportJobRecord | null> {
   if (!queue) return null
+  const company = store.branding.companyName.replaceAll(" ", "_")
   const record: ExportJobRecord = {
     id: id(store, "exp"),
     report: input.report,
-    params: { date: input.date },
+    params:
+      input.report === "payroll-handover"
+        ? { from: input.from, to: input.to }
+        : { date: input.date },
     status: "QUEUED",
-    filename: `${store.branding.companyName.replaceAll(" ", "_")}_DailyRegister_${input.date}.xlsx`,
+    filename:
+      input.report === "payroll-handover"
+        ? `${company}_PayrollHandover_${input.from}_to_${input.to}.xlsx`
+        : `${company}_DailyRegister_${input.date}.xlsx`,
     rowCount: 0,
     requestedBy: input.requestedBy,
     createdAt: new Date().toISOString(),

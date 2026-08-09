@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs"
 import * as z from "zod"
 import {
   attendanceSettingsSchema,
+  monthsInPeriod,
   operationsSettingsSchema,
   operationsSettingsWarnings,
   OPERATIONS_MODULES,
@@ -1068,12 +1069,42 @@ export async function buildServer(
     { preHandler: [authenticate, requirePermission("reports.view", { minScope: "ALL" })] },
     async (request, reply) => {
       const parsed = z
-        .object({
-          report: z.literal("daily-register"),
-          date: isoDateSchema,
-        })
+        .discriminatedUnion("report", [
+          z.object({ report: z.literal("daily-register"), date: isoDateSchema }),
+          z.object({
+            report: z.literal("payroll-handover"),
+            from: isoDateSchema,
+            to: isoDateSchema,
+          }),
+        ])
         .safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
+
+      if (parsed.data.report === "payroll-handover") {
+        const { from, to } = parsed.data
+        if (from > to)
+          return reply.code(400).send({ error: "BAD_PERIOD", detail: "`from` is after `to`." })
+
+        /**
+         * Work order Section 2: the handover covers a **locked** period.
+         *
+         * Refused here rather than inside the worker so the person asking sees
+         * why. Payroll runs off this file; a period that can still change
+         * after it is sent produces a figure nobody can reconcile, and the
+         * month lock — kept when payroll itself was removed — is what makes
+         * that promise real.
+         */
+        const unlocked = monthsInPeriod(from, to).filter(
+          (month) => !store.monthLocks.some((lock) => lock.month === month)
+        )
+        if (unlocked.length > 0)
+          return reply.code(409).send({
+            error: "PERIOD_NOT_LOCKED",
+            months: unlocked,
+            detail: `Lock ${unlocked.join(", ")} before exporting — payroll is calculated from this file and an open period can still change.`,
+          })
+      }
+
       let job
       try {
         job = await enqueueExport(store, {
@@ -1093,7 +1124,7 @@ export async function buildServer(
         action: "export.enqueue",
         entity: "export_jobs",
         entityId: job.id,
-        after: { report: job.report, date: job.params.date },
+        after: { report: job.report, params: job.params },
         ip: request.ip,
       })
       return reply.code(201).send({ job })
