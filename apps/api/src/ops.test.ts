@@ -20,7 +20,7 @@ const login = async (email: string, password: string): Promise<string> => {
 }
 
 beforeEach(async () => {
-  app = buildServer()
+  app = await buildServer()
   await app.ready()
 })
 
@@ -429,5 +429,119 @@ describe("commercial chain", () => {
       headers: { cookie: hr },
     })
     expect(reimbursed.json().claim.status).toBe("REIMBURSED")
+  })
+})
+
+describe("vendor payment allocations are measured against the ledger", () => {
+  /**
+   * The only guard used to be `amountPaise > allocatable`, which stops
+   * over-PAYMENT and not over-ALLOCATION. A one-paise payment carrying a
+   * handcrafted allocation for the bill's full value settled it outright.
+   * POST /receipts already validated this on the customer side; this route did
+   * not.
+   */
+  const billFor = async (cookie: string, valuePaise: number) => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/vendor-bills",
+      headers: { cookie },
+      payload: {
+        billNo: `SST/${Math.floor(valuePaise)}`,
+        vendorId: "v1",
+        poId: null,
+        date: "2026-08-06",
+        dueDate: "2026-09-05",
+        lines: [{ id: "bl1", itemId: "i1", qty: 1, unitPricePaise: valuePaise, gstRatePct: 0 }],
+      },
+    })
+    expect(response.statusCode, response.body).toBe(201)
+    return response.json().bill
+  }
+
+  const pay = (cookie: string, payload: Record<string, unknown>) =>
+    app.inject({ method: "POST", url: "/payments", headers: { cookie }, payload })
+
+  it("refuses one paise that claims to settle a whole bill", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const bill = await billFor(ops, 118_000_00)
+
+    const response = await pay(ops, {
+      partyId: "v1",
+      date: "2026-08-25",
+      amountPaise: 1,
+      allocations: [{ docId: bill.id, amountPaise: 118_000_00 }],
+    })
+
+    expect(response.statusCode, response.body).toBe(422)
+    expect(response.json().error).toBe("ALLOCATION_MISMATCH")
+    // And the bill is still owed in full.
+    const after = (await app.inject({ method: "GET", url: "/vendor-bills", headers: { cookie: ops } })).json()
+    expect(after.bills.find((row: { id: string }) => row.id === bill.id).outstandingPaise).toBe(118_000_00)
+  })
+
+  it("refuses an allocation larger than that bill's outstanding", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const bill = await billFor(ops, 5_000_00)
+    const response = await pay(ops, {
+      partyId: "v1",
+      date: "2026-08-25",
+      amountPaise: 9_000_00,
+      allocations: [{ docId: bill.id, amountPaise: 9_000_00 }],
+    })
+    expect(response.statusCode, response.body).toBe(422)
+    // Caught as over-payment before it is even measured per bill.
+    expect(["EXCEEDS_OUTSTANDING", "ALLOCATION_EXCEEDS_BILL"]).toContain(response.json().error)
+  })
+
+  it("refuses a bill belonging to a different vendor", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const bill = await billFor(ops, 1_000_00)
+    const response = await pay(ops, {
+      partyId: "v2",
+      date: "2026-08-25",
+      amountPaise: 1_000_00,
+      allocations: [{ docId: bill.id, amountPaise: 1_000_00 }],
+    })
+    expect(response.statusCode, response.body).toBe(422)
+  })
+
+  it("refuses the same bill listed twice to double-count one payment", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const bill = await billFor(ops, 1_000_00)
+    const response = await pay(ops, {
+      partyId: "v1",
+      date: "2026-08-25",
+      amountPaise: 1_000_00,
+      allocations: [
+        { docId: bill.id, amountPaise: 500_00 },
+        { docId: bill.id, amountPaise: 500_00 },
+      ],
+    })
+    expect(response.statusCode, response.body).toBe(422)
+    expect(response.json().error).toBe("DUPLICATE_ALLOCATION")
+  })
+
+  it("still accepts an honest manual allocation", async () => {
+    // The guard must not break the real need it exists around: paying one
+    // specific bill rather than oldest-first.
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const bill = await billFor(ops, 2_000_00)
+    const response = await pay(ops, {
+      partyId: "v1",
+      date: "2026-08-25",
+      amountPaise: 750_00,
+      allocations: [{ docId: bill.id, amountPaise: 750_00 }],
+    })
+    expect(response.statusCode, response.body).toBe(201)
+    const after = (await app.inject({ method: "GET", url: "/vendor-bills", headers: { cookie: ops } })).json()
+    expect(after.bills.find((row: { id: string }) => row.id === bill.id).outstandingPaise).toBe(1_250_00)
+  })
+
+  it("still auto-allocates oldest-first when no allocation is given", async () => {
+    const ops = await login("ops@delta.dev", "Ops@1234")
+    const bill = await billFor(ops, 3_000_00)
+    const response = await pay(ops, { partyId: "v1", date: "2026-08-25", amountPaise: 3_000_00 })
+    expect(response.statusCode, response.body).toBe(201)
+    expect(response.json().payment.allocations[0].docId).toBe(bill.id)
   })
 })

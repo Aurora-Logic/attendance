@@ -11,7 +11,7 @@ let app: FastifyInstance
 
 beforeEach(async () => {
   store = seedStore()
-  app = buildServer(store)
+  app = await buildServer(store)
   await app.ready()
 })
 
@@ -3868,5 +3868,142 @@ describe("the picker, end to end", () => {
     ).json()
     expect(me.permissions["punch.self"]).toBe("SELF")
     expect(me.permissions["payroll.viewOwn"]).toBe("SELF")
+  })
+})
+
+describe("rate limiting is actually bound", () => {
+  /**
+   * @fastify/rate-limit binds through an onRoute hook, so it only sees routes
+   * registered after it finishes loading. When buildServer did not await the
+   * registration, the plugin loaded and decorated the instance but limited
+   * nothing: 400 requests in a few seconds all returned 200, with no
+   * x-ratelimit headers anywhere. Every limit below was dead.
+   */
+  const burst = async (
+    url: string,
+    times: number,
+    payload?: Record<string, unknown>,
+    headers?: Record<string, string>
+  ) => {
+    const codes: Record<number, number> = {}
+    for (let i = 0; i < times; i++) {
+      const response = await app.inject({
+        method: "POST",
+        url,
+        payload: typeof payload === "function" ? payload : { ...payload, _n: i },
+        headers,
+      })
+      codes[response.statusCode] = (codes[response.statusCode] ?? 0) + 1
+    }
+    return codes
+  }
+
+  it("answers a login flood with 429 rather than trying every password", async () => {
+    const codes = await burst("/auth/login", 25, { email: "nobody@x.dev", password: "wrong" })
+    const seen = JSON.stringify(codes)
+
+    // Two independent defences stack, and the order matters:
+    //   1–5    401 — the credentials are wrong
+    //   6–20   423 — that email is locked after 5 failures
+    //   21+    429 — the per-IP rate limit, which is the one under test here
+    // Only the last catches an attacker spraying one password across many
+    // different addresses, which the lockout cannot see.
+    expect(codes[401], seen).toBe(5)
+    expect(codes[423], seen).toBe(15)
+    expect(codes[429], seen).toBe(5)
+  })
+
+  it("throttles a spray across many addresses, which the per-email lockout cannot see", async () => {
+    const codes: Record<number, number> = {}
+    for (let i = 0; i < 25; i++) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/login",
+        payload: { email: `spray${i}@x.dev`, password: "Admin@123" },
+      })
+      codes[response.statusCode] = (codes[response.statusCode] ?? 0) + 1
+    }
+    expect(codes[423], `saw ${JSON.stringify(codes)}`).toBeUndefined()
+    expect(codes[429], `saw ${JSON.stringify(codes)}`).toBeGreaterThan(0)
+  })
+
+  it("puts the rate-limit headers on the response, so a client can back off", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "headers@x.dev", password: "wrong" },
+    })
+    const names = Object.keys(response.headers).filter((h) => h.includes("ratelimit"))
+    expect(names.length, `headers were ${JSON.stringify(Object.keys(response.headers))}`).toBeGreaterThan(0)
+  })
+
+  it("throttles punch flooding too", async () => {
+    const employee = await asEmployee()
+    const codes = await burst("/punches", 35, punchBody({ employeeId: "e4" }), {
+      cookie: employee.cookies,
+    })
+    expect(codes[429], `saw ${JSON.stringify(codes)}`).toBeGreaterThan(0)
+  })
+})
+
+describe("permission reach is enforced, not just the capability", () => {
+  /**
+   * requirePermission used to separate only NONE from VIEW, so SELF, OWN_TEAM,
+   * OWN_BRANCH and ALL were all simply "allowed". reports.view is held at SELF
+   * by EMPLOYEE and PICKER, and the export routes build the whole company's
+   * attendance register with no filtering — so an employee could queue and
+   * download everybody's day.
+   */
+  const register = { report: "daily-register", date: "2026-08-04" }
+
+  it("refuses a SELF-scoped employee the company register export", async () => {
+    const employee = await asEmployee()
+    const response = await app.inject({
+      method: "POST",
+      url: "/exports",
+      headers: { cookie: employee.cookies },
+      payload: register,
+    })
+    expect(response.statusCode, response.body).toBe(403)
+    expect(response.json()).toMatchObject({
+      error: "INSUFFICIENT_SCOPE",
+      held: "SELF",
+      required: "ALL",
+    })
+  })
+
+  it("refuses the same employee the list of everyone's exports", async () => {
+    const employee = await asEmployee()
+    const response = await app.inject({
+      method: "GET",
+      url: "/exports",
+      headers: { cookie: employee.cookies },
+    })
+    expect(response.statusCode).toBe(403)
+  })
+
+  it("still lets HR, who holds it at ALL, export", async () => {
+    const hr = await asHr()
+    const response = await app.inject({
+      method: "POST",
+      url: "/exports",
+      headers: { cookie: hr.cookies },
+      payload: register,
+    })
+    expect([201, 503]).toContain(response.statusCode)
+  })
+
+  it("leaves a route that filters by reach itself alone", async () => {
+    // /attendance/days passes the scope to scopeReaches, so a SELF-scoped
+    // caller still gets their own row rather than a 403.
+    const employee = await asEmployee()
+    const response = await app.inject({
+      method: "GET",
+      url: "/attendance/days?date=2026-08-04",
+      headers: { cookie: employee.cookies },
+    })
+    expect(response.statusCode).toBe(200)
+    const rows = response.json().rows ?? response.json().days ?? []
+    expect(Array.isArray(rows)).toBe(true)
   })
 })

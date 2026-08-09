@@ -122,24 +122,68 @@ export function registerOpsRoutes(app: FastifyInstance, store: Store, guards: Gu
     const parsed = paymentBodySchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
     const body = parsed.data
-    const allocations =
-      body.allocations ??
-      allocateOldestFirst(
-        body.amountPaise,
-        store.vendorBills
-          .filter((bill) => bill.vendorId === body.partyId && bill.status === "OPEN")
-          .map((bill) => ({
-            id: bill.id,
-            dueDate: bill.dueDate,
-            outstandingPaise: outstandingPaise(bill, store.payments),
-          }))
-      )
-    if (allocations.length === 0) return reply.code(422).send({ error: "NOTHING_OUTSTANDING" })
-    // Excess money must never vanish into unallocated air — refuse with the max.
-    const allocatable = allocations.reduce((sum, allocation) => sum + allocation.amountPaise, 0)
-    if (body.amountPaise > allocatable) {
-      return reply.code(422).send({ error: "EXCEEDS_OUTSTANDING", maxPaise: allocatable })
+
+    /**
+     * What this vendor is actually owed, per open bill, computed here. Every
+     * allocation is measured against this and never against numbers the client
+     * sent — the same discipline POST /receipts already applies on the customer
+     * side, which this route was missing.
+     *
+     * Without it the only check was `amountPaise > allocatable`, which guards
+     * over-*payment* and not over-*allocation*. A request of
+     * `{ amountPaise: 1, allocations: [{ docId: <a 1,18,000 rupee bill>,
+     * amountPaise: 11800000 }] }` sailed through: 1 is not greater than
+     * 11800000, so a one-paise payment marked the bill settled in full.
+     */
+    const openBills = store.vendorBills
+      .filter((bill) => bill.vendorId === body.partyId && bill.status === "OPEN")
+      .map((bill) => ({
+        id: bill.id,
+        dueDate: bill.dueDate,
+        outstandingPaise: outstandingPaise(bill, store.payments),
+      }))
+      .filter((bill) => bill.outstandingPaise > 0)
+
+    const totalOutstanding = openBills.reduce((sum, bill) => sum + bill.outstandingPaise, 0)
+    if (totalOutstanding === 0) return reply.code(422).send({ error: "NOTHING_OUTSTANDING" })
+    if (body.amountPaise > totalOutstanding)
+      return reply.code(422).send({ error: "EXCEEDS_OUTSTANDING", maxPaise: totalOutstanding })
+
+    let allocations
+    if (body.allocations) {
+      for (const allocation of body.allocations) {
+        const bill = openBills.find((candidate) => candidate.id === allocation.docId)
+        // A bill belonging to another vendor, a cancelled one, or one already
+        // settled is not "unknown" by accident — it is the shape of the attack.
+        if (!bill)
+          return reply.code(422).send({ error: "UNKNOWN_ALLOCATION", docId: allocation.docId })
+        if (allocation.amountPaise <= 0)
+          return reply.code(422).send({ error: "BAD_ALLOCATION", docId: allocation.docId })
+        if (allocation.amountPaise > bill.outstandingPaise)
+          return reply.code(422).send({
+            error: "ALLOCATION_EXCEEDS_BILL",
+            docId: allocation.docId,
+            maxPaise: bill.outstandingPaise,
+          })
+      }
+      const uniqueDocs = new Set(body.allocations.map((allocation) => allocation.docId))
+      if (uniqueDocs.size !== body.allocations.length)
+        return reply.code(422).send({ error: "DUPLICATE_ALLOCATION" })
+      // The payment must be fully accounted for: money that lands nowhere is
+      // money the books cannot explain.
+      const allocated = body.allocations.reduce((sum, allocation) => sum + allocation.amountPaise, 0)
+      if (allocated !== body.amountPaise)
+        return reply.code(422).send({
+          error: "ALLOCATION_MISMATCH",
+          detail: `Allocations total ${allocated} paise but the payment is ${body.amountPaise}.`,
+        })
+      allocations = body.allocations
+    } else {
+      allocations = allocateOldestFirst(body.amountPaise, openBills)
     }
+
+    if (allocations.length === 0) return reply.code(422).send({ error: "NOTHING_OUTSTANDING" })
+
     const payment = { id: id(store, "pay"), recordedBy: request.auth.userId, ...body, allocations }
     store.payments.push(payment)
     return reply.code(201).send({ payment })

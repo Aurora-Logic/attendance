@@ -19,7 +19,7 @@ const login = async (email: string, password: string): Promise<string> => {
 }
 
 beforeEach(async () => {
-  app = buildServer()
+  app = await buildServer()
   await app.ready()
 })
 

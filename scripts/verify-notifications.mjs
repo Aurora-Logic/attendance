@@ -15,13 +15,37 @@ const employee = await fetch(`${API}/auth/login`, {
   body: JSON.stringify({ email: "employee@delta.dev", password: "Emp@1234" }),
 })
 const employeeCookie = cookieOf(employee)
+
+/**
+ * Pick a leave type that still has balance.
+ *
+ * This used to hardcode CL and burn a day of it on every run, so after enough
+ * runs it failed with INSUFFICIENT_BALANCE and looked like a product fault. It
+ * also masked a real one: CL had been driven to -6, which the rules say cannot
+ * happen. Reading the balance first keeps the test honest about which is which.
+ */
+const balances = await (
+  await fetch(`${API}/leave/balances/e4`, { headers: { cookie: employeeCookie } })
+).json()
+const usable = Object.entries(balances.balances ?? {}).find(([, days]) => Number(days) >= 1)
+if (!usable) {
+  console.error("no leave type has any balance left:", JSON.stringify(balances.balances))
+  process.exit(1)
+}
+const [leaveType] = usable
+
+// A distinct date per run, so a second run is not an overlapping duplicate.
+const day = new Date(Date.UTC(2026, 8, 1) + Math.floor(Math.random() * 27) * 86_400_000)
+  .toISOString()
+  .slice(0, 10)
+
 const applied = await fetch(`${API}/leave/apply`, {
   method: "POST",
   headers: { "content-type": "application/json", cookie: employeeCookie },
   body: JSON.stringify({
-    type: "CL",
-    from: "2026-09-21",
-    to: "2026-09-21",
+    type: leaveType,
+    from: day,
+    to: day,
     part: "FULL",
     reason: "notification test",
   }),

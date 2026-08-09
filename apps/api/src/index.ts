@@ -23,7 +23,7 @@ if (hydrated) {
   )
 }
 const filesDir = exportsDir(fileURLToPath(new URL("../.data", import.meta.url)))
-const app = buildServer(store, { exportsDir: filesDir })
+const app = await buildServer(store, { exportsDir: filesDir })
 const { flush } = persistOnWrite(app, store, dataFile)
 // The sweep writes to the same feed the routes do, so escalation notices
 // reach people rather than only appearing in a log line.

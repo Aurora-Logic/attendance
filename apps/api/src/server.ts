@@ -1,4 +1,5 @@
 import cookie from "@fastify/cookie"
+import { createHash } from "node:crypto"
 import rateLimit from "@fastify/rate-limit"
 import cors from "@fastify/cors"
 import helmet from "@fastify/helmet"
@@ -203,7 +204,21 @@ function scopeReaches(
   }
 }
 
-export function buildServer(store: Store = seedStore(), options: { exportsDir?: string } = {}) {
+/**
+ * Build the API.
+ *
+ * Async because @fastify/rate-limit binds through an `onRoute` hook, which only
+ * fires for routes registered *after* the plugin has finished loading. A bare
+ * `app.register(...)` is deferred until boot, by which time every route below
+ * already exists — so the plugin loaded, decorated the instance, and rate
+ * limited precisely nothing. 400 requests in a few seconds all returned 200
+ * with no x-ratelimit headers at all. Awaiting the registration is what makes
+ * the limits real; see the burst test in test/api.test.ts.
+ */
+export async function buildServer(
+  store: Store = seedStore(),
+  options: { exportsDir?: string } = {}
+) {
   const app = Fastify({
     /**
      * Behind a reverse proxy every request arrives from the proxy, so without
@@ -264,8 +279,34 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     credentials: true,
   })
   app.register(cookie)
-  // §8.6: global ceiling; auth and punch carry tighter per-route limits below.
-  app.register(rateLimit, { global: true, max: 300, timeWindow: "1 minute" })
+  /**
+   * §8.6: global ceiling; auth and punch carry tighter per-route limits below.
+   * Awaited on purpose — see the note on buildServer.
+   *
+   * Keyed by session rather than by IP. Every employee in an office shares one
+   * public address, and behind a reverse proxy (TRUST_PROXY off by default)
+   * every request arrives from the proxy — so an IP-keyed ceiling is really a
+   * whole-company ceiling. At 300/min the first few people to open a dashboard
+   * locked out everyone else; a single verification sweep exhausted it in
+   * seconds.
+   *
+   * Signed-out traffic still keys by IP, which is what brute-force protection
+   * needs: the login limiter below must count attempts from one source across
+   * many different accounts.
+   */
+  await app.register(rateLimit, {
+    global: true,
+    max: 1200,
+    timeWindow: "1 minute",
+    keyGenerator: (request) => {
+      const token = /(?:^|;\s*)access_token=([^;]+)/.exec(request.headers.cookie ?? "")?.[1]
+      // Hashed: this is a map key held in memory, not somewhere a bearer token
+      // belongs even in fragments.
+      return token
+        ? `s:${createHash("sha256").update(token).digest("base64url").slice(0, 22)}`
+        : `ip:${request.ip}`
+    },
+  })
 
   const sign = (payload: AuthContext, ttlSec: number) =>
     jwt.sign(payload, SECRET, { expiresIn: ttlSec })
@@ -295,14 +336,47 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
     }
   }
 
-  /** §2: capability + reach, resolved through the matrix — never a role name. */
+  /**
+   * How far a grant reaches. `VIEW` is full reach, read-only — it is the
+   * read-only twin of ALL, not a narrower audience.
+   */
+  const REACH: Record<string, number> = {
+    NONE: 0,
+    SELF: 1,
+    OWN_TEAM: 2,
+    OWN_BRANCH: 3,
+    VIEW: 4,
+    ALL: 4,
+  }
+
+  /**
+   * §2: capability + reach, resolved through the matrix — never a role name.
+   *
+   * `minScope` matters as much as the capability. Without it this guard only
+   * separated NONE from VIEW, so SELF, OWN_TEAM, OWN_BRANCH and ALL were all
+   * simply "allowed" — and a route returning company-wide data accepted a
+   * caller granted the capability only over their own record. An EMPLOYEE
+   * holding reports.view at SELF could queue and download the entire company's
+   * daily attendance register.
+   *
+   * A route that filters by reach itself (see /attendance/days, which passes
+   * the scope to scopeReaches) needs no minScope. A route that cannot filter
+   * must declare the reach it really requires.
+   */
   const requirePermission =
-    (key: string, options: { write?: boolean } = {}) =>
+    (key: string, options: { write?: boolean; minScope?: Scope } = {}) =>
     async (request: FastifyRequest, reply: FastifyReply) => {
       const scope = store.matrix[key]?.[request.auth.role] ?? "NONE"
       if (scope === "NONE") return reply.code(403).send({ error: "FORBIDDEN", permission: key })
       if (options.write && scope === "VIEW")
         return reply.code(403).send({ error: "READ_ONLY", permission: key })
+      if (options.minScope && (REACH[scope] ?? 0) < (REACH[options.minScope] ?? 0))
+        return reply.code(403).send({
+          error: "INSUFFICIENT_SCOPE",
+          permission: key,
+          held: scope,
+          required: options.minScope,
+        })
     }
 
   const notify = makeNotifier(store)
@@ -977,15 +1051,21 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
   )
 
   // ---- §7 exports: queued on Redis, built server-side ----------------------
+  /**
+   * The register these routes build is the whole company's attendance, and none
+   * of them can narrow it to the caller's reach. Until the export learns to
+   * filter, full reach is the honest requirement — a SELF-scoped employee was
+   * queueing and downloading everybody's day.
+   */
   app.get(
     "/exports",
-    { preHandler: [authenticate, requirePermission("reports.view")] },
+    { preHandler: [authenticate, requirePermission("reports.view", { minScope: "ALL" })] },
     async () => ({ jobs: store.exportJobs.slice(0, 20) })
   )
 
   app.post(
     "/exports",
-    { preHandler: [authenticate, requirePermission("reports.view")] },
+    { preHandler: [authenticate, requirePermission("reports.view", { minScope: "ALL" })] },
     async (request, reply) => {
       const parsed = z
         .object({
@@ -1022,7 +1102,7 @@ export function buildServer(store: Store = seedStore(), options: { exportsDir?: 
 
   app.get(
     "/exports/:id/download",
-    { preHandler: [authenticate, requirePermission("reports.view")] },
+    { preHandler: [authenticate, requirePermission("reports.view", { minScope: "ALL" })] },
     async (request, reply) => {
       const { id: jobId } = request.params as { id: string }
       const job = store.exportJobs.find((candidate) => candidate.id === jobId)
