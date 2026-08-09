@@ -48,7 +48,17 @@ export function NotificationBell() {
         >
           <Bell />
           {unread > 0 ? (
-            <span className="bg-destructive text-destructive-foreground absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full text-[10px] font-semibold tabular-nums">
+            /*
+              White count text on a red dark enough to hold it, in both themes
+              (rule 1.7 wants 4.5:1). It read `text-destructive-foreground`,
+              which this theme never defines — so the count inherited the
+              button's foreground and came out near-black on red at 4.03:1 in
+              light, and 2.75:1 in dark.
+
+              `ring-background` keeps the dot legible where it overlaps the bell
+              rather than clipping into it.
+            */
+            <span className="bg-notification-badge ring-background absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full text-[10px] font-semibold text-white tabular-nums ring-2">
               {unread > 9 ? "9+" : unread}
             </span>
           ) : null}

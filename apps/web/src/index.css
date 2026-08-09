@@ -25,6 +25,7 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-notification-badge: var(--notification-badge);
     --color-success: var(--success);
     --color-success-foreground: var(--success-foreground);
     --color-warning: var(--warning);
@@ -78,6 +79,13 @@
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
+    /**
+     * The unread badge carries white text, so it needs a red dark enough to
+     * hold it. `--destructive` works in light (4.8:1 against white) but in dark
+     * it lightens to L 0.704, where white falls to 2.75:1 — hence its own
+     * token rather than reusing --destructive and hoping.
+     */
+    --notification-badge: oklch(0.577 0.245 27.325);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
     --ring: oklch(0.708 0 0);
@@ -154,6 +162,8 @@
     --accent: oklch(0.269 0 0);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
+    /* Deeper than --destructive so white text clears 4.5:1 (6.1:1 here). */
+    --notification-badge: oklch(0.52 0.2 25);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
