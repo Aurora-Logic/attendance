@@ -9,7 +9,7 @@ import { useAppConfig } from "@/lib/app-config"
 import { exportDailyRegisterExcel } from "@/lib/attendance-export"
 import { useAttendanceDays } from "@/lib/queries"
 import { DataTable } from "@/components/data-table"
-import { Page, PageBodyFixed, PageHeader } from "@/components/page-shell"
+import { Page, PageBodyFixed, PageHeader, PageToolbar } from "@/components/page-shell"
 import { RegulariseSheet } from "@/components/regularise-sheet"
 import { StatusBadge, StatusLegend } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
@@ -220,49 +220,60 @@ export function AttendancePage() {
             ? `${format(date, "EEEE, d MMMM yyyy")} · computed live by the attendance engine`
             : "Monday, 3 August 2026 · seeded demo data — sign in with the API running for live days"
         }
-        actions={
-          <>
-            <RegulariseSheet defaultDate={format(date, "yyyy-MM-dd")} />
-            {source === "api" ? (
-              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <CalendarIcon />
-                    {format(date, "d MMM yyyy")}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                  <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={(picked) => {
-                      if (picked) setDate(picked)
-                      setDatePickerOpen(false)
-                    }}
-                  />
-                </PopoverContent>
-              </Popover>
-            ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={data.length === 0}
-              onClick={() =>
-                void exportDailyRegisterExcel(data, dateLabel).then(() =>
-                  toast.success("Daily register exported", {
-                    description: `${data.length} rows → Delta_DailyRegister_${dateLabel}.xlsx`,
-                  })
-                )
-              }
-            >
-              <FileSpreadsheet />
-              Export .xlsx
-            </Button>
-          </>
-        }
+        actions={<RegulariseSheet defaultDate={format(date, "yyyy-MM-dd")} />}
       />
+      <PageToolbar
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={data.length === 0}
+            onClick={() =>
+              void exportDailyRegisterExcel(data, dateLabel).then(() =>
+                toast.success("Daily register exported", {
+                  description: `${data.length} rows to Delta_DailyRegister_${dateLabel}.xlsx`,
+                })
+              )
+            }
+          >
+            <FileSpreadsheet />
+            Export .xlsx
+          </Button>
+        }
+      >
+        {source === "api" ? (
+          <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm">
+                <CalendarIcon />
+                {format(date, "d MMM yyyy")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={date}
+                onSelect={(picked) => {
+                  if (picked) setDate(picked)
+                  setDatePickerOpen(false)
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+        ) : null}
+        <Select value={branch} onValueChange={setBranch}>
+          <SelectTrigger size="sm" className="w-40">
+            <SelectValue placeholder="Branch" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All branches</SelectItem>
+            <SelectItem value="ho">Mumbai HO</SelectItem>
+            <SelectItem value="pune">Pune Plant</SelectItem>
+          </SelectContent>
+        </Select>
+        <StatusLegend />
+      </PageToolbar>
       <PageBodyFixed>
-        <StatusLegend className="shrink-0" />
         {isLoading ? (
           <div className="flex flex-col gap-2">
             {Array.from({ length: 6 }).map((_, index) => (
@@ -289,18 +300,6 @@ export function AttendancePage() {
               Approve selected
             </Button>
           )}
-          toolbar={
-            <Select value={branch} onValueChange={setBranch}>
-              <SelectTrigger size="sm" className="w-40">
-                <SelectValue placeholder="Branch" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All branches</SelectItem>
-                <SelectItem value="ho">Mumbai HO</SelectItem>
-                <SelectItem value="pune">Pune Plant</SelectItem>
-              </SelectContent>
-            </Select>
-          }
         />
       </PageBodyFixed>
     </Page>

@@ -228,7 +228,15 @@ export function ApprovalsPage() {
 
             <div className="min-h-0 flex-1 overflow-y-auto">
               {isLoading ? (
-                <div className="flex flex-col gap-2">
+                /*
+                  Rule 1.5: borders are a last resort for separation. Fifty-three
+                  requests each in their own bordered box is the "box in box"
+                  this rule exists to stop — a hairline between rows separates
+                  them just as clearly and lets the eye run down the list.
+                  Selection and hover stay as a background tint, which reads
+                  better than a second border anyway.
+                */
+                <div className="divide-border flex flex-col divide-y rounded-md border">
                   {Array.from({ length: 5 }).map((_, index) => (
                     <div key={index} className="bg-muted h-20 animate-pulse rounded-md" />
                   ))}
@@ -243,17 +251,24 @@ export function ApprovalsPage() {
                   </EmptyHeader>
                 </Empty>
               ) : (
-                <div className="flex flex-col gap-2">
+                /*
+                  Rule 1.5: borders are a last resort for separation. Fifty-three
+                  requests each in their own bordered box is the "box in box"
+                  this rule exists to stop — a hairline between rows separates
+                  them just as clearly and lets the eye run down the list.
+                  Selection and hover stay as a background tint, which reads
+                  better than a second border anyway.
+                */
+                <div className="divide-border flex flex-col divide-y rounded-md border">
                   {visible.map((request) => {
                     const meta = KIND_META[request.kind]
                     return (
                       <div
                         key={request.id}
                         className={cn(
-                          "flex flex-wrap items-start gap-3 rounded-md border p-3 transition-colors sm:flex-nowrap",
-                          selected.has(request.id)
-                            ? "border-primary/40 bg-primary/5"
-                            : "hover:bg-muted/40"
+                          "flex flex-wrap items-start gap-3 p-3 transition-colors sm:flex-nowrap",
+                          "first:rounded-t-md last:rounded-b-md",
+                          selected.has(request.id) ? "bg-primary/5" : "hover:bg-muted/40"
                         )}
                       >
                         <Checkbox

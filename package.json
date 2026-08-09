@@ -15,7 +15,9 @@
     "build:agent": "pnpm --filter @attendance/tally-agent build",
     "verify:overflow": "node scripts/verify-overflow.mjs",
     "verify:native": "node scripts/scan-native-components.mjs",
-    "verify": "pnpm -r lint && pnpm -r typecheck && pnpm -r test && pnpm verify:native && pnpm verify:overflow"
+    "verify": "pnpm -r lint && pnpm -r typecheck && pnpm -r test && pnpm verify:native && pnpm verify:cards && pnpm verify:overflow",
+    "verify:cards": "node scripts/scan-nested-cards.mjs",
+    "verify:borders": "node scripts/scan-borders.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

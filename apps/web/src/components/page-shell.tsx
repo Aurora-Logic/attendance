@@ -82,3 +82,44 @@ export function PageBodyFixed({
     </div>
   )
 }
+
+/**
+ * The filter / search / view-switcher / export strip, between the header and
+ * the work surface (rule 1.4).
+ *
+ * It is deliberately **not** a Card. Filters are chrome for the content below,
+ * not a thing in their own right, and rule 1.5 is explicit that a card must
+ * earn its border — wrapping a row of selects in one is how a screen ends up
+ * with a box inside a box inside a page.
+ *
+ * On a narrow viewport the controls scroll sideways *inside this strip* rather
+ * than wrapping into a tall stack that pushes the table off the screen. That is
+ * the one place rule 1.6 permits horizontal scroll, so it carries the
+ * containment the rule requires: without `overscroll-x-contain` the swipe
+ * chains to the browser's back gesture.
+ */
+export function PageToolbar({
+  children,
+  className,
+  /** Right-aligned actions — export, view switcher. */
+  actions,
+}: {
+  children?: React.ReactNode
+  className?: string
+  actions?: React.ReactNode
+}) {
+  return (
+    <div
+      data-slot="page-toolbar"
+      className={cn(
+        "flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2.5 md:px-6",
+        className
+      )}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overscroll-x-contain">
+        {children}
+      </div>
+      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+    </div>
+  )
+}
