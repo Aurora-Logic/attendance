@@ -26,6 +26,28 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
+    /**
+     * Pin the environment flags for a production build.
+     *
+     * Vite derives `import.meta.env.DEV/PROD` from NODE_ENV, not from `mode`,
+     * and the repo's own `.env` carries `NODE_ENV=development` for the API. The
+     * result was that `vite build` silently produced a *development* bundle:
+     * React's dev build (629 kB entry, over the precache budget), the refresh
+     * runtime, and — worst — every `import.meta.env.DEV` guard evaluating true,
+     * which shipped the seeded login credentials into `dist/`.
+     *
+     * Forcing them here makes the build correct on any machine whatever a
+     * developer's `.env` happens to say. The bundle is asserted credential-free
+     * in src/lib/session.dev-accounts.test.ts.
+     */
+    define:
+      mode === "production"
+        ? {
+            "import.meta.env.DEV": "false",
+            "import.meta.env.PROD": "true",
+            "process.env.NODE_ENV": JSON.stringify("production"),
+          }
+        : {},
     plugins: [
       react(),
       tailwindcss(),

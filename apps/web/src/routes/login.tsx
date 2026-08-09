@@ -14,9 +14,15 @@ export function LoginPage() {
         <LoginForm />
       </div>
 
+      {/*
+        Development only. DEMO_ACCOUNTS is empty in any built bundle, because
+        these are real working credentials — shipping the list put every
+        deployed instance one click away from an ADMIN session.
+      */}
+      {DEMO_ACCOUNTS.length === 0 ? null : (
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardDescription>Demo accounts — click to sign straight in</CardDescription>
+          <CardDescription>Seeded accounts — development only, click to sign in</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           {DEMO_ACCOUNTS.map((account) => (
@@ -32,6 +38,7 @@ export function LoginPage() {
           ))}
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }

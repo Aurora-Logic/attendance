@@ -26,18 +26,33 @@ export interface SessionUser {
   source: "api" | "demo"
 }
 
-const ACCOUNTS: Array<Omit<SessionUser, "source"> & { password: string }> = [
-  { name: "Virag Jain", email: "admin@delta.dev", password: "Admin@123", role: "ADMIN", employeeId: "emp_1", initials: "VJ" },
-  { name: "Priya Nair", email: "hr@delta.dev", password: "Hr@12345", role: "HR", employeeId: "emp_2", initials: "PN" },
-  { name: "Rohan Desai", email: "ops@delta.dev", password: "Ops@1234", role: "OPERATIONS", employeeId: "emp_8", initials: "RD" },
-  { name: "Sanjay Yadav", email: "picker@delta.dev", password: "Pick@1234", role: "PICKER", employeeId: "emp_7", initials: "SY" },
-  { name: "Kabir Singh", email: "employee@delta.dev", password: "Emp@1234", role: "EMPLOYEE", employeeId: "emp_5", initials: "KS" },
-]
+/**
+ * Seeded logins, for local development only.
+ *
+ * These are real, working credentials for the seeded accounts. They must never
+ * reach a built bundle: the sign-in screen renders a button per account, so
+ * anyone loading a deployed build was one click away from ADMIN. The whole
+ * array sits behind `import.meta.env.DEV`, which the bundler replaces with
+ * `false` at build time and then eliminates along with every string in it.
+ *
+ * `pnpm build` is verified against this — see the grep in
+ * apps/web/src/lib/session.dev-accounts.test.ts.
+ */
+const ACCOUNTS: Array<Omit<SessionUser, "source"> & { password: string }> = import.meta.env.DEV
+  ? [
+      { name: "Virag Jain", email: "admin@delta.dev", password: "Admin@123", role: "ADMIN", employeeId: "emp_1", initials: "VJ" },
+      { name: "Priya Nair", email: "hr@delta.dev", password: "Hr@12345", role: "HR", employeeId: "emp_2", initials: "PN" },
+      { name: "Rohan Desai", email: "ops@delta.dev", password: "Ops@1234", role: "OPERATIONS", employeeId: "emp_8", initials: "RD" },
+      { name: "Sanjay Yadav", email: "picker@delta.dev", password: "Pick@1234", role: "PICKER", employeeId: "emp_7", initials: "SY" },
+      { name: "Kabir Singh", email: "employee@delta.dev", password: "Emp@1234", role: "EMPLOYEE", employeeId: "emp_5", initials: "KS" },
+    ]
+  : []
 
+/** Empty in any built bundle, so the sign-in screen renders no shortcut list. */
 export const DEMO_ACCOUNTS = ACCOUNTS.map(({ password: _password, ...user }) => user)
 
 /**
- * The password for a demo account, read from the one list that has it.
+ * The password for a seeded account, read from the one list that has it.
  *
  * The sign-in screen used to keep its own map keyed by role, which meant a new
  * role logged in with `undefined` and the button simply did nothing — no error,
@@ -128,14 +143,31 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           return { ok: true }
         } catch (error) {
           if (error instanceof ApiError) {
+            // 423 and 429 are not bad credentials, and telling somebody their
+            // password is wrong when the account is locked sends them round the
+            // same loop until the lockout expires.
+            if (error.status === 423)
+              return {
+                ok: false,
+                error: "Too many failed attempts. This account is locked for 15 minutes.",
+              }
+            if (error.status === 429)
+              return { ok: false, error: "Too many attempts. Wait a minute and try again." }
             return { ok: false, error: "Invalid email or password." }
           }
-          // API unreachable — demo fallback.
+          /**
+           * The API is unreachable. In development the seeded accounts keep the
+           * UI usable; in a built bundle ACCOUNTS is empty, so this falls
+           * through to an honest "cannot reach the server" rather than
+           * pretending the credentials were wrong.
+           */
           const account = ACCOUNTS.find(
             (candidate) => candidate.email.toLowerCase() === email.trim().toLowerCase()
           )
           if (!account || account.password !== password) {
-            return { ok: false, error: "Invalid email or password." }
+            return ACCOUNTS.length === 0
+              ? { ok: false, error: "Cannot reach the server. Check your connection and try again." }
+              : { ok: false, error: "Invalid email or password." }
           }
           const { password: _password, ...rest } = account
           const safeUser: SessionUser = { ...rest, source: "demo" }
