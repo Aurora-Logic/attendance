@@ -9,7 +9,6 @@ import {
   Camera,
   ClipboardCheck,
   Boxes,
-  FileCode2,
   HandCoins,
   PackageSearch,
   PlugZap,
@@ -65,7 +64,6 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { MobileNavSettings } from "@/components/settings-mobile-nav"
-import { TallySettings } from "@/components/settings-tally"
 import { OperationsSettingsPanel } from "@/components/settings-operations"
 import { TallyConnectorSettings } from "@/components/settings-tally-connector"
 
@@ -376,13 +374,6 @@ const SECTION_GROUPS: { group: string; sections: SettingsSection[] }[] = [
         icon: PlugZap,
         blurb: "Whether the sync is running, what has come across, and anything it overwrote.",
         ownsSaving: true,
-      },
-      {
-        key: "tally",
-        label: "Payroll posting",
-        icon: FileCode2,
-        blurb:
-          "The one place payroll meets Tally: a salary journal you export by hand. Payroll never syncs.",
       },
     ],
   },
@@ -1009,7 +1000,6 @@ export function SettingsPage() {
 
             {active === "roster" ? <RosterSettings /> : null}
             {active === "departments" ? <DepartmentsSettings /> : null}
-            {active === "tally" ? <TallySettings /> : null}
             {active === "connector" ? <TallyConnectorSettings /> : null}
             {active.startsWith("ops-") ? (
               <OperationsSettingsPanel

@@ -236,6 +236,25 @@ export async function buildPayrollHandover(
       )
       const isPaidLeave = approvedLeave ? approvedLeave.leaveType !== "LOP" : undefined
 
+      /**
+       * Overtime only counts if the company says it counts.
+       *
+       * `otRequiresApproval` used to be read by the payroll run. Payroll left
+       * with Section 2, and without this the setting would govern nothing
+       * while still sitting in Settings looking as though it did — and the
+       * handover would hand over overtime nobody approved.
+       */
+      const overtimeApproved =
+        !settings.otRequiresApproval ||
+        store.approvals.some(
+          (approval) =>
+            approval.kind === "OVERTIME" &&
+            approval.status === "APPROVED" &&
+            approval.employeeId === employee.id &&
+            approval.dateFrom <= date &&
+            date <= approval.dateTo
+        )
+
       const isWeeklyOff = new Date(`${date}T00:00:00Z`).getUTCDay() === 0
       const result = computeAttendanceDay({
         shift,
@@ -256,7 +275,7 @@ export async function buildPayrollHandover(
         dateISO: date,
         status: result.status,
         payableUnits: result.payableUnits,
-        otMinutes: result.otMinutes,
+        otMinutes: overtimeApproved ? result.otMinutes : 0,
         lateMinutes: result.lateMinutes,
         leaveIsPaid: isPaidLeave,
       }

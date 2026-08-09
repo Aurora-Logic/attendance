@@ -16,7 +16,7 @@ import {
  * Gate a route on a capability, not just the nav entry.
  *
  * The sidebar already hid what a role cannot use, but the routes themselves
- * were open: typing /payroll as an employee rendered the full screen, whose
+ * were open: typing a manager-only URL rendered the full screen, whose
  * hooks then fired requests the API correctly refused. The result was a
  * working-looking page full of empty tables and a console of 403s — the exact
  * shape that makes people think the system is broken rather than that they

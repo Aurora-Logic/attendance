@@ -169,7 +169,7 @@ export function MyDay() {
         <CardContent className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
           <Wallet className="text-muted-foreground size-4" />
           <span className="text-muted-foreground">
-            Payslips are issued after the month is closed and payroll runs.
+            Your attendance is handed to payroll once the period is closed.
           </span>
         </CardContent>
       </Card>

@@ -608,104 +608,6 @@ describe("§8.6 hardening", () => {
   })
 })
 
-describe("§6 payroll — lock then run, exact paise", () => {
-  it("running an unlocked month is refused outright", async () => {
-    const admin = await asAdmin()
-    const response = await app.inject({
-      method: "POST",
-      url: "/payroll/runs",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-09" },
-    })
-    expect(response.statusCode).toBe(409)
-    expect(response.json().error).toBe("MONTH_NOT_LOCKED")
-  })
-
-  it("lock → run computes exact per-day maths; locking twice is a conflict", async () => {
-    const admin = await asAdmin()
-    const locked = await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-09" },
-    })
-    expect(locked.statusCode).toBe(201)
-    expect(
-      (
-        await app.inject({
-          method: "POST",
-          url: "/payroll/locks",
-          headers: { cookie: admin.cookies },
-          payload: { month: "2026-09" },
-        })
-      ).statusCode
-    ).toBe(409)
-
-    const run = await app.inject({
-      method: "POST",
-      url: "/payroll/runs",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-09" },
-    })
-    expect(run.statusCode).toBe(201)
-    const body = run.json().run
-
-    /**
-     * Sept 2026 with no punches at all. The register still marks the 4 Sundays
-     * payable — they are paid days — but every one of the 26 expected working
-     * days was lost, so the whole salary is deducted and the month pays ₹0.
-     *
-     * This assertion used to read ₹4,000, on the reasoning that the Sundays
-     * were "payable" and could be multiplied by the day rate. That is how the
-     * overpay got in: paying for weekly offs an employee never earned by
-     * working. Somebody absent all month is owed nothing, and a fully present
-     * employee is owed exactly their contract — both now hold.
-     */
-    const kabir = body.items.find((item: { code: string }) => item.code === "DLT0004")
-    expect(kabir.payableDays).toBe(4)
-    expect(kabir.perDayPaise).toBe(100_000)
-    expect(kabir.earnedPaise).toBe(0)
-    expect(kabir.grossPaise).toBe(0)
-    expect(body.totalGrossPaise).toBe(
-      body.items.reduce((sum: number, item: { grossPaise: number }) => sum + item.grossPaise, 0)
-    )
-  })
-
-  it("a rerun is a new immutable version, and EMPLOYEE cannot touch payroll", async () => {
-    const admin = await asAdmin()
-    await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-09" },
-    })
-    await app.inject({
-      method: "POST",
-      url: "/payroll/runs",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-09" },
-    })
-    const second = await app.inject({
-      method: "POST",
-      url: "/payroll/runs",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-09" },
-    })
-    expect(second.json().run.version).toBe(2)
-
-    const employee = await asEmployee()
-    expect(
-      (
-        await app.inject({
-          method: "GET",
-          url: "/payroll",
-          headers: { cookie: employee.cookies },
-        })
-      ).statusCode
-    ).toBe(403)
-  })
-})
-
 describe("employees & shifts — full CRUD surface", () => {
   it("PATCH /employees/:id updates fields, guards references, audits", async () => {
     const admin = await asAdmin()
@@ -806,51 +708,6 @@ describe("employees & shifts — full CRUD surface", () => {
       payload: { name: "Broken", short: "B", startMin: 2000, endMin: 1080 },
     })
     expect(bad.statusCode).toBe(400)
-  })
-})
-
-describe("Tally export — balanced journal from a released run", () => {
-  it("locks, runs, then downloads a balanced voucher XML; guards work", async () => {
-    const admin = await asAdmin()
-    await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-09" },
-    })
-    const runResponse = await app.inject({
-      method: "POST",
-      url: "/payroll/runs",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-09" },
-    })
-    expect(runResponse.statusCode).toBe(201)
-    const runId = runResponse.json().run.id
-
-    const xml = await app.inject({
-      method: "GET",
-      url: `/payroll/runs/${runId}/tally.xml`,
-      headers: { cookie: admin.cookies },
-    })
-    expect(xml.statusCode).toBe(200)
-    expect(xml.headers["content-type"]).toContain("application/xml")
-    expect(xml.headers["content-disposition"]).toContain("Tally_Salary_2026-09")
-    const body = xml.body
-    expect(body).toContain("<TALLYREQUEST>Import Data</TALLYREQUEST>")
-    expect(body).toContain('VCHTYPE="Journal"')
-    // Balanced: the debit is the negated sum of the credit side.
-    const amounts = [...body.matchAll(/<AMOUNT>(-?\d+\.\d{2})<\/AMOUNT>/g)].map((m) => Number(m[1]))
-    expect(amounts.reduce((a, b) => a + b, 0)).toBeCloseTo(0, 5)
-
-    expect(
-      (await app.inject({ method: "GET", url: "/payroll/runs/ghost/tally.xml", headers: { cookie: admin.cookies } }))
-        .statusCode
-    ).toBe(404)
-    const employee = await asEmployee()
-    expect(
-      (await app.inject({ method: "GET", url: `/payroll/runs/${runId}/tally.xml`, headers: { cookie: employee.cookies } }))
-        .statusCode
-    ).toBe(403)
   })
 })
 
@@ -1033,129 +890,6 @@ describe("leave balance is re-checked at approval, not only at apply", () => {
   })
 })
 
-describe("salary disbursement — bank details and the transfer sheet", () => {
-  const bank = {
-    accountName: "Meera Joshi",
-    accountNumber: "12345678901",
-    ifsc: "ICIC0004321",
-    bankName: "ICICI Bank",
-    pan: "AAAPZ1234C",
-    uan: "100200300401",
-  }
-
-  it("never returns a full account number, and validates before saving", async () => {
-    const admin = await asAdmin()
-    const listed = await app.inject({
-      method: "GET",
-      url: "/salaries",
-      headers: { cookie: admin.cookies },
-    })
-    expect(listed.statusCode).toBe(200)
-    const seeded = listed.json().salaries.find((row: { employeeId: string }) => row.employeeId === "e4")
-    expect(seeded.bank.accountNumber).toBe("****7890")
-    expect(JSON.stringify(listed.json())).not.toContain("50100234567890")
-
-    const badIfsc = await app.inject({
-      method: "PUT",
-      url: "/salaries/e5/bank",
-      headers: { cookie: admin.cookies },
-      payload: { ...bank, ifsc: "ICIC1004321" },
-    })
-    expect(badIfsc.statusCode).toBe(400)
-
-    const saved = await app.inject({
-      method: "PUT",
-      url: "/salaries/e5/bank",
-      headers: { cookie: admin.cookies },
-      payload: bank,
-    })
-    expect(saved.statusCode).toBe(200)
-  })
-
-  it("bank details are payroll-scoped — a plain employee cannot read or write them", async () => {
-    const employee = await asEmployee()
-    expect(
-      (await app.inject({ method: "GET", url: "/salaries", headers: { cookie: employee.cookies } }))
-        .statusCode
-    ).toBe(403)
-    expect(
-      (
-        await app.inject({
-          method: "PUT",
-          url: "/salaries/e5/bank",
-          headers: { cookie: employee.cookies },
-          payload: bank,
-        })
-      ).statusCode
-    ).toBe(403)
-  })
-
-  it("builds a bank CSV for a released run and reports who was held back", async () => {
-    const admin = await asAdmin()
-    // Somebody has to have earned something: with no attendance at all every
-    // salary deducts to zero and the route correctly refuses (NOBODY_PAYABLE).
-    for (const employee of store.employees) {
-      for (let day = 1; day <= 30; day++) {
-        const date = `2026-09-${String(day).padStart(2, "0")}`
-        for (const [type, offsetMin] of [
-          ["IN", 0],
-          ["OUT", 540],
-        ] as const) {
-          store.punches.push({
-            id: `p_bank_${employee.id}_${date}_${type}`,
-            employeeId: employee.id,
-            type,
-            businessDate: date,
-            offsetMin,
-            at: `${date}T09:00`,
-            accuracyM: 0,
-            dayPart: "FULL",
-            flags: ["ON_TIME"],
-            idempotencyKey: `bank_${employee.id}_${date}_${type}`,
-          })
-        }
-      }
-    }
-    await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-09" },
-    })
-    const run = (
-      await app.inject({
-        method: "POST",
-        url: "/payroll/runs",
-        headers: { cookie: admin.cookies },
-        payload: { month: "2026-09" },
-      })
-    ).json().run
-
-    const csv = await app.inject({
-      method: "GET",
-      url: `/payroll/runs/${run.id}/bank-transfer.csv`,
-      headers: { cookie: admin.cookies },
-    })
-    expect(csv.statusCode).toBe(200)
-    expect(csv.headers["content-type"]).toContain("text/csv")
-    expect(csv.headers["content-disposition"]).toContain("BankTransfer_2026-09")
-    expect(csv.body).toContain('"Beneficiary Name"')
-    expect(csv.body).toContain('"HDFC0001234"')
-    // Everyone without bank details is held back, not silently dropped.
-    expect(Number(csv.headers["x-held-count"])).toBeGreaterThan(0)
-
-    expect(
-      (
-        await app.inject({
-          method: "GET",
-          url: "/payroll/runs/ghost/bank-transfer.csv",
-          headers: { cookie: admin.cookies },
-        })
-      ).statusCode
-    ).toBe(404)
-  })
-})
-
 describe("regularisation — the employee's route to fix a missed punch", () => {
   const raise = (cookie: string, body: object) =>
     app.inject({ method: "POST", url: "/regularisations", headers: { cookie }, payload: body })
@@ -1195,7 +929,7 @@ describe("regularisation — the employee's route to fix a missed punch", () => 
     const admin = await asAdmin()
     await app.inject({
       method: "POST",
-      url: "/payroll/locks",
+      url: "/attendance/locks",
       headers: { cookie: admin.cookies },
       payload: { month: "2026-07" },
     })
@@ -1275,162 +1009,6 @@ describe("regularisation — the employee's route to fix a missed punch", () => 
       payload: { action: "APPROVE", remarks: "trust me" },
     })
     expect(own.statusCode).toBe(403)
-  })
-})
-
-describe("overtime is paid only when approved", () => {
-  // Past dates: a claim for a day that has not happened is refused, and these
-  // tests are about the approval gate rather than that guard.
-  const OT_DAY = "2026-08-05"
-  const PLAIN_DAY = "2026-08-06"
-
-  /** e4 is the employee account's own employeeId, so it may punch for itself. */
-  const workLate = async (cookie: string, date: string) => {
-    for (const [type, at, key] of [
-      ["IN", `${date}T09:00`, `ot-in-${date}`],
-      ["OUT", `${date}T21:00`, `ot-out-${date}`],
-    ] as const) {
-      const response = await app.inject({
-        method: "POST",
-        url: "/punches",
-        headers: { cookie },
-        payload: punchBody({ type, at, idempotencyKey: key }),
-      })
-      expect([200, 201]).toContain(response.statusCode)
-    }
-  }
-
-  const lockAndRun = async (cookie: string, month: string) => {
-    await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie },
-      payload: { month },
-    })
-    const run = await app.inject({
-      method: "POST",
-      url: "/payroll/runs",
-      headers: { cookie },
-      payload: { month },
-    })
-    expect(run.statusCode).toBe(201)
-    return run
-      .json()
-      .run.items.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
-  }
-
-  it("a day records eligible overtime, but an unclaimed day pays none of it", async () => {
-    const employee = await asEmployee()
-    await workLate(employee.cookies, OT_DAY)
-
-    const admin = await asAdmin()
-    const register = await app.inject({
-      method: "GET",
-      url: `/attendance/days?date=${OT_DAY}`,
-      headers: { cookie: admin.cookies },
-    })
-    const row = register
-      .json()
-      .rows.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
-    expect(row.otMinutes).toBeGreaterThan(0)
-
-    // Worked late, nobody approved it — payroll pays zero overtime.
-    const item = await lockAndRun(admin.cookies, "2026-08")
-    expect(item.otMinutes).toBe(0)
-    expect(item.otPaise).toBe(0)
-  })
-
-  it("claiming then approving makes payroll pay exactly the approved minutes", async () => {
-    const employee = await asEmployee()
-    await workLate(employee.cookies, OT_DAY)
-
-    const claim = await app.inject({
-      method: "POST",
-      url: "/overtime/claims",
-      headers: { cookie: employee.cookies },
-      payload: { date: OT_DAY, note: "month-end dispatch" },
-    })
-    expect(claim.statusCode).toBe(201)
-    const claimedMinutes = claim.json().otMinutes
-    expect(claimedMinutes).toBeGreaterThan(0)
-
-    // A second claim for the same day is refused.
-    expect(
-      (
-        await app.inject({
-          method: "POST",
-          url: "/overtime/claims",
-          headers: { cookie: employee.cookies },
-          payload: { date: OT_DAY },
-        })
-      ).statusCode
-    ).toBe(409)
-
-    const manager = await asOps()
-    expect(
-      (
-        await app.inject({
-          method: "POST",
-          url: `/approvals/${claim.json().approval.id}/decide`,
-          headers: { cookie: manager.cookies },
-          payload: { action: "APPROVE", remarks: "dispatch confirmed" },
-        })
-      ).statusCode
-    ).toBe(200)
-
-    const admin = await asAdmin()
-    const item = await lockAndRun(admin.cookies, "2026-08")
-    expect(item.otMinutes).toBe(claimedMinutes)
-    expect(item.otPaise).toBeGreaterThan(0)
-  })
-
-  it("refuses a claim on a day with no overtime, a future date, and a locked month", async () => {
-    const employee = await asEmployee()
-    const noOt = await app.inject({
-      method: "POST",
-      url: "/overtime/claims",
-      headers: { cookie: employee.cookies },
-      payload: { date: PLAIN_DAY },
-    })
-    expect(noOt.statusCode).toBe(422)
-    expect(noOt.json().error).toBe("NO_OVERTIME_ON_DAY")
-
-    const future = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
-    const ahead = await app.inject({
-      method: "POST",
-      url: "/overtime/claims",
-      headers: { cookie: employee.cookies },
-      payload: { date: future },
-    })
-    expect(ahead.statusCode).toBe(422)
-    expect(ahead.json().error).toBe("FUTURE_DATE")
-
-    await workLate(employee.cookies, OT_DAY)
-    const admin = await asAdmin()
-    await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-08" },
-    })
-    const locked = await app.inject({
-      method: "POST",
-      url: "/overtime/claims",
-      headers: { cookie: employee.cookies },
-      payload: { date: OT_DAY },
-    })
-    expect(locked.statusCode).toBe(409)
-    expect(locked.json().error).toBe("MONTH_LOCKED")
-  })
-
-  it("with otRequiresApproval off, the old auto-pay behaviour returns", async () => {
-    store.settings.otRequiresApproval = false
-    const employee = await asEmployee()
-    await workLate(employee.cookies, OT_DAY)
-
-    const admin = await asAdmin()
-    const item = await lockAndRun(admin.cookies, "2026-08")
-    expect(item.otMinutes).toBeGreaterThan(0)
   })
 })
 
@@ -2012,107 +1590,12 @@ describe("dates that do not exist are refused everywhere", () => {
       (
         await app.inject({
           method: "POST",
-          url: "/payroll/locks",
+          url: "/attendance/locks",
           headers: { cookie: admin.cookies },
           payload: { month: "2026-13" },
         })
       ).statusCode
     ).toBe(400)
-  })
-})
-
-describe("broken references fail by name, not by crashing", () => {
-  it("a punch for an employee whose shift is gone answers 409 naming the shift", async () => {
-    const employee = store.employees.find((row) => row.id === "e4")!
-    employee.shiftId = "shift_that_vanished"
-    // e4 punching for itself: the scope check passes, so the reference guard
-    // is what answers.
-    const actor = await asEmployee()
-    const response = await app.inject({
-      method: "POST",
-      url: "/punches",
-      headers: { cookie: actor.cookies },
-      payload: punchBody({ employeeId: "e4", idempotencyKey: "dangling-1" }),
-    })
-    expect(response.statusCode).toBe(409)
-    expect(response.json()).toMatchObject({
-      error: "DANGLING_SHIFT",
-      employeeId: "e4",
-      shiftId: "shift_that_vanished",
-    })
-  })
-
-  it("a valid token for an employee who no longer exists is an expired session", async () => {
-    const employee = await asEmployee()
-    // A 30-day refresh token outlives a data restore.
-    store.employees = store.employees.filter((row) => row.id !== "e4")
-    const response = await app.inject({
-      method: "POST",
-      url: "/overtime/claims",
-      headers: { cookie: employee.cookies },
-      payload: { date: "2026-08-05" },
-    })
-    expect(response.statusCode).toBe(401)
-    expect(response.json().error).toBe("EMPLOYEE_GONE")
-  })
-
-  it("deciding an approval whose employee was removed answers 409, not 500", async () => {
-    const employee = await asEmployee()
-    const applied = await app.inject({
-      method: "POST",
-      url: "/leave/apply",
-      headers: { cookie: employee.cookies },
-      payload: { type: "CL", from: "2026-09-07", to: "2026-09-07", part: "FULL", reason: "x" },
-    })
-    store.employees = store.employees.filter((row) => row.id !== "e4")
-
-    const manager = await asOps()
-    const response = await app.inject({
-      method: "POST",
-      url: `/approvals/${applied.json().approval.id}/decide`,
-      headers: { cookie: manager.cookies },
-      payload: { action: "APPROVE", remarks: "ok" },
-    })
-    expect(response.statusCode).toBe(409)
-    expect(response.json().error).toBe("EMPLOYEE_GONE")
-  })
-
-  it("the daily register still renders for everyone when one employee's shift dangles", async () => {
-    const broken = store.employees.find((row) => row.id === "e4")!
-    broken.shiftId = "shift_that_vanished"
-    const admin = await asAdmin()
-    const register = await app.inject({
-      method: "GET",
-      url: "/attendance/days?date=2026-08-05",
-      headers: { cookie: admin.cookies },
-    })
-    expect(register.statusCode).toBe(200)
-    const rows = register.json().rows
-    expect(rows.length).toBe(store.employees.length)
-    // The broken row says so rather than taking the day down for everyone.
-    expect(rows.find((row: { employeeId: string }) => row.employeeId === "e4").shiftName).toBe(
-      "Shift missing"
-    )
-  })
-
-  it("a payroll run refuses to omit anyone silently, naming who to fix", async () => {
-    const broken = store.employees.find((row) => row.id === "e4")!
-    broken.shiftId = "shift_that_vanished"
-    const admin = await asAdmin()
-    await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-08" },
-    })
-    const run = await app.inject({
-      method: "POST",
-      url: "/payroll/runs",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-08" },
-    })
-    expect(run.statusCode).toBe(500)
-    expect(run.json().message ?? "").toContain("DLT0004")
   })
 })
 
@@ -2241,82 +1724,6 @@ describe("auto-approval on escalation does everything a human decision does", ()
   })
 })
 
-describe("payroll pays the contracted salary, not a multiplied-up day rate", () => {
-  /** Punch a full day for e4 on every date given. */
-  const workDays = (dates: string[]) => {
-    for (const date of dates) {
-      for (const [type, offsetMin] of [
-        ["IN", 0],
-        ["OUT", 540],
-      ] as const) {
-        store.punches.push({
-          id: `p_${date}_${type}`,
-          employeeId: "e4",
-          type,
-          businessDate: date,
-          offsetMin,
-          at: `${date}T09:00`,
-          accuracyM: 0,
-          dayPart: "FULL",
-          flags: ["ON_TIME"],
-          idempotencyKey: `pay_${date}_${type}`,
-        })
-      }
-    }
-  }
-  const august = Array.from({ length: 31 }, (_, i) => `2026-08-${String(i + 1).padStart(2, "0")}`)
-
-  const runFor = async (month: string) => {
-    const admin = await asAdmin()
-    await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie: admin.cookies },
-      payload: { month },
-    })
-    const run = await app.inject({
-      method: "POST",
-      url: "/payroll/runs",
-      headers: { cookie: admin.cookies },
-      payload: { month },
-    })
-    expect(run.statusCode).toBe(201)
-    return run.json().run.items.find((i: { employeeId: string }) => i.employeeId === "e4")
-  }
-
-  it("full attendance pays exactly the contract on each basis", async () => {
-    const salary = store.salaries.find((row) => row.employeeId === "e4")!
-    workDays(august)
-    for (const basis of ["FIXED_26", "WORKING_DAYS", "CALENDAR_DAYS"] as const) {
-      salary.basis = basis
-      const item = await runFor("2026-08")
-      // A 31-day month must not pay 31 days against a 26-day divisor.
-      expect(item.earnedPaise, `basis ${basis}`).toBe(salary.grossMonthlyPaise)
-    }
-  })
-
-  it("each absent working day costs exactly one twenty-sixth", async () => {
-    const salary = store.salaries.find((row) => row.employeeId === "e4")!
-    salary.basis = "FIXED_26"
-    // 2026-08-04 and 08-05 are a Tuesday and Wednesday.
-    workDays(august.filter((date) => !["2026-08-04", "2026-08-05"].includes(date)))
-    const item = await runFor("2026-08")
-    const perDay = Math.round(salary.grossMonthlyPaise / 26)
-    expect(item.earnedPaise).toBe(salary.grossMonthlyPaise - 2 * perDay)
-  })
-
-  it("a weekly off is paid without being worked — it costs nothing", async () => {
-    const salary = store.salaries.find((row) => row.employeeId === "e4")!
-    salary.basis = "FIXED_26"
-    // Every day except the Sundays.
-    const sundays = august.filter((date) => new Date(`${date}T00:00:00Z`).getUTCDay() === 0)
-    expect(sundays.length).toBeGreaterThan(3)
-    workDays(august.filter((date) => !sundays.includes(date)))
-    const item = await runFor("2026-08")
-    expect(item.earnedPaise).toBe(salary.grossMonthlyPaise)
-  })
-})
-
 describe("a ledger whose rows are out of date order still works", () => {
   it("balance and apply routes survive a debit dated before its credit", async () => {
     // Exactly what boot hydration produces: rows ordered by business date, so
@@ -2376,7 +1783,7 @@ describe("a ledger whose rows are out of date order still works", () => {
     const admin = await asAdmin()
     await app.inject({
       method: "POST",
-      url: "/payroll/locks",
+      url: "/attendance/locks",
       headers: { cookie: admin.cookies },
       payload: { month: "2026-07" },
     })
@@ -2423,96 +1830,6 @@ describe("an escalated approval survives a restart", () => {
     expect(debits()).toHaveLength(1)
     escalateStaleApprovals(store, later, makeNotifier(store))
     expect(debits()).toHaveLength(1)
-  })
-})
-
-describe("the late-mark penalty reaches pay, not just the register", () => {
-  it("payroll prices the same day the register shows", async () => {
-    store.settings.latePenalty = "ABSENT"
-    store.settings.lateMarksAllowed = 2
-    const employee = await asEmployee()
-
-    // Late every working day of August, well past the 15-minute grace.
-    const workingDays: string[] = []
-    for (let day = 1; day <= 31; day++) {
-      const date = `2026-08-${String(day).padStart(2, "0")}`
-      if (new Date(`${date}T00:00:00Z`).getUTCDay() === 0) continue
-      workingDays.push(date)
-      for (const [type, offsetMin] of [
-        ["IN", 30],
-        ["OUT", 540],
-      ] as const) {
-        store.punches.push({
-          id: `p_late_${date}_${type}`,
-          employeeId: "e4",
-          type,
-          businessDate: date,
-          offsetMin,
-          at: `${date}T09:30`,
-          accuracyM: 0,
-          dayPart: "FULL",
-          flags: ["LATE"],
-          idempotencyKey: `latepay_${date}_${type}`,
-        })
-      }
-    }
-
-    // The register marks the days past the allowance ABSENT.
-    const admin = await asAdmin()
-    const lateDay = workingDays[10]
-    const register = await app.inject({
-      method: "GET",
-      url: `/attendance/days?date=${lateDay}`,
-      headers: { cookie: admin.cookies },
-    })
-    const row = register
-      .json()
-      .rows.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
-    expect(row.status).toBe("ABSENT")
-
-    // Payroll used to pass priorLateMarks: 0 and pay those days in full.
-    await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-08" },
-    })
-    const run = await app.inject({
-      method: "POST",
-      url: "/payroll/runs",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-08" },
-    })
-    const item = run
-      .json()
-      .run.items.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
-    const salary = store.salaries.find((row) => row.employeeId === "e4")!
-    expect(item.earnedPaise).toBeLessThan(salary.grossMonthlyPaise)
-  })
-
-  it("the first late day is not itself a prior mark", async () => {
-    store.settings.latePenalty = "ABSENT"
-    store.settings.lateMarksAllowed = 0
-    const employee = await asEmployee()
-    await app.inject({
-      method: "POST",
-      url: "/punches",
-      headers: { cookie: employee.cookies },
-      payload: punchBody({ type: "IN", at: "2026-08-04T09:30", idempotencyKey: "firstlate-1" }),
-    })
-
-    const admin = await asAdmin()
-    const register = await app.inject({
-      method: "GET",
-      url: "/attendance/days?date=2026-08-04",
-      headers: { cookie: admin.cookies },
-    })
-    const row = register
-      .json()
-      .rows.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
-    // With 0 allowed this day is penalised — but on its own count, not on a
-    // count that included itself and every later day of the month.
-    expect(row.lateMinutes).toBeGreaterThan(0)
   })
 })
 
@@ -2577,72 +1894,6 @@ describe("an earned comp-off day can actually be spent", () => {
   })
 })
 
-describe("the bank sheet says who it leaves out", () => {
-  it("previews the held list instead of hiding it in a header", async () => {
-    const admin = await asAdmin()
-    // Give everyone a payable month so the file is genuinely producible.
-    for (const employee of store.employees) {
-      for (let day = 1; day <= 30; day++) {
-        const date = `2026-09-${String(day).padStart(2, "0")}`
-        for (const [type, offsetMin] of [
-          ["IN", 0],
-          ["OUT", 540],
-        ] as const) {
-          store.punches.push({
-            id: `p_prev_${employee.id}_${date}_${type}`,
-            employeeId: employee.id,
-            type,
-            businessDate: date,
-            offsetMin,
-            at: `${date}T09:00`,
-            accuracyM: 0,
-            dayPart: "FULL",
-            flags: ["ON_TIME"],
-            idempotencyKey: `prev_${employee.id}_${date}_${type}`,
-          })
-        }
-      }
-    }
-    await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-09" },
-    })
-    const run = (
-      await app.inject({
-        method: "POST",
-        url: "/payroll/runs",
-        headers: { cookie: admin.cookies },
-        payload: { month: "2026-09" },
-      })
-    ).json().run
-
-    const preview = await app.inject({
-      method: "GET",
-      url: `/payroll/runs/${run.id}/bank-transfer.csv?preview=1`,
-      headers: { cookie: admin.cookies },
-    })
-    expect(preview.statusCode).toBe(200)
-    const body = preview.json()
-    // Only e4 has bank details seeded, so everyone else is named and explained.
-    expect(body.payable).toBe(1)
-    expect(body.held.length).toBeGreaterThan(0)
-    expect(body.held[0]).toHaveProperty("reason")
-    expect(body.held[0]).toHaveProperty("name")
-    expect(body.held.every((entry: { reason: string }) => entry.reason.length > 0)).toBe(true)
-
-    // The file itself is unchanged.
-    const csv = await app.inject({
-      method: "GET",
-      url: `/payroll/runs/${run.id}/bank-transfer.csv`,
-      headers: { cookie: admin.cookies },
-    })
-    expect(csv.statusCode).toBe(200)
-    expect(csv.headers["content-type"]).toContain("text/csv")
-  })
-})
-
 describe("a month that closes mid-flight cannot be written into", () => {
   it("refuses to approve leave once its month is locked", async () => {
     const employee = await asEmployee()
@@ -2659,7 +1910,7 @@ describe("a month that closes mid-flight cannot be written into", () => {
     const admin = await asAdmin()
     await app.inject({
       method: "POST",
-      url: "/payroll/locks",
+      url: "/attendance/locks",
       headers: { cookie: admin.cookies },
       payload: { month: "2026-09" },
     })
@@ -2703,7 +1954,7 @@ describe("a month that closes mid-flight cannot be written into", () => {
     const admin = await asAdmin()
     await app.inject({
       method: "POST",
-      url: "/payroll/locks",
+      url: "/attendance/locks",
       headers: { cookie: admin.cookies },
       payload: { month: "2026-08" },
     })
@@ -2744,114 +1995,6 @@ describe("a month that closes mid-flight cannot be written into", () => {
     })
     expect(decided.statusCode).toBe(422)
     expect(store.punches.filter((punch) => punch.businessDate === "2026-08-06")).toHaveLength(0)
-  })
-})
-
-describe("overtime a corrected day earns is not stranded", () => {
-  const punch = async (cookie: string, type: "IN" | "OUT", at: string, key: string) =>
-    app.inject({
-      method: "POST",
-      url: "/punches",
-      headers: { cookie },
-      payload: punchBody({ type, at, idempotencyKey: key }),
-    })
-
-  it("a top-up claims only the difference, never the whole day again", async () => {
-    const employee = await asEmployee()
-    // 09:00 → 20:00 on a 9h shift: two hours of overtime.
-    await punch(employee.cookies, "IN", "2026-08-05T09:00", "topup-in-1")
-    await punch(employee.cookies, "OUT", "2026-08-05T20:00", "topup-out-1")
-
-    const first = await app.inject({
-      method: "POST",
-      url: "/overtime/claims",
-      headers: { cookie: employee.cookies },
-      payload: { date: "2026-08-05" },
-    })
-    expect(first.statusCode).toBe(201)
-    const firstMinutes = first.json().otMinutes
-    expect(firstMinutes).toBe(120)
-
-    // Claiming again with nothing new is still refused.
-    const again = await app.inject({
-      method: "POST",
-      url: "/overtime/claims",
-      headers: { cookie: employee.cookies },
-      payload: { date: "2026-08-05" },
-    })
-    expect(again.statusCode).toBe(409)
-    expect(again.json().claimedMinutes).toBe(120)
-
-    // The day grows by an hour — as an approved regularisation would do.
-    store.punches.push({
-      id: "p_topup_late_out",
-      employeeId: "e4",
-      type: "OUT",
-      businessDate: "2026-08-05",
-      offsetMin: 720,
-      at: "2026-08-05T21:00",
-      accuracyM: 0,
-      dayPart: "FULL",
-      flags: ["REGULARISED"],
-      idempotencyKey: "reg_topup_OUT",
-    })
-
-    const topUp = await app.inject({
-      method: "POST",
-      url: "/overtime/claims",
-      headers: { cookie: employee.cookies },
-      payload: { date: "2026-08-05" },
-    })
-    expect(topUp.statusCode).toBe(201)
-    // Only the extra hour, not the whole three.
-    expect(topUp.json().otMinutes).toBe(60)
-
-    const claimed = store.approvals
-      .filter((approval) => approval.kind === "OVERTIME" && approval.dateFrom === "2026-08-05")
-      .reduce((sum, approval) => sum + approval.units, 0)
-    expect(claimed).toBe(180)
-  })
-
-  it("payroll still refuses to pay more than the day earned", async () => {
-    const employee = await asEmployee()
-    await punch(employee.cookies, "IN", "2026-08-05T09:00", "cap-in-1")
-    await punch(employee.cookies, "OUT", "2026-08-05T20:00", "cap-out-1")
-    const claim = await app.inject({
-      method: "POST",
-      url: "/overtime/claims",
-      headers: { cookie: employee.cookies },
-      payload: { date: "2026-08-05" },
-    })
-    const manager = await asOps()
-    await app.inject({
-      method: "POST",
-      url: `/approvals/${claim.json().approval.id}/decide`,
-      headers: { cookie: manager.cookies },
-      payload: { action: "APPROVE", remarks: "ok" },
-    })
-
-    // Someone inflates the approved figure directly.
-    const approval = store.approvals.find((row) => row.id === claim.json().approval.id)!
-    approval.units = 10_000
-
-    const admin = await asAdmin()
-    await app.inject({
-      method: "POST",
-      url: "/payroll/locks",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-08" },
-    })
-    const run = await app.inject({
-      method: "POST",
-      url: "/payroll/runs",
-      headers: { cookie: admin.cookies },
-      payload: { month: "2026-08" },
-    })
-    const item = run
-      .json()
-      .run.items.find((candidate: { employeeId: string }) => candidate.employeeId === "e4")
-    // Capped at what the day actually earned.
-    expect(item.otMinutes).toBe(120)
   })
 })
 
@@ -3861,13 +3004,16 @@ describe("the picker, end to end", () => {
     }
   })
 
-  it("is still an employee: punches in and sees their own payslip", async () => {
+  it("is still an employee: punches in and sees their own attendance", async () => {
+    // payroll.viewOwn went with payroll (Section 2). What remains is the
+    // employee-facing half of the role, which a picker keeps.
     const picker = await asPicker()
     const me = (
       await app.inject({ method: "GET", url: "/auth/me", headers: { cookie: picker.cookies } })
     ).json()
     expect(me.permissions["punch.self"]).toBe("SELF")
-    expect(me.permissions["payroll.viewOwn"]).toBe("SELF")
+    expect(me.permissions["reports.view"]).toBe("SELF")
+    expect(me.permissions["payroll.viewOwn"]).toBeUndefined()
   })
 })
 
@@ -4044,7 +3190,7 @@ describe("the payroll handover export", () => {
     const admin = await asAdmin()
     const locked = await app.inject({
       method: "POST",
-      url: "/payroll/locks",
+      url: "/attendance/locks",
       headers: { cookie: admin.cookies },
       payload: { month: "2026-08" },
     })

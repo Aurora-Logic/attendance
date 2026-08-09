@@ -118,7 +118,7 @@ function EmployeeSheet() {
         <SheetHeader>
           <SheetTitle>New employee</SheetTitle>
           <SheetDescription>
-            Creates the employee and their login. Salary structure is set separately.
+            Creates the employee and their login.
           </SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-4">
@@ -164,7 +164,7 @@ function EmployeeSheet() {
                       type="email"
                       aria-invalid={fieldState.invalid}
                     />
-                    <FieldDescription>Used for the login and payslip delivery.</FieldDescription>
+                    <FieldDescription>Used for the login and notifications.</FieldDescription>
                     {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
                   </Field>
                 )}

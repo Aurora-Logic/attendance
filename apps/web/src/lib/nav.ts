@@ -25,7 +25,6 @@ import {
   Truck,
   Warehouse,
   Users,
-  Wallet,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
@@ -268,13 +267,6 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: BadgeIndianRupee,
         phase: 4,
         permission: "expense.claim",
-      },
-      {
-        title: "Payroll",
-        url: "/payroll",
-        icon: Wallet,
-        phase: 7,
-        permission: "payroll.manage",
       },
     ],
   },

@@ -278,77 +278,6 @@ export function seedLeaveLedger(): LeaveLedgerRow[] {
   })
 }
 
-/* ------------------------------------------------------------------ payroll */
-
-export interface PayrollRun {
-  id: string
-  period: string
-  branch: string
-  runType: "REGULAR" | "ADJUSTMENT" | "FNF"
-  status: "DRAFT" | "CALCULATED" | "APPROVED" | "RELEASED"
-  employees: number
-  grossPaise: number
-  deductionsPaise: number
-  netPaise: number
-  attendanceLocked: boolean
-  version: number
-}
-
-export const PAYROLL_RUNS: PayrollRun[] = [
-  {
-    id: "run_2026_07",
-    period: "July 2026",
-    branch: "All branches",
-    runType: "REGULAR",
-    status: "RELEASED",
-    employees: 30,
-    grossPaise: 428_50_000,
-    deductionsPaise: 61_20_000,
-    netPaise: 367_30_000,
-    attendanceLocked: true,
-    version: 1,
-  },
-  {
-    id: "run_2026_06_adj",
-    period: "June 2026",
-    branch: "Pune Plant",
-    runType: "ADJUSTMENT",
-    status: "RELEASED",
-    employees: 4,
-    grossPaise: 18_40_000,
-    deductionsPaise: 2_10_000,
-    netPaise: 16_30_000,
-    attendanceLocked: true,
-    version: 2,
-  },
-  {
-    id: "run_2026_06",
-    period: "June 2026",
-    branch: "All branches",
-    runType: "REGULAR",
-    status: "RELEASED",
-    employees: 29,
-    grossPaise: 411_80_000,
-    deductionsPaise: 58_90_000,
-    netPaise: 352_90_000,
-    attendanceLocked: true,
-    version: 1,
-  },
-  {
-    id: "run_2026_08",
-    period: "August 2026",
-    branch: "All branches",
-    runType: "REGULAR",
-    status: "DRAFT",
-    employees: 30,
-    grossPaise: 0,
-    deductionsPaise: 0,
-    netPaise: 0,
-    attendanceLocked: false,
-    version: 1,
-  },
-]
-
 /* ------------------------------------------------------------------- audit */
 
 export interface AuditRow {
@@ -368,7 +297,7 @@ export function seedAudit(): AuditRow[] {
     ["settings.update", "settings", "late_grace_minutes"],
     ["leave.approve", "leave_requests", "REQ-1204"],
     ["employee.update", "employees", "DLT0012"],
-    ["payroll.lock", "attendance_month_locks", "2026-07"],
+    ["attendance.period_locked", "attendance_month_locks", "2026-07"],
     ["punch.regularise", "punches", "PCH-88213"],
     ["role.grant", "user_roles", "USR-31"],
   ]
@@ -457,13 +386,6 @@ export const REPORTS: ReportDef[] = [
     phase: 6,
   },
   {
-    key: "salary-register",
-    title: "Salary register",
-    description: "Component-wise register with SUM totals, plus a bank upload sheet.",
-    sheets: ["Register", "Bank Upload"],
-    phase: 7,
-  },
-  {
     key: "headcount",
     title: "Headcount & attrition",
     description: "Joiners, leavers and rolling attrition by department.",
@@ -491,15 +413,6 @@ export const EXPORT_JOBS: ExportJob[] = [
     status: "READY",
     progress: 100,
     requestedAt: "09:14",
-  },
-  {
-    id: "exp_2",
-    report: "Salary register",
-    filename: "Delta_SalaryRegister_All_2026-07.xlsx",
-    rows: 30,
-    status: "READY",
-    progress: 100,
-    requestedAt: "09:02",
   },
   {
     id: "exp_1",

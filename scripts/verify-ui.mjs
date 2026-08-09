@@ -37,7 +37,7 @@ const ROUTES = [
   "/indents",
   "/expenses",
   "/reports",
-  "/payroll",
+
   "/roles",
   "/settings",
   "/audit",

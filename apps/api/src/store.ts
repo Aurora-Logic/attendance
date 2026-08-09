@@ -6,7 +6,6 @@ import {
   DEFAULT_MATRIX,
   DEFAULT_OPERATIONS_SETTINGS,
   type AttendanceSettings,
-  type BankDetails,
   type Notification,
   type OperationsSettings,
   type SyncConflict,
@@ -138,38 +137,13 @@ export interface LedgerRow {
   remarks: string
 }
 
-export interface SalaryRecord {
-  employeeId: string
-  grossMonthlyPaise: number
-  basis: "CALENDAR_DAYS" | "WORKING_DAYS" | "FIXED_26"
-  /** Where the salary is transferred. Absent until HR fills it in. */
-  bank?: BankDetails
-}
-
-export interface PayrollRunItem {
-  employeeId: string
-  code: string
-  name: string
-  payableDays: number
-  perDayPaise: number
-  earnedPaise: number
-  otMinutes: number
-  otPaise: number
-  grossPaise: number
-}
-
-export interface PayrollRunRecord {
-  id: string
-  month: string
-  version: number
-  status: "RELEASED"
-  lockId: string
-  createdBy: string
-  createdAt: string
-  items: PayrollRunItem[]
-  totalGrossPaise: number
-}
-
+/**
+ * A locked attendance period.
+ *
+ * Payroll was removed (work order Section 2) but this outlived it: it is what
+ * stops a paid month being edited after the fact, and the payroll handover
+ * export refuses to run for a period that is not locked.
+ */
 export interface MonthLock {
   id: string
   month: string
@@ -203,9 +177,7 @@ export interface Store {
   matrix: PermissionMatrix
   branding: Branding
   exportJobs: ExportJobRecord[]
-  salaries: SalaryRecord[]
   monthLocks: MonthLock[]
-  payrollRuns: PayrollRunRecord[]
   /** In-app notification feed, newest first. */
   notifications: Notification[]
   /** Masters mirrored from Tally, keyed by entity + tallyGuid. */
@@ -349,31 +321,7 @@ export function seedStore(): Store {
     exportJobs: [],
     // §6 v1: one gross per employee. Component-wise structures and statutory
     // deductions are the deferred 7b scope.
-    salaries: [
-      { employeeId: "e1", grossMonthlyPaise: 9_100_000, basis: "FIXED_26" },
-      { employeeId: "e2", grossMonthlyPaise: 6_500_000, basis: "FIXED_26" },
-      { employeeId: "e3", grossMonthlyPaise: 5_200_000, basis: "FIXED_26" },
-      {
-        employeeId: "e4",
-        grossMonthlyPaise: 2_600_000,
-        basis: "FIXED_26",
-        // One seeded employee carries bank details so the transfer sheet has
-        // something real to produce; the rest exercise the held-back path.
-        bank: {
-          accountName: "Kabir Singh",
-          accountNumber: "50100234567890",
-          ifsc: "HDFC0001234",
-          bankName: "HDFC Bank",
-          pan: "ABCDE1234F",
-          uan: "100200300400",
-        },
-      },
-      { employeeId: "e5", grossMonthlyPaise: 3_900_000, basis: "CALENDAR_DAYS" },
-      { employeeId: "e6", grossMonthlyPaise: 3_100_000, basis: "FIXED_26" },
-      { employeeId: "e7", grossMonthlyPaise: 2_400_000, basis: "FIXED_26" },
-    ],
     monthLocks: [],
-    payrollRuns: [],
     notifications: [],
     tallyRecords: [],
     tallyConflicts: [],

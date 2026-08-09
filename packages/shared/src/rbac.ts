@@ -57,18 +57,6 @@ export const PERMISSIONS: PermissionDef[] = [
     description: "Full employee lifecycle including probation and exit.",
   },
   {
-    key: "payroll.manage",
-    group: "Payroll",
-    label: "Salary structure, payroll run & payslips",
-    description: "Run payroll against a locked month and release payslips.",
-  },
-  {
-    key: "payroll.viewOwn",
-    group: "Payroll",
-    label: "View own payslip",
-    description: "Download released payslips for oneself.",
-  },
-  {
     key: "leave.policy",
     group: "Leave",
     label: "Leave policy config & balance adjust",
@@ -191,8 +179,6 @@ export type PermissionMatrix = Record<string, Record<Role, Scope>>
 export const DEFAULT_MATRIX: PermissionMatrix = {
   "config.manage": { ADMIN: "ALL", HR: "VIEW", OPERATIONS: "VIEW", PICKER: "NONE", EMPLOYEE: "NONE" },
   "employee.manage": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "NONE", PICKER: "NONE", EMPLOYEE: "NONE" },
-  "payroll.manage": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "NONE", PICKER: "NONE", EMPLOYEE: "NONE" },
-  "payroll.viewOwn": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "SELF", PICKER: "SELF", EMPLOYEE: "SELF" },
   "leave.policy": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "NONE", PICKER: "NONE", EMPLOYEE: "NONE" },
   "leave.approve": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "OWN_TEAM", PICKER: "NONE", EMPLOYEE: "NONE" },
   "attendance.approve": { ADMIN: "ALL", HR: "ALL", OPERATIONS: "OWN_TEAM", PICKER: "NONE", EMPLOYEE: "NONE" },
@@ -238,14 +224,12 @@ const DOCUMENT_CAPABILITIES = new Set([
   "procurement.view",
   "sales.manage",
   "sales.view",
-  "payroll.manage",
   "leave.policy",
   "audit.view",
 ])
 
 export function allowedScopes(permissionKey: string): Scope[] {
   if (permissionKey === "punch.self") return ["NONE", "SELF"]
-  if (permissionKey === "payroll.viewOwn") return ["NONE", "SELF", "ALL"]
   if (permissionKey === "expense.claim") return ["NONE", "SELF"]
   if (permissionKey === "expense.approve") return ["NONE", "OWN_TEAM", "ALL"]
   if (DOCUMENT_CAPABILITIES.has(permissionKey)) return ["NONE", "VIEW", "ALL"]

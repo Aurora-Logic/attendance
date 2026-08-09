@@ -41,7 +41,6 @@ const EmployeesPage = lazyRoute(
 );
 const LeavePage = lazyRoute(() => import("@/routes/leave"), "LeavePage");
 const ItemsPage = lazyRoute(() => import("@/routes/items"), "ItemsPage");
-const PayrollPage = lazyRoute(() => import("@/routes/payroll"), "PayrollPage");
 const PlaceholderPage = lazyRoute(
   () => import("@/routes/placeholder"),
   "PlaceholderPage",
@@ -310,14 +309,6 @@ export default function App() {
             element={
               <RequirePermission permission="reports.view">
                 <ReportsPage />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="payroll"
-            element={
-              <RequirePermission permission="payroll.manage">
-                <PayrollPage />
               </RequirePermission>
             }
           />

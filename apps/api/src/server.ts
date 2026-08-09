@@ -13,9 +13,6 @@ import {
   operationsSettingsSchema,
   operationsSettingsWarnings,
   OPERATIONS_MODULES,
-  bankDetailsSchema,
-  buildBankTransferCsv,
-  buildPayrollJournal,
   checkGeofence,
   compOffCredit,
   computeAttendanceDay,
@@ -39,7 +36,6 @@ import {
   ROLES,
   scopeSchema,
   shiftSpecSchema,
-  splitForDisbursement,
   unreadCount,
   type PunchFlag,
   type Role,
@@ -49,7 +45,6 @@ import {
 import { auditPage, prisma, recordAudit } from "./db"
 import { makeNotifier } from "./notify"
 import { applyApproval, canApplyApproval } from "./approve"
-import { computeRunItems } from "./payroll"
 import { enqueueExport, ExportQueueUnavailable, exportFileStream } from "./exports"
 import {
   clearCalendarDay,
@@ -1150,16 +1145,23 @@ export async function buildServer(
     }
   )
 
-  // ---- §6 payroll: lock -> run, never the other way round ------------------
+  // ---- locked attendance periods -----------------------------------------
+  /**
+   * Payroll is run outside this product (work order Section 2), so the payroll
+   * run, payslips and the bank-transfer file are gone. The **period lock**
+   * stays, because it is an attendance concept that outlived them: it is what
+   * stops a paid month being edited after the fact, and what the payroll
+   * handover export refuses to run without.
+   */
   app.get(
-    "/payroll",
-    { preHandler: [authenticate, requirePermission("payroll.manage")] },
-    async () => ({ locks: store.monthLocks, runs: store.payrollRuns })
+    "/attendance/locks",
+    { preHandler: [authenticate, requirePermission("attendance.approve")] },
+    async () => ({ locks: store.monthLocks })
   )
 
   app.post(
-    "/payroll/locks",
-    { preHandler: [authenticate, requirePermission("payroll.manage", { write: true })] },
+    "/attendance/locks",
+    { preHandler: [authenticate, requirePermission("attendance.approve", { write: true })] },
     async (request, reply) => {
       const parsed = z.object({ month: isoMonthSchema }).safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
@@ -1174,7 +1176,6 @@ export async function buildServer(
         lockedAt: new Date().toISOString(),
       }
       store.monthLocks.push(lock)
-      // A8 in the real schema: payroll_runs.lockId is a non-null FK to this row.
       const db = prisma()
       if (db) {
         void db.attendanceMonthLock
@@ -1187,212 +1188,13 @@ export async function buildServer(
       }
       recordAudit({
         actorId: request.auth.userId,
-        action: "payroll.lock",
+        action: "attendance.period_locked",
         entity: "attendance_month_locks",
         entityId: month,
         after: lock,
         ip: request.ip,
       })
       return reply.code(201).send({ lock })
-    }
-  )
-
-  app.post(
-    "/payroll/runs",
-    { preHandler: [authenticate, requirePermission("payroll.manage", { write: true })] },
-    async (request, reply) => {
-      const parsed = z.object({ month: isoMonthSchema }).safeParse(request.body)
-      if (!parsed.success) return reply.code(400).send({ error: "BAD_REQUEST" })
-      const { month } = parsed.data
-
-      // §11: payroll never reads unlocked attendance. Not a warning — a refusal.
-      const lock = store.monthLocks.find((candidate) => candidate.month === month)
-      if (!lock) return reply.code(409).send({ error: "MONTH_NOT_LOCKED" })
-
-      const items = computeRunItems(store, month, calendarDays)
-      const version =
-        store.payrollRuns.filter((run) => run.month === month).length + 1
-      const run = {
-        id: id(store, "run"),
-        month,
-        version,
-        status: "RELEASED" as const,
-        lockId: lock.id,
-        createdBy: request.auth.userId,
-        createdAt: new Date().toISOString(),
-        items,
-        totalGrossPaise: items.reduce((sum, item) => sum + item.grossPaise, 0),
-      }
-      // Immutable once created — corrections are a new version, never an edit.
-      store.payrollRuns.unshift(run)
-      recordAudit({
-        actorId: request.auth.userId,
-        action: "payroll.run",
-        entity: "payroll_runs",
-        entityId: run.id,
-        after: { month, version, totalGrossPaise: run.totalGrossPaise, items: items.length },
-        ip: request.ip,
-      })
-      return reply.code(201).send({ run })
-    }
-  )
-
-  // The accounting hand-off: a released run downloads as a balanced Tally
-  // journal voucher (Gateway of Tally → Import Data, or POST to :9000).
-  app.get(
-    "/payroll/runs/:id/tally.xml",
-    { preHandler: [authenticate, requirePermission("payroll.manage")] },
-    async (request, reply) => {
-      const run = store.payrollRuns.find(
-        (candidate) => candidate.id === (request.params as { id: string }).id
-      )
-      if (!run) return reply.code(404).send({ error: "NOT_FOUND" })
-      try {
-        const xml = buildPayrollJournal({
-          company: store.settings.tallyCompanyName || store.branding.companyName,
-          month: run.month,
-          items: run.items,
-          expenseLedger: store.settings.tallySalaryExpenseLedger,
-          payableLedger: store.settings.tallySalaryPayableLedger,
-          perEmployeeLedgers: store.settings.tallyPerEmployeeLedgers,
-          version: run.version,
-        })
-        recordAudit({
-          actorId: request.auth.userId,
-          action: "payroll.tally_export",
-          entity: "payroll_runs",
-          entityId: run.id,
-          after: { month: run.month, version: run.version },
-          ip: request.ip,
-        })
-        return reply
-          .header("content-type", "application/xml; charset=utf-8")
-          .header(
-            "content-disposition",
-            `attachment; filename="Tally_Salary_${run.month}_v${run.version}.xml"`
-          )
-          .send(xml)
-      } catch (error) {
-        // e.g. an all-zero month — refuse honestly rather than emit bad books.
-        return reply.code(422).send({ error: "NO_VOUCHER", detail: (error as Error).message })
-      }
-    }
-  )
-
-  // ---- bank details & disbursement ---------------------------------------
-  // Bank details are payroll data, not employee data: they gate money, so
-  // they sit behind payroll.manage rather than employee.manage.
-  app.get(
-    "/salaries",
-    { preHandler: [authenticate, requirePermission("payroll.manage")] },
-    async () => ({
-      salaries: store.salaries.map((salary) => ({
-        ...salary,
-        // Never ship a full account number to a list view.
-        bank: salary.bank
-          ? { ...salary.bank, accountNumber: maskAccount(salary.bank.accountNumber) }
-          : null,
-      })),
-    })
-  )
-
-  app.put(
-    "/salaries/:employeeId/bank",
-    { preHandler: [authenticate, requirePermission("payroll.manage", { write: true })] },
-    async (request, reply) => {
-      const { employeeId } = request.params as { employeeId: string }
-      if (!employeeById(employeeId)) return reply.code(404).send({ error: "EMPLOYEE_NOT_FOUND" })
-      const parsed = bankDetailsSchema.safeParse(request.body)
-      if (!parsed.success)
-        return reply.code(400).send({ error: "BAD_REQUEST", issues: parsed.error.issues })
-
-      const salary = store.salaries.find((candidate) => candidate.employeeId === employeeId)
-      if (!salary) return reply.code(404).send({ error: "NO_SALARY_RECORD" })
-      const before = salary.bank ? maskAccount(salary.bank.accountNumber) : null
-      salary.bank = parsed.data
-      // The audit records that details changed and the masked tail only —
-      // an append-only log is the last place a full account number belongs.
-      recordAudit({
-        actorId: request.auth.userId,
-        action: "salary.bank_update",
-        entity: "salaries",
-        entityId: employeeId,
-        before: { accountNumber: before },
-        after: { accountNumber: maskAccount(parsed.data.accountNumber), ifsc: parsed.data.ifsc },
-        ip: request.ip,
-      })
-      return { ok: true }
-    }
-  )
-
-  /** The bank upload for a released run, plus who could not be paid and why. */
-  app.get(
-    "/payroll/runs/:id/bank-transfer.csv",
-    { preHandler: [authenticate, requirePermission("payroll.manage")] },
-    async (request, reply) => {
-      const run = store.payrollRuns.find(
-        (candidate) => candidate.id === (request.params as { id: string }).id
-      )
-      if (!run) return reply.code(404).send({ error: "NOT_FOUND" })
-
-      const split = splitForDisbursement(
-        run.items.map((item) => {
-          const salary = store.salaries.find(
-            (candidate) => candidate.employeeId === item.employeeId
-          )
-          return {
-            employeeId: item.employeeId,
-            code: item.code,
-            name: item.name,
-            amountPaise: item.grossPaise,
-            bank: salary?.bank ?? null,
-          }
-        })
-      )
-      // A preview, so the UI can warn before anyone uploads a file that quietly
-      // omits people. The header alone was unreadable from fetch and unread.
-      if ((request.query as { preview?: string }).preview === "1") {
-        return {
-          month: run.month,
-          version: run.version,
-          payable: split.payable.length,
-          totalPayablePaise: split.totalPayablePaise,
-          held: split.held.map((entry) => ({
-            code: entry.row.code,
-            name: entry.row.name,
-            reason: entry.reason,
-          })),
-        }
-      }
-
-      if (split.payable.length === 0)
-        return reply.code(422).send({
-          error: "NOBODY_PAYABLE",
-          held: split.held.map((entry) => ({ code: entry.row.code, reason: entry.reason })),
-        })
-
-      recordAudit({
-        actorId: request.auth.userId,
-        action: "payroll.bank_export",
-        entity: "payroll_runs",
-        entityId: run.id,
-        after: { month: run.month, paid: split.payable.length, held: split.held.length },
-        ip: request.ip,
-      })
-      const csv = buildBankTransferCsv(split, {
-        month: run.month,
-        debitAccount: store.settings.payrollDebitAccount,
-      })
-      return reply
-        .header("content-type", "text/csv; charset=utf-8")
-        .header(
-          "content-disposition",
-          `attachment; filename="BankTransfer_${run.month}_v${run.version}.csv"`
-        )
-        // The held list travels in a header so the UI can warn without a
-        // second request; the file itself stays a clean bank upload.
-        .header("x-held-count", String(split.held.length))
-        .send(csv)
     }
   )
 

@@ -131,3 +131,102 @@ describe("buildPayrollHandover", () => {
     await expect(buildPayrollHandover({ store, dir }, job)).rejects.toThrow(/ghost-shift/)
   })
 })
+
+describe("overtime in the handover is only what was approved", () => {
+  /**
+   * `otRequiresApproval` was read by the payroll run, and payroll left with
+   * Section 2. Without carrying the rule across, the setting would still sit in
+   * Settings governing nothing, and this file would hand over overtime nobody
+   * agreed to pay for.
+   */
+  const workedLate = (employeeId: string, date: string) => {
+    const shift = store.shifts.find((candidate) => candidate.id === "gen")!
+    store.punches.push(
+      {
+        id: `p_in_${date}`,
+        employeeId,
+        type: "IN",
+        businessDate: date,
+        offsetMin: 0,
+        at: `${date}T09:00:00.000Z`,
+        accuracyM: 5,
+        dayPart: "FULL",
+        flags: [],
+        idempotencyKey: `k_in_${date}`,
+      },
+      {
+        id: `p_out_${date}`,
+        employeeId,
+        type: "OUT",
+        businessDate: date,
+        // Three hours past the end of the shift.
+        offsetMin: shift.endMin - shift.startMin + 180,
+        at: `${date}T21:00:00.000Z`,
+        accuracyM: 5,
+        dayPart: "FULL",
+        flags: [],
+        idempotencyKey: `k_out_${date}`,
+      }
+    )
+  }
+
+  const otHoursFor = async (code: string) => {
+    await buildPayrollHandover({ store, dir }, job)
+    const sheet = await read()
+    for (let row = 6; row <= sheet.rowCount; row++) {
+      const cells = sheet.getRow(row).values as unknown[]
+      if (String(cells[1]) === code) return Number(cells[11] ?? 0)
+    }
+    throw new Error(`${code} is not in the handover at all`)
+  }
+
+  it("leaves unapproved overtime out when approval is required", async () => {
+    store.settings.otRequiresApproval = true
+    workedLate("e4", "2026-08-05")
+    expect(await otHoursFor("DLT0004")).toBe(0)
+  })
+
+  it("includes it once an approval covers the day", async () => {
+    store.settings.otRequiresApproval = true
+    workedLate("e4", "2026-08-05")
+    store.approvals.push({
+      id: "req_ot",
+      kind: "OVERTIME",
+      employeeId: "e4",
+      subject: "OT",
+      detail: "",
+      dateFrom: "2026-08-05",
+      dateTo: "2026-08-05",
+      units: 3,
+      status: "APPROVED",
+      level: 1,
+      createdAt: "2026-08-05T21:05:00.000Z",
+    })
+    expect(await otHoursFor("DLT0004")).toBeGreaterThan(0)
+  })
+
+  it("includes it without an approval when the company does not require one", async () => {
+    store.settings.otRequiresApproval = false
+    workedLate("e4", "2026-08-05")
+    expect(await otHoursFor("DLT0004")).toBeGreaterThan(0)
+  })
+
+  it("a pending approval is not an approval", async () => {
+    store.settings.otRequiresApproval = true
+    workedLate("e4", "2026-08-05")
+    store.approvals.push({
+      id: "req_ot_pending",
+      kind: "OVERTIME",
+      employeeId: "e4",
+      subject: "OT",
+      detail: "",
+      dateFrom: "2026-08-05",
+      dateTo: "2026-08-05",
+      units: 3,
+      status: "PENDING",
+      level: 1,
+      createdAt: "2026-08-05T21:05:00.000Z",
+    })
+    expect(await otHoursFor("DLT0004")).toBe(0)
+  })
+})

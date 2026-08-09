@@ -125,7 +125,7 @@ export function RegulariseSheet({
             code === "ALREADY_PENDING"
               ? "You already have a request open for that date."
               : code === "MONTH_LOCKED"
-                ? "That month is locked for payroll — ask HR for an adjustment run."
+                ? "That period is locked — ask HR to reopen it before correcting a day."
                 : code === "FUTURE_DATE"
                   ? "That date has not happened yet."
                   : (apiError instanceof ApiError &&

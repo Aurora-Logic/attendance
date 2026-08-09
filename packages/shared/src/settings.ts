@@ -90,16 +90,15 @@ export const attendanceSettingsSchema = z.object({
 
   timezone: z.string().default("Asia/Kolkata"),
 
-  // ---- Tally export (§ accounting hand-off) -------------------------------
-  /** Exact company name as it appears in Tally — vouchers import into it. */
+  // ---- Tally ---------------------------------------------------------------
+  /**
+   * Exact company name as it appears in Tally.
+   *
+   * The salary-ledger and bank-account settings that used to sit here went with
+   * payroll (work order Section 2). This one stays because the connector uses
+   * it to check it is pointed at the right books.
+   */
   tallyCompanyName: z.string().default(""),
-  tallySalaryExpenseLedger: z.string().min(1).default("Salary & Wages"),
-  tallySalaryPayableLedger: z.string().min(1).default("Salary Payable"),
-  /** true → one credit ledger per employee; false → one control ledger. */
-  tallyPerEmployeeLedgers: z.boolean().default(false),
-
-  /** Company account the salary transfer is debited from, for the bank file. */
-  payrollDebitAccount: z.string().default(""),
 })
 
 export type AttendanceSettings = z.infer<typeof attendanceSettingsSchema>

@@ -55,7 +55,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
             )}
             <h1 className="text-xl font-bold">Welcome to {branding.companyName}</h1>
             <FieldDescription>
-              Punch, apply for leave and see your payslips. Accounts are created by HR.
+              Punch, apply for leave and see your attendance. Accounts are created by HR.
             </FieldDescription>
           </div>
 

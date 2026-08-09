@@ -94,7 +94,7 @@ export function BrandingSettings() {
           <CardDescription>
             Name and logo appear on the sidebar, the login screen and printed documents. Address,
             GSTIN and contact print on the PO masthead (and later estimates, invoices and
-            payslips).
+            documents).
           </CardDescription>
         </CardHeader>
         <CardContent>
