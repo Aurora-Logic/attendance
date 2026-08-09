@@ -470,7 +470,16 @@ export function PunchPage() {
         {/* No max-width or centring — the grid starts flush with the page
             heading, so the left gutter matches the top one. */}
         <div className="flex h-full w-full flex-col gap-4">
-          <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+          {/*
+            grid-cols-[minmax(0,1fr)] at the base width, not just at lg.
+            A grid item defaults to min-width:auto, so a single-column grid is
+            floored by its content's min-content width — here that pushed the
+            cards to 432px inside a 320px phone and the column scrolled
+            sideways. The lg track already guarded against this; the base one
+            did not. Rule 5.3: the punch screen is a single column at 320 with
+            no sideways movement at all.
+          */}
+          <div className="grid flex-1 grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
             {/* ---- action column ---- */}
             {/* A ring rather than a 2px border, so this card keeps the same
                 1px outline as every other card and the punctuality colour
@@ -518,7 +527,7 @@ export function PunchPage() {
                 <Separator />
 
                 {/* Camera fills the remaining height rather than leaving a gap. */}
-                <div className="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_200px]">
+                <div className="grid flex-1 grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_200px]">
                   <div className="bg-muted relative min-h-44 flex-1 overflow-hidden rounded-lg border">
                     {/* Mirrored preview, un-mirrored capture — like every phone camera. */}
                     <video

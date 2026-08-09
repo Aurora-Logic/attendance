@@ -8,7 +8,14 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      /**
+       * Rule 1.6: a region that scrolls sideways must contain the gesture.
+       * Without `overscroll-behavior-x: contain`, swiping a wide table past its
+       * edge chains to the parent and then to the browser — which on a phone is
+       * the back-navigation gesture. The symptom people report is "the page
+       * scrolls sideways", even though <body> never moves.
+       */
+      className="relative w-full overflow-x-auto overscroll-x-contain"
     >
       <table
         data-slot="table"

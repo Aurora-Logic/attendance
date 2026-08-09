@@ -12,7 +12,10 @@
     "infra:down": "docker compose down",
     "test": "pnpm -r --if-present test",
     "dev:api": "pnpm --filter @attendance/api dev",
-    "build:agent": "pnpm --filter @attendance/tally-agent build"
+    "build:agent": "pnpm --filter @attendance/tally-agent build",
+    "verify:overflow": "node scripts/verify-overflow.mjs",
+    "verify:native": "node scripts/scan-native-components.mjs",
+    "verify": "pnpm -r lint && pnpm -r typecheck && pnpm -r test && pnpm verify:native && pnpm verify:overflow"
   },
   "devDependencies": {
     "playwright": "^1.62.1"
