@@ -87,11 +87,65 @@ addresses the styling.
 
 ## Enforcement
 
-`react/forbid-elements` plus a custom rule for the `type=`-qualified inputs and
-for `title=""` on DOM elements, failing the build outside `components/ui/`.
-ESLint was **not configured anywhere in this repo** before this phase — there
-was no config at the root or in any package — so Phase 1 installs and
-configures it rather than adding a rule to an existing setup.
+ESLint was **not configured anywhere in this repo** before this phase — no
+config at the root or in any package — so Phase 1 installed and configured it
+(`apps/web/eslint.config.js`) rather than adding a rule to an existing setup.
 
-Paired with the emoji gate (rule 1.3), scoped to JSX text and string literals
-rather than comments, per the decision recorded in `PLAN.md`.
+`apps/web` build script is now `eslint src --max-warnings 0 && tsc -b && vite
+build`, so a violation fails the build rather than sitting in a side script
+nobody runs.
+
+What it catches, proved against a deliberate probe file containing every banned
+pattern — **11 of 11 caught**:
+
+| Pattern | Rule |
+| --- | --- |
+| `<input type="checkbox\|radio\|date\|datetime-local\|time\|file\|range\|color">` | `no-restricted-syntax`, per-type message naming the replacement |
+| `<select> <option> <optgroup> <textarea> <dialog>` | `react/forbid-elements` |
+| `<table> <thead> <tbody> <tfoot> <tr> <td> <th> <caption>` | `react/forbid-elements`, except the A4 document surfaces |
+| `title=""` on a lowercase (DOM) element | `no-restricted-syntax` — deliberately not on our own components, where `title` is a legitimate prop |
+| `window.alert / confirm / prompt` | `no-restricted-syntax` |
+| Emoji in JSX text, string literals and template strings | `no-restricted-syntax` |
+
+Two deliberate carve-outs, both narrow:
+
+- **`components/ui/**`** — the shadcn layer exists to wrap native elements.
+- **`components/*-document.tsx`** — table elements only (see the carve-out
+  above). Tooltips, textareas and inputs are still enforced there.
+
+**One thing the rule had to permit.** Rule 1.1's own prescription for a file
+input *keeps* the native element ("Button + visually-hidden input"). So the ban
+allows exactly that shape — a `className` carrying `sr-only` — and nothing
+looser: a bare file input, or one hidden with `hidden` (which removes it from
+the accessibility tree), still fails.
+
+### The emoji gate, and what it deliberately does not cover
+
+Scoped to JSX text and string literals, not comments, per the decision in
+`PLAN.md`.
+
+It covers pictographs and dingbats. It deliberately **excludes the arrow
+blocks** (U+2190–21FF, U+2B00–2BFF). Turning the gate on showed my earlier
+count was wrong: I had reported "173 of 177 are in comments, 1 user-visible",
+but 39 arrows are in *user-visible strings* — "below a full day → HALF_DAY",
+"12 rows → Excel". An arrow used as punctuation is typography, not an emoji,
+and a lint rule is the wrong place to decide otherwise.
+
+**Open question for you:** should those 39 strings be reworded to plain prose
+under rule 1.8 ("plain verbs", "no jargon")? "At or above this but below a full
+day counts as a half day" reads better than "… → HALF_DAY". I have not touched
+them.
+
+Exactly one real pictograph existed in UI copy — a `✓` appended to a lorry-
+receipt button, which I had written myself. It is now a lucide `Check` icon.
+
+### Also fixed by turning the linter on
+
+- `lib/roster.ts` — a dead `= null` initialiser whose type (`ShiftSpec | null`)
+  claimed something untrue; every branch assigns a real shift.
+- `routes/expenses.tsx`, `routes/indents.tsx` — helpers recreated on every
+  render and closed over by memoised table columns, so the columns could hold a
+  stale function. Both are now `useCallback` with honest dependencies. This is
+  the same class of bug the audit found in `settings-operations.tsx`.
+- `routes/roles.tsx` — a suppression comment that no longer suppressed
+  anything.

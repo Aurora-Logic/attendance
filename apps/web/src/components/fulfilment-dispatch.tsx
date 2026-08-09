@@ -1,6 +1,6 @@
 import * as React from "react"
 import { toast } from "sonner"
-import { FileCheck2, PackagePlus, Signature } from "lucide-react"
+import { Check, FileCheck2, PackagePlus, Signature } from "lucide-react"
 import { LR_COPIES, LR_COPY_LABEL, type LrCopy } from "@attendance/shared"
 
 import {
@@ -344,9 +344,8 @@ function ConsignmentCard({ soId }: { soId: string }) {
                       disabled={attachLrCopy.isPending}
                       onClick={() => attach(consignment.id, copy)}
                     >
-                      <FileCheck2 />
+                      {held ? <Check /> : <FileCheck2 />}
                       {LR_COPY_LABEL[copy]}
-                      {held ? " ✓" : ""}
                     </Button>
                   )
                 })}

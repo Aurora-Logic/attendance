@@ -68,7 +68,6 @@ export function RolesPage() {
     void apiFetch<{ matrix: PermissionMatrix }>("/permissions")
       .then((payload) => setMatrix(payload.matrix))
       .catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.source])
 
   const persist = async () => {

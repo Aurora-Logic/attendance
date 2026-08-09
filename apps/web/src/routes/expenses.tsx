@@ -79,9 +79,12 @@ export function ExpensesPage() {
   const isApprover = approverScope !== "NONE"
   // The grant's REACH decides what an approver can act on, not just its
   // existence: ALL reaches everyone, OWN_TEAM only the reporting chain.
-  const reaches = (claimantEmail: string) =>
-    approverScope === "ALL" ||
-    (approverScope === "OWN_TEAM" && inTeamOf(user?.email ?? "", claimantEmail))
+  const reaches = React.useCallback(
+    (claimantEmail: string) =>
+      approverScope === "ALL" ||
+      (approverScope === "OWN_TEAM" && inTeamOf(user?.email ?? "", claimantEmail)),
+    [approverScope, user?.email]
+  )
   const visible =
     approverScope === "ALL"
       ? claims
@@ -207,7 +210,7 @@ export function ExpensesPage() {
         },
       },
     ],
-    [isApprover, approverScope, user, can, decideClaim, reimburseClaim]
+    [isApprover, user, can, decideClaim, reimburseClaim, reaches]
   )
 
   return (

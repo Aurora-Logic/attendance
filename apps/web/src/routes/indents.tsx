@@ -55,7 +55,10 @@ export function IndentsPage() {
     setOpen(true)
   }
 
-  const itemName = (itemId: string) => items.find((item) => item.id === itemId)?.name ?? "—"
+  const itemName = React.useCallback(
+    (itemId: string) => items.find((item) => item.id === itemId)?.name ?? "—",
+    [items]
+  )
   const canManage = can("procurement.manage")
 
   const columns = React.useMemo<ColumnDef<Indent>[]>(
@@ -151,7 +154,7 @@ export function IndentsPage() {
         },
       },
     ],
-    [canManage, decideIndent, navigate, items]
+    [canManage, decideIndent, navigate, itemName]
   )
 
   return (

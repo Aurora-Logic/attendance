@@ -89,7 +89,9 @@ export function generateRoster(
         return { day, dateISO, status: "WEEKLY_OFF" as DayStatus, shift: null, source: "WEEKLY_OFF" as CellSource, note: pattern.name }
       }
 
-      let shift: ShiftSpec | null = null
+      // Every branch below assigns it, so an initialiser here would be dead
+      // code — and `| null` would make the type claim something untrue.
+      let shift: ShiftSpec
       let source: CellSource = "DEFAULT"
       if (
         enabled.has("rotation") &&
