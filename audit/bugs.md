@@ -125,7 +125,52 @@ throttled where the per-email lockout cannot see it.
 
 ---
 
+## Fixed in Phase 2
+
+### P2-1 — A wide table's swipe escaped to the browser's back gesture *(high)*
+
+`components/ui/table.tsx` scrolled horizontally with
+`overscroll-behavior-x: auto`. Swiping a wide table past its edge chains to the
+parent and then to the browser, which on a phone is back-navigation. The
+symptom people report is "the page scrolls sideways" even though `<body>` never
+moves — which is why a document-overflow check never caught it. Measured at
+473px of scroll on `/attendance` at 320px.
+
+**Fix.** `overscroll-x-contain` on the Table container, so it holds for every
+table in the product at once.
+**Regression test.** `scripts/verify-overflow.mjs` fails on any horizontally
+scrollable region lacking containment.
+
+### P2-2 — The punch screen was 448px wide inside a 320px phone *(high)*
+
+A grid item defaults to `min-width: auto`, so a single-column grid is floored by
+its content's min-content width. The `lg` track guarded against this with
+`minmax(0,1fr)`; the base track did not. The result was a 128px inner scroll on
+the one screen a field user opens every day.
+
+**Fix.** `grid-cols-[minmax(0,1fr)]` at the base width in `routes/punch.tsx`.
+**Regression test.** `scripts/verify-overflow.mjs` encodes decision B11: on
+mobile-first routes nothing may scroll sideways at all, which is stricter than
+rule 1.6 and is what rule 5.3 actually asks for. Proved to fail by reverting
+the fix.
+
+---
+
 ## Confirmed, not yet fixed
+
+### B-0 — Card titles carry no heading semantics *(medium, accessibility)*
+
+Every route has exactly one `<h1>` and no skipped levels — rule 1.4's top-level
+requirement already holds, verified across all 27 routes.
+
+But shadcn's `CardTitle` renders a `<div>`. Rule 1.4 wants card titles as H3,
+and today the document outline is an H1 and nothing else: a screen-reader user
+cannot navigate a screen by its sections.
+
+Not fixed yet on purpose. Promoting `CardTitle` to `<h3>` in isolation would
+create H1 → H3 skips, which rule 1.4 also forbids — the section-level H2s have
+to exist first. That is per-screen work and belongs in Phase 3, where each
+screen is being rebuilt anyway.
 
 ### B-1 — Leave can be granted past zero, and no one can correct it *(high)*
 
