@@ -1,0 +1,29 @@
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+# Employee photographs and exports never belong in the repository.
+# See CLAUDE.md §6 — no real employee data, ever.
+/uploads/
+/storage/
+*.xlsx
+!**/templates/*.xlsx
+
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+playwright-report/
+test-results/
