@@ -665,14 +665,23 @@ export function PunchPage() {
               </Alert>
             ) : null}
 
-            {/* The action a thumb has to reach, pinned to the bottom edge above
-                the phone's navigation bar and scrolling normally on a desktop.
-                The negative margin lets the bar span the page gutters so it
-                reads as a fixed surface rather than a floating button. */}
+            {/* The action a thumb has to reach, held above the phone's
+                navigation bar and scrolling normally on a desktop.
+
+                Fixed rather than sticky. A sticky element can only stick
+                within its own parent, and this parent ends inside the shell's
+                pb-24 — so at the bottom of the page the bar detached and rose
+                40px (measured: 1px above the nav at the top of the scroll,
+                41px at the end). That is exactly pb-24 minus bottom-14, and it
+                is the kind of coupling that comes back whenever the shell's
+                padding changes. Fixed does not care how tall the parent is.
+
+                Taking it out of flow means the page no longer reserves its
+                height, so the spacer below puts that back. */}
             <div
               className={cn(
-                'bg-background/95 supports-backdrop-filter:bg-background/85 reduced-transparency:bg-background sticky bottom-14 z-10 -mx-4 border-t px-4 py-3 backdrop-blur-md',
-                'md:static md:mx-0 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none',
+                'bg-background/95 supports-backdrop-filter:bg-background/85 reduced-transparency:bg-background fixed inset-x-0 bottom-14 z-20 border-t px-4 py-3 backdrop-blur-md',
+                'md:static md:z-auto md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none',
               )}
             >
               <Button
@@ -709,6 +718,11 @@ export function PunchPage() {
                 </p>
               ) : null}
             </div>
+
+            {/* Reserves the height the fixed bar no longer occupies, so the
+                last thing above it is reachable rather than sitting under it.
+                Measured against the bar itself rather than guessed. */}
+            <div aria-hidden className="h-20 shrink-0 md:hidden" />
           </>
         )}
       </div>
