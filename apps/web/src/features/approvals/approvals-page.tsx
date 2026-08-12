@@ -27,11 +27,13 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { apiErrorCopy, actionErrorCopy } from '@/features/leave/api-error-copy';
+import { FAMILY_TEXT } from '@/features/attendance/status';
 import { CheckboxRow } from '@/features/leave/control-row';
 import { SampleDataNotice } from '@/features/leave/sample-data-notice';
 import { ApiError } from '@/lib/api/client';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
+import { cn } from '@/lib/utils';
 import {
   APPROVAL_STATUSES,
   APPROVAL_TYPES,
@@ -81,6 +83,28 @@ function readPositiveInt(raw: string | null, fallback: number, max: number): num
   if (!Number.isInteger(parsed) || parsed < 1) return fallback;
   return Math.min(parsed, max);
 }
+
+/**
+ * The two decisions carry their outcome in the text.
+ *
+ * They sit side by side and are otherwise identical, and this is the one place
+ * in the product where misreading which button is which is expensive.
+ *
+ * The colours come from the same family map the attendance statuses use, so
+ * light mode gets the mixed value rather than the raw token: measured at 3.73
+ * against this background, the raw success green fails AA for text this size
+ * and the mix passes at 5.60.
+ *
+ * `hover:` has to restate the colour because the ghost variant resets text to
+ * foreground on hover — the decision would lose its meaning at exactly the
+ * moment the pointer is on it.
+ */
+const APPROVE_CLASSES = cn(
+  FAMILY_TEXT.success,
+  'hover:bg-success/10 hover:text-[color-mix(in_oklch,var(--success),var(--foreground)_20%)] dark:hover:text-success',
+);
+
+const REJECT_CLASSES = 'text-destructive hover:bg-destructive/10 hover:text-destructive';
 
 /** Only a pending or escalated request can still be decided (REQ-I-02). */
 function isOpen(request: ApprovalRequest): boolean {
@@ -292,11 +316,23 @@ export function ApprovalsPage() {
       cell: (row) =>
         isOpen(row) && canApprove ? (
           <div className="flex justify-end gap-1">
+            {/* The two decisions carry their outcome in the text. They sit
+                side by side and read identically otherwise, which is the one
+                place in this product where a misread is expensive.
+
+                The colours come from the same family map the attendance
+                statuses use, so light mode gets the mixed value rather than
+                the raw token — measured at 3.73 against this background, the
+                raw success green fails AA for text this size and the mix
+                passes. `hover:` has to be restated because the ghost variant
+                resets to foreground on hover, which would drop the colour at
+                the moment the pointer is on it. */}
             <Button
               variant="ghost"
               size="sm"
               aria-label={`Approve ${row.subject}`}
               disabled={pending}
+              className={APPROVE_CLASSES}
               onClick={() => {
                 setDecision({ action: 'APPROVE', ids: [row.id], subject: row.subject });
               }}
@@ -309,6 +345,7 @@ export function ApprovalsPage() {
               size="sm"
               aria-label={`Reject ${row.subject}`}
               disabled={pending}
+              className={REJECT_CLASSES}
               onClick={() => {
                 setDecision({ action: 'REJECT', ids: [row.id], subject: row.subject });
               }}

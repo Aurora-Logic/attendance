@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { ShieldCheckIcon } from '@phosphor-icons/react';
 
 import { PageHeader } from '@/components/shared/page-header';
+import { SectionHeading } from '@/components/shared/section-heading';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
@@ -47,15 +48,6 @@ function DetailRow({ label, value, note }: { label: string; value: string; note?
         {value}
         {note ? <span className="text-muted-foreground ml-2">{note}</span> : null}
       </dd>
-    </div>
-  );
-}
-
-function SectionHeading({ title, note }: { title: string; note: string }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <h2 className="text-base font-semibold">{title}</h2>
-      <p className="text-muted-foreground text-sm">{note}</p>
     </div>
   );
 }

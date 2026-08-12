@@ -10,6 +10,7 @@ import { useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -158,18 +159,14 @@ function CalendarSection({
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-base font-semibold">{calendar.name}</h2>
-        <p className="text-muted-foreground text-sm">
-          <span className="tabular-nums">{calendar.holidays.length}</span> holidays
-          {restricted > 0 ? (
-            <>
-              , <span className="tabular-nums">{restricted}</span> of them restricted
-            </>
-          ) : null}
-          {calendar.locations.length > 0 ? ` · ${calendar.locations.join(', ')}` : null}
-        </p>
-      </div>
+      <SectionHeading
+        title={calendar.name}
+        note={
+          `${String(calendar.holidays.length)} holidays` +
+          (restricted > 0 ? `, ${String(restricted)} of them restricted` : '') +
+          (calendar.locations.length > 0 ? ` · ${calendar.locations.join(', ')}` : '')
+        }
+      />
 
       <HolidayMonthCalendar
         month={month}

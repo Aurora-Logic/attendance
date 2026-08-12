@@ -2,6 +2,7 @@ import { TreePalmIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
+import { SectionHeading } from '@/components/shared/section-heading';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -126,15 +127,6 @@ const HISTORY_COLUMNS: RecordColumn<LeaveRequest>[] = [
     ),
   },
 ];
-
-function SectionHeading({ title, note }: { title: string; note: string }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <h2 className="text-base font-semibold">{title}</h2>
-      <p className="text-muted-foreground text-sm">{note}</p>
-    </div>
-  );
-}
 
 function LoadFailure({ copy, error, onRetry }: { copy: ErrorCopy; error: unknown; onRetry: () => void }) {
   return (
