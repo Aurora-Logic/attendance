@@ -1,13 +1,113 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/inter";
 
 @custom-variant dark (&:is(.dark *));
 
+/* Accessibility preferences Tailwind has no built-in variant for. Translucent
+   chrome and spring-like motion are both things a reader can ask us to stop
+   doing, and NFR-07 says we respect that rather than treat it as decoration. */
+@custom-variant reduced-transparency (@media (prefers-reduced-transparency: reduce));
+@custom-variant reduced-motion (@media (prefers-reduced-motion: reduce));
+
+/* Unlayered on purpose. Tailwind v4 does not emit raw CSS nested inside
+   @layer utilities - these rules were silently dropped and the browser
+   showed 28px controls while the source said 44px. Unlayered declarations
+   also beat layered ones in the cascade, so no !important is needed. */
+/*
+ * Keyboard-triggered surfaces open with no motion at all.
+ *
+ * PRD §6.4 promises TallyPrime key parity, which means Alt+G and Ctrl+F1 are
+ * pressed dozens of times in a working day, not occasionally. At that
+ * frequency any entrance animation stops reading as polish and starts
+ * reading as lag between the key and the result. Raycast ships no open
+ * animation for exactly this reason.
+ *
+ * This is a deliberate exemption, not a global one: dialogs a user opens by
+ * choosing a menu item keep their animation, because those are occasional
+ * and the motion explains where the surface came from.
+ *
+ * The :has() half reaches the backdrop, which is a sibling of the popup
+ * inside the portal and so cannot be targeted from the popup's className.
+ */
+:where([data-slot='dialog-portal'], [data-slot='sheet-portal']):has(.surface-instant)
+  :where([data-slot='dialog-overlay'], [data-slot='sheet-overlay']),
+.surface-instant {
+  animation-duration: 0s;
+  transition-duration: 0s;
+}
+
+/*
+ * CLAUDE.md §3 rule 1: every control is at least 44px on a phone.
+ *
+ * This has to be a pointer query rather than a width query, and it has to be
+ * global rather than per-component, because the two rules it reconciles pull
+ * opposite ways. PRD §6.3 wants a dense desktop - 36px rows, 32px buttons -
+ * and shadcn's base-nova sizes match that. A phone needs 44px. Keying on
+ * `pointer: coarse` gives each input device the size it deserves instead of
+ * forcing the desktop to pay for the phone.
+ *
+ * min-height rather than height, so it raises a small control to the floor
+ * without shrinking a large one.
+ *
+ * Note what :where() does and does not buy here. It keeps specificity at zero,
+ * but these rules are unlayered, and unlayered beats every Tailwind layer
+ * regardless of specificity. A component cannot opt out by setting a smaller
+ * height: PreviewRoleMenu asks for h-7 and still renders 44px on touch. That
+ * is the intended outcome for a size floor - there is no legitimate reason for
+ * a 28px tap target on a phone - but it is a floor, not a default, and anything
+ * that genuinely needs to be smaller has to be excluded from the selector
+ * above rather than styled around.
+ */
+@media (pointer: coarse) {
+  :where(
+    button,
+    [role='button'],
+    [role='menuitem'],
+    [role='menuitemradio'],
+    [role='option'],
+    [role='tab'],
+    a[href],
+    summary,
+    select
+  ) {
+    min-height: 44px;
+  }
+
+  /* Icon-only controls are square and need the horizontal floor too. */
+  :where([data-slot='button'], [data-slot='sidebar-trigger']) {
+    min-width: 44px;
+  }
+}
+
+/*
+ * NFR-07: reduced motion is respected.
+ *
+ * This collapses every transition and animation to effectively zero. It does
+ * not selectively preserve fades - the ideal is a gentler equivalent rather
+ * than none at all, but a blanket collapse is honest, cannot be defeated by a
+ * component shipping its own keyframes, and for a dense operations tool the
+ * motion being removed is decorative in every case.
+ *
+ * Transforms are deliberately untouched: layout here depends on translate
+ * utilities (the sidebar offset, centred popups), and neutralising transform
+ * would move the interface rather than calm it.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', sans-serif;
+    --font-sans: 'Inter Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -50,71 +150,75 @@
 
 :root {
     --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
+    --foreground: oklch(0.147 0.004 49.25);
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
+    --card-foreground: oklch(0.147 0.004 49.25);
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.147 0.004 49.25);
+    --primary: oklch(0.457 0.24 277.023);
+    --primary-foreground: oklch(0.962 0.018 272.314);
+    --secondary: oklch(0.967 0.001 286.375);
+    --secondary-foreground: oklch(0.21 0.006 285.885);
+    --muted: oklch(0.97 0.001 106.424);
+    --muted-foreground: oklch(0.553 0.013 58.071);
+    --accent: oklch(0.97 0.001 106.424);
+    --accent-foreground: oklch(0.216 0.006 56.043);
     --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --border: oklch(0.923 0.003 48.717);
+    --input: oklch(0.923 0.003 48.717);
+    --ring: oklch(0.709 0.01 56.259);
+    --chart-1: oklch(0.81 0.117 11.638);
+    --chart-2: oklch(0.645 0.246 16.439);
+    --chart-3: oklch(0.586 0.253 17.585);
+    --chart-4: oklch(0.514 0.222 16.935);
+    --chart-5: oklch(0.455 0.188 13.697);
+    /* base-lyra is a square style: its components use rounded-none 63 times and
+       never reference this token. It still reaches the Sonner toast, which sets
+       --border-radius from it, so leaving it at 0.625rem left the toast as the
+       only rounded surface in the app. */
+    --radius: 0;
+    --sidebar: oklch(0.985 0.001 106.423);
+    --sidebar-foreground: oklch(0.147 0.004 49.25);
+    --sidebar-primary: oklch(0.511 0.262 276.966);
+    --sidebar-primary-foreground: oklch(0.962 0.018 272.314);
+    --sidebar-accent: oklch(0.97 0.001 106.424);
+    --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
+    --sidebar-border: oklch(0.923 0.003 48.717);
+    --sidebar-ring: oklch(0.709 0.01 56.259);
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
+    --background: oklch(0.147 0.004 49.25);
+    --foreground: oklch(0.985 0.001 106.423);
+    --card: oklch(0.216 0.006 56.043);
+    --card-foreground: oklch(0.985 0.001 106.423);
+    --popover: oklch(0.216 0.006 56.043);
+    --popover-foreground: oklch(0.985 0.001 106.423);
+    --primary: oklch(0.398 0.195 277.366);
+    --primary-foreground: oklch(0.962 0.018 272.314);
+    --secondary: oklch(0.274 0.006 286.033);
     --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.268 0.007 34.298);
+    --muted-foreground: oklch(0.709 0.01 56.259);
+    --accent: oklch(0.268 0.007 34.298);
+    --accent-foreground: oklch(0.985 0.001 106.423);
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --ring: oklch(0.553 0.013 58.071);
+    --chart-1: oklch(0.81 0.117 11.638);
+    --chart-2: oklch(0.645 0.246 16.439);
+    --chart-3: oklch(0.586 0.253 17.585);
+    --chart-4: oklch(0.514 0.222 16.935);
+    --chart-5: oklch(0.455 0.188 13.697);
+    --sidebar: oklch(0.216 0.006 56.043);
+    --sidebar-foreground: oklch(0.985 0.001 106.423);
+    --sidebar-primary: oklch(0.585 0.233 277.117);
+    --sidebar-primary-foreground: oklch(0.962 0.018 272.314);
+    --sidebar-accent: oklch(0.268 0.007 34.298);
+    --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar-ring: oklch(0.553 0.013 58.071);
 }
 
 @layer base {
