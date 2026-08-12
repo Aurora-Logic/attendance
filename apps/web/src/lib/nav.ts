@@ -189,3 +189,12 @@ export const ALL_NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 export function findNavItem(pathname: string): NavItem | undefined {
   return ALL_NAV_ITEMS.find((item) => item.to === pathname);
 }
+
+/**
+ * The sidebar group a route sits under, so the breadcrumb has a parent to show.
+ * A trail of one is not a trail — without this every page would render its own
+ * name and nothing else.
+ */
+export function findNavGroup(pathname: string): string | undefined {
+  return NAV_GROUPS.find((group) => group.items.some((item) => item.to === pathname))?.label;
+}

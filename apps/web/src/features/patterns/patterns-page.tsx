@@ -137,7 +137,6 @@ export function PatternsPage() {
   return (
     <>
       <PageHeader
-        title="Shell patterns"
         description="Every screen is built from these. Development only."
         crumbs={[{ label: 'Shell patterns' }]}
         action={

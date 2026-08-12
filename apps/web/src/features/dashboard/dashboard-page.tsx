@@ -22,9 +22,8 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader
-        title="Dashboard"
         description="Today's attendance at a glance."
-        crumbs={[{ label: 'Dashboard' }]}
+        crumbs={[{ label: 'Work' }, { label: 'Dashboard' }]}
       />
 
       <Empty className="rounded-lg border">
