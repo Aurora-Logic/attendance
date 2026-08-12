@@ -280,7 +280,24 @@ describe('GET /auth/me', () => {
     expect((await harness.get('/auth/me', { token: 'not.a.token' })).status).toBe(401);
 
     // Same token, one character of the signature flipped.
-    const flipped = `${adminToken.slice(0, -1)}${adminToken.endsWith('A') ? 'B' : 'A'}`;
+    //
+    // Flipped in the *middle*, not at the end, and the reason is worth
+    // recording: a 32-byte HMAC is 43 base64url characters, and the last one
+    // carries two bits that decoding discards. For the one signature in
+    // sixteen that ends in "A", changing it to "B" decodes to identical bytes,
+    // the signature verifies, and this test failed with a 200 -- about 6% of
+    // runs, which is exactly often enough to be dismissed as flaky.
+    const [header, payload, signature] = adminToken.split('.');
+    const original = signature ?? '';
+    const tampered = `${original.slice(0, 5)}${original[5] === 'A' ? 'B' : 'A'}${original.slice(6)}`;
+
+    // The probe checks itself: if the "tampered" signature decodes to the same
+    // bytes, this test proves nothing whatever the endpoint answers.
+    expect(
+      Buffer.from(tampered, 'base64url').equals(Buffer.from(original, 'base64url')),
+    ).toBe(false);
+
+    const flipped = `${header ?? ''}.${payload ?? ''}.${tampered}`;
     const result = await harness.get<ErrorBody>('/auth/me', { token: flipped });
     expect(result.status).toBe(401);
     expect(result.body.error.code).toBe('TOKEN_INVALID');

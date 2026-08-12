@@ -13,6 +13,11 @@ export default defineConfig({
     // request through pino. Set before any module loads, so `env.ts` picks it
     // up: `process.loadEnvFile` does not overwrite a variable already present.
     // A failing test's own output is worth more than 200 request lines.
-    env: { LOG_LEVEL: 'silent' },
+    // Every test file boots the real AppModule. Consuming the BullMQ queues in
+    // all of them would mean sixteen sets of workers competing for the same
+    // jobs, and a job enqueued by one file being executed by another. The jobs
+    // suite starts the workers itself, through the same `JobRunner.startWorkers`
+    // the bootstrap hook calls, so nothing about the runner goes untested.
+    env: { LOG_LEVEL: 'silent', JOBS_WORKER_ENABLED: 'false' },
   },
 });

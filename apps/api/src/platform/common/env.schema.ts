@@ -40,6 +40,26 @@ const optionalText = z
   .optional()
   .transform((value) => (value !== undefined && value.length > 0 ? value : undefined));
 
+/**
+ * A variable with a default. Unset and empty both fall back, so a `.env` that
+ * predates the variable still boots -- which is the point: a new switch with a
+ * safe default must not turn every existing environment into a failed start.
+ */
+const optionalChoice = <const T extends readonly [string, ...string[]]>(
+  values: T,
+  fallback: T[number],
+) =>
+  z
+    .string()
+    .optional()
+    .transform((value) => (value !== undefined && value.length > 0 ? value : fallback))
+    .pipe(z.enum(values, { error: `must be one of: ${values.join(', ')}` }));
+
+const optionalFlag = (fallback: boolean) =>
+  optionalChoice(['true', 'false'], fallback ? 'true' : 'false').transform(
+    (value) => value === 'true',
+  );
+
 function parseUrl(value: string): URL | null {
   try {
     return new URL(value);
@@ -127,6 +147,21 @@ export const envSchema = z
     SMTP_USER: optionalText,
     SMTP_PASSWORD: optionalText,
     MAIL_FROM: text,
+    /**
+     * Which `Mailer` implementation `MailModule` binds. `log` writes the
+     * message and its link to the structured log and sends nothing, which is
+     * what an offline developer or a test environment wants; `smtp` talks to
+     * the server configured above.
+     */
+    MAIL_TRANSPORT: optionalChoice(['smtp', 'log'], 'smtp'),
+
+    /**
+     * Whether this process consumes the BullMQ queues (technical design §11).
+     * Producers are always wired -- an API instance must be able to enqueue --
+     * so turning this off splits the deployment into web and worker roles
+     * rather than disabling background work.
+     */
+    JOBS_WORKER_ENABLED: optionalFlag(true),
 
     DEFAULT_TIMEZONE: z.string().refine(isValidTimeZone, 'must be a valid IANA time zone'),
 

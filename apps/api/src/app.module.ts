@@ -12,10 +12,15 @@ import { pinoParams } from './platform/common/logging.js';
 import { RequestIdMiddleware } from './platform/common/request-id.middleware.js';
 import { ZodValidationPipe } from './platform/common/zod-validation.pipe.js';
 import { DbModule } from './platform/db/db.module.js';
+import { FileModule } from './platform/files/file.module.js';
 import { HealthModule } from './platform/health/health.module.js';
+import { JobsModule } from './platform/jobs/jobs.module.js';
 import { MailModule } from './platform/mail/mail.module.js';
+import { NotificationsModule } from './platform/notifications/notifications.module.js';
 import { AccessGuard } from './platform/rbac/access.guard.js';
 import { RbacModule } from './platform/rbac/rbac.module.js';
+import { RedisModule } from './platform/redis/redis.module.js';
+import { StorageModule } from './platform/storage/storage.module.js';
 
 /**
  * Technical design §1: `platform/` is the shared kernel and `modules/` sits on
@@ -37,9 +42,14 @@ import { RbacModule } from './platform/rbac/rbac.module.js';
   imports: [
     LoggerModule.forRoot(pinoParams()),
     DbModule,
+    RedisModule,
     MailModule,
+    StorageModule,
     AuditModule,
     RbacModule,
+    FileModule,
+    JobsModule,
+    NotificationsModule,
     AuthModule,
     HealthModule,
   ],

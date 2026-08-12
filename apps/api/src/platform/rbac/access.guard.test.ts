@@ -122,8 +122,8 @@ function guardFor(principal: Principal | Error): AccessGuard {
   return new AccessGuard(new Reflector(), principals);
 }
 
-function bearer(): Record<string, string> {
-  const token = signAccessToken({
+async function bearer(): Promise<Record<string, string>> {
+  const token = await signAccessToken({
     userId,
     orgId,
     sessionId,
@@ -146,7 +146,7 @@ async function codeOf(run: () => Promise<unknown>): Promise<string> {
 describe('AccessGuard denies by default', () => {
   it('refuses a route with no policy, even with a perfectly valid token', async () => {
     const guard = guardFor(principalWith([PERMISSIONS.EMPLOYEE_MANAGE, PERMISSIONS.ROLES_MANAGE]));
-    const { context } = contextFor(ProbeController, 'forgotten', bearer());
+    const { context } = contextFor(ProbeController, 'forgotten', await bearer());
 
     // The caller here holds every permission that exists in the file and is
     // fully authenticated. The refusal is because the endpoint said nothing.
@@ -179,7 +179,7 @@ describe('AccessGuard policies', () => {
     const { context } = contextFor(ProbeController, 'signedIn');
     expect(await codeOf(() => guard.canActivate(context))).toBe('TOKEN_INVALID');
 
-    const withToken = contextFor(ProbeController, 'signedIn', bearer());
+    const withToken = contextFor(ProbeController, 'signedIn', await bearer());
     expect(await guard.canActivate(withToken.context)).toBe(true);
     expect(withToken.request.principal?.userId).toBe(userId);
   });
@@ -194,7 +194,7 @@ describe('AccessGuard policies', () => {
 
   it('grants a permission route only to a holder, and names the requirement', async () => {
     const withoutIt = guardFor(principalWith([PERMISSIONS.PUNCH_SELF]));
-    const { context } = contextFor(ProbeController, 'privileged', bearer());
+    const { context } = contextFor(ProbeController, 'privileged', await bearer());
 
     try {
       await withoutIt.canActivate(context);
@@ -208,7 +208,7 @@ describe('AccessGuard policies', () => {
     }
 
     const withIt = guardFor(principalWith([PERMISSIONS.EMPLOYEE_MANAGE]));
-    const allowed = contextFor(ProbeController, 'privileged', bearer());
+    const allowed = contextFor(ProbeController, 'privileged', await bearer());
     expect(await withIt.canActivate(allowed.context)).toBe(true);
   });
 
@@ -217,25 +217,21 @@ describe('AccessGuard policies', () => {
     const allOnly = guardFor(principalWith([PERMISSIONS.ATTENDANCE_VIEW_ALL]));
     const neither = guardFor(principalWith([PERMISSIONS.ATTENDANCE_VIEW_SELF]));
 
-    expect(await teamOnly.canActivate(contextFor(ProbeController, 'either', bearer()).context)).toBe(
+    expect(await teamOnly.canActivate(contextFor(ProbeController, 'either', await bearer()).context)).toBe(
       true,
     );
-    expect(await allOnly.canActivate(contextFor(ProbeController, 'either', bearer()).context)).toBe(
+    expect(await allOnly.canActivate(contextFor(ProbeController, 'either', await bearer()).context)).toBe(
       true,
     );
-    expect(
-      await codeOf(() => neither.canActivate(contextFor(ProbeController, 'either', bearer()).context)),
-    ).toBe('FORBIDDEN');
+    const neitherContext = contextFor(ProbeController, 'either', await bearer()).context;
+    expect(await codeOf(() => neither.canActivate(neitherContext))).toBe('FORBIDDEN');
   });
 
   it('inherits a controller-level policy and lets a method override it', async () => {
     const guard = guardFor(principalWith([PERMISSIONS.PUNCH_SELF]));
 
-    expect(
-      await codeOf(() =>
-        guard.canActivate(contextFor(InheritedPolicyController, 'one', bearer()).context),
-      ),
-    ).toBe('FORBIDDEN');
+    const inheritedContext = contextFor(InheritedPolicyController, 'one', await bearer()).context;
+    expect(await codeOf(() => guard.canActivate(inheritedContext))).toBe('FORBIDDEN');
 
     expect(
       await guard.canActivate(contextFor(InheritedPolicyController, 'two').context),
@@ -244,7 +240,7 @@ describe('AccessGuard policies', () => {
 
   it('propagates the reason a principal could not be resolved', async () => {
     const guard = guardFor(new AppError('ACCOUNT_INACTIVE', 'This account is suspended.'));
-    const { context } = contextFor(ProbeController, 'signedIn', bearer());
+    const { context } = contextFor(ProbeController, 'signedIn', await bearer());
     expect(await codeOf(() => guard.canActivate(context))).toBe('ACCOUNT_INACTIVE');
   });
 });

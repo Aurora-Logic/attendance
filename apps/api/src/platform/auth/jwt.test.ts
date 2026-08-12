@@ -7,9 +7,16 @@ import { AppError } from '../common/errors.js';
 import { signAccessToken, verifyAccessToken } from './jwt.js';
 
 /**
- * This is a hand-rolled JWT implementation (see the note at the top of
- * `jwt.ts`), so the tests are written as attacks rather than as a happy path.
- * Every case below is a documented way a JWT verifier gets broken.
+ * These are written as attacks rather than as a happy path. Every case below
+ * is a documented way a JWT verifier gets broken.
+ *
+ * They were written against a hand-rolled implementation and are unchanged in
+ * substance now that `jose` does the work: same attacks, same expected error
+ * codes. Only the mechanics moved, because `jose` has no synchronous API. That
+ * is deliberate — a security test that gets rewritten to suit a new
+ * implementation has stopped testing anything. The tokens below are still
+ * forged by hand with `createHmac`, so the verifier is being attacked by
+ * something that does not share its code.
  */
 
 const SECRET = 'test-secret-at-least-thirty-two-characters-long';
@@ -19,7 +26,7 @@ const userId = uuidv7();
 const orgId = uuidv7();
 const sessionId = uuidv7();
 
-function mint(overrides: { ttlSeconds?: number; nowSeconds?: number } = {}): string {
+function mint(overrides: { ttlSeconds?: number; nowSeconds?: number } = {}): Promise<string> {
   return signAccessToken({
     userId,
     orgId,
@@ -41,9 +48,14 @@ function forge(header: object, payload: object, secret: string | null): string {
   return `${signingInput}.${signature}`;
 }
 
-function codeOf(run: () => unknown): string {
+/**
+ * Returns the error code a rejection carried, and fails loudly if there was no
+ * rejection at all. The `throw` at the end is what stops a token that verifies
+ * from passing silently.
+ */
+async function codeOf(run: () => Promise<unknown>): Promise<string> {
   try {
-    run();
+    await run();
   } catch (error: unknown) {
     if (error instanceof AppError) return error.code;
     throw error;
@@ -52,28 +64,29 @@ function codeOf(run: () => unknown): string {
 }
 
 describe('access tokens', () => {
-  it('round-trips the claims it was given', () => {
-    const claims = verifyAccessToken(mint(), SECRET);
+  it('round-trips the claims it was given', async () => {
+    const claims = await verifyAccessToken(await mint(), SECRET);
     expect(claims.sub).toBe(userId);
     expect(claims.org).toBe(orgId);
     expect(claims.sid).toBe(sessionId);
     expect(claims.exp - claims.iat).toBe(900);
   });
 
-  it('rejects a token signed with a different secret', () => {
-    expect(codeOf(() => verifyAccessToken(mint(), OTHER_SECRET))).toBe('TOKEN_INVALID');
+  it('rejects a token signed with a different secret', async () => {
+    const token = await mint();
+    expect(await codeOf(() => verifyAccessToken(token, OTHER_SECRET))).toBe('TOKEN_INVALID');
   });
 
-  it('rejects alg=none, which is the classic forgery', () => {
+  it('rejects alg=none, which is the classic forgery', async () => {
     const forged = forge(
       { alg: 'none', typ: 'JWT' },
       { sub: userId, org: orgId, sid: sessionId, iat: 0, exp: 9_999_999_999, jti: uuidv7() },
       null,
     );
-    expect(codeOf(() => verifyAccessToken(forged, SECRET))).toBe('TOKEN_INVALID');
+    expect(await codeOf(() => verifyAccessToken(forged, SECRET))).toBe('TOKEN_INVALID');
   });
 
-  it('rejects an algorithm swap even when the signature is a valid HMAC', () => {
+  it('rejects an algorithm swap even when the signature is a valid HMAC', async () => {
     // Algorithm confusion: the header says RS256, the signature is an HS256
     // MAC over the same input with the same key. A verifier that dispatches on
     // `alg` and happens to fall back to HMAC would accept this.
@@ -82,11 +95,11 @@ describe('access tokens', () => {
       { sub: userId, org: orgId, sid: sessionId, iat: 0, exp: 9_999_999_999, jti: uuidv7() },
       SECRET,
     );
-    expect(codeOf(() => verifyAccessToken(forged, SECRET))).toBe('TOKEN_INVALID');
+    expect(await codeOf(() => verifyAccessToken(forged, SECRET))).toBe('TOKEN_INVALID');
   });
 
-  it('rejects a tampered payload', () => {
-    const token = mint();
+  it('rejects a tampered payload', async () => {
+    const token = await mint();
     const parts = token.split('.');
     const claims = JSON.parse(Buffer.from(parts[1] ?? '', 'base64url').toString('utf8')) as Record<
       string,
@@ -94,44 +107,46 @@ describe('access tokens', () => {
     >;
     claims.sub = uuidv7();
     const tampered = `${parts[0] ?? ''}.${segment(claims)}.${parts[2] ?? ''}`;
-    expect(codeOf(() => verifyAccessToken(tampered, SECRET))).toBe('TOKEN_INVALID');
+    expect(await codeOf(() => verifyAccessToken(tampered, SECRET))).toBe('TOKEN_INVALID');
   });
 
-  it('reports an expired token distinctly from an invalid one', () => {
-    const stale = mint({ ttlSeconds: 60, nowSeconds: Math.floor(Date.now() / 1000) - 600 });
-    expect(codeOf(() => verifyAccessToken(stale, SECRET))).toBe('TOKEN_EXPIRED');
+  it('reports an expired token distinctly from an invalid one', async () => {
+    const stale = await mint({ ttlSeconds: 60, nowSeconds: Math.floor(Date.now() / 1000) - 600 });
+    expect(await codeOf(() => verifyAccessToken(stale, SECRET))).toBe('TOKEN_EXPIRED');
   });
 
-  it('rejects a token with no expiry rather than treating it as eternal', () => {
+  it('rejects a token with no expiry rather than treating it as eternal', async () => {
     const forged = forge(
       { alg: 'HS256', typ: 'JWT' },
       { sub: userId, org: orgId, sid: sessionId, iat: 0, jti: uuidv7() },
       SECRET,
     );
-    expect(codeOf(() => verifyAccessToken(forged, SECRET))).toBe('TOKEN_INVALID');
+    expect(await codeOf(() => verifyAccessToken(forged, SECRET))).toBe('TOKEN_INVALID');
   });
 
-  it('rejects malformed input without throwing something other than AppError', () => {
+  it('rejects malformed input without throwing something other than AppError', async () => {
     for (const bad of ['', 'x', 'a.b', 'a.b.c.d', '...', 'not.base64url.here']) {
-      expect(codeOf(() => verifyAccessToken(bad, SECRET))).toBe('TOKEN_INVALID');
+      expect(await codeOf(() => verifyAccessToken(bad, SECRET))).toBe('TOKEN_INVALID');
     }
-    // A megabyte of base64 must be refused before it is HMACed.
-    expect(codeOf(() => verifyAccessToken('a'.repeat(100_000), SECRET))).toBe('TOKEN_INVALID');
+    // A megabyte of base64 must be refused before it is verified.
+    expect(await codeOf(() => verifyAccessToken('a'.repeat(100_000), SECRET))).toBe(
+      'TOKEN_INVALID',
+    );
   });
 
-  it('rejects claims that are not identifiers', () => {
+  it('rejects claims that are not identifiers', async () => {
     const forged = forge(
       { alg: 'HS256', typ: 'JWT' },
       { sub: 'admin', org: orgId, sid: sessionId, iat: 0, exp: 9_999_999_999, jti: uuidv7() },
       SECRET,
     );
-    expect(codeOf(() => verifyAccessToken(forged, SECRET))).toBe('TOKEN_INVALID');
+    expect(await codeOf(() => verifyAccessToken(forged, SECRET))).toBe('TOKEN_INVALID');
   });
 
-  it('allows a few seconds of clock skew but not minutes', () => {
+  it('allows a few seconds of clock skew but not minutes', async () => {
     const now = Math.floor(Date.now() / 1000);
-    const token = mint({ ttlSeconds: 60, nowSeconds: now - 62 });
-    expect(() => verifyAccessToken(token, SECRET, now - 1)).not.toThrow();
-    expect(codeOf(() => verifyAccessToken(token, SECRET, now + 60))).toBe('TOKEN_EXPIRED');
+    const token = await mint({ ttlSeconds: 60, nowSeconds: now - 62 });
+    await expect(verifyAccessToken(token, SECRET, now - 1)).resolves.toBeDefined();
+    expect(await codeOf(() => verifyAccessToken(token, SECRET, now + 60))).toBe('TOKEN_EXPIRED');
   });
 });

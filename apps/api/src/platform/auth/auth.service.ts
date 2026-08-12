@@ -5,7 +5,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { AuditContext } from '../audit/audit-context.js';
 import { AuditService } from '../audit/audit.service.js';
 import { env } from '../common/env.js';
-import { AppError } from '../common/errors.js';
+import { AppError, describeError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import {
   employees,
@@ -15,7 +15,7 @@ import {
   userRoles,
   users,
 } from '../db/schema/index.js';
-import { Mailer } from '../mail/mailer.js';
+import { Mailer, type OutboundMail } from '../mail/mailer.js';
 import type { Principal } from '../rbac/principal.js';
 import { PrincipalService } from '../rbac/principal.service.js';
 import type {
@@ -90,7 +90,7 @@ export class AuthService {
   // ---------------------------------------------------------------- login
 
   async login(input: LoginDto, context: SessionRequestContext): Promise<LoginResult> {
-    this.rateLimiter.assertWithinBudget(context.ip);
+    await this.rateLimiter.assertWithinBudget(context.ip);
 
     const user = await this.findByEmail(input.email);
     const now = new Date();
@@ -99,7 +99,7 @@ export class AuthService {
     // the hash so a locked account costs nothing to refuse -- and so that a
     // brute-force run cannot use the lockout window to keep testing passwords.
     if (user !== null && user.lockedUntil !== null && user.lockedUntil > now) {
-      this.rateLimiter.recordFailure(context.ip);
+      await this.rateLimiter.recordFailure(context.ip);
       throw new AppError(ERROR_CODES.ACCOUNT_LOCKED, 'This account is temporarily locked.', {
         details: { lockedUntil: user.lockedUntil.toISOString() },
       });
@@ -112,7 +112,7 @@ export class AuthService {
 
     if (!correct || user === null) {
       if (user !== null) await this.recordFailedAttempt(user, now);
-      this.rateLimiter.recordFailure(context.ip);
+      await this.rateLimiter.recordFailure(context.ip);
       throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 'Email or password is incorrect.');
     }
 
@@ -120,7 +120,7 @@ export class AuthService {
     // that an account exists but is suspended is the same leak as telling them
     // it exists at all.
     if (user.status !== 'ACTIVE') {
-      this.rateLimiter.recordFailure(context.ip);
+      await this.rateLimiter.recordFailure(context.ip);
       throw new AppError(
         ERROR_CODES.ACCOUNT_INACTIVE,
         user.status === 'INVITED'
@@ -129,7 +129,7 @@ export class AuthService {
       );
     }
 
-    this.rateLimiter.clear(context.ip);
+    await this.rateLimiter.clear(context.ip);
 
     const session = await this.sessions.startFamily(user.orgId, user.id, context);
 
@@ -160,7 +160,7 @@ export class AuthService {
 
     return {
       refreshToken: session.refreshToken,
-      response: this.accessResponse(user.orgId, user.id, user.email, session.sessionId),
+      response: await this.accessResponse(user.orgId, user.id, user.email, session.sessionId),
     };
   }
 
@@ -209,7 +209,7 @@ export class AuthService {
 
     // REQ-B-10 asks for an email notice. This is also the only signal a real
     // user gets that someone is trying their address.
-    await this.mailer.send({
+    await this.sendWithoutRevealingTheAccount({
       to: user.email,
       subject: 'Your account has been temporarily locked',
       body:
@@ -217,6 +217,31 @@ export class AuthService {
         'For your protection it is locked for 15 minutes. If this was not you, ' +
         'change your password once the lock expires.',
     });
+  }
+
+  /**
+   * Sends, and absorbs a transport failure into the log.
+   *
+   * Only for the two paths whose whole design is that they answer identically
+   * whether or not the address has an account. Both send mail *only* when the
+   * account exists, so letting a dead SMTP server turn one of them into a 500
+   * would say "this address is real" -- reintroducing, through the mail
+   * transport, exactly the enumeration oracle the endpoints were shaped to
+   * avoid. The message is lost and the failure is loud; the alternative leaks.
+   *
+   * Everywhere else a failed send is a failed request. An administrator who is
+   * told an invitation was sent must not have to guess.
+   */
+  private async sendWithoutRevealingTheAccount(mail: OutboundMail): Promise<void> {
+    try {
+      await this.mailer.send(mail);
+    } catch (error: unknown) {
+      this.logger.error({
+        msg: 'Mail delivery failed on an enumeration-sensitive path; not surfaced to the caller.',
+        subject: mail.subject,
+        reason: describeError(error),
+      });
+    }
   }
 
   // -------------------------------------------------------------- refresh
@@ -246,7 +271,7 @@ export class AuthService {
 
     return {
       refreshToken: rotated.refreshToken,
-      response: this.accessResponse(
+      response: await this.accessResponse(
         principal.orgId,
         principal.userId,
         principal.email,
@@ -536,7 +561,7 @@ export class AuthService {
       requestedIp: ip,
     });
 
-    await this.mailer.send({
+    await this.sendWithoutRevealingTheAccount({
       to: user.email,
       subject: 'Reset your Vyuha password',
       body: 'Follow the link to choose a new password. It can be used once and expires in 30 minutes.',
@@ -729,14 +754,14 @@ export class AuthService {
     return hashOpaqueToken(TOKEN_PURPOSES.PASSWORD_RESET, token, env.JWT_REFRESH_SECRET);
   }
 
-  private accessResponse(
+  private async accessResponse(
     orgId: string,
     userId: string,
     email: string,
     sessionId: string,
-  ): LoginResponse {
+  ): Promise<LoginResponse> {
     return {
-      accessToken: signAccessToken({
+      accessToken: await signAccessToken({
         userId,
         orgId,
         sessionId,

@@ -6,15 +6,13 @@ import { env, isProduction } from '../common/env.js';
  * The outbound mail port.
  *
  * REQ-B-03 and REQ-B-04 both deliver a single-use token by email, and REQ-B-10
- * sends a lockout notice. **No SMTP client is implemented in this phase**:
- * `nodemailer` is not an installed dependency and this phase was told not to
- * add one. `LogMailer` below is the only implementation, and it writes the
- * message to the structured log instead of sending it.
+ * sends a lockout notice. Two implementations exist and `MAIL_TRANSPORT`
+ * chooses between them: `SmtpMailer` sends through nodemailer, and `LogMailer`
+ * below writes the message to the structured log instead.
  *
- * The port exists anyway, and that is the point. When the SMTP adapter lands
- * it is a second class implementing this interface plus one line in
- * `MailModule`; no caller changes, and the invitation service never learns
- * what a transport is.
+ * No caller knows which one it has. The invitation service never learns what a
+ * transport is, which is what made adding SMTP a new class and one line in
+ * `MailModule` rather than an edit to every send site.
  */
 export interface OutboundMail {
   readonly to: string;
@@ -37,6 +35,11 @@ export abstract class Mailer {
   abstract send(mail: OutboundMail): Promise<void>;
 }
 
+/**
+ * Delivery by log line. Selected with `MAIL_TRANSPORT=log`, and the right
+ * choice for a developer with no SMTP server and for any test that wants the
+ * invitation token without a mailbox.
+ */
 @Injectable()
 export class LogMailer extends Mailer {
   private readonly logger = new Logger('Mailer');
@@ -47,7 +50,7 @@ export class LogMailer extends Mailer {
       // failure to deliver an invitation, not a debugging convenience, and the
       // token must not be sitting in a log aggregator.
       this.logger.error({
-        msg: 'No mail transport is configured; this message was NOT delivered.',
+        msg: 'MAIL_TRANSPORT is "log" in production; this message was NOT delivered.',
         to: mail.to,
         subject: mail.subject,
       });
@@ -55,7 +58,7 @@ export class LogMailer extends Mailer {
     }
 
     this.logger.log({
-      msg: 'Outbound mail (development transport: logged, not sent)',
+      msg: 'Outbound mail (log transport: logged, not sent)',
       to: mail.to,
       from: env.MAIL_FROM,
       subject: mail.subject,

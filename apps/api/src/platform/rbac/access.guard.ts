@@ -75,7 +75,10 @@ export class AccessGuard implements CanActivate {
       throw new AppError(ERROR_CODES.TOKEN_INVALID, 'A bearer access token is required.');
     }
 
-    const claims = verifyAccessToken(header.slice('Bearer '.length).trim(), env.JWT_ACCESS_SECRET);
+    const claims = await verifyAccessToken(
+      header.slice('Bearer '.length).trim(),
+      env.JWT_ACCESS_SECRET,
+    );
 
     return this.principals.resolve({
       userId: claims.sub,

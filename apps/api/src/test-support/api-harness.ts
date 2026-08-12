@@ -1,15 +1,19 @@
-import type { INestApplication } from '@nestjs/common';
+import type { Abstract, INestApplication, Type } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ROLE_PERMISSION_MATRIX, uuidv7, type PermissionKey, type SystemRoleName } from '@vyuha/shared';
 import { eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { expect } from 'vitest';
 
+import type { Redis } from 'ioredis';
+
 import { AppModule } from '../app.module.js';
+import { loginRateLimitKey } from '../platform/auth/login-rate-limit.service.js';
 import { hashPassword } from '../platform/auth/password.js';
 import { API_PREFIX_PATH } from '../platform/common/constants.js';
 import { env } from '../platform/common/env.js';
 import { DRIZZLE, type Database } from '../platform/db/db.provider.js';
 import { Mailer } from '../platform/mail/mailer.js';
+import { REDIS_CLIENT } from '../platform/redis/redis.provider.js';
 import {
   departments,
   employees,
@@ -35,10 +39,14 @@ import { RecordingMailer } from './recording-mailer.js';
  * audit interceptor, and the SQL that reaches Postgres. Any of those replaced
  * by a stub is one of the places the guarantee could actually break.
  *
- * One application per test file, on its own port. That is deliberate: the
- * per-IP login limiter (REQ-B-10) is in-process, and every test in this suite
- * comes from 127.0.0.1, so a shared instance would run a later file out of
- * budget and the failure would look like a bug in login.
+ * One application per test file, on its own port.
+ *
+ * The per-IP login limiter (REQ-B-10) now lives in Redis rather than in
+ * process memory, which means every test file shares one budget for the
+ * loopback address -- and several files spend it deliberately, proving the
+ * lockout works. `start` therefore clears that address the way it truncates
+ * tables: resetting state the previous run created, not relaxing the control.
+ * The limit itself is never changed for tests.
  */
 
 const TEST_PASSWORD_HASHES = new Map<string, string>();
@@ -138,11 +146,38 @@ export class ApiHarness {
 
     const harness = new ApiHarness(app, `${url}${API_PREFIX_PATH}`, db, orgId, mail);
     await harness.resetOrganisation(orgName);
+    await harness.clearLoginRateLimit();
     return harness;
+  }
+
+  /**
+   * Frees the per-IP login budget for the loopback address.
+   *
+   * Every form the local stack can report: Express sees `::1` over IPv6 and
+   * `::ffff:127.0.0.1` when IPv6 accepts an IPv4 connection, and neither is
+   * the address the test dialled.
+   */
+  async clearLoginRateLimit(): Promise<void> {
+    const redis = this.app.get<Redis>(REDIS_CLIENT);
+    await redis.del(
+      ...['::1', '127.0.0.1', '::ffff:127.0.0.1'].map((ip) => loginRateLimitKey(ip)),
+    );
   }
 
   async close(): Promise<void> {
     await this.app.close();
+  }
+
+  /**
+   * Pulls a provider out of the running container.
+   *
+   * For the services that have no HTTP surface of their own -- `FileService`
+   * is the one today -- so a test can exercise the real, fully injected
+   * instance rather than constructing one with hand-made collaborators and
+   * proving only that the constructor works.
+   */
+  resolve<T>(token: Type<T> | Abstract<T> | string | symbol): T {
+    return this.app.get<T>(token);
   }
 
   // ------------------------------------------------------------------ http

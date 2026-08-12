@@ -1,0 +1,230 @@
+import {
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+  type OnApplicationShutdown,
+} from '@nestjs/common';
+import { Job, Queue, Worker, type JobsOptions } from 'bullmq';
+
+import { env } from '../common/env.js';
+import { describeError } from '../common/errors.js';
+import { bullConnectionOptions } from './bull-connection.js';
+import { JobRegistry, type JobResult } from './job-handler.js';
+import {
+  DEFAULT_JOB_OPTIONS,
+  JOB_QUEUE,
+  SCHEDULED_JOBS,
+  type JobName,
+  type JobPayloads,
+  type QueueName,
+} from './queue.registry.js';
+
+/**
+ * Technical design §11. Producers and consumers in one place, because the
+ * thing worth getting right is that they agree about names and payloads.
+ *
+ * The producer side is always wired: an API instance must be able to enqueue.
+ * The consumer side is behind `JOBS_WORKER_ENABLED`, so a deployment can run
+ * web and worker processes separately without a second entry point.
+ *
+ * Queues are created on first use rather than up front. Five idle queues would
+ * be five idle Redis connections in every test process and every web instance,
+ * for queues whose first job arrives in Phase 3.
+ */
+
+export interface EnqueueOptions {
+  /**
+   * Deduplicates. BullMQ ignores an `add` whose id already exists, including
+   * for a job still retained after completing, so a caller that cannot tell
+   * whether it already enqueued something can simply enqueue it again.
+   */
+  readonly jobId?: string;
+  readonly delayMs?: number;
+  readonly attempts?: number;
+  readonly backoff?: JobsOptions['backoff'];
+}
+
+@Injectable()
+export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown {
+  private readonly logger = new Logger(JobRunner.name);
+  private readonly queues = new Map<QueueName, Queue>();
+  private readonly workers = new Map<QueueName, Worker>();
+
+  constructor(private readonly registry: JobRegistry) {}
+
+  async onApplicationBootstrap(): Promise<void> {
+    await this.installSchedules();
+
+    if (!env.JOBS_WORKER_ENABLED) {
+      this.logger.log({
+        msg: 'JOBS_WORKER_ENABLED is false; this process enqueues but does not consume.',
+      });
+      return;
+    }
+
+    this.startWorkers();
+  }
+
+  // -------------------------------------------------------------- producer
+
+  queueFor(name: QueueName): Queue {
+    const existing = this.queues.get(name);
+    if (existing !== undefined) return existing;
+
+    const queue = new Queue(name, {
+      connection: bullConnectionOptions(),
+      defaultJobOptions: DEFAULT_JOB_OPTIONS,
+    });
+    this.queues.set(name, queue);
+    return queue;
+  }
+
+  async enqueue<TName extends JobName>(
+    jobName: TName,
+    payload: JobPayloads[TName],
+    options: EnqueueOptions = {},
+  ): Promise<string> {
+    const job = await this.queueFor(JOB_QUEUE[jobName]).add(jobName, payload, {
+      ...(options.jobId === undefined ? {} : { jobId: options.jobId }),
+      ...(options.delayMs === undefined ? {} : { delay: options.delayMs }),
+      ...(options.attempts === undefined ? {} : { attempts: options.attempts }),
+      ...(options.backoff === undefined ? {} : { backoff: options.backoff }),
+    });
+
+    // BullMQ types `id` as optional because a job added to a flow may not have
+    // one yet. A plain `add` always does.
+    return job.id ?? '';
+  }
+
+  /**
+   * Registers the recurring work from `SCHEDULED_JOBS`. Upsert by id, so
+   * restarting does not stack duplicates and editing the pattern updates the
+   * existing scheduler instead of leaving the old one firing too.
+   */
+  private async installSchedules(): Promise<void> {
+    for (const scheduled of SCHEDULED_JOBS) {
+      if (this.registry.get(scheduled.jobName) === null) {
+        // A schedule with no handler would enqueue jobs nothing consumes,
+        // which fills the queue and looks like a backlog.
+        this.logger.warn({
+          msg: `Skipping schedule "${scheduled.schedulerId}": no handler is registered for ${scheduled.jobName}.`,
+        });
+        continue;
+      }
+
+      await this.queueFor(JOB_QUEUE[scheduled.jobName]).upsertJobScheduler(
+        scheduled.schedulerId,
+        { pattern: scheduled.pattern },
+        { name: scheduled.jobName, data: { requestedAt: new Date().toISOString() } },
+      );
+    }
+  }
+
+  // -------------------------------------------------------------- consumer
+
+  /**
+   * Public so a test can start the same workers the bootstrap hook starts,
+   * rather than building a parallel set that could drift from this one.
+   * Idempotent.
+   */
+  startWorkers(): void {
+    const queuesWithHandlers = new Set(
+      this.registry.registeredJobNames().map((jobName) => JOB_QUEUE[jobName]),
+    );
+
+    for (const queueName of queuesWithHandlers) {
+      if (this.workers.has(queueName)) continue;
+
+      const worker = new Worker(queueName, (job: Job) => this.process(job), {
+        connection: bullConnectionOptions(),
+        concurrency: 2,
+      });
+
+      worker.on('failed', (job: Job | undefined, error: Error) => {
+        const attempts = job?.opts.attempts ?? DEFAULT_JOB_OPTIONS.attempts ?? 1;
+        const made = job?.attemptsMade ?? 0;
+        const final = made >= attempts;
+
+        // Two levels on purpose. A retryable failure is noise at error level
+        // and would train an operator to ignore the channel; the final one is
+        // the job giving up, and that is what the monitor surfaces.
+        this.logger[final ? 'error' : 'warn']({
+          msg: final
+            ? 'Job failed permanently and is now in the failed set.'
+            : 'Job attempt failed; it will be retried.',
+          queue: queueName,
+          jobName: job?.name,
+          jobId: job?.id,
+          attempt: made,
+          of: attempts,
+          reason: describeError(error),
+        });
+      });
+
+      worker.on('error', (error: Error) => {
+        // Connection-level trouble, not a job failing. Without a listener
+        // BullMQ's EventEmitter would make this an unhandled error.
+        this.logger.error({
+          msg: 'Job worker error.',
+          queue: queueName,
+          reason: describeError(error),
+        });
+      });
+
+      this.workers.set(queueName, worker);
+      this.logger.log({ msg: `Job worker started for queue "${queueName}".` });
+    }
+  }
+
+  /**
+   * The dispatch a worker performs. Separated so the failure modes are visible
+   * in one place: an unknown job name is a deployment mismatch and must not be
+   * retried into oblivion, and a handler's own error is rethrown untouched so
+   * BullMQ applies the backoff.
+   */
+  async process(job: Job): Promise<JobResult> {
+    const handler = this.registry.get(job.name);
+
+    if (handler === null) {
+      // Reachable when an old instance still holds jobs a new deployment no
+      // longer knows about, or the reverse. Failing loudly beats discarding.
+      throw new Error(
+        `No handler is registered for job "${job.name}". ` +
+          'A queued job outlived the code that understood it.',
+      );
+    }
+
+    const started = Date.now();
+    // The payload was validated by the type system at the enqueue site and has
+    // round-tripped through JSON since. The handler treats it as its declared
+    // shape, which is the same contract every BullMQ consumer has.
+    const payload = job.data as JobPayloads[JobName];
+
+    const result = await handler.run(payload, {
+      jobId: job.id ?? 'unknown',
+      attempt: job.attemptsMade + 1,
+    });
+
+    this.logger.log({
+      msg: 'Job completed',
+      jobName: job.name,
+      jobId: job.id,
+      elapsedMs: Date.now() - started,
+      ...result,
+    });
+
+    return result;
+  }
+
+  // -------------------------------------------------------------- shutdown
+
+  async onApplicationShutdown(): Promise<void> {
+    // Workers first: a worker closed after its queue would keep trying to read
+    // from a connection that is already going away.
+    await Promise.all([...this.workers.values()].map((worker) => worker.close()));
+    this.workers.clear();
+
+    await Promise.all([...this.queues.values()].map((queue) => queue.close()));
+    this.queues.clear();
+  }
+}
