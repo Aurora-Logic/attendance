@@ -69,7 +69,14 @@ jobs:
       # definition to keep in step, and MinIO needs a command argument that
       # `services:` cannot express anyway.
       - name: Start Postgres, Redis, MinIO and Mailpit
-        run: docker compose -f docker/docker-compose.yml up -d --wait
+        # Two steps, not `up -d --wait`, because minio-init is a one-shot that
+        # creates the buckets and exits. Compose v2 treats a container that has
+        # exited as a failed wait, so `--wait` on the whole file fails even
+        # though everything is fine. The local Compose is newer and tolerates
+        # it, which is exactly why this passed here and failed on the runner.
+        run: |
+          docker compose -f docker/docker-compose.yml up -d --wait postgres redis minio mailpit
+          docker compose -f docker/docker-compose.yml up --exit-code-from minio-init minio-init
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -148,4 +155,15 @@ jobs:
           curl -sf -o /dev/null http://localhost:9222/json/version
 
       - name: Drive the app
-        run: node apps/web/scripts/verify-ui.mjs
+        run: node apps/web/scripts/verify-ui.mjs 2>&1 | tee /tmp/verify-ui.log
+
+      # Downloading raw run logs needs admin rights on the repository, which
+      # the account driving this does not have. An artifact is readable by
+      # anyone with read access, so the failure stays diagnosable.
+      - name: Upload the browser check output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-ui-output
+          path: /tmp/verify-ui.log
+          if-no-files-found: warn
