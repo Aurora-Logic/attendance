@@ -1,0 +1,397 @@
+import { useEffect, useState } from 'react';
+import { UsersThreeIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { useSearchParams } from 'react-router';
+
+import { PageHeader } from '@/components/shared/page-header';
+import { RecordPagination } from '@/components/shared/record-pagination';
+import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { SearchField } from '@/components/shared/search-field';
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ApiError } from '@/lib/api/client';
+import { EMPTY_VALUE, formatDate, humaniseEnum } from '@/lib/format';
+import {
+  DEFAULT_PAGE_SIZE,
+  EMPLOYEE_STATUSES,
+  MAX_PAGE_SIZE,
+  employeeDisplayName,
+  type EmployeeListItem,
+  type EmployeeStatus,
+} from '@vyuha/shared';
+
+import { useEmployees } from './use-employees';
+
+/**
+ * REQ-A-03 / PRD §5 screen 10: the employee register.
+ *
+ * Filter state lives in the query string, not in component state. A filtered
+ * list has to be a link somebody can paste into a message and has to survive a
+ * reload — which is also why the search box writes to the URL on a debounce
+ * rather than on every keystroke, so the history is a list of searches rather
+ * than a list of prefixes.
+ */
+
+const ALL_STATUSES = 'ALL';
+
+const STATUS_LABELS: Record<EmployeeStatus, string> = {
+  ACTIVE: 'Active',
+  ON_NOTICE: 'On notice',
+  INACTIVE: 'Inactive',
+};
+
+/**
+ * Active is the ordinary state and reads as unremarkable; on notice is the one
+ * a manager needs to spot while scanning. Inactive is outlined so a
+ * deactivated record is visibly present rather than looking like a live one
+ * (REQ-A-05 keeps the history).
+ */
+const STATUS_VARIANT: Record<EmployeeStatus, 'secondary' | 'default' | 'outline'> = {
+  ACTIVE: 'secondary',
+  ON_NOTICE: 'default',
+  INACTIVE: 'outline',
+};
+
+function isEmployeeStatus(value: string | null): value is EmployeeStatus {
+  return value !== null && (EMPLOYEE_STATUSES as readonly string[]).includes(value);
+}
+
+function readPositiveInt(raw: string | null, fallback: number, max: number): number {
+  if (raw === null) return fallback;
+  const parsed = Number(raw);
+  // Number('') is 0 and Number('abc') is NaN. Both are somebody hand-editing
+  // the URL, and both should land on the default rather than on page NaN.
+  if (!Number.isInteger(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, max);
+}
+
+const COLUMNS: RecordColumn<EmployeeListItem>[] = [
+  {
+    key: 'employeeCode',
+    header: 'Code',
+    // Tabular numerals, not right alignment: a code is an identifier, so the
+    // digits should line up column-to-column but the field still reads
+    // left-to-right (PRD §6.3).
+    cell: (row) => <span className="font-medium tabular-nums">{row.employeeCode}</span>,
+    className: 'tabular-nums',
+  },
+  {
+    key: 'name',
+    header: 'Employee',
+    cell: (row) => employeeDisplayName(row.firstName, row.lastName),
+  },
+  {
+    key: 'department',
+    header: 'Department',
+    cell: (row) => row.department?.name ?? EMPTY_VALUE,
+  },
+  {
+    key: 'designation',
+    header: 'Designation',
+    cell: (row) => row.designation?.name ?? EMPTY_VALUE,
+    secondary: true,
+  },
+  {
+    key: 'location',
+    header: 'Location',
+    cell: (row) => row.location?.name ?? EMPTY_VALUE,
+    secondary: true,
+  },
+  {
+    key: 'employmentType',
+    header: 'Type',
+    cell: (row) => humaniseEnum(row.employmentType),
+    secondary: true,
+  },
+  {
+    key: 'dateOfJoining',
+    header: 'Joined',
+    // REQ-L-01: dd-MM-yyyy, never the raw ISO string the API sends.
+    cell: (row) => formatDate(row.dateOfJoining),
+    className: 'tabular-nums',
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    cell: (row) => <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>,
+  },
+];
+
+/**
+ * What the reader is told when the list will not load, and what to do next.
+ *
+ * The endpoint is deployed separately from this screen, so "there is no such
+ * endpoint" is a state a real person can reach, and saying "something went
+ * wrong" for it would send them looking in the wrong place (PRD §6.6: errors
+ * say what happened and what to do).
+ */
+function messageFor(error: unknown): { title: string; description: string } {
+  if (!(error instanceof ApiError)) {
+    return {
+      title: 'Could not load employees',
+      description: 'Something went wrong on the way. Try again.',
+    };
+  }
+  switch (error.code) {
+    case 'NETWORK_ERROR':
+      return {
+        title: 'Could not reach the server',
+        description: 'Check that the API is running, then try again.',
+      };
+    case 'NOT_FOUND':
+      return {
+        title: 'The employees endpoint is not available',
+        description:
+          'The server has no employee list at this address yet. Nothing is wrong with this screen; there is nothing for it to read.',
+      };
+    case 'FORBIDDEN':
+    case 'OUT_OF_SCOPE':
+      return {
+        title: 'You cannot view these employee records',
+        description:
+          'This needs the employee.view permission, and shows only the people in your scope. Ask an administrator to widen it.',
+      };
+    case 'TOKEN_EXPIRED':
+    case 'TOKEN_INVALID':
+      return {
+        title: 'Your session has ended',
+        description: 'Sign in again to carry on.',
+      };
+    default:
+      return { title: 'Could not load employees', description: error.message };
+  }
+}
+
+/**
+ * The loading state mirrors the table it is standing in for — same border,
+ * same row rhythm — so the page does not visibly resize when the rows arrive.
+ */
+function EmployeesSkeleton() {
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading employees" className="border">
+      {Array.from({ length: 8 }, (_, index) => (
+        <div
+          key={index}
+          aria-hidden
+          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
+        >
+          <Skeleton className="h-3 w-14 shrink-0" />
+          <Skeleton className="h-3 w-32 shrink-0" />
+          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
+          <Skeleton className="hidden h-3 w-20 shrink-0 xl:block" />
+          <Skeleton className="ml-auto h-4 w-16 shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function EmployeesPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
+  const pageSize = readPositiveInt(searchParams.get('pageSize'), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+  const q = searchParams.get('q')?.trim() ?? '';
+  const statusParam = searchParams.get('status');
+  const status = isEmployeeStatus(statusParam) ? statusParam : null;
+
+  // The search box is typed into continuously and committed to the URL on a
+  // pause, so it needs a local value. `syncedQ` is what makes the two agree
+  // again when the URL moves on its own — a Back press, or Clear filters.
+  // Adjusting state during render rather than in an effect is the documented
+  // way to do this; an effect would render the stale value first.
+  const [draft, setDraft] = useState(q);
+  const [syncedQ, setSyncedQ] = useState(q);
+  if (syncedQ !== q) {
+    setSyncedQ(q);
+    // Guarded, so committing "abc " does not yank the trailing space back out
+    // from under someone who is still typing.
+    if (draft.trim() !== q) setDraft(q);
+  }
+
+  useEffect(() => {
+    if (draft.trim() === q) return undefined;
+    const timer = window.setTimeout(() => {
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          const value = draft.trim();
+          if (value) next.set('q', value);
+          else next.delete('q');
+          // Narrowing the list invalidates the page number: page 4 of three
+          // pages of results is an empty screen that looks like no matches.
+          next.delete('page');
+          return next;
+        },
+        // Replace, so Back leaves the search rather than walking backwards
+        // through every prefix that was typed to reach it.
+        { replace: true },
+      );
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [draft, q, setSearchParams]);
+
+  // Base UI hands back null when a select is cleared, which this one cannot be
+  // — there is always a chosen option — but the handler has to accept it.
+  function setStatus(next: string | null) {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      if (next === null || next === ALL_STATUSES) params.delete('status');
+      else params.set('status', next);
+      params.delete('page');
+      return params;
+    });
+  }
+
+  function clearFilters() {
+    setDraft('');
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      params.delete('q');
+      params.delete('status');
+      params.delete('page');
+      return params;
+    });
+  }
+
+  const filtered = q.length > 0 || status !== null;
+  const query = useEmployees({ page, pageSize, q, status });
+
+  const rows = query.data?.data ?? [];
+  const total = query.data?.meta.total ?? 0;
+
+  return (
+    <>
+      <PageHeader description="Every employee on record, with their department, location and status." />
+
+      <div className="flex flex-col gap-4">
+        {/* Toolbar row (PRD §6.2). Wraps to two rows at 360px rather than
+            scrolling sideways. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchField
+            id="employee-search"
+            label="Search employees"
+            placeholder="Code or name"
+            value={draft}
+            onValueChange={setDraft}
+            className="w-full sm:w-64"
+          />
+
+          <Select value={status ?? ALL_STATUSES} onValueChange={setStatus}>
+            <SelectTrigger
+              aria-label="Filter by status"
+              className="pointer-coarse:h-11 w-full sm:w-40"
+            >
+              <SelectValue>
+                {(value: string) =>
+                  isEmployeeStatus(value) ? STATUS_LABELS[value] : 'All statuses'
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_STATUSES}>All statuses</SelectItem>
+              {EMPLOYEE_STATUSES.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {STATUS_LABELS[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {filtered ? (
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
+              Clear filters
+            </Button>
+          ) : null}
+        </div>
+
+        {query.isPending ? <EmployeesSkeleton /> : null}
+
+        {query.isError ? (
+          <Alert variant="destructive">
+            <WarningCircleIcon />
+            <AlertTitle>{messageFor(query.error).title}</AlertTitle>
+            <AlertDescription>
+              {messageFor(query.error).description}
+              {query.error instanceof ApiError && query.error.requestId ? (
+                <span className="mt-1 block font-mono text-[0.6875rem]">
+                  Request {query.error.requestId}
+                </span>
+              ) : null}
+            </AlertDescription>
+            <AlertAction>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void query.refetch();
+                }}
+              >
+                Try again
+              </Button>
+            </AlertAction>
+          </Alert>
+        ) : null}
+
+        {query.isSuccess && rows.length === 0 ? (
+          <Empty className="border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <UsersThreeIcon />
+              </EmptyMedia>
+              <EmptyTitle>{filtered ? 'No matching employees' : 'No employees yet'}</EmptyTitle>
+              <EmptyDescription>
+                {filtered
+                  ? 'No record matches this search and status. Widen the filters to see more.'
+                  : 'Employee records appear here once they are created or imported from Excel.'}
+              </EmptyDescription>
+            </EmptyHeader>
+            {filtered ? (
+              <EmptyContent>
+                <Button variant="outline" size="sm" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              </EmptyContent>
+            ) : null}
+          </Empty>
+        ) : null}
+
+        {rows.length > 0 ? (
+          <>
+            <RecordTable
+              columns={COLUMNS}
+              rows={rows}
+              rowKey={(row) => row.id}
+              mobilePrimary={(row) => employeeDisplayName(row.firstName, row.lastName)}
+              mobileStatus={(row) => (
+                <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
+              )}
+              mobileSupporting={(row) =>
+                `${row.employeeCode} · ${row.department?.name ?? 'No department'}`
+              }
+            />
+            <RecordPagination page={page} pageSize={pageSize} total={total} />
+          </>
+        ) : null}
+      </div>
+    </>
+  );
+}

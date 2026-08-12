@@ -97,7 +97,11 @@ class Session {
 
   /** modifiers bitmask: Alt=1, Ctrl=2, Meta=4, Shift=8 */
   async key(code, key, modifiers = 0) {
-    const vk = key.length === 1 ? key.toUpperCase().charCodeAt(0) : key === 'F1' ? 112 : 0;
+    // The registry matches on `code`, so a wrong virtual key code would still
+    // fire the shortcut - but it would stop the browser's own default, which
+    // is how you tell a suppressed Page Down from a handled one.
+    const NAMED_VK = { F1: 112, PageUp: 33, PageDown: 34, Escape: 27, Enter: 13, Tab: 9 };
+    const vk = key.length === 1 ? key.toUpperCase().charCodeAt(0) : (NAMED_VK[key] ?? 0);
     await this.send('Input.dispatchKeyEvent', {
       type: 'rawKeyDown',
       code,
@@ -261,35 +265,34 @@ check(
 );
 
 // ------------------------------------------------- Alt+G Go To (REQ-N-01)
+//
+// These wait on the surface rather than sleeping a fixed 700ms. The sleep was
+// long enough almost always, which is the worst kind of probe: it failed
+// roughly one run in ten and taught you to rerun until it went green.
+const PALETTE = `[data-slot="command-input"], input[cmdk-input]`;
 await s.key('KeyG', 'g', 1);
-await sleep(700);
-check(
-  'Alt+G opens the Go To palette',
-  (await s.eval(`!!document.querySelector('[data-slot="command-input"], input[cmdk-input]')`)) === true,
-);
+check('Alt+G opens the Go To palette', Boolean(await s.waitFor(`!!document.querySelector('${PALETTE}')`)));
 const items = await s.eval(
   `document.querySelectorAll('[cmdk-item], [data-slot="command-item"]').length`,
 );
 check('Palette is permission-filtered and populated', items === 16, `${items} items`);
 
 await s.key('Escape', 'Escape');
-await sleep(500);
 check(
   'Esc closes the palette',
-  (await s.eval(`!document.querySelector('[data-slot="command-input"], input[cmdk-input]')`)) === true,
+  Boolean(await s.waitFor(`!document.querySelector('${PALETTE}')`)),
 );
 
 // ------------------------------------------ Ctrl+F1 / F1 sheet (REQ-N-04)
 await s.key('F1', 'F1');
-await sleep(700);
 check(
   'F1 opens the shortcut reference sheet',
-  (await s.eval(`document.body.textContent.includes('Keyboard shortcuts')`)) === true,
+  Boolean(await s.waitFor(`document.body.textContent.includes('Keyboard shortcuts')`)),
 );
 const chips = await s.eval(`document.querySelectorAll('[data-slot="kbd"]').length`);
 check('Sheet lists shortcuts as hint chips', chips >= 4, `${chips} kbd chips`);
 await s.key('Escape', 'Escape');
-await sleep(500);
+await s.waitFor(`!document.body.textContent.includes('Keyboard shortcuts')`);
 
 // ------------------------------------------------ demo form (Phase 0 gate)
 check('Patterns route mounts', await s.goto('/patterns'));
@@ -677,9 +680,368 @@ const focusRing = await s.eval(
 );
 check('Focused element has a visible focus indicator', focusRing === true);
 
+// ============================================ Employees (REQ-A-03, screen 10)
+//
+// This screen reads a real endpoint, so the probes below assert on values that
+// could only have come from the server - an employee code, a count, a
+// dd-MM-yyyy date - rather than on "a table exists". A table of skeletons
+// would satisfy the latter.
+await s.viewport(1440, 900);
+check('Employees route mounts', await s.goto('/employees'));
+
+const employeeRows = await s.waitFor(`document.querySelectorAll('table tbody tr').length`, 12000);
+check(
+  'Employees renders rows from the API',
+  Number(employeeRows) > 0,
+  `${String(employeeRows)} rows`,
+);
+
+const headers = await s.eval(
+  `JSON.stringify([...document.querySelectorAll('table thead th')].map(e => e.textContent.trim()))`,
+);
+check(
+  'Employee columns match the contract',
+  headers ===
+    '["Code","Employee","Department","Designation","Location","Type","Joined","Status"]',
+  headers,
+);
+
+// REQ-L-01. Asserting the dd-MM-yyyy shape is not enough on its own: an ISO
+// string also contains digits and dashes, so the probe additionally refuses a
+// leading four-digit year, which is the exact mistake it exists to catch.
+const joined = await s.eval(
+  `(() => { const cells = [...document.querySelectorAll('table tbody tr')].map(r => r.children[6]?.textContent.trim());
+     return JSON.stringify({ sample: cells[0] ?? null,
+       formatted: cells.every(c => /^\\d{2}-\\d{2}-\\d{4}$/.test(c ?? '')),
+       anyIso: cells.some(c => /^\\d{4}-/.test(c ?? '')) }); })()`,
+);
+check(
+  'Dates render dd-MM-yyyy, never a raw ISO string',
+  JSON.parse(joined).formatted && !JSON.parse(joined).anyIso,
+  `first joining date "${String(JSON.parse(joined).sample)}"`,
+);
+
+check(
+  'Codes and dates use tabular numerals (PRD 6.3)',
+  (await s.eval(
+    `(() => { const r = document.querySelector('table tbody tr');
+       const nums = (el) => getComputedStyle(el).fontVariantNumeric.includes('tabular-nums');
+       return nums(r.children[0]) && nums(r.children[6]); })()`,
+  )) === true,
+);
+
+// The filter has to be in the address bar, not in component state: a filtered
+// list that cannot be linked or reloaded is a different feature.
+await s.goto('/employees?status=ON_NOTICE');
+await s.waitFor(`document.querySelectorAll('table tbody tr').length > 0`, 12000);
+const filteredStatuses = await s.eval(
+  `JSON.stringify([...document.querySelectorAll('table tbody tr')].map(r => r.lastElementChild.textContent.trim()))`,
+);
+check(
+  'A status filter survives a cold load from the URL',
+  filteredStatuses !== '[]' && JSON.parse(filteredStatuses).every((t) => t === 'On notice'),
+  `${String(JSON.parse(filteredStatuses).length)} rows, all "On notice"`,
+);
+check(
+  'The chosen filter is reflected in the control, not just the data',
+  (await s.eval(
+    `document.querySelector('[data-slot="select-trigger"]')?.textContent.includes('On notice')`,
+  )) === true,
+);
+
+// Empty is a designed state, and it has to be the *right* empty state: the
+// no-matches copy offers a way back, the no-records copy would not.
+await s.goto('/employees?q=zzzznobodymatchesthis');
+await s.waitFor(`!!document.querySelector('[data-slot="empty-title"]')`, 15000);
+const emptyState = await s.eval(
+  `JSON.stringify({
+     title: document.querySelector('[data-slot="empty-title"]')?.textContent ?? null,
+     action: !!document.querySelector('[data-slot="empty-content"] button'),
+     noTable: !document.querySelector('table'),
+     alert: document.querySelector('[data-slot="alert-title"]')?.textContent ?? null,
+   })`,
+);
+const es = JSON.parse(emptyState);
+check(
+  'A search with no matches shows the empty state, with a way out',
+  es.title === 'No matching employees' && es.action && es.noTable,
+  emptyState,
+);
+
+// -------------------------------------------------- employees: error states
+//
+// The list is a boundary. Both failures below are ones a person can actually
+// reach - a server that is down, and a server that answers with something
+// else - and neither may produce a blank screen.
+await s.send('Network.enable');
+await s.send('Network.setBlockedURLs', { urls: ['*/api/v1/employees*'] });
+await s.goto('/employees');
+await s.waitFor(`!!document.querySelector('[data-slot="alert"]')`, 15000);
+check(
+  'A dead server produces a named error, not a blank screen',
+  (await s.eval(`document.querySelector('[data-slot="alert-title"]')?.textContent`)) ===
+    'Could not reach the server' &&
+    (await s.eval(`!!document.querySelector('[data-slot="alert-action"] button')`)) === true,
+  'title, description, and a Try again action',
+);
+
+await s.send('Network.setBlockedURLs', { urls: [] });
+await s.eval(`document.querySelector('[data-slot="alert-action"] button').click(); true`);
+const recovered = await s.waitFor(
+  `!document.querySelector('[data-slot="alert"]') && document.querySelectorAll('table tbody tr').length > 0`,
+  15000,
+);
+check('Try again actually retries and recovers', Boolean(recovered), 'rows returned after retry');
+
+// A 200 carrying the wrong shape. Without the schema at the boundary this
+// crashes inside a cell renderer; the assertion on exceptions is what proves
+// the difference between "handled" and "the error state happened to render".
+const exceptionsBefore = s.exceptions.length;
+await s.eval(`(() => {
+  const real = window.fetch;
+  window.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('/api/v1/employees')) {
+      return new Response(JSON.stringify({ items: [{ id: 1 }], total: 3 }), {
+        status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return real(input, init);
+  };
+  return true;
+})()`);
+await s.eval(
+  `history.pushState({}, '', '/employees?q=shapecheck');
+   window.dispatchEvent(new PopStateEvent('popstate')); true`,
+);
+const shapeAlert = await s.waitFor(
+  `document.querySelector('[data-slot="alert-description"]')?.textContent.includes('shape this screen cannot read')`,
+  15000,
+);
+check(
+  'A response in the wrong shape is refused at the boundary',
+  Boolean(shapeAlert) && s.exceptions.length === exceptionsBefore,
+  'error state rendered, and nothing was thrown',
+);
+
+// --------------------------------------------------- employees: pagination
+await s.goto('/employees?pageSize=5');
+await s.waitFor(`document.querySelectorAll('table tbody tr').length === 5`, 12000);
+check(
+  'Pagination reads its page size from the URL',
+  (await s.eval(`document.querySelectorAll('table tbody tr').length`)) === 5,
+  '5 rows per page',
+);
+check(
+  'The record range is stated',
+  (await s.eval(
+    `[...document.querySelectorAll('#main-content p')].some(e => /^Records 1–5 of \\d+$/.test(e.textContent.trim()))`,
+  )) === true,
+);
+// PRD §6.4: a registered shortcut without a visible hint is a review failure,
+// so the chip is asserted on the control rather than only in the F1 sheet.
+const pagerChips = await s.eval(
+  `JSON.stringify([...document.querySelectorAll('[data-slot="pagination-link"]')]
+     .map(e => ({ label: e.getAttribute('aria-label'),
+                  kbd: [...e.querySelectorAll('[data-slot="kbd"]')].map(k => k.textContent).join('') }))
+     .filter(o => o.kbd))`,
+);
+check(
+  'Previous and Next carry their Page Up / Page Down hint chips',
+  pagerChips === '[{"label":"Previous page","kbd":"PgUp"},{"label":"Next page","kbd":"PgDn"}]',
+  pagerChips,
+);
+check(
+  'Page links are real, linkable URLs',
+  (await s.eval(`document.querySelector('[aria-label="Page 3"]')?.getAttribute('href')`)) ===
+    '/employees?pageSize=5&page=3',
+);
+
+const firstCodeBefore = await s.eval(`document.querySelector('table tbody tr td')?.textContent`);
+await s.key('PageDown', 'PageDown');
+await sleep(900);
+const firstCodeAfter = await s.eval(`document.querySelector('table tbody tr td')?.textContent`);
+check(
+  'Page Down turns the page and the URL follows',
+  (await s.eval(`location.search`)) === '?pageSize=5&page=2' &&
+    firstCodeAfter !== firstCodeBefore,
+  `${String(firstCodeBefore)} -> ${String(firstCodeAfter)}`,
+);
+await s.key('PageUp', 'PageUp');
+await sleep(900);
+check(
+  'Page Up turns back, and page one drops the parameter',
+  (await s.eval(`location.search`)) === '?pageSize=5' &&
+    (await s.eval(`document.querySelector('table tbody tr td')?.textContent`)) === firstCodeBefore,
+);
+
+// ------------------------------------------------- employees at 360px
+await s.viewport(360, 740);
+await s.goto('/employees?pageSize=5');
+await s.waitFor(`document.querySelectorAll('[data-slot="item-group"] [data-slot="item"]').length > 0`, 12000);
+const empOverflow = await s.eval(
+  `document.documentElement.scrollWidth - document.documentElement.clientWidth`,
+);
+check('Employees has no horizontal overflow at 360px', empOverflow <= 0, `${empOverflow}px`);
+check(
+  'Employees collapses to stacked rows below 768px',
+  (await s.eval(
+    `(() => { const t = document.querySelector('table'); return !t || t.closest('div').offsetParent === null; })()`,
+  )) === true &&
+    (await s.eval(
+      `document.querySelectorAll('[data-slot="item-group"] [data-slot="item"]').length`,
+    )) === 5,
+  'PRD 6.5 stacked rows, not a sideways scroll',
+);
+
+// ============================================= account menu and profile
+await s.viewport(1440, 900);
+await s.goto('/employees');
+await s.waitFor(`!!document.querySelector('[aria-label^="Account menu"]')`);
+check(
+  'The header names the signed-in person',
+  (await s.eval(`document.querySelector('[aria-label^="Account menu"]')?.getAttribute('aria-label')`))
+    ?.includes(EMAIL) === true,
+  `accessible name carries ${EMAIL}`,
+);
+
+await s.eval(`document.querySelector('[aria-label^="Account menu"]').click(); true`);
+await s.waitFor(`!!document.querySelector('[data-slot="dropdown-menu-content"]')`);
+const menuText = await s.eval(
+  `document.querySelector('[data-slot="dropdown-menu-content"]')?.textContent ?? ''`,
+);
+check(
+  'The account menu states the email and role, and offers Profile and Sign out',
+  menuText.includes(EMAIL) &&
+    menuText.includes('Admin') &&
+    menuText.includes('Profile') &&
+    menuText.includes('Sign out'),
+  'identity plus both actions',
+);
+await s.key('Escape', 'Escape');
+await sleep(300);
+
+// CLAUDE.md §3.1: on a phone this opens as a bottom Sheet, not a corner
+// popover. Asserting the Sheet *and* the absence of the dropdown is what makes
+// this fail if the desktop surface is ever reused on a phone.
+//
+// Touch emulation is on for this section, and it is not decoration. The 44px
+// floor is keyed on `pointer: coarse`, so measuring sizes at 360px with a mouse
+// attached reports 32px controls as a violation when they are the correct
+// desktop density - a probe that manufactures its own failure.
+await s.viewport(360, 740);
+await s.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+await s.goto('/employees');
+check(
+  'Coarse pointer is active for the phone measurements below',
+  (await s.eval(`window.matchMedia('(pointer: coarse)').matches`)) === true,
+);
+await s.waitFor(`!!document.querySelector('[aria-label^="Account menu"]')`);
+await s.eval(`document.querySelector('[aria-label^="Account menu"]').click(); true`);
+await s.waitFor(`!!document.querySelector('[data-slot="sheet-content"]')`);
+const sheetBox = await s.eval(
+  `(() => { const el = document.querySelector('[data-slot="sheet-content"]'); if (!el) return null;
+     const r = el.getBoundingClientRect();
+     return JSON.stringify({ full: Math.round(r.width) === window.innerWidth,
+                             bottom: Math.round(r.bottom) === window.innerHeight,
+                             text: el.textContent }); })()`,
+);
+check(
+  'On a phone the account menu is a bottom Sheet, not a popover',
+  sheetBox !== null &&
+    JSON.parse(sheetBox).full &&
+    JSON.parse(sheetBox).bottom &&
+    JSON.parse(sheetBox).text.includes('Sign out') &&
+    (await s.eval(`!document.querySelector('[data-slot="dropdown-menu-content"]')`)) === true,
+  'full width, flush to the bottom edge, and it carries Sign out',
+);
+const sheetSmall = await s.eval(
+  `JSON.stringify([...document.querySelectorAll('[data-slot="sheet-content"] button')]
+     .filter(e => e.offsetParent !== null)
+     .map(e => ({ t: (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 16),
+                  h: Math.round(e.getBoundingClientRect().height) }))
+     .filter(o => o.h < 44))`,
+);
+check(
+  'Every control in the account sheet clears 44px on a touch device',
+  sheetSmall === '[]',
+  sheetSmall === '[]' ? 'all at least 44px' : sheetSmall,
+);
+await s.key('Escape', 'Escape');
+await sleep(300);
+await s.send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+
+await s.viewport(1440, 900);
+check('Profile route mounts', await s.goto('/profile'));
+await s.waitFor(`document.querySelectorAll('[data-slot="item-group"] [data-slot="item"]').length > 0`);
+const profile = await s.eval(
+  `JSON.stringify({
+     heading: document.querySelector('header h1')?.textContent,
+     email: document.body.textContent.includes(${JSON.stringify(EMAIL)}),
+     roles: [...document.querySelectorAll('[data-slot="badge"]')].map(e => e.textContent.trim()),
+     permissions: document.querySelectorAll('[data-slot="item-group"] [data-slot="item"]').length,
+     firstKey: document.querySelector('[data-slot="item-title"]')?.textContent,
+   })`,
+);
+const p = JSON.parse(profile);
+check(
+  'Profile shows the identity, roles and the effective permission set',
+  p.heading === 'Profile' &&
+    p.email &&
+    p.roles.includes('Admin') &&
+    p.permissions === 22 &&
+    /^[a-z]+\./.test(p.firstKey ?? ''),
+  `${String(p.permissions)} permissions, roles ${JSON.stringify(p.roles)}`,
+);
+check(
+  'Profile has no horizontal overflow at 360px',
+  await (async () => {
+    await s.viewport(360, 740);
+    await s.goto('/profile');
+    await s.waitFor(`!!document.querySelector('[data-slot="item-group"]')`);
+    const o = await s.eval(
+      `document.documentElement.scrollWidth - document.documentElement.clientWidth`,
+    );
+    await s.viewport(1440, 900);
+    return o <= 0;
+  })(),
+);
+
 // ------------------------------------------------------------ console
 check('No console errors', s.consoleErrors.length === 0, s.consoleErrors.slice(0, 2).join(' | ') || 'clean');
 check('No uncaught exceptions', s.exceptions.length === 0, s.exceptions.slice(0, 2).join(' | ') || 'clean');
+
+// ------------------------------------------------------------- sign out
+//
+// Last, and deliberately after the console assertions. Signing out revokes the
+// refresh cookie, so the next `/auth/refresh` answers 401 - which the browser
+// logs. That 401 is the app correctly discovering it has no session, not a
+// fault, and folding it into the console check would make this suite fail for
+// doing the right thing.
+await s.goto('/');
+await s.waitFor(`!!document.querySelector('[aria-label^="Account menu"]')`);
+await s.eval(`document.querySelector('[aria-label^="Account menu"]').click(); true`);
+await s.waitFor(`!!document.querySelector('[data-slot="dropdown-menu-content"]')`);
+await s.eval(
+  `[...document.querySelectorAll('[data-slot="dropdown-menu-item"]')]
+     .find(e => e.textContent.trim() === 'Sign out').click(); true`,
+);
+const signedOut = await s.waitFor(
+  `!!document.querySelector('#email') && !document.querySelector('[data-slot="sidebar"]')`,
+  12000,
+);
+check('Sign out returns to the sign-in screen', Boolean(signedOut));
+
+// The real test of a sign out is that it does not come back. A reload that
+// still finds a session would mean only the client forgot.
+await s.goto('/employees');
+check(
+  'The session does not survive a reload after sign out',
+  Boolean(await s.waitFor(`!!document.querySelector('#email')`, 12000)) &&
+    (await s.eval(`document.querySelectorAll('table tbody tr').length`)) === 0,
+  'still anonymous, and no employee data on screen',
+);
+
+check('Signing back in works', await signIn(s), `as ${EMAIL}`);
 
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`);

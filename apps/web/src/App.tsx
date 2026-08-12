@@ -4,10 +4,20 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 import { AppShell } from '@/app/layout/app-shell';
 import { SessionGate } from '@/app/session-gate';
 import { DashboardPage } from '@/features/dashboard/dashboard-page';
+import { EmployeesPage } from '@/features/employees/employees-page';
 import { PatternsPage } from '@/features/patterns/patterns-page';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
+import { ProfilePage } from '@/features/profile/profile-page';
 import { ShortcutProvider } from '@/lib/keyboard/registry';
 import { ALL_NAV_ITEMS } from '@/lib/nav';
+
+/**
+ * Routes with a screen of their own. Everything else in the navigation falls
+ * through to the placeholder, so the two lists cannot both claim a path — the
+ * filter below is driven by this set rather than by a second hand-written list
+ * that would go stale the next time a screen ships.
+ */
+const BUILT_ROUTES = new Set(['/', '/employees']);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,13 +41,19 @@ export default function App() {
             <Route element={<AppShell />}>
               <Route index element={<DashboardPage />} />
 
+              <Route path="employees" element={<EmployeesPage />} />
+
+              {/* Off the sidebar on purpose: reached from the user menu, not
+                  from the navigation groups the PRD fixes (§6.1). */}
+              <Route path="profile" element={<ProfilePage />} />
+
               {/* Sample data lives on this route, so it is never built into
                   a production bundle (CLAUDE.md §6). */}
               {import.meta.env.DEV ? (
                 <Route path="patterns" element={<PatternsPage />} />
               ) : null}
 
-              {ALL_NAV_ITEMS.filter((item) => item.to !== '/').map((item) => (
+              {ALL_NAV_ITEMS.filter((item) => !BUILT_ROUTES.has(item.to)).map((item) => (
                 <Route key={item.to} path={item.to.slice(1)} element={<PlaceholderPage />} />
               ))}
 

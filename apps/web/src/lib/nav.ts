@@ -219,15 +219,20 @@ export interface Crumb {
 /**
  * Routes that carry a name but deliberately sit outside the sidebar.
  *
- * Gated on DEV for the same reason the route itself is: /patterns is mounted
- * only in development, so naming it unconditionally would leave a production
- * build showing "Shell patterns" in the header above a body that says there is
- * no screen at this address. The label and the route have to appear and
- * disappear together.
+ * /profile is permanent: PRD §6.1 fixes the sidebar to Work, Records, Reports
+ * and Setup, and a personal account page belongs to none of them, so it is
+ * reached from the user menu in the header instead. It still needs a name here
+ * or the breadcrumb would announce the page as "Not found".
+ *
+ * /patterns is gated on DEV for the same reason the route itself is: naming it
+ * unconditionally would leave a production build showing "Shell patterns" in
+ * the header above a body that says there is no screen at this address. The
+ * label and the route have to appear and disappear together.
  */
-const OFF_NAV_LABELS: Record<string, string> = import.meta.env.DEV
-  ? { '/patterns': 'Shell patterns' }
-  : {};
+const OFF_NAV_LABELS: Record<string, string> = {
+  '/profile': 'Profile',
+  ...(import.meta.env.DEV ? { '/patterns': 'Shell patterns' } : {}),
+};
 
 /**
  * The trail for a route, derived here rather than passed up from the screen.
