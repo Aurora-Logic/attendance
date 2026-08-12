@@ -4,13 +4,17 @@ import {
   MagnifyingGlassIcon,
   MonitorIcon,
   MoonIcon,
+  SignOutIcon,
   SunIcon,
+  UserCircleIcon,
 } from '@phosphor-icons/react';
-import { Outlet, useLocation } from 'react-router';
+import { useState } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import { BreadcrumbTrail } from '@/components/shared/breadcrumb-trail';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { useTheme } from '@/components/theme-provider';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -24,16 +28,27 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/toast';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { ShortcutLayer } from '@/lib/keyboard/registry';
 import { findBreadcrumbs } from '@/lib/nav';
 import { useSessionStore } from '@/lib/session/session-store';
+import { useLogout, useMe } from '@/lib/session/use-session';
 import { useUiStore } from '@/lib/ui-store';
-import { SYSTEM_ROLES, type SystemRoleName } from '@vyuha/shared';
+import { employeeDisplayName, SYSTEM_ROLES, type SystemRoleName } from '@vyuha/shared';
 
 import { MobileBottomNav } from '@/components/shared/mobile-bottom-nav';
 
@@ -41,41 +56,269 @@ import { GoToPalette } from '../goto-palette';
 import { ShortcutDialog } from '../shortcut-dialog';
 import { AppSidebar } from './app-sidebar';
 
-function ThemeMenu() {
+/**
+ * Theme choice, as a section of the account menu rather than a control of its
+ * own. It was a second icon button sitting beside the avatar, which is a lot
+ * of permanent header real estate for something a person sets once and then
+ * leaves alone; it belongs with the other things that are about them rather
+ * than about the page.
+ *
+ * The label lives inside the radio group: Base UI reads its group context and
+ * throws outright if a label is rendered loose in the popup, which takes the
+ * whole menu down with it.
+ */
+function ThemeSection() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon" aria-label="Change theme" />}
-      >
-        <SunIcon className="dark:hidden" />
-        <MoonIcon className="hidden dark:block" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {/* The label lives inside the radio group: Base UI reads its group
-            context and throws outright if a label is rendered loose in the
-            popup, which takes the whole menu down with it. */}
-        <DropdownMenuRadioGroup
-          value={theme}
-          onValueChange={(v) => {
-            setTheme(v as 'light' | 'dark' | 'system');
+    <DropdownMenuRadioGroup
+      value={theme}
+      onValueChange={(v) => {
+        setTheme(v as 'light' | 'dark' | 'system');
+      }}
+    >
+      <DropdownMenuLabel>Theme</DropdownMenuLabel>
+      <DropdownMenuRadioItem value="light">
+        <SunIcon />
+        Light
+      </DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="dark">
+        <MoonIcon />
+        Dark
+      </DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="system">
+        <MonitorIcon />
+        System
+      </DropdownMenuRadioItem>
+    </DropdownMenuRadioGroup>
+  );
+}
+
+/**
+ * Two letters for the avatar. Falls back to the first character of whatever
+ * name we have rather than rendering an empty circle, because an employee
+ * record is only guaranteed a first name (the contract makes lastName
+ * nullable) and a signed-in user may have no employee record at all.
+ */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/u).filter(Boolean);
+  const first = words[0]?.charAt(0) ?? '';
+  const last = words.length > 1 ? (words[words.length - 1]?.charAt(0) ?? '') : '';
+  return (first + last).toUpperCase() || '?';
+}
+
+/**
+ * The same three choices as ThemeSection, laid out for a phone.
+ *
+ * A ToggleGroup rather than three buttons with hand-managed pressed state:
+ * three mutually exclusive options is exactly what it is for, and it carries
+ * the radio semantics and arrow-key movement for free.
+ *
+ * The guard on an empty selection matters — Base UI reports the group value as
+ * an array and will hand back an empty one if the pressed item is pressed
+ * again. There is no such thing as "no theme", so that deselect is ignored.
+ */
+function ThemeToggleGroup() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <ToggleGroup
+      variant="outline"
+      className="w-full"
+      value={[theme]}
+      onValueChange={(value) => {
+        const next = value[0];
+        if (next) setTheme(next as 'light' | 'dark' | 'system');
+      }}
+    >
+      <ToggleGroupItem value="light" className="min-h-11 flex-1">
+        <SunIcon />
+        Light
+      </ToggleGroupItem>
+      <ToggleGroupItem value="dark" className="min-h-11 flex-1">
+        <MoonIcon />
+        Dark
+      </ToggleGroupItem>
+      <ToggleGroupItem value="system" className="min-h-11 flex-1">
+        <MonitorIcon />
+        System
+      </ToggleGroupItem>
+    </ToggleGroup>
+  );
+}
+
+/**
+ * Who is signed in, and the way out.
+ *
+ * Reads `/me` directly rather than the session store: the store flattens roles
+ * to a display string for the sidebar, and this menu needs the email and the
+ * roles as they actually came back from the server.
+ *
+ * Every label here comes from the API answer. Nothing is derived from a role
+ * name (PRD §2: nothing branches on a role), and nothing is remembered locally
+ * — sign out clears the query cache, so the next render has nothing to leak.
+ */
+function UserMenu() {
+  const navigate = useNavigate();
+  const { data: me } = useMe();
+  const logout = useLogout();
+  const isMobile = useIsMobile();
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  // AppShell only renders behind SessionGate, so this is a type narrowing
+  // rather than a real state. Rendering nothing beats rendering "Unknown".
+  if (!me) return null;
+
+  const name = me.employee
+    ? employeeDisplayName(me.employee.firstName, me.employee.lastName)
+    : me.user.email;
+  const roleLabel = me.roles.map((role) => role.name).join(', ') || 'No role';
+  const initials = initialsOf(name);
+
+  function goToProfile() {
+    setSheetOpen(false);
+    void navigate('/profile');
+  }
+
+  /*
+   * On a phone this is a bottom Sheet rather than the dropdown.
+   *
+   * As a popover it was a ~240px column pinned to the top-right corner
+   * carrying ten rows — three lines of identity, a theme label and its three
+   * options, then two actions — reaching most of the way down a 360px screen
+   * from the furthest point from the thumb. CLAUDE.md §3.1 asks for a Sheet on
+   * small screens, and More and Customise already open that way, so this also
+   * stops the phone having two different ideas of what a menu is.
+   *
+   * It is also shorter: the identity collapses into the header beside the
+   * avatar, the three theme options become one row instead of four, and the
+   * two actions share a row.
+   */
+  if (isMobile) {
+    return (
+      <>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Account menu for ${name}`}
+          onClick={() => {
+            setSheetOpen(true);
           }}
         >
-          <DropdownMenuLabel>Theme</DropdownMenuLabel>
-          <DropdownMenuRadioItem value="light">
-            <SunIcon />
-            Light
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="dark">
-            <MoonIcon />
-            Dark
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="system">
-            <MonitorIcon />
-            System
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
+          <Avatar size="sm">
+            <AvatarFallback>{initials}</AvatarFallback>
+          </Avatar>
+        </Button>
+
+        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+          <SheetContent side="bottom" className="gap-0">
+            <SheetHeader className="flex-row items-center gap-3 border-b">
+              <Avatar>
+                <AvatarFallback>{initials}</AvatarFallback>
+              </Avatar>
+              <div className="flex min-w-0 flex-col">
+                <SheetTitle className="truncate">{name}</SheetTitle>
+                {/* An account with no employee record falls back to the email
+                    as its name, and printing it again underneath just reads as
+                    a rendering bug. */}
+                {me.user.email === name ? null : (
+                  <SheetDescription className="truncate">{me.user.email}</SheetDescription>
+                )}
+                <SheetDescription className="truncate">{roleLabel}</SheetDescription>
+              </div>
+            </SheetHeader>
+
+            <div className="flex flex-col gap-2 p-4">
+              <span className="text-muted-foreground text-xs font-medium">Theme</span>
+              {/* One row of three rather than three stacked rows. A set this
+                  small reads faster side by side, and it costs one row of
+                  height instead of four. */}
+              <ThemeToggleGroup />
+            </div>
+
+            <SheetFooter className="flex-row gap-2 border-t">
+              <Button variant="outline" className="flex-1" onClick={goToProfile}>
+                <UserCircleIcon data-icon="inline-start" />
+                Profile
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-destructive hover:text-destructive flex-1"
+                disabled={logout.isPending}
+                onClick={() => {
+                  logout.mutate();
+                }}
+              >
+                <SignOutIcon data-icon="inline-start" />
+                {logout.isPending ? 'Signing out' : 'Sign out'}
+              </Button>
+            </SheetFooter>
+          </SheetContent>
+        </Sheet>
+      </>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      {/* The avatar alone, at every width. The name and role used to sit
+          beside it above lg, which made the header's right edge a different
+          shape on a large screen than on a small one, and spent the widest
+          part of the layout restating something the person already knows. The
+          menu below states the name, the email and the roles in full, and the
+          trigger's aria-label carries the name for anyone who cannot see the
+          initials — so nothing is lost by not printing it. */}
+      <DropdownMenuTrigger
+        render={
+          <Button variant="ghost" size="icon" aria-label={`Account menu for ${name}`} />
+        }
+      >
+        <Avatar size="sm">
+          <AvatarFallback>{initialsOf(name)}</AvatarFallback>
+        </Avatar>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent align="end" className="w-60">
+        {/* The label is inside a group for the same reason the theme label is
+            inside its radio group: Base UI reads the group context and throws
+            when a GroupLabel is rendered loose in the popup, which takes the
+            whole menu down. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="flex flex-col gap-0.5 py-2.5">
+            <span className="text-foreground truncate text-xs font-medium">{name}</span>
+            {me.user.email === name ? null : <span className="truncate">{me.user.email}</span>}
+            <span className="truncate">{roleLabel}</span>
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
+
+        <DropdownMenuSeparator />
+
+        <ThemeSection />
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            onClick={() => {
+              void navigate('/profile');
+            }}
+          >
+            <UserCircleIcon />
+            Profile
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={logout.isPending}
+            onClick={() => {
+              // No confirmation. Signing back in costs one form, and a
+              // confirm dialog on a reversible action is friction, not safety.
+              logout.mutate();
+            }}
+          >
+            <SignOutIcon />
+            {logout.isPending ? 'Signing out' : 'Sign out'}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -191,7 +434,7 @@ export function AppShell() {
               <KeyboardIcon />
             </Button>
 
-            <ThemeMenu />
+            <UserMenu />
           </div>
         </header>
 
