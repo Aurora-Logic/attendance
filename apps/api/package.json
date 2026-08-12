@@ -7,10 +7,11 @@
     "build": "nest build",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src",
+    "lint": "eslint src seed",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/platform/db/migrate.ts",
+    "db:seed": "tsx seed/run-seed.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

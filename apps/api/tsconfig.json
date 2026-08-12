@@ -4,7 +4,10 @@
     "module": "CommonJS",
     "moduleResolution": "Node",
     "outDir": "dist",
-    "rootDir": "src",
+    // The whole package, because `seed/` is typechecked too and sits beside
+    // `src/`. Emit layout is not decided here -- `tsconfig.build.json` narrows
+    // rootDir back to `src` so `nest build` still writes `dist/main.js`.
+    "rootDir": ".",
     "baseUrl": ".",
     "types": ["node"],
 
@@ -22,8 +25,10 @@
       "@/*": ["src/*"]
     }
   },
-  // drizzle.config.ts is deliberately outside the program: it sits above
-  // rootDir, and drizzle-kit compiles it itself.
-  "include": ["src/**/*.ts"],
+  // drizzle.config.ts is deliberately outside the program: drizzle-kit
+  // compiles it itself. `seed/` is inside it: the seed imports domain code
+  // from `src/`, and a seed that only breaks when someone runs it is a seed
+  // that breaks in front of an audience.
+  "include": ["src/**/*.ts", "seed/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

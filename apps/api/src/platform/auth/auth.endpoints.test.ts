@@ -1,0 +1,697 @@
+import { PERMISSIONS, SYSTEM_ROLES } from '@vyuha/shared';
+import { eq, sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { ApiHarness, CookieJar, scopedEmail } from '../../test-support/api-harness.js';
+import { invitations, passwordResets, users } from '../db/schema/index.js';
+import { hashOpaqueToken, TOKEN_PURPOSES } from './opaque-token.js';
+import { env } from '../common/env.js';
+
+/**
+ * The endpoint surface of REQ-B-01 … REQ-B-10, over real HTTP against the real
+ * application.
+ *
+ * Technical design §10: "A test asserts that each protected endpoint returns
+ * 403 for an under-privileged token." That is the `PROTECTED_ENDPOINTS` table
+ * at the bottom -- a table rather than a test per endpoint, so adding a
+ * protected route without adding its 403 case is a visible omission in one
+ * place.
+ */
+
+const ORG_ID = '01900000-0000-7000-8000-0000000000a5';
+
+let harness: ApiHarness;
+let adminRoleId: string;
+let employeeRoleId: string;
+let admin: { email: string; password: string; id: string };
+let employee: { email: string; password: string; id: string };
+let adminToken: string;
+let employeeToken: string;
+
+interface ErrorBody {
+  error: { code: string; message: string; details?: Record<string, unknown> };
+}
+
+interface MeBody {
+  user: { id: string; email: string; status: string; employeeId: string | null };
+  employee: { employeeCode: string } | null;
+  roles: { id: string; name: string }[];
+  permissions: string[];
+}
+
+
+/**
+ * The audit count once it has stopped moving. See the note in the rotation
+ * test: audit writes are intentionally off the response path, so a count taken
+ * the instant a request returns can still be one behind.
+ */
+async function settledAuditCount(): Promise<number> {
+  let previous = -1;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const rows = await harness.db.execute<{ count: string }>(
+      sql`SELECT count(*) AS count FROM audit_logs WHERE org_id = ${ORG_ID}`,
+    );
+    const current = Number(rows.rows[0]?.count ?? 0);
+    if (current === previous) return current;
+    previous = current;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return previous;
+}
+
+beforeAll(async () => {
+  harness = await ApiHarness.start(ORG_ID, 'Auth Endpoints Fixture Org');
+
+  adminRoleId = await harness.createSystemRole(SYSTEM_ROLES.ADMIN);
+  employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
+
+  const employeeRecordId = await harness.createEmployee({ code: 'AE-001', firstName: 'Asha' });
+
+  const adminUser = await harness.createUser({
+    email: scopedEmail('endpoints-admin'),
+    roleIds: [adminRoleId],
+  });
+  const employeeUser = await harness.createUser({
+    email: scopedEmail('endpoints-employee'),
+    roleIds: [employeeRoleId],
+    employeeId: employeeRecordId,
+  });
+
+  admin = { email: adminUser.email, password: adminUser.password, id: adminUser.id };
+  employee = { email: employeeUser.email, password: employeeUser.password, id: employeeUser.id };
+
+  adminToken = (await harness.login(admin.email, admin.password)).token;
+  employeeToken = (await harness.login(employee.email, employee.password)).token;
+  expect(adminToken).not.toBe('');
+  expect(employeeToken).not.toBe('');
+}, 30_000);
+
+afterAll(async () => {
+  await harness.close();
+});
+
+describe('POST /auth/login (REQ-B-01)', () => {
+  it('matches the email case-insensitively', async () => {
+    const upper = admin.email.toUpperCase();
+    expect(upper).not.toBe(admin.email);
+
+    const result = await harness.post<{ accessToken: string }>('/auth/login', {
+      body: { email: upper, password: admin.password },
+    });
+    expect(result.status).toBe(200);
+    expect(result.body.accessToken).toBeTruthy();
+  });
+
+  it('rejects a wrong password and an unknown address with the same code', async () => {
+    const wrong = await harness.post<ErrorBody>('/auth/login', {
+      body: { email: admin.email, password: 'definitely-not-the-password' },
+    });
+    const unknown = await harness.post<ErrorBody>('/auth/login', {
+      body: { email: 'nobody-at-all@vyuha.test', password: 'definitely-not-the-password' },
+    });
+
+    expect(wrong.status).toBe(401);
+    expect(unknown.status).toBe(401);
+    expect(wrong.body.error.code).toBe('INVALID_CREDENTIALS');
+    // Byte-identical, not merely the same status: a different message is an
+    // enumeration oracle just as surely as a different code would be.
+    expect(unknown.body.error.message).toBe(wrong.body.error.message);
+  });
+
+  it('rejects an invited account that has not set a password yet', async () => {
+    const pending = await harness.createUser({
+      email: scopedEmail('never-accepted'),
+      status: 'INVITED',
+    });
+    const result = await harness.post<ErrorBody>('/auth/login', {
+      body: { email: pending.email, password: 'anything-at-all-here' },
+    });
+    // Not ACCOUNT_INACTIVE: the caller has not proved the password, so they
+    // learn nothing about whether the account exists.
+    expect(result.status).toBe(401);
+    expect(result.body.error.code).toBe('INVALID_CREDENTIALS');
+  });
+
+  it('validates the body', async () => {
+    const noEmail = await harness.post<ErrorBody>('/auth/login', { body: { password: 'x' } });
+    expect(noEmail.status).toBe(400);
+    expect(noEmail.body.error.code).toBe('VALIDATION_FAILED');
+
+    const notAnEmail = await harness.post<ErrorBody>('/auth/login', {
+      body: { email: 'not-an-email', password: 'x' },
+    });
+    expect(notAnEmail.status).toBe(400);
+  });
+
+  it('writes an audit row for a successful sign-in', async () => {
+    await harness.login(admin.email, admin.password);
+    expect(await harness.waitForAuditAction('auth.login')).toBe(true);
+  });
+});
+
+describe('REQ-B-10: account lockout', () => {
+  it('locks after five failures and refuses even the correct password', async () => {
+    const victim = await harness.createUser({ email: scopedEmail('lockout-target') });
+
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      const result = await harness.post<ErrorBody>('/auth/login', {
+        body: { email: victim.email, password: `wrong-${String(attempt)}` },
+      });
+      expect(result.status).toBe(401);
+      expect(result.body.error.code).toBe('INVALID_CREDENTIALS');
+    }
+
+    // Control: four failures must NOT lock. Without this the test would pass
+    // for an implementation that locks on the first mistake.
+    const stillOpen = await harness.post('/auth/login', {
+      body: { email: victim.email, password: victim.password },
+    });
+    expect(stillOpen.status).toBe(200);
+
+    // The counter resets on success, so lock it from scratch.
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await harness.post('/auth/login', {
+        body: { email: victim.email, password: `wrong-again-${String(attempt)}` },
+      });
+    }
+
+    const lockedOut = await harness.post<ErrorBody>('/auth/login', {
+      body: { email: victim.email, password: victim.password },
+    });
+    expect(lockedOut.status).toBe(423);
+    expect(lockedOut.body.error.code).toBe('ACCOUNT_LOCKED');
+    expect(lockedOut.body.error.details).toHaveProperty('lockedUntil');
+
+    const row = await harness.db
+      .select({ failedAttempts: users.failedAttempts, lockedUntil: users.lockedUntil })
+      .from(users)
+      .where(eq(users.id, victim.id));
+    expect(row[0]?.failedAttempts).toBe(5);
+    expect(row[0]?.lockedUntil).toBeInstanceOf(Date);
+
+    // REQ-B-10 asks for an email notice, and the lockout is a state change so
+    // it belongs in the trail.
+    expect(harness.mail.lastTo(victim.email)?.subject).toContain('locked');
+    expect(await harness.waitForAuditAction('auth.account_locked')).toBe(true);
+  });
+
+  it('lets the account back in once the lock expires', async () => {
+    const victim = await harness.createUser({ email: scopedEmail('lockout-expiry') });
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await harness.post('/auth/login', {
+        body: { email: victim.email, password: `no-${String(attempt)}` },
+      });
+    }
+    expect(
+      (await harness.post('/auth/login', { body: { email: victim.email, password: victim.password } }))
+        .status,
+    ).toBe(423);
+
+    // Winding the clock back in the row rather than waiting fifteen minutes.
+    await harness.db
+      .update(users)
+      .set({ lockedUntil: new Date(Date.now() - 1000) })
+      .where(eq(users.id, victim.id));
+
+    const allowed = await harness.post('/auth/login', {
+      body: { email: victim.email, password: victim.password },
+    });
+    expect(allowed.status).toBe(200);
+
+    const after = await harness.db
+      .select({ failedAttempts: users.failedAttempts, lockedUntil: users.lockedUntil })
+      .from(users)
+      .where(eq(users.id, victim.id));
+    expect(after[0]?.failedAttempts).toBe(0);
+    expect(after[0]?.lockedUntil).toBeNull();
+  });
+
+  it('restarts the count when the fifteen-minute window has passed', async () => {
+    const victim = await harness.createUser({ email: scopedEmail('lockout-window') });
+
+    await harness.post('/auth/login', { body: { email: victim.email, password: 'no-1' } });
+    await harness.post('/auth/login', { body: { email: victim.email, password: 'no-2' } });
+
+    // Push the window's start into the past: these two failures are now an
+    // old run, and the next one starts a new count.
+    await harness.db
+      .update(users)
+      .set({ failedAttemptsSince: new Date(Date.now() - 20 * 60 * 1000) })
+      .where(eq(users.id, victim.id));
+
+    await harness.post('/auth/login', { body: { email: victim.email, password: 'no-3' } });
+
+    const row = await harness.db
+      .select({ failedAttempts: users.failedAttempts })
+      .from(users)
+      .where(eq(users.id, victim.id));
+    expect(row[0]?.failedAttempts).toBe(1);
+  });
+});
+
+describe('GET /auth/me', () => {
+  it('returns the profile, the roles, and the effective permission set', async () => {
+    const result = await harness.get<MeBody>('/auth/me', { token: employeeToken });
+
+    expect(result.status).toBe(200);
+    expect(result.body.user.email).toBe(employee.email);
+    expect(result.body.user.status).toBe('ACTIVE');
+    expect(result.body.roles.map((role) => role.name)).toEqual([SYSTEM_ROLES.EMPLOYEE]);
+    expect(result.body.employee?.employeeCode).toBe('AE-001');
+
+    // PRD §2.1 for the Employee role, exactly.
+    expect(result.body.permissions).toEqual([
+      PERMISSIONS.ATTENDANCE_VIEW_SELF,
+      PERMISSIONS.LEAVE_APPLY_SELF,
+      PERMISSIONS.PUNCH_SELF,
+      PERMISSIONS.REGULARIZATION_RAISE,
+    ]);
+  });
+
+  it('returns a null employee for an account with no employee record', async () => {
+    const result = await harness.get<MeBody>('/auth/me', { token: adminToken });
+    expect(result.status).toBe(200);
+    expect(result.body.employee).toBeNull();
+    expect(result.body.permissions).toContain(PERMISSIONS.ROLES_MANAGE);
+  });
+
+  it('refuses without a token, and with a forged one', async () => {
+    expect((await harness.get('/auth/me')).status).toBe(401);
+    expect((await harness.get('/auth/me', { token: 'not.a.token' })).status).toBe(401);
+
+    // Same token, one character of the signature flipped.
+    const flipped = `${adminToken.slice(0, -1)}${adminToken.endsWith('A') ? 'B' : 'A'}`;
+    const result = await harness.get<ErrorBody>('/auth/me', { token: flipped });
+    expect(result.status).toBe(401);
+    expect(result.body.error.code).toBe('TOKEN_INVALID');
+  });
+
+  it('stops working the moment the account is suspended', async () => {
+    const target = await harness.createUser({
+      email: scopedEmail('to-be-suspended'),
+      roleIds: [employeeRoleId],
+    });
+    const { token } = await harness.login(target.email, target.password);
+    expect((await harness.get('/auth/me', { token })).status).toBe(200);
+
+    await harness.db.update(users).set({ status: 'SUSPENDED' }).where(eq(users.id, target.id));
+
+    // The token is still cryptographically valid and nowhere near expiry.
+    // Loading the principal from the database on every request is what makes
+    // this immediate rather than up to fifteen minutes late.
+    const after = await harness.get<ErrorBody>('/auth/me', { token });
+    expect(after.status).toBe(403);
+    expect(after.body.error.code).toBe('ACCOUNT_INACTIVE');
+  });
+});
+
+describe('POST /auth/invitations (REQ-B-03)', () => {
+  it('creates an invited account, stores only the token hash, and expires in 72 hours', async () => {
+    const invited = scopedEmail('invitee');
+    const before = Date.now();
+
+    const result = await harness.post<{ id: string; userId: string; expiresAt: string }>(
+      '/auth/invitations',
+      { token: adminToken, body: { email: invited, roleIds: [employeeRoleId] } },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.text).not.toContain('token');
+
+    const expiresIn = new Date(result.body.expiresAt).getTime() - before;
+    expect(expiresIn).toBeGreaterThan(71 * 60 * 60 * 1000);
+    expect(expiresIn).toBeLessThan(73 * 60 * 60 * 1000);
+
+    const token = harness.mail.tokenFor(invited);
+    expect(token).toBeTruthy();
+
+    const rows = await harness.db
+      .select({ tokenHash: invitations.tokenHash })
+      .from(invitations)
+      .where(eq(invitations.id, result.body.id));
+
+    // REQ-B-03: "hash stored not the token".
+    expect(rows[0]?.tokenHash).not.toBe(token);
+    expect(rows[0]?.tokenHash).toBe(
+      hashOpaqueToken(TOKEN_PURPOSES.INVITATION, token ?? '', env.JWT_REFRESH_SECRET),
+    );
+
+    const account = await harness.db
+      .select({ status: users.status, passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.id, result.body.userId));
+    expect(account[0]?.status).toBe('INVITED');
+    expect(account[0]?.passwordHash).toBeNull();
+  });
+
+  it('accepting sets the password, activates the account, and is single use', async () => {
+    const invited = scopedEmail('accepter');
+    const created = await harness.post<{ userId: string }>('/auth/invitations', {
+      token: adminToken,
+      body: { email: invited, roleIds: [employeeRoleId] },
+    });
+    const token = harness.mail.tokenFor(invited) ?? '';
+
+    const weak = await harness.post<ErrorBody>(`/auth/invitations/${token}/accept`, {
+      body: { password: 'short' },
+    });
+    expect(weak.status).toBe(400);
+    expect(weak.body.error.code).toBe('PASSWORD_TOO_WEAK');
+
+    const accepted = await harness.post(`/auth/invitations/${token}/accept`, {
+      body: { password: 'a-decent-invitation-passphrase' },
+    });
+    expect(accepted.status).toBe(200);
+
+    const account = await harness.db
+      .select({ status: users.status, passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.id, created.body.userId));
+    expect(account[0]?.status).toBe('ACTIVE');
+    expect(account[0]?.passwordHash).toMatch(/^\$scrypt\$/u);
+
+    const login = await harness.login(invited, 'a-decent-invitation-passphrase');
+    expect(login.status).toBe(200);
+
+    const replay = await harness.post<ErrorBody>(`/auth/invitations/${token}/accept`, {
+      body: { password: 'a-different-passphrase-here' },
+    });
+    expect(replay.status).toBe(409);
+    expect(replay.body.error.code).toBe('INVITATION_ALREADY_ACCEPTED');
+  });
+
+  it('reports an expired invitation distinctly', async () => {
+    const invited = scopedEmail('expired-invitee');
+    const created = await harness.post<{ id: string }>('/auth/invitations', {
+      token: adminToken,
+      body: { email: invited },
+    });
+    const token = harness.mail.tokenFor(invited) ?? '';
+
+    await harness.db
+      .update(invitations)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(invitations.id, created.body.id));
+
+    const result = await harness.post<ErrorBody>(`/auth/invitations/${token}/accept`, {
+      body: { password: 'a-perfectly-fine-passphrase' },
+    });
+    expect(result.status).toBe(410);
+    expect(result.body.error.code).toBe('INVITATION_EXPIRED');
+  });
+
+  it('revokes the previous link when an invitation is resent', async () => {
+    const invited = scopedEmail('resent-invitee');
+    await harness.post('/auth/invitations', { token: adminToken, body: { email: invited } });
+    const firstToken = harness.mail.tokenFor(invited) ?? '';
+
+    await harness.post('/auth/invitations', { token: adminToken, body: { email: invited } });
+    const secondToken = harness.mail.tokenFor(invited) ?? '';
+    expect(secondToken).not.toBe(firstToken);
+
+    const stale = await harness.post<ErrorBody>(`/auth/invitations/${firstToken}/accept`, {
+      body: { password: 'the-old-link-passphrase' },
+    });
+    expect(stale.status).toBe(401);
+
+    const fresh = await harness.post(`/auth/invitations/${secondToken}/accept`, {
+      body: { password: 'the-new-link-passphrase' },
+    });
+    expect(fresh.status).toBe(200);
+  });
+
+  it('refuses to invite an address that already has an active account', async () => {
+    const result = await harness.post<ErrorBody>('/auth/invitations', {
+      token: adminToken,
+      body: { email: employee.email },
+    });
+    expect(result.status).toBe(409);
+  });
+
+  it('refuses an unknown or forged invitation token', async () => {
+    for (const token of ['x', 'a'.repeat(43), 'not/a/token', '../../etc/passwd']) {
+      const result = await harness.post(`/auth/invitations/${encodeURIComponent(token)}/accept`, {
+        body: { password: 'a-perfectly-fine-passphrase' },
+      });
+      expect(result.status).toBe(401);
+    }
+  });
+
+  it('refuses a role from another organisation', async () => {
+    const result = await harness.post<ErrorBody>('/auth/invitations', {
+      token: adminToken,
+      body: { email: scopedEmail('bad-role'), roleIds: ['01900000-0000-7000-8000-00000000eeee'] },
+    });
+    expect(result.status).toBe(400);
+    expect(result.body.error.code).toBe('VALIDATION_FAILED');
+  });
+});
+
+describe('POST /auth/password-resets (REQ-B-04)', () => {
+  it('answers identically for a known and an unknown address', async () => {
+    const known = await harness.post('/auth/password-resets', { body: { email: employee.email } });
+    const unknown = await harness.post('/auth/password-resets', {
+      body: { email: 'no-such-person@vyuha.test' },
+    });
+
+    expect(known.status).toBe(202);
+    expect(unknown.status).toBe(202);
+    expect(known.text).toBe(unknown.text);
+    // And nothing was sent to the address that has no account.
+    expect(harness.mail.lastTo('no-such-person@vyuha.test')).toBeNull();
+  });
+
+  it('expires in 30 minutes, is single use, and stores only the hash', async () => {
+    const target = await harness.createUser({
+      email: scopedEmail('resetter'),
+      roleIds: [employeeRoleId],
+    });
+    const before = Date.now();
+
+    await harness.post('/auth/password-resets', { body: { email: target.email } });
+    const token = harness.mail.tokenFor(target.email) ?? '';
+    expect(token).toBeTruthy();
+
+    const rows = await harness.db
+      .select({ tokenHash: passwordResets.tokenHash, expiresAt: passwordResets.expiresAt })
+      .from(passwordResets)
+      .where(eq(passwordResets.userId, target.id));
+
+    expect(rows[0]?.tokenHash).not.toBe(token);
+    expect(rows[0]?.tokenHash).toBe(
+      hashOpaqueToken(TOKEN_PURPOSES.PASSWORD_RESET, token, env.JWT_REFRESH_SECRET),
+    );
+
+    const ttl = (rows[0]?.expiresAt.getTime() ?? 0) - before;
+    expect(ttl).toBeGreaterThan(29 * 60 * 1000);
+    expect(ttl).toBeLessThan(31 * 60 * 1000);
+
+    const confirmed = await harness.post(`/auth/password-resets/${token}/confirm`, {
+      body: { password: 'the-replacement-passphrase' },
+    });
+    expect(confirmed.status).toBe(200);
+
+    const replay = await harness.post<ErrorBody>(`/auth/password-resets/${token}/confirm`, {
+      body: { password: 'yet-another-passphrase-x' },
+    });
+    expect(replay.status).toBe(401);
+
+    expect((await harness.login(target.email, 'the-replacement-passphrase')).status).toBe(200);
+    expect((await harness.login(target.email, target.password)).status).toBe(401);
+  });
+
+  it('invalidates every other session, including access tokens already issued', async () => {
+    const target = await harness.createUser({
+      email: scopedEmail('session-killer'),
+      roleIds: [employeeRoleId],
+    });
+
+    const jar = new CookieJar();
+    const login = await harness.post<{ accessToken: string }>(
+      '/auth/login',
+      { body: { email: target.email, password: target.password }, withCookies: true },
+      jar,
+    );
+    const liveToken = login.body.accessToken;
+    expect((await harness.get('/auth/me', { token: liveToken })).status).toBe(200);
+
+    await harness.post('/auth/password-resets', { body: { email: target.email } });
+    const token = harness.mail.tokenFor(target.email) ?? '';
+    await harness.post(`/auth/password-resets/${token}/confirm`, {
+      body: { password: 'password-was-just-reset' },
+    });
+
+    // The refresh token is revoked by row...
+    const refresh = await harness.post<ErrorBody>('/auth/refresh', { withCookies: true }, jar);
+    expect(refresh.status).toBe(401);
+
+    // ...and the access token issued before the change is rejected too,
+    // because the session it names was revoked. Without that check it would
+    // stay usable for the rest of its fifteen minutes.
+    const stale = await harness.get<ErrorBody>('/auth/me', { token: liveToken });
+    expect(stale.status).toBe(401);
+    expect(stale.body.error.code).toBe('TOKEN_INVALID');
+  });
+
+  it('reports an expired reset link distinctly', async () => {
+    const target = await harness.createUser({ email: scopedEmail('stale-reset') });
+    await harness.post('/auth/password-resets', { body: { email: target.email } });
+    const token = harness.mail.tokenFor(target.email) ?? '';
+
+    await harness.db
+      .update(passwordResets)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(passwordResets.userId, target.id));
+
+    const result = await harness.post<ErrorBody>(`/auth/password-resets/${token}/confirm`, {
+      body: { password: 'too-late-for-this-one' },
+    });
+    expect(result.status).toBe(401);
+    expect(result.body.error.code).toBe('TOKEN_EXPIRED');
+  });
+});
+
+/**
+ * Technical design §10: "Every endpoint enforces independently. A test asserts
+ * that each protected endpoint returns 403 for an under-privileged token."
+ *
+ * One row per protected route. `/auth/invitations` is the only one this phase
+ * adds; the shape is here so the next one is a line rather than a new file.
+ */
+const PROTECTED_ENDPOINTS: readonly {
+  name: string;
+  method: string;
+  path: string;
+  body?: unknown;
+  requires: string;
+}[] = [
+  {
+    name: 'POST /auth/invitations',
+    method: 'POST',
+    path: '/auth/invitations',
+    body: { email: 'blocked@vyuha.test' },
+    requires: PERMISSIONS.EMPLOYEE_MANAGE,
+  },
+];
+
+describe('403 for an under-privileged token (technical design §10)', () => {
+  for (const endpoint of PROTECTED_ENDPOINTS) {
+    it(`${endpoint.name} refuses a token without ${endpoint.requires}`, async () => {
+      const result = await harness.request<ErrorBody>(endpoint.method, endpoint.path, {
+        token: employeeToken,
+        body: endpoint.body,
+      });
+
+      expect(result.status).toBe(403);
+      expect(result.body.error.code).toBe('FORBIDDEN');
+      expect(result.body.error.details).toEqual({ requiredAnyOf: [endpoint.requires] });
+    });
+
+    it(`${endpoint.name} refuses an anonymous caller with 401, not 403`, async () => {
+      const result = await harness.request<ErrorBody>(endpoint.method, endpoint.path, {
+        body: endpoint.body,
+      });
+      expect(result.status).toBe(401);
+    });
+
+    it(`${endpoint.name} allows a token that holds ${endpoint.requires}`, async () => {
+      // The control. Without it, a route that returned 403 to everyone --
+      // including the admin -- would pass the two cases above.
+      const result = await harness.request(endpoint.method, endpoint.path, {
+        token: adminToken,
+        body: { email: scopedEmail('control') },
+      });
+      expect(result.status).toBeLessThan(400);
+    });
+  }
+
+  it('has no route that answers without declaring a policy', async () => {
+    // RoutePolicyAudit fails the boot if one exists, so reaching this line at
+    // all is part of the assertion. The unmatched route below confirms the
+    // application is answering and that a 404 is a 404, not a silent allow.
+    const missing = await harness.get<ErrorBody>('/auth/not-a-real-route');
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('has no signup route (ADR 0002)', async () => {
+    // "Absence of a route is the access control." Asserting the absence keeps
+    // it that way after someone reaches for a quick self-service form.
+    for (const path of ['/auth/signup', '/auth/register', '/auth/users', '/users']) {
+      const result = await harness.post(path, { body: { email: 'x@y.test', password: 'z' } });
+      expect([401, 403, 404]).toContain(result.status);
+    }
+  });
+});
+
+describe('audit trail is written without call sites asking (REQ-M-01)', () => {
+  it('records the mutation, the actor, the ip, and the request id', async () => {
+    const invited = scopedEmail('audited-invitee');
+    const created = await harness.post<{ id: string }>('/auth/invitations', {
+      token: adminToken,
+      body: { email: invited },
+    });
+
+    expect(await harness.waitForAuditEntity(created.body.id)).toBe(true);
+
+    const rows = await harness.db.execute<{
+      action: string;
+      actor_user_id: string | null;
+      entity_type: string;
+      entity_id: string | null;
+      ip: string | null;
+      user_agent: string | null;
+      request_id: string | null;
+      after: Record<string, unknown> | null;
+    }>(
+      sql`SELECT action, actor_user_id, entity_type, entity_id, ip, user_agent, request_id, after
+            FROM audit_logs
+           WHERE org_id = ${ORG_ID} AND entity_id = ${created.body.id}
+           LIMIT 1`,
+    );
+
+    const row = rows.rows[0];
+    expect(row).toBeDefined();
+    expect(row?.action).toBe('invitation.created');
+    expect(row?.actor_user_id).toBe(admin.id);
+    expect(row?.entity_type).toBe('invitation');
+    expect(row?.ip).toBeTruthy();
+    expect(row?.request_id).toBeTruthy();
+    expect(row?.after).toMatchObject({ email: invited });
+  });
+
+  it('does not record a refresh rotation, which would drown everything else', async () => {
+    const jar = new CookieJar();
+    await harness.post(
+      '/auth/login',
+      { body: { email: admin.email, password: admin.password }, withCookies: true },
+      jar,
+    );
+
+    // The interceptor deliberately does not make the response wait on the
+    // audit insert, so the login's own row can land after the response. Taking
+    // the baseline immediately made this test flake -- and blamed the refresh
+    // for a row the login wrote.
+    const before = await settledAuditCount();
+    await harness.post('/auth/refresh', { withCookies: true }, jar);
+    const after = await settledAuditCount();
+
+    expect(after).toBe(before);
+  });
+
+  it('never puts a password or a token in the trail', async () => {
+    const rows = await harness.db.execute<{ payload: string }>(
+      sql`SELECT coalesce(before::text, '') || coalesce(after::text, '') AS payload
+            FROM audit_logs WHERE org_id = ${ORG_ID}`,
+    );
+    const everything = rows.rows.map((row) => row.payload).join(' ');
+
+    expect(everything).not.toContain(admin.password);
+    expect(everything).not.toContain(employee.password);
+    expect(everything).not.toContain('$scrypt$');
+    for (const mail of harness.mail.sent) {
+      const token = mail.actionUrl?.split('/').pop();
+      if (token !== undefined && token.length > 10) expect(everything).not.toContain(token);
+    }
+  });
+});

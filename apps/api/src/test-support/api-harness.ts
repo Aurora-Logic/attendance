@@ -1,0 +1,451 @@
+import type { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { ROLE_PERMISSION_MATRIX, uuidv7, type PermissionKey, type SystemRoleName } from '@vyuha/shared';
+import { eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { expect } from 'vitest';
+
+import { AppModule } from '../app.module.js';
+import { hashPassword } from '../platform/auth/password.js';
+import { API_PREFIX_PATH } from '../platform/common/constants.js';
+import { env } from '../platform/common/env.js';
+import { DRIZZLE, type Database } from '../platform/db/db.provider.js';
+import { Mailer } from '../platform/mail/mailer.js';
+import {
+  departments,
+  employees,
+  invitations,
+  organizations,
+  passwordResets,
+  permissions,
+  rolePermissions,
+  roles,
+  sessions,
+  userRoles,
+  users,
+} from '../platform/db/schema/index.js';
+import { RecordingMailer } from './recording-mailer.js';
+
+/**
+ * Boots the real application and talks to it over real HTTP.
+ *
+ * Not a mocked controller and not `createTestingModule` with the guard
+ * overridden. The things this phase has to prove -- deny by default, refresh
+ * reuse revoking a family, a lockout that survives the correct password -- are
+ * properties of the whole stack: the global guard, the exception filter, the
+ * audit interceptor, and the SQL that reaches Postgres. Any of those replaced
+ * by a stub is one of the places the guarantee could actually break.
+ *
+ * One application per test file, on its own port. That is deliberate: the
+ * per-IP login limiter (REQ-B-10) is in-process, and every test in this suite
+ * comes from 127.0.0.1, so a shared instance would run a later file out of
+ * budget and the failure would look like a bug in login.
+ */
+
+const TEST_PASSWORD_HASHES = new Map<string, string>();
+
+export interface HttpResult<T = unknown> {
+  readonly status: number;
+  readonly body: T;
+  readonly headers: Headers;
+  readonly text: string;
+}
+
+export interface RequestOptions {
+  readonly token?: string | null;
+  readonly body?: unknown;
+  /** Sends the jar's cookies, and stores whatever comes back. */
+  readonly withCookies?: boolean;
+  readonly cookieOverride?: string | null;
+  readonly headers?: Record<string, string>;
+}
+
+export class CookieJar {
+  private readonly values = new Map<string, string>();
+
+  absorb(response: Response): void {
+    for (const raw of response.headers.getSetCookie()) {
+      const first = raw.split(';')[0] ?? '';
+      const separator = first.indexOf('=');
+      if (separator < 0) continue;
+      const name = first.slice(0, separator).trim();
+      const value = first.slice(separator + 1).trim();
+      if (value.length === 0) this.values.delete(name);
+      else this.values.set(name, value);
+    }
+  }
+
+  header(): string | null {
+    if (this.values.size === 0) return null;
+    return [...this.values].map(([name, value]) => `${name}=${value}`).join('; ');
+  }
+
+  get(name: string): string | null {
+    return this.values.get(name) ?? null;
+  }
+
+  clone(): CookieJar {
+    const copy = new CookieJar();
+    for (const [name, value] of this.values) copy.values.set(name, value);
+    return copy;
+  }
+}
+
+export interface SeededUser {
+  readonly id: string;
+  readonly email: string;
+  readonly password: string;
+  readonly employeeId: string | null;
+}
+
+export class ApiHarness {
+  private constructor(
+    private readonly app: INestApplication,
+    readonly baseUrl: string,
+    readonly db: Database,
+    readonly orgId: string,
+    readonly mail: RecordingMailer,
+  ) {}
+
+  /**
+   * `orgId` is fixed per test file rather than random, so a re-run reuses the
+   * same organisation row. It has to: `audit_logs.org_id` is a restricted
+   * foreign key and the table is append-only, so once a test has produced an
+   * audit row its organisation can never be deleted. A random id per run would
+   * leave a permanent new orphan behind every time the suite ran.
+   */
+  static async start(orgId: string, orgName: string): Promise<ApiHarness> {
+    // Guards against a Homebrew Postgres answering on the default port: the
+    // whole suite would pass against an empty, wrong database.
+    expect(new URL(env.DATABASE_URL).port).toBe('55432');
+
+    // The real AppModule, with exactly one provider replaced: see
+    // `RecordingMailer` for why, and why it changes nothing under test.
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(Mailer)
+      .useClass(RecordingMailer)
+      .compile();
+
+    const app = moduleRef.createNestApplication({ logger: false });
+    app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
+    await app.listen(0);
+
+    const url = (await app.getUrl()).replace('[::1]', '127.0.0.1');
+    const db = app.get<Database>(DRIZZLE);
+    const mail = app.get(Mailer);
+    if (!(mail instanceof RecordingMailer)) {
+      throw new Error('Harness failed to install the recording mailer.');
+    }
+
+    const harness = new ApiHarness(app, `${url}${API_PREFIX_PATH}`, db, orgId, mail);
+    await harness.resetOrganisation(orgName);
+    return harness;
+  }
+
+  async close(): Promise<void> {
+    await this.app.close();
+  }
+
+  // ------------------------------------------------------------------ http
+
+  async request<T = unknown>(
+    method: string,
+    path: string,
+    options: RequestOptions = {},
+    jar?: CookieJar,
+  ): Promise<HttpResult<T>> {
+    const headers: Record<string, string> = { ...options.headers };
+    if (options.body !== undefined) headers['content-type'] = 'application/json';
+    if (options.token != null) headers.authorization = `Bearer ${options.token}`;
+
+    const cookie =
+      options.cookieOverride !== undefined
+        ? options.cookieOverride
+        : options.withCookies === true && jar !== undefined
+          ? jar.header()
+          : null;
+    if (cookie !== null) headers.cookie = cookie;
+
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+
+    if (jar !== undefined && options.withCookies === true) jar.absorb(response);
+
+    const text = await response.text();
+    let body: unknown = null;
+    if (text.length > 0) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        // A non-JSON body is a failure worth seeing in the assertion rather
+        // than a parse error thrown from the harness.
+        body = { raw: text };
+      }
+    }
+
+    return { status: response.status, body: body as T, headers: response.headers, text };
+  }
+
+  post<T = unknown>(path: string, options?: RequestOptions, jar?: CookieJar): Promise<HttpResult<T>> {
+    return this.request<T>('POST', path, options, jar);
+  }
+
+  get<T = unknown>(path: string, options?: RequestOptions, jar?: CookieJar): Promise<HttpResult<T>> {
+    return this.request<T>('GET', path, options, jar);
+  }
+
+  // -------------------------------------------------------------- fixtures
+
+  /**
+   * Removes everything this organisation owns except the organisation row and
+   * its audit trail, both of which cannot be deleted (see `start`).
+   */
+  async resetOrganisation(name: string): Promise<void> {
+    await this.db
+      .insert(organizations)
+      .values({ id: this.orgId, name })
+      .onConflictDoUpdate({ target: organizations.id, set: { name, deletedAt: null } });
+
+    const ownUsers = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.orgId, this.orgId));
+    const userIds = ownUsers.map((row) => row.id);
+
+    if (userIds.length > 0) {
+      await this.db.delete(sessions).where(inArray(sessions.userId, userIds));
+      await this.db.delete(passwordResets).where(inArray(passwordResets.userId, userIds));
+      await this.db.delete(userRoles).where(inArray(userRoles.userId, userIds));
+    }
+
+    await this.db.delete(invitations).where(eq(invitations.orgId, this.orgId));
+    await this.db.delete(users).where(eq(users.orgId, this.orgId));
+
+    const ownRoles = await this.db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(eq(roles.orgId, this.orgId));
+    if (ownRoles.length > 0) {
+      await this.db.delete(rolePermissions).where(
+        inArray(
+          rolePermissions.roleId,
+          ownRoles.map((row) => row.id),
+        ),
+      );
+      await this.db.delete(roles).where(eq(roles.orgId, this.orgId));
+    }
+
+    // Employees reference each other through reporting_manager_id and
+    // departments through head_employee_id, so the links are cut before the
+    // rows go, rather than relying on a delete order that happens to work.
+    await this.db
+      .update(employees)
+      .set({ reportingManagerId: null, departmentId: null })
+      .where(eq(employees.orgId, this.orgId));
+    await this.db
+      .update(departments)
+      .set({ headEmployeeId: null, parentId: null })
+      .where(eq(departments.orgId, this.orgId));
+    await this.db.delete(employees).where(eq(employees.orgId, this.orgId));
+    await this.db.delete(departments).where(eq(departments.orgId, this.orgId));
+  }
+
+  /** Ensures the global permission catalogue exists, without running the seed. */
+  async ensurePermissionCatalogue(): Promise<Map<PermissionKey, string>> {
+    const { ALL_PERMISSIONS, PERMISSION_DESCRIPTIONS } = await import('@vyuha/shared');
+    await this.db
+      .insert(permissions)
+      .values(ALL_PERMISSIONS.map((key) => ({ key, description: PERMISSION_DESCRIPTIONS[key] })))
+      .onConflictDoNothing({ target: permissions.key });
+
+    const rows = await this.db.select({ id: permissions.id, key: permissions.key }).from(permissions);
+    return new Map(rows.map((row) => [row.key as PermissionKey, row.id]));
+  }
+
+  async createRole(name: string, keys: readonly PermissionKey[]): Promise<string> {
+    const catalogue = await this.ensurePermissionCatalogue();
+    const inserted = await this.db
+      .insert(roles)
+      .values({ orgId: this.orgId, name })
+      .returning({ id: roles.id });
+
+    const role = inserted[0];
+    if (role === undefined) throw new Error('Role fixture insert returned no row.');
+
+    if (keys.length > 0) {
+      await this.db.insert(rolePermissions).values(
+        keys.map((key) => {
+          const permissionId = catalogue.get(key);
+          if (permissionId === undefined) throw new Error(`Permission "${key}" is not seeded.`);
+          return { roleId: role.id, permissionId };
+        }),
+      );
+    }
+
+    return role.id;
+  }
+
+  createSystemRole(name: SystemRoleName): Promise<string> {
+    return this.createRole(name, ROLE_PERMISSION_MATRIX[name]);
+  }
+
+  /**
+   * Hashing is memoised across fixtures because scrypt is deliberately slow
+   * and a suite that hashes the same fixture password thirty times spends most
+   * of its wall clock proving that scrypt works.
+   */
+  private async fixtureHash(password: string): Promise<string> {
+    const cached = TEST_PASSWORD_HASHES.get(password);
+    if (cached !== undefined) return cached;
+    const hash = await hashPassword(password);
+    TEST_PASSWORD_HASHES.set(password, hash);
+    return hash;
+  }
+
+  async createUser(input: {
+    email: string;
+    password?: string;
+    roleIds?: readonly string[];
+    status?: 'INVITED' | 'ACTIVE' | 'SUSPENDED';
+    employeeId?: string | null;
+  }): Promise<SeededUser> {
+    const password = input.password ?? 'fixture-passphrase-2026';
+    const status = input.status ?? 'ACTIVE';
+
+    const inserted = await this.db
+      .insert(users)
+      .values({
+        orgId: this.orgId,
+        email: input.email.toLowerCase(),
+        passwordHash: status === 'INVITED' ? null : await this.fixtureHash(password),
+        status,
+        employeeId: input.employeeId ?? null,
+        passwordChangedAt: new Date(Date.now() - 60_000),
+      })
+      .returning({ id: users.id, email: users.email });
+
+    const row = inserted[0];
+    if (row === undefined) throw new Error('User fixture insert returned no row.');
+
+    for (const roleId of input.roleIds ?? []) {
+      await this.db.insert(userRoles).values({ userId: row.id, roleId });
+    }
+
+    return { id: row.id, email: row.email, password, employeeId: input.employeeId ?? null };
+  }
+
+  async createEmployee(input: {
+    code: string;
+    firstName: string;
+    reportingManagerId?: string | null;
+    departmentId?: string | null;
+  }): Promise<string> {
+    const inserted = await this.db
+      .insert(employees)
+      .values({
+        orgId: this.orgId,
+        employeeCode: input.code,
+        firstName: input.firstName,
+        dateOfJoining: '2026-01-01',
+        reportingManagerId: input.reportingManagerId ?? null,
+        departmentId: input.departmentId ?? null,
+      })
+      .returning({ id: employees.id });
+
+    const row = inserted[0];
+    if (row === undefined) throw new Error('Employee fixture insert returned no row.');
+    return row.id;
+  }
+
+  async createDepartment(input: {
+    code: string;
+    name: string;
+    headEmployeeId?: string | null;
+  }): Promise<string> {
+    const inserted = await this.db
+      .insert(departments)
+      .values({
+        orgId: this.orgId,
+        code: input.code,
+        name: input.name,
+        headEmployeeId: input.headEmployeeId ?? null,
+      })
+      .returning({ id: departments.id });
+
+    const row = inserted[0];
+    if (row === undefined) throw new Error('Department fixture insert returned no row.');
+    return row.id;
+  }
+
+  async setDepartmentHead(departmentId: string, employeeId: string): Promise<void> {
+    await this.db
+      .update(departments)
+      .set({ headEmployeeId: employeeId })
+      .where(eq(departments.id, departmentId));
+  }
+
+  // ----------------------------------------------------------- convenience
+
+  /** Signs in over HTTP and returns the access token plus a populated jar. */
+  async login(
+    email: string,
+    password: string,
+  ): Promise<{ token: string; jar: CookieJar; status: number }> {
+    const jar = new CookieJar();
+    const result = await this.post<{ accessToken?: string }>(
+      '/auth/login',
+      { body: { email, password }, withCookies: true },
+      jar,
+    );
+    return { token: result.body.accessToken ?? '', jar, status: result.status };
+  }
+
+  /** The most recent actions recorded for this organisation. */
+  async lastAuditActions(limit = 10): Promise<string[]> {
+    const rows = await this.db.execute<{ action: string }>(
+      sql`SELECT action FROM audit_logs WHERE org_id = ${this.orgId} ORDER BY created_at DESC LIMIT ${limit}`,
+    );
+    return rows.rows.map((row) => row.action);
+  }
+
+  /**
+   * Polls until the row appears, or gives up.
+   *
+   * `AuditInterceptor` deliberately does not make the response wait on the
+   * insert -- an audit write must never be what makes a punch slow, or what
+   * makes it fail. The consequence is that a query issued the instant a
+   * request returns can legitimately find nothing, and asserting straight
+   * after the response produced exactly that flake twice while this suite was
+   * being written. Waiting is the correct assertion, not a workaround.
+   */
+  async waitForAuditAction(action: string, timeoutMs = 3_000): Promise<boolean> {
+    return this.pollAudit(
+      sql`SELECT 1 FROM audit_logs WHERE org_id = ${this.orgId} AND action = ${action} LIMIT 1`,
+      timeoutMs,
+    );
+  }
+
+  async waitForAuditEntity(entityId: string, timeoutMs = 3_000): Promise<boolean> {
+    return this.pollAudit(
+      sql`SELECT 1 FROM audit_logs WHERE org_id = ${this.orgId} AND entity_id = ${entityId} LIMIT 1`,
+      timeoutMs,
+    );
+  }
+
+  private async pollAudit(query: SQL, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const rows = await this.db.execute(query);
+      if (rows.rows.length > 0) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+}
+
+/** A unique-enough email so a re-run does not collide on the unique index. */
+export function scopedEmail(label: string): string {
+  return `${label}.${uuidv7().slice(-12)}@vyuha.test`;
+}

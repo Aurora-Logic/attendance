@@ -56,6 +56,13 @@ export const users = pgTable(
     /** REQ-B-10: five failures per account per fifteen minutes, then a lockout. */
     failedAttempts: integer('failed_attempts').notNull().default(0),
     lockedUntil: timestamp('locked_until', { withTimezone: true }),
+    /**
+     * When the current run of failures started. Without it "five per fifteen
+     * minutes" degenerates into "five ever": a user who mistypes once a
+     * quarter would be locked out after five quarters, and the lockout would
+     * look like a bug in the password rather than a counter nobody resets.
+     */
+    failedAttemptsSince: timestamp('failed_attempts_since', { withTimezone: true }),
 
     /** REQ-B-04: changing a password invalidates every other session. */
     passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),

@@ -1,7 +1,15 @@
 {
-  // What `nest build` compiles. Identical to tsconfig.json except that tests
-  // stay out of dist -- they import vitest, which is a devDependency and will
-  // not be installed in a production image.
+  // What `nest build` compiles. Narrower than tsconfig.json in two ways:
+  // tests stay out of dist -- they import vitest, which is a devDependency and
+  // will not be installed in a production image -- and so does `seed/`, which
+  // is a development and bootstrap tool, not part of the running service.
+  //
+  // rootDir is restated here because tsconfig.json widens it to the package
+  // root to typecheck `seed/`; the emitted layout must stay `dist/main.js`.
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "seed", "**/*.test.ts", "**/*.spec.ts", "src/test-support/**"]
 }
