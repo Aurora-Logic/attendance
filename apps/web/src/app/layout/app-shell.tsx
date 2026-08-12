@@ -23,21 +23,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Separator } from '@/components/ui/separator';
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
 } from '@/components/ui/sidebar';
-import { Toaster } from '@/components/ui/sonner';
+import { Toaster } from '@/components/ui/toast';
 import { ShortcutLayer } from '@/lib/keyboard/registry';
 import { findBreadcrumbs } from '@/lib/nav';
 import { useSessionStore } from '@/lib/session/session-store';
 import { useUiStore } from '@/lib/ui-store';
 import { SYSTEM_ROLES, type SystemRoleName } from '@vyuha/shared';
 
+import { MobileBottomNav } from '@/components/shared/mobile-bottom-nav';
+
 import { GoToPalette } from '../goto-palette';
-import { ShortcutSheet } from '../shortcut-sheet';
+import { ShortcutDialog } from '../shortcut-dialog';
 import { AppSidebar } from './app-sidebar';
 
 function ThemeMenu() {
@@ -125,22 +126,24 @@ export function AppShell() {
 
   return (
     <SidebarProvider>
+      {/* First focusable element in the document, and it has to be: it used to
+          sit inside SidebarInset, which renders after the sidebar, so the first
+          Tab landed on the organisation brand and a keyboard user still had to
+          walk the whole sidebar. Caught by a probe, not by reading.
+
+          Padding is applied only on focus. Alongside sr-only it beat that
+          utility's padding: 0 and inflated the hidden link into a real 24x16
+          target while it was still invisible. */}
+      <a
+        href="#main-content"
+        className="bg-background focus-visible:ring-ring sr-only text-sm font-medium focus-visible:not-sr-only focus-visible:absolute focus-visible:top-2 focus-visible:left-2 focus-visible:z-50 focus-visible:px-3 focus-visible:py-2 focus-visible:ring-2"
+      >
+        Skip to content
+      </a>
+
       <AppSidebar />
 
       <SidebarInset className="min-w-0">
-        {/* Keyboard users reach the content without tabbing the whole sidebar.
-            Visually hidden until focused, then a real, visible target.
-
-            The padding is applied only on focus. Alongside `sr-only` it beat
-            that utility's `padding: 0`, and with border-box sizing it inflated
-            the hidden link from 1x1 to 24x16 — a sub-24px hit target that the
-            touch-target probe counts while the element is invisible. */}
-        <a
-          href="#main-content"
-          className="bg-background focus-visible:ring-ring sr-only text-sm font-medium focus-visible:not-sr-only focus-visible:absolute focus-visible:top-2 focus-visible:left-2 focus-visible:z-50 focus-visible:px-3 focus-visible:py-2 focus-visible:ring-2"
-        >
-          Skip to content
-        </a>
 
         {/* A material rather than an opaque strip: content scrolls under it and
             stays faintly legible, which keeps the page feeling continuous while
@@ -148,8 +151,15 @@ export function AppShell() {
             no backdrop-filter, and where the reader has asked for reduced
             transparency. */}
         <header className="bg-background/85 supports-backdrop-filter:bg-background/70 reduced-transparency:bg-background reduced-transparency:backdrop-blur-none sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b px-3 backdrop-blur-md">
-          <SidebarTrigger />
-          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
+          {/* Desktop only. On a phone the bottom bar is the navigation, and
+              keeping a hamburger that opens a second, different nav gives the
+              screen two answers to "where can I go". */}
+          <SidebarTrigger className="hidden md:inline-flex" />
+          {/* The 16px vertical rule that used to sit here is gone. In a 56px
+              header it read as a stray half-drawn line rather than a divider,
+              and the gap between the trigger and the breadcrumb already
+              separates them. Deleting beats tuning a mark that was doing no
+              work. */}
 
           {/* The page states its identity here and nowhere else, so the body
               starts straight into content. Derived from the route rather than
@@ -161,7 +171,7 @@ export function AppShell() {
             <Button
               variant="outline"
               size="sm"
-              className="text-muted-foreground gap-2 font-normal"
+              className="text-muted-foreground max-sm:size-11 max-sm:border-transparent max-sm:bg-transparent max-sm:px-0 max-sm:shadow-none gap-2 font-normal"
               onClick={toggleGoto}
             >
               <MagnifyingGlassIcon />
@@ -214,16 +224,22 @@ export function AppShell() {
           <div
             id="main-content"
             tabIndex={-1}
-            className="flex min-w-0 flex-1 flex-col gap-6 p-4 outline-none md:p-6"
+            // pb-24 clears the fixed bottom bar on a phone. Without it the last
+            // row of any list sits under the bar and cannot be reached.
+            className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 outline-none md:p-6 md:pb-6"
           >
             <Outlet />
           </div>
         </ShortcutLayer>
       </SidebarInset>
 
+      <MobileBottomNav />
+
       <GoToPalette />
-      <ShortcutSheet />
-      <Toaster position="bottom-right" />
+      <ShortcutDialog />
+      {/* Base UI's viewport owns its placement (bottom-right above sm, full
+          width on a phone), so there is no position prop to pass. */}
+      <Toaster />
     </SidebarProvider>
   );
 }
