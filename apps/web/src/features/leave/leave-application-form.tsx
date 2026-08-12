@@ -237,8 +237,25 @@ export function LeaveApplicationForm({
 
   return (
     <Form onSubmit={submit} className="flex flex-col gap-5">
-      <FieldGroup className="max-w-3xl">
-        <Field data-invalid={attempted && errors.leaveType ? true : undefined}>
+      {/*
+        The form is a grid rather than a single column. Stacked, every control
+        got a row of its own and the form ran 609px tall while 368px of width
+        sat empty beside it — vertical space spent to keep horizontal space
+        unused.
+
+        Two columns from sm, three from md. The cap moves 3xl to 5xl: wide
+        enough for three columns of controls, still short of the full width,
+        because a form that stretches to 1920px has a line length nobody wants
+        to read a description at.
+
+        Spans are declared per breakpoint so the pairing is deliberate at each
+        one rather than whatever the flow happens to produce.
+      */}
+      <FieldGroup className="grid max-w-5xl gap-5 sm:grid-cols-2 md:grid-cols-3">
+        <Field
+          className="sm:col-span-2 md:col-span-1"
+          data-invalid={attempted && errors.leaveType ? true : undefined}
+        >
           <FieldLabel htmlFor="leave-type">Leave type</FieldLabel>
           <Select
             value={leaveTypeId}
@@ -256,7 +273,7 @@ export function LeaveApplicationForm({
             <SelectTrigger
               id="leave-type"
               aria-invalid={attempted && Boolean(errors.leaveType)}
-              className="w-full pointer-coarse:h-11 sm:w-72"
+              className="w-full pointer-coarse:h-11"
             >
               <SelectValue>
                 {(value: string | null) =>
@@ -286,42 +303,42 @@ export function LeaveApplicationForm({
           {attempted ? <FieldError>{errors.leaveType}</FieldError> : null}
         </Field>
 
-        {/* Two columns from sm; one at 360px, where a side-by-side pair of
-            date buttons would each be 150px and truncate the date. */}
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field data-invalid={attempted && errors.fromDate ? true : undefined}>
-            <FieldLabel htmlFor="leave-from">First day</FieldLabel>
-            <DateField
-              id="leave-from"
-              label="First day of leave"
-              value={fromDate}
-              invalid={attempted && Boolean(errors.fromDate)}
-              onValueChange={(next) => {
-                setFromDate(next);
-                // Moving the start past the end would leave an inverted range
-                // on screen; the end follows rather than going red.
-                if (next && toDate && toDate.getTime() < next.getTime()) setToDate(next);
-              }}
-            />
-            {attempted ? <FieldError>{errors.fromDate}</FieldError> : null}
-          </Field>
+        {/* The dates are grid items in their own right now, so they pair with
+            each other at sm and sit beside the leave type at md. One column at
+            360px still, where a side-by-side pair of date buttons would each be
+            150px and truncate the date. */}
+        <Field data-invalid={attempted && errors.fromDate ? true : undefined}>
+          <FieldLabel htmlFor="leave-from">First day</FieldLabel>
+          <DateField
+            id="leave-from"
+            label="First day of leave"
+            value={fromDate}
+            invalid={attempted && Boolean(errors.fromDate)}
+            onValueChange={(next) => {
+              setFromDate(next);
+              // Moving the start past the end would leave an inverted range
+              // on screen; the end follows rather than going red.
+              if (next && toDate && toDate.getTime() < next.getTime()) setToDate(next);
+            }}
+          />
+          {attempted ? <FieldError>{errors.fromDate}</FieldError> : null}
+        </Field>
 
-          <Field data-invalid={attempted && errors.toDate ? true : undefined}>
-            <FieldLabel htmlFor="leave-to">Last day</FieldLabel>
-            <DateField
-              id="leave-to"
-              label="Last day of leave"
-              value={toDate}
-              defaultMonth={fromDate}
-              invalid={attempted && Boolean(errors.toDate)}
-              disabled={fromDate ? { before: fromDate } : undefined}
-              onValueChange={setToDate}
-            />
-            {attempted ? <FieldError>{errors.toDate}</FieldError> : null}
-          </Field>
-        </div>
+        <Field data-invalid={attempted && errors.toDate ? true : undefined}>
+          <FieldLabel htmlFor="leave-to">Last day</FieldLabel>
+          <DateField
+            id="leave-to"
+            label="Last day of leave"
+            value={toDate}
+            defaultMonth={fromDate}
+            invalid={attempted && Boolean(errors.toDate)}
+            disabled={fromDate ? { before: fromDate } : undefined}
+            onValueChange={setToDate}
+          />
+          {attempted ? <FieldError>{errors.toDate}</FieldError> : null}
+        </Field>
 
-        <Field>
+        <Field className="sm:col-span-2 md:col-span-1">
           <FieldLabel htmlFor="leave-half-start">Half days</FieldLabel>
           <div className="flex flex-col gap-2">
             <CheckboxRow
@@ -350,7 +367,10 @@ export function LeaveApplicationForm({
           </FieldDescription>
         </Field>
 
-        <Field data-invalid={attempted && errors.reason ? true : undefined}>
+        <Field
+          className="sm:col-span-2"
+          data-invalid={attempted && errors.reason ? true : undefined}
+        >
           <FieldLabel htmlFor="leave-reason">Reason</FieldLabel>
           <Textarea
             id="leave-reason"
@@ -376,7 +396,10 @@ export function LeaveApplicationForm({
           {attempted ? <FieldError>{errors.reason}</FieldError> : null}
         </Field>
 
-        <Field data-disabled>
+        {/* Two columns, not one: this field is a disabled input with a four
+            line explanation, and in a single column the explanation is taller
+            than everything it explains. */}
+        <Field className="sm:col-span-2" data-disabled>
           <FieldLabel htmlFor="leave-attachment">Attachment</FieldLabel>
           <Input id="leave-attachment" type="file" disabled className="pointer-coarse:h-11" />
           <FieldDescription>
@@ -392,7 +415,7 @@ export function LeaveApplicationForm({
       <dl
         id={summaryId}
         aria-live="polite"
-        className="grid max-w-3xl grid-cols-2 gap-x-6 gap-y-3 border p-3 sm:grid-cols-4"
+        className="grid max-w-5xl grid-cols-2 gap-x-6 gap-y-3 border p-3 sm:grid-cols-4"
       >
         <div className="flex flex-col gap-0.5">
           <dt className="text-muted-foreground text-xs">Days consumed</dt>
