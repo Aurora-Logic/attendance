@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CaretLeftIcon, CaretRightIcon, UsersThreeIcon } from '@phosphor-icons/react';
 import { addDays, isToday, startOfDay } from 'date-fns';
 import { useSearchParams } from 'react-router';
@@ -29,6 +29,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
+import { cn } from '@/lib/utils';
 import {
   ATTENDANCE_STATUSES,
   DEFAULT_PAGE_SIZE,
@@ -42,7 +43,7 @@ import { DateField } from './pickers';
 import { QueryErrorAlert } from './query-error';
 import { SampleDataNotice } from './sample-data-notice';
 import { AttendanceFlags, AttendanceStatusBadge } from './status-badge';
-import { statusLabel } from './status';
+import { statusClasses, statusLabel } from './status';
 import type { AttendanceDay } from './types';
 import { useAttendanceDays, useDepartments } from './use-attendance-days';
 
@@ -111,6 +112,56 @@ const COLUMNS: RecordColumn<AttendanceDay>[] = [
     secondary: true,
   },
 ];
+
+/**
+ * How the day went, above the rows that say it person by person.
+ *
+ * My Attendance answers "how was the month" with a coloured grid before it
+ * answers "what happened on the 14th". This is the same glance for a
+ * population rather than a month: the shape of the day first, the detail
+ * underneath. Same families and labels as the grid and the badges, so a colour
+ * means one thing everywhere in the product.
+ *
+ * Only the statuses present are shown. A fixed list of eight would spend a
+ * third of a 360px screen naming states this day does not contain.
+ *
+ * The count is of the loaded rows, which is not the whole day when the muster
+ * is paginated — and a summary that silently describes a page while looking
+ * like it describes a day is worse than no summary. So it says which it is.
+ */
+function StatusStrip({ rows, total }: { rows: AttendanceDay[]; total: number }) {
+  const counts = useMemo(() => {
+    const tally = new Map<AttendanceStatus, number>();
+    for (const row of rows) tally.set(row.status, (tally.get(row.status) ?? 0) + 1);
+    return ATTENDANCE_STATUSES.filter((status) => tally.has(status)).map((status) => ({
+      status,
+      count: tally.get(status) ?? 0,
+    }));
+  }, [rows]);
+
+  if (counts.length === 0) return null;
+  const partial = rows.length < total;
+
+  return (
+    <ul
+      aria-label={partial ? 'Status counts for this page' : 'Status counts for the day'}
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 border p-3"
+    >
+      {counts.map(({ status, count }) => (
+        <li key={status} className="flex items-center gap-1.5 text-xs">
+          <span aria-hidden className={cn('size-3 shrink-0 border', statusClasses(status))} />
+          <span className="font-medium tabular-nums">{count}</span>
+          <span className="text-muted-foreground">{statusLabel(status)}</span>
+        </li>
+      ))}
+      {partial ? (
+        <li className="text-muted-foreground ml-auto text-[0.6875rem] tabular-nums">
+          this page of {total}
+        </li>
+      ) : null}
+    </ul>
+  );
+}
 
 function MusterSkeleton() {
   return (
@@ -409,6 +460,8 @@ export function TeamAttendancePage() {
 
         {rows.length > 0 ? (
           <>
+            <StatusStrip rows={rows} total={total} />
+
             <RecordTable
               columns={COLUMNS}
               rows={rows}
