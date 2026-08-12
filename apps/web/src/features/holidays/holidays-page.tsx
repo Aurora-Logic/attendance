@@ -1,10 +1,11 @@
+import { useState } from 'react';
 import {
   CalendarDotsIcon,
   CaretLeftIcon,
   CaretRightIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
-import { format, parseISO } from 'date-fns';
+import { addMonths, format, isSameMonth, parseISO, startOfMonth } from 'date-fns';
 import { useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -29,8 +30,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MonthField } from '@/features/attendance/pickers';
 import { apiErrorCopy } from '@/features/leave/api-error-copy';
 import { SampleDataNotice } from '@/features/leave/sample-data-notice';
 import { ApiError } from '@/lib/api/client';
@@ -38,6 +39,7 @@ import { formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 
 import type { Holiday, HolidayCalendar } from './types';
+import { HolidayMonthCalendar } from './holiday-month-calendar';
 import { useHolidayCalendars } from './use-holidays';
 
 /**
@@ -64,12 +66,20 @@ function yearBounds(current: number): { earliest: number; latest: number } {
   return { earliest: Math.min(...options), latest: Math.max(...options) };
 }
 
-function readYear(raw: string | null, fallback: number): number {
-  if (raw === null) return fallback;
-  const parsed = Number(raw);
-  // A hand-edited URL should land on this year rather than on year NaN.
-  if (!Number.isInteger(parsed) || parsed < 2000 || parsed > 2100) return fallback;
-  return parsed;
+/**
+ * `yyyy-MM` from the URL, or this month. Parsed by hand rather than through
+ * `new Date(raw)`, which accepts most of a string and returns Invalid Date for
+ * the rest — a hand-edited URL should land on this month, never on NaN.
+ */
+function readMonth(raw: string | null): Date {
+  const now = startOfMonth(new Date());
+  if (raw === null) return now;
+  const match = /^(\d{4})-(\d{2})$/u.exec(raw);
+  if (!match) return now;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (year < 2000 || year > 2100 || month < 1 || month > 12) return now;
+  return new Date(year, month - 1, 1);
 }
 
 const COLUMNS: RecordColumn<Holiday>[] = [
@@ -125,8 +135,26 @@ function CalendarSkeleton() {
   );
 }
 
-function CalendarSection({ calendar }: { calendar: HolidayCalendar }) {
+/**
+ * One calendar, shown a month at a time.
+ *
+ * The grid answers "how does this month fall" — which long weekend, which
+ * holiday lands on a weekly off — and the list underneath answers "what is it
+ * called". A list on its own could not do the first, which is the question
+ * somebody planning leave actually has.
+ */
+function CalendarSection({
+  calendar,
+  month,
+  onMonthChange,
+}: {
+  calendar: HolidayCalendar;
+  month: Date;
+  onMonthChange: (month: Date) => void;
+}) {
   const restricted = calendar.holidays.filter((holiday) => holiday.restricted).length;
+  const monthKey = format(month, 'yyyy-MM');
+  const inMonth = calendar.holidays.filter((holiday) => holiday.date.startsWith(monthKey));
 
   return (
     <section className="flex flex-col gap-3">
@@ -143,22 +171,30 @@ function CalendarSection({ calendar }: { calendar: HolidayCalendar }) {
         </p>
       </div>
 
-      {calendar.holidays.length === 0 ? (
+      <HolidayMonthCalendar
+        month={month}
+        onMonthChange={onMonthChange}
+        holidays={calendar.holidays}
+      />
+
+      {inMonth.length === 0 ? (
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <CalendarDotsIcon />
             </EmptyMedia>
-            <EmptyTitle>No holidays in this year</EmptyTitle>
+            <EmptyTitle>No holidays in {format(month, 'MMMM yyyy')}</EmptyTitle>
             <EmptyDescription>
-              Holidays are entered or imported for each year; nothing is assumed.
+              {calendar.holidays.length === 0
+                ? 'Holidays are entered or imported for each year; nothing is assumed.'
+                : 'Step to another month, or use the grid above to see where this year’s holidays fall.'}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
       ) : (
         <RecordTable
           columns={COLUMNS}
-          rows={calendar.holidays}
+          rows={inMonth}
           rowKey={(row) => row.id}
           mobilePrimary={(row) => row.name}
           mobileStatus={(row) =>
@@ -173,31 +209,56 @@ function CalendarSection({ calendar }: { calendar: HolidayCalendar }) {
 
 export function HolidaysPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const thisYear = new Date().getFullYear();
-  const year = readYear(searchParams.get('year'), thisYear);
-  const { earliest: earliestYear, latest: latestYear } = yearBounds(thisYear);
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+
+  // The month lives in the URL rather than in state: a month somebody is
+  // looking at is a link worth pasting, and it survives a reload. The year the
+  // query needs is derived from it, so there is one source of truth for
+  // "when".
+  const month = readMonth(searchParams.get('month'));
+  const year = month.getFullYear();
+  const { earliest: earliestYear, latest: latestYear } = yearBounds(new Date().getFullYear());
 
   const query = useHolidayCalendars(year);
   const calendars = query.data?.data ?? [];
   const sample = query.data?.sample ?? false;
 
-  function setYear(next: string | null) {
-    setSearchParams((current) => {
-      const params = new URLSearchParams(current);
-      if (next === null || next === String(thisYear)) params.delete('year');
-      else params.set('year', next);
-      return params;
-    });
+  const activeId = searchParams.get('calendar');
+  const active = calendars.find((entry) => entry.id === activeId) ?? calendars[0] ?? null;
+
+  function setParam(key: string, value: string | null) {
+    setSearchParams(
+      (current) => {
+        const params = new URLSearchParams(current);
+        if (value === null) params.delete(key);
+        else params.set(key, value);
+        return params;
+      },
+      { replace: true },
+    );
   }
 
-  // PRD §6.4: Alt+F2 changes the period. Here the period is the year.
+  function setMonth(next: Date) {
+    const first = startOfMonth(next);
+    setParam('month', isSameMonth(first, new Date()) ? null : format(first, 'yyyy-MM'));
+  }
+
+  const atCurrentMonth = isSameMonth(month, new Date());
+  // The stepper is bounded by the years the API is asked for, so an arrow
+  // cannot walk into a year nothing was ever fetched for and show an empty
+  // grid that reads as a loading failure.
+  const atEarliest = year <= earliestYear && month.getMonth() === 0;
+  const atLatest = year >= latestYear && month.getMonth() === 11;
+
+  // PRD §6.4: F2 changes the date. On a month view that means the month —
+  // the same binding My Attendance uses for the same control.
   useShortcut({
-    id: 'holidays.change-year',
-    keys: 'alt+f2',
-    label: 'Change year',
+    id: 'holidays.change-month',
+    keys: 'f2',
+    label: 'Change month',
     scope: 'screen',
     run: () => {
-      document.getElementById('holiday-year')?.click();
+      setMonthPickerOpen(true);
     },
   });
 
@@ -212,74 +273,89 @@ export function HolidaysPage() {
 
       <PageHeader description="Each calendar is a named list of dated holidays. Employees inherit one from their location." />
 
-      {/* Toolbar row (PRD §6.2), built the same way My Attendance builds its
-          month toolbar: a stepper either side of the period control, and a
-          reset that only appears when there is something to reset to. Moving
-          one year is the common action and was two taps through a menu; it is
-          one tap now, and the menu stays for a jump. */}
+      {/* Toolbar row (PRD §6.2), the same shape My Attendance uses: a stepper
+          either side of the period, and a reset that appears only when there
+          is something to reset to. The calendar picker sits first because it
+          chooses *what* is being read; the month chooses *when*. */}
       <div className="flex flex-wrap items-center gap-2">
-        <ButtonGroup>
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="Previous year"
-            disabled={year <= earliestYear}
-            className="pointer-coarse:size-11"
-            onClick={() => {
-              setYear(String(year - 1));
+        {calendars.length > 1 ? (
+          <Select
+            value={active?.id ?? null}
+            onValueChange={(next: string | null) => {
+              setParam('calendar', next);
             }}
           >
-            <CaretLeftIcon />
-          </Button>
-          <Select value={String(year)} onValueChange={setYear}>
             <SelectTrigger
-              id="holiday-year"
-              aria-label="Holiday year"
-              className="pointer-coarse:h-11 w-28"
+              id="holiday-calendar"
+              aria-label="Holiday calendar"
+              className="pointer-coarse:h-11 w-full sm:w-56"
             >
               <SelectValue>
-                {(value: string) => <span className="tabular-nums">{value}</span>}
+                {(value: string | null) =>
+                  calendars.find((entry) => entry.id === value)?.name ?? 'Choose a calendar'
+                }
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                {yearOptions(thisYear).map((option) => (
-                  <SelectItem key={option} value={String(option)}>
-                    <span className="tabular-nums">{option}</span>
+                {calendars.map((entry) => (
+                  <SelectItem key={entry.id} value={entry.id}>
+                    {entry.name}
                   </SelectItem>
                 ))}
               </SelectGroup>
             </SelectContent>
           </Select>
+        ) : null}
+
+        <ButtonGroup>
           <Button
             variant="outline"
             size="icon"
-            aria-label="Next year"
-            // Nothing is entered beyond next year, so stepping further would
-            // show an empty calendar that reads as a loading failure.
-            disabled={year >= latestYear}
+            aria-label="Previous month"
+            disabled={atEarliest}
             className="pointer-coarse:size-11"
             onClick={() => {
-              setYear(String(year + 1));
+              setMonth(addMonths(month, -1));
+            }}
+          >
+            <CaretLeftIcon />
+          </Button>
+          {/* Open state is owned here rather than inside the field, because F2
+              has to open it without a click (PRD §6.4). */}
+          <MonthField
+            value={month}
+            onValueChange={setMonth}
+            label="Month"
+            open={monthPickerOpen}
+            onOpenChange={setMonthPickerOpen}
+            hint={<ShortcutHint keys="f2" className="ml-1 hidden md:inline-flex" />}
+          />
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Next month"
+            disabled={atLatest}
+            className="pointer-coarse:size-11"
+            onClick={() => {
+              setMonth(addMonths(month, 1));
             }}
           >
             <CaretRightIcon />
           </Button>
         </ButtonGroup>
 
-        {year === thisYear ? null : (
+        {atCurrentMonth ? null : (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
-              setYear(String(thisYear));
+              setMonth(new Date());
             }}
           >
-            This year
+            This month
           </Button>
         )}
-
-        <ShortcutHint keys="alt+f2" className="hidden md:inline-flex" />
       </div>
 
       {query.isPending ? <CalendarSkeleton /> : null}
@@ -324,12 +400,12 @@ export function HolidaysPage() {
         </Empty>
       ) : null}
 
-      {calendars.map((calendar, index) => (
-        <div key={calendar.id} className="flex flex-col gap-6">
-          {index > 0 ? <Separator /> : null}
-          <CalendarSection calendar={calendar} />
-        </div>
-      ))}
+      {/* One calendar at a time, chosen in the toolbar. Stacking every
+          calendar as a grid would put three month views on one screen and
+          leave the reader comparing three things nobody asked to compare. */}
+      {active ? (
+        <CalendarSection calendar={active} month={month} onMonthChange={setMonth} />
+      ) : null}
     </>
   );
 }

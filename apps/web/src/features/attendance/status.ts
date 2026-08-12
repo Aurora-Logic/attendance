@@ -30,7 +30,12 @@ import { ATTENDANCE_FLAGS, type AttendanceStatus } from '@vyuha/shared';
  * is unreadable. It is a fill colour in this theme, not a text colour.
  */
 
-type Family = 'success' | 'warning' | 'info' | 'destructive' | 'neutral' | 'quiet';
+/**
+ * Exported so a second surface that carries a state — the holiday calendar —
+ * composes its tones from the same six families rather than re-deriving the
+ * contrast maths documented above.
+ */
+export type Family = 'success' | 'warning' | 'info' | 'destructive' | 'neutral' | 'quiet';
 type Treatment = 'filled' | 'outline';
 
 export const FAMILY_TEXT: Record<Family, string> = {
@@ -42,7 +47,7 @@ export const FAMILY_TEXT: Record<Family, string> = {
   quiet: 'text-muted-foreground',
 };
 
-const FAMILY_FILL: Record<Family, string> = {
+export const FAMILY_FILL: Record<Family, string> = {
   success: 'bg-success/10 dark:bg-success/20',
   warning: 'bg-warning/10 dark:bg-warning/20',
   info: 'bg-info/10 dark:bg-info/20',
@@ -81,13 +86,18 @@ export function statusLabel(status: AttendanceStatus): string {
   return STATUS_TONES[status].label;
 }
 
-/** The class pair for a surface that carries a status: a badge, a calendar cell. */
-export function statusClasses(status: AttendanceStatus): string {
-  const { family, treatment } = STATUS_TONES[status];
+/** The class pair for any surface that carries a state: a badge, a calendar cell. */
+export function toneClasses(family: Family, treatment: Treatment): string {
   return cn(
     FAMILY_TEXT[family],
     treatment === 'filled' ? FAMILY_FILL[family] : cn('border', FAMILY_BORDER[family]),
   );
+}
+
+/** The class pair for a surface that carries a status: a badge, a calendar cell. */
+export function statusClasses(status: AttendanceStatus): string {
+  const { family, treatment } = STATUS_TONES[status];
+  return toneClasses(family, treatment);
 }
 
 /**
