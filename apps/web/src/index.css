@@ -106,6 +106,11 @@
 }
 
 @theme inline {
+    /* The iOS/Ionic drawer curve, the one Vaul uses. The built-in CSS easings
+       are too weak to read as intentional over a full-height slide, and
+       ease-in-out is wrong for an entering surface: it delays the first frame,
+       which is the frame the eye is on. */
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
     --font-heading: var(--font-sans);
     --font-sans: 'Inter Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
