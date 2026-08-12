@@ -1044,6 +1044,118 @@ check(
 check('No console errors', s.consoleErrors.length === 0, s.consoleErrors.slice(0, 2).join(' | ') || 'clean');
 check('No uncaught exceptions', s.exceptions.length === 0, s.exceptions.slice(0, 2).join(' | ') || 'clean');
 
+// -------------------------------------------- every route, phone width
+//
+// The checks above measure two screens in depth. This measures all of them,
+// shallowly, because the defects it is for are the ones that appear on the
+// screen nobody thought to open: a toolbar that pushes the page sideways at
+// 360px, a control that never got the size floor, a screen that renders an
+// error and looks fine to any geometric probe.
+//
+// That last one is why `errorAlert` is here. A screen showing "Could not load"
+// has a heading, does not overflow, and its one button clears 44px - it passes
+// every other check in this block. An earlier version of this sweep reported
+// two broken screens as clean for exactly that reason.
+//
+// Signed in as an administrator, so every route is reachable and a failure
+// means the screen is wrong rather than that this user may not see it.
+await s.viewport(360, 740);
+await s.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+await s.goto('/');
+check(
+  'Coarse pointer is active for the route sweep',
+  (await s.eval(`window.matchMedia('(pointer: coarse)').matches`)) === true,
+  'guards every measurement in this block',
+);
+
+const sweepFailures = [];
+for (const route of declaredRoutes) {
+  const arrived = await s.goto(route);
+  // Rendered, not merely navigated. A route stuck on a skeleton must not be
+  // measured and reported as clean.
+  const rendered = await s.waitFor(
+    `!!document.querySelector('#main-content') &&
+     !!document.querySelector('h1') &&
+     document.querySelectorAll('#main-content *').length > 5`,
+    12000,
+  );
+  if (!arrived || !rendered) {
+    sweepFailures.push(`${route}: did not render`);
+    continue;
+  }
+
+  // Overflow is read twice. A layout that is only too wide while its data
+  // loads is a different defect from one that is simply too wide, and calling
+  // them the same thing sends you hunting for a static cause that is not there.
+  const onRender = await s.eval(
+    `document.documentElement.scrollWidth - document.documentElement.clientWidth`,
+  );
+  await sleep(1000);
+
+  const measured = JSON.parse(
+    await s.eval(`JSON.stringify((() => {
+      const overflow = document.documentElement.scrollWidth - document.documentElement.clientWidth;
+      const undersized = [...document.querySelectorAll(
+          'button, a[href], [role="button"], [role="menuitem"], input, select, textarea')]
+        .filter(e => e.offsetParent !== null && !e.className.toString().includes('sr-only'))
+        .map(e => ({ label: (e.getAttribute('aria-label') || e.textContent
+                          || e.getAttribute('placeholder') || e.tagName).trim().slice(0, 24),
+                     h: Math.round(e.getBoundingClientRect().height) }))
+        .filter(o => o.h > 0 && o.h < 44);
+      // Only destructive alerts count. The sample-data notice is also an Alert
+      // and is a deliberate statement that an endpoint is not built yet;
+      // failing on it would train the reader to ignore this line.
+      const errors = [...document.querySelectorAll('[data-slot="alert"], [role="alert"]')]
+        .filter(el => el.className.toString().includes('destructive'))
+        .map(el => el.textContent.trim());
+      // A screen that knowingly substitutes sample data says so, and the 404
+      // behind that notice is expected rather than a fault.
+      const sampleNotice = [...document.querySelectorAll('[data-slot="alert"]')]
+        .some(el => /sample data/i.test(el.textContent));
+      return { overflow, undersized, errors, sampleNotice };
+    })())`),
+  );
+
+  if (onRender > 0 || measured.overflow > 0) {
+    sweepFailures.push(
+      `${route}: overflows ${String(onRender)}px on render, ${String(measured.overflow)}px settled`,
+    );
+  }
+  if (measured.undersized.length > 0) {
+    sweepFailures.push(`${route}: ${JSON.stringify(measured.undersized.slice(0, 3))}`);
+  }
+  // The camera alert is excluded by name rather than filtered away silently.
+  // `facingMode: { exact: 'user' }` is an anti-spoofing control (technical
+  // design 7, OPEN-QUESTIONS P1-5) and no headless browser can satisfy it, so
+  // the capture flow is NOT covered here. Excluding the alert records that
+  // gap; it does not close it.
+  const realErrors = measured.errors.filter((t) => !/front camera/i.test(t));
+  if (realErrors.length > 0) {
+    sweepFailures.push(`${route}: error state - ${realErrors[0].slice(0, 60)}`);
+  }
+  // The browser logs a 404 for an endpoint the screen deliberately stands in
+  // for. That is the sample-data path working, not a defect, and it stops
+  // being excused the moment the screen no longer shows the notice.
+  const unexpected = [
+    ...s.consoleErrors.filter((t) => !(measured.sampleNotice && t.includes('404'))),
+    ...s.exceptions,
+  ];
+  if (unexpected.length > 0) {
+    sweepFailures.push(`${route}: console - ${unexpected[0].slice(0, 60)}`);
+  }
+}
+
+check(
+  'Every route renders, fits 360px, clears 44px and shows no error',
+  sweepFailures.length === 0,
+  sweepFailures.length === 0
+    ? `${String(declaredRoutes.length)} routes clean (camera capture excluded, P1-5)`
+    : sweepFailures.slice(0, 4).join(' ; '),
+);
+
+// No maxTouchPoints when disabling: the protocol rejects 0 outright.
+await s.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+
 // ------------------------------------------------------------- sign out
 //
 // Last, and deliberately after the console assertions. Signing out revokes the
