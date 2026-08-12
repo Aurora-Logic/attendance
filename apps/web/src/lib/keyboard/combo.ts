@@ -109,17 +109,55 @@ const CODE_LABELS: Record<string, string> = {
   PageDown: 'PgDn',
 };
 
+export type Platform = 'mac' | 'pc';
+
 /**
- * Human-readable parts for the hint chip, e.g. ["Alt", "G"].
- * PRD §6.4 requires the key to be visible on the control, so this is part of
- * the contract rather than a convenience.
+ * macOS prints modifiers as glyphs everywhere its own menus appear, so a chip
+ * reading "Ctrl" next to a Mac keyboard marked with a caret is asking the
+ * reader to translate. The physical key is unchanged — matching still happens
+ * on ctrlKey — only the label differs.
+ *
+ * Order follows the macOS convention (control, option, shift, command), which
+ * is also the order Windows spells them in, so one sequence serves both.
  */
-export function formatCombo(combo: KeyCombo): string[] {
+const MODIFIER_LABELS: Record<Platform, Record<'ctrl' | 'alt' | 'shift' | 'meta', string>> = {
+  mac: { ctrl: '⌃', alt: '⌥', shift: '⇧', meta: '⌘' },
+  pc: { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', meta: 'Win' },
+};
+
+/**
+ * userAgentData.platform where it exists, userAgent otherwise. navigator
+ * .platform is deprecated and already frozen to a lie in some browsers.
+ */
+export function detectPlatform(): Platform {
+  if (typeof navigator === 'undefined') return 'pc';
+  const modern = (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform;
+  const source = modern ?? navigator.userAgent;
+  return /mac|iphone|ipad|ipod/i.test(source) ? 'mac' : 'pc';
+}
+
+let cachedPlatform: Platform | null = null;
+
+function defaultPlatform(): Platform {
+  cachedPlatform ??= detectPlatform();
+  return cachedPlatform;
+}
+
+/**
+ * Human-readable parts for the hint chip, e.g. ["Alt", "G"] on Windows and
+ * ["⌥", "G"] on a Mac. PRD §6.4 requires the key to be visible on the
+ * control, so this is part of the contract rather than a convenience.
+ *
+ * The platform is injectable so the mapping can be exercised for both without
+ * a browser.
+ */
+export function formatCombo(combo: KeyCombo, platform: Platform = defaultPlatform()): string[] {
+  const labels = MODIFIER_LABELS[platform];
   const parts: string[] = [];
-  if (combo.ctrl) parts.push('Ctrl');
-  if (combo.alt) parts.push('Alt');
-  if (combo.shift) parts.push('Shift');
-  if (combo.meta) parts.push('Cmd');
+  if (combo.ctrl) parts.push(labels.ctrl);
+  if (combo.alt) parts.push(labels.alt);
+  if (combo.shift) parts.push(labels.shift);
+  if (combo.meta) parts.push(labels.meta);
 
   const { code } = combo;
   if (CODE_LABELS[code]) parts.push(CODE_LABELS[code]);
@@ -130,6 +168,6 @@ export function formatCombo(combo: KeyCombo): string[] {
   return parts;
 }
 
-export function formatSpec(spec: string): string[] {
-  return formatCombo(parseCombo(spec));
+export function formatSpec(spec: string, platform?: Platform): string[] {
+  return formatCombo(parseCombo(spec), platform);
 }

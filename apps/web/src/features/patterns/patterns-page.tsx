@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { FloppyDiskIcon, PlusIcon, WarningIcon } from '@phosphor-icons/react';
+import { CheckIcon, PlusIcon, WarningIcon } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router';
-import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -21,6 +20,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from '@/components/ui/toast';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 
 /**
@@ -95,7 +95,9 @@ export function PatternsPage() {
 
   function save() {
     // Copy rule from PRD §6.6: the toast repeats the action the button named.
-    toast.success('Demo record saved', {
+    toast.add({
+      type: 'success',
+      title: 'Demo record saved',
       description: 'Nothing was persisted — there is no API yet.',
     });
     setName('');
@@ -128,7 +130,8 @@ export function PatternsPage() {
     label: 'Create master on the fly',
     scope: 'screen',
     run: () => {
-      toast('Create on the fly', {
+      toast.add({
+        title: 'Create on the fly',
         description: 'Alt+C opens a create dialog from any picker field.',
       });
     },
@@ -140,7 +143,7 @@ export function PatternsPage() {
         description="Every screen is built from these. Development only."
         action={
           <Button onClick={save}>
-            <FloppyDiskIcon data-icon="inline-start" />
+            <CheckIcon data-icon="inline-start" />
             Save
             <ShortcutHint keys="ctrl+a" className="ml-1" />
           </Button>
@@ -162,7 +165,10 @@ export function PatternsPage() {
           mobileStatus={(r) => <Badge variant={STATUS_VARIANT[r.status]}>{r.status}</Badge>}
           mobileSupporting={(r) => `${r.code} · ${r.in}–${r.out}`}
           onRowActivate={(r) => {
-            toast(`Drill into ${r.name}`, { description: 'Enter opens the focused row.' });
+            toast.add({
+              title: `Drill into ${r.name}`,
+              description: 'Enter opens the focused row.',
+            });
           }}
         />
       </section>
@@ -236,7 +242,13 @@ export function PatternsPage() {
             <Skeleton className="h-4 w-1/2" />
             <Skeleton className="h-4 w-5/6" />
           </div>
-          <Alert variant="destructive">
+          {/* content-start because Alert is a grid and this one is a cell in an
+              equal-height row: without it the auto rows stretch to the height
+              of the taller loading card and the description drifts away from
+              its title. self-start would shrink the box instead; keeping the
+              two cards the same height and pinning the text is the better
+              trade. */}
+          <Alert variant="destructive" className="content-start">
             <WarningIcon />
             <AlertTitle>Could not load attendance</AlertTitle>
             <AlertDescription>

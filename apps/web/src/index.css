@@ -125,6 +125,9 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-success: var(--success);
+    --color-warning: var(--warning);
+    --color-info: var(--info);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -164,6 +167,13 @@
     --accent: oklch(0.97 0.001 106.424);
     --accent-foreground: oklch(0.216 0.006 56.043);
     --destructive: oklch(0.577 0.245 27.325);
+    /* Status colours the preset does not ship. A toast that reports an outcome
+       has to be able to say which outcome without reaching for a raw Tailwind
+       colour, which would ignore the theme and not follow a rebrand. Chroma and
+       lightness are matched to --destructive so the four read as one family. */
+    --success: oklch(0.573 0.152 152.535);
+    --warning: oklch(0.646 0.157 71.578);
+    --info: oklch(0.567 0.183 259.052);
     --border: oklch(0.923 0.003 48.717);
     --input: oklch(0.923 0.003 48.717);
     --ring: oklch(0.709 0.01 56.259);
@@ -203,6 +213,11 @@
     --accent: oklch(0.268 0.007 34.298);
     --accent-foreground: oklch(0.985 0.001 106.423);
     --destructive: oklch(0.704 0.191 22.216);
+    /* Lifted the same way --destructive is on dark, so they stay legible
+       against the dark popover rather than going muddy. */
+    --success: oklch(0.723 0.176 149.579);
+    --warning: oklch(0.769 0.166 70.08);
+    --info: oklch(0.707 0.165 254.624);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.553 0.013 58.071);
