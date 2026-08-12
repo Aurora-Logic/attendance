@@ -111,6 +111,10 @@
        ease-in-out is wrong for an entering surface: it delays the first frame,
        which is the frame the eye is on. */
     --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+    /* A stronger ease-out than the CSS default for surfaces that enter.
+       Named rather than overriding --ease-out, so nothing already reaching for
+       the stock curve changes underneath it. */
+    --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
     --font-heading: var(--font-sans);
     --font-sans: 'Inter Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
