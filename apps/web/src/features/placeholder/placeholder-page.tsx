@@ -1,7 +1,7 @@
-import { Construction } from 'lucide-react';
+import { BarricadeIcon } from '@phosphor-icons/react';
 import { useLocation } from 'react-router';
 
-import { type Crumb, PageHeader } from '@/components/shared/page-header';
+import { PageHeader } from '@/components/shared/page-header';
 import { Badge } from '@/components/ui/badge';
 import {
   Empty,
@@ -10,7 +10,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { findNavGroup, findNavItem } from '@/lib/nav';
+import { findNavItem } from '@/lib/nav';
 
 /**
  * Every route in the navigation resolves to something. A dead link reads as a
@@ -21,25 +21,14 @@ export function PlaceholderPage() {
   const location = useLocation();
   const item = findNavItem(location.pathname);
 
-  const title = item?.label ?? 'Not found';
-  const group = findNavGroup(location.pathname);
-  // "Reports" sits in a group also called Reports. A parent crumb that repeats
-  // its child is the same duplication this header exists to avoid, so it is
-  // dropped rather than rendered.
-  const crumbs: [Crumb, ...Crumb[]] =
-    group && group !== title ? [{ label: group }, { label: title }] : [{ label: title }];
-
   return (
     <>
-      <PageHeader
-        crumbs={crumbs}
-        action={item ? <Badge variant="secondary">Phase {item.phase}</Badge> : null}
-      />
+      <PageHeader action={item ? <Badge variant="secondary">Phase {item.phase}</Badge> : null} />
 
-      <Empty className="rounded-lg border">
+      <Empty className="border">
         <EmptyHeader>
           <EmptyMedia variant="icon">
-            <Construction />
+            <BarricadeIcon />
           </EmptyMedia>
           <EmptyTitle>Not built yet</EmptyTitle>
           <EmptyDescription>

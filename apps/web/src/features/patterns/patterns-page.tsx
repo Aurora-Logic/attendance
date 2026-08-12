@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Plus, Save } from 'lucide-react';
+import { FloppyDiskIcon, PlusIcon, WarningIcon } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 
@@ -138,10 +138,9 @@ export function PatternsPage() {
     <>
       <PageHeader
         description="Every screen is built from these. Development only."
-        crumbs={[{ label: 'Shell patterns' }]}
         action={
           <Button onClick={save}>
-            <Save data-icon="inline-start" />
+            <FloppyDiskIcon data-icon="inline-start" />
             Save
             <ShortcutHint keys="ctrl+a" className="ml-1" />
           </Button>
@@ -213,7 +212,7 @@ export function PatternsPage() {
           </Field>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm">
-              <Plus data-icon="inline-start" />
+              <PlusIcon data-icon="inline-start" />
               Create department
               <ShortcutHint keys="alt+c" className="ml-1" />
             </Button>
@@ -229,7 +228,7 @@ export function PatternsPage() {
       <section className="flex flex-col gap-3">
         <SectionHeading title="States" note="Loading, error, and empty are built for every screen, not just the happy path." />
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="flex flex-col gap-2 rounded-lg border p-4">
+          <div className="flex flex-col gap-2 border p-4">
             <span className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
               Loading
             </span>
@@ -238,7 +237,7 @@ export function PatternsPage() {
             <Skeleton className="h-4 w-5/6" />
           </div>
           <Alert variant="destructive">
-            <AlertTriangle />
+            <WarningIcon />
             <AlertTitle>Could not load attendance</AlertTitle>
             <AlertDescription>
               The server did not respond. Check your connection and try again.

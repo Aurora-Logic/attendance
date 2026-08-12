@@ -1,4 +1,14 @@
-import type { ReactNode } from 'react';
+import { Fragment, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemSeparator,
+  ItemTitle,
+} from '@/components/ui/item';
 
 import {
   Table,
@@ -57,13 +67,13 @@ export function RecordTable<T>({
   emptyState,
 }: RecordTableProps<T>) {
   if (rows.length === 0 && emptyState) {
-    return <div className="rounded-lg border">{emptyState}</div>;
+    return <div className="border">{emptyState}</div>;
   }
 
   return (
     <>
       {/* Desktop and tablet */}
-      <div className="hidden overflow-hidden rounded-lg border md:block">
+      <div className="hidden overflow-x-auto border md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -118,39 +128,54 @@ export function RecordTable<T>({
         </Table>
       </div>
 
-      {/* Below 768px */}
-      <div className="flex flex-col overflow-hidden rounded-lg border md:hidden">
-        {rows.map((row) => (
-          <div
-            key={rowKey(row)}
-            role={onRowActivate ? 'button' : undefined}
-            tabIndex={onRowActivate ? 0 : undefined}
-            onClick={onRowActivate ? () => { onRowActivate(row); } : undefined}
-            onKeyDown={
-              onRowActivate
-                ? (event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      onRowActivate(row);
+      {/* Below 768px. Built from shadcn's Item rather than hand-rolled row
+          markup — the registry already models exactly this shape, and a
+          bespoke version would drift from it the first time the theme moves
+          (CLAUDE.md §3 rule 1). */}
+      {/* role="presentation" overrides ItemGroup's built-in role="list". A list
+          whose children are all role="button" has no listitem in it, so a
+          screen reader announces an empty list — worse than the plain container
+          this replaced. The rows carry the semantics; the group is visual.
+
+          gap-0 because ItemGroup spaces its children by default, which left the
+          separators floating in 10px of nothing instead of dividing flush rows. */}
+      <ItemGroup role="presentation" className="gap-0 border md:hidden">
+        {rows.map((row, index) => (
+          <Fragment key={rowKey(row)}>
+            {index > 0 ? <ItemSeparator className="my-0" /> : null}
+            <Item
+              size="sm"
+              role={onRowActivate ? 'button' : undefined}
+              tabIndex={onRowActivate ? 0 : undefined}
+              onClick={onRowActivate ? () => { onRowActivate(row); } : undefined}
+              onKeyDown={
+                onRowActivate
+                  ? (event: ReactKeyboardEvent<HTMLDivElement>) => {
+                      // PRD §6.4: Enter drills into the focused row. Space is
+                      // included because the row advertises role="button", and
+                      // a control that claims that role has to honour both.
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onRowActivate(row);
+                      }
                     }
-                  }
-                : undefined
-            }
-            // 44px minimum touch target (CLAUDE.md §3 rule 1).
-            className="flex min-h-[3.25rem] flex-col justify-center gap-1 border-b px-3 py-2 last:border-b-0"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="truncate text-sm font-medium">{mobilePrimary(row)}</span>
-              {mobileStatus ? mobileStatus(row) : null}
-            </div>
-            {mobileSupporting ? (
-              <div className="text-muted-foreground truncate text-xs">
-                {mobileSupporting(row)}
-              </div>
-            ) : null}
-          </div>
+                  : undefined
+              }
+              className={cn('min-h-11 rounded-none', onRowActivate && 'cursor-pointer')}
+            >
+              <ItemContent className="min-w-0 gap-0.5">
+                <ItemTitle className="truncate">{mobilePrimary(row)}</ItemTitle>
+                {mobileSupporting ? (
+                  <ItemDescription className="truncate text-xs">
+                    {mobileSupporting(row)}
+                  </ItemDescription>
+                ) : null}
+              </ItemContent>
+              {mobileStatus ? <ItemActions>{mobileStatus(row)}</ItemActions> : null}
+            </Item>
+          </Fragment>
         ))}
-      </div>
+      </ItemGroup>
     </>
   );
 }

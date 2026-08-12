@@ -48,7 +48,9 @@ export function ShortcutSheet() {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-md">
+      {/* Same reasoning as the Go To palette: Ctrl+F1 is a reflex, and a
+          200ms slide from 2.5rem away turns a reflex into a wait. */}
+      <SheetContent side="right" className="surface-instant w-full gap-0 sm:max-w-md">
         <SheetHeader>
           <SheetTitle>Keyboard shortcuts</SheetTitle>
           <SheetDescription>

@@ -1,4 +1,4 @@
-import { DatabaseZap } from 'lucide-react';
+import { DatabaseIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -21,15 +21,12 @@ import {
 export function DashboardPage() {
   return (
     <>
-      <PageHeader
-        description="Today's attendance at a glance."
-        crumbs={[{ label: 'Work' }, { label: 'Dashboard' }]}
-      />
+      <PageHeader description="Today's attendance at a glance." />
 
-      <Empty className="rounded-lg border">
+      <Empty className="border">
         <EmptyHeader>
           <EmptyMedia variant="icon">
-            <DatabaseZap />
+            <DatabaseIcon />
           </EmptyMedia>
           <EmptyTitle>Nothing to show yet</EmptyTitle>
           <EmptyDescription>

@@ -53,6 +53,10 @@ export function GoToPalette() {
       onOpenChange={setOpen}
       title="Go To"
       description="Jump to any screen or report"
+      // No entrance animation. This is the primary navigation for a Tally
+      // user and is opened dozens of times a day; motion here would be felt
+      // as latency, not craft. See the surface-instant note in index.css.
+      className="surface-instant"
     >
       <ShortcutLayer id="modal:goto">
         <Command>

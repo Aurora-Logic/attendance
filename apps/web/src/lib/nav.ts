@@ -1,28 +1,28 @@
 import {
-  CalendarDays,
-  CalendarRange,
-  ClipboardCheck,
-  Clock,
-  Download,
-  Fingerprint,
-  LayoutDashboard,
-  Lock,
-  type LucideIcon,
-  Palmtree,
-  Plug,
-  ScrollText,
-  Settings,
-  ShieldCheck,
-  SquareChartGantt,
-  Users,
-} from 'lucide-react';
+  CalendarBlankIcon,
+  CalendarDotsIcon,
+  ChartBarIcon,
+  ClipboardTextIcon,
+  ClockIcon,
+  DownloadSimpleIcon,
+  FingerprintIcon,
+  GearIcon,
+  type Icon,
+  LockIcon,
+  PlugIcon,
+  ScrollIcon,
+  ShieldCheckIcon,
+  SquaresFourIcon,
+  TreePalmIcon,
+  UsersIcon,
+} from '@phosphor-icons/react';
 
 import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
 
 export interface NavItem {
   to: string;
   label: string;
-  icon: LucideIcon;
+  icon: Icon;
   /** Sidebar items are permission-filtered (PRD §6.1). Undefined means always. */
   permission?: PermissionKey;
   /** Phase the screen ships in, shown on the placeholder until it is built. */
@@ -44,11 +44,11 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Work',
     items: [
-      { to: '/', label: 'Dashboard', icon: LayoutDashboard, phase: 4, reqs: 'REQ-K-01' },
+      { to: '/', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
       {
         to: '/punch',
         label: 'Punch',
-        icon: Fingerprint,
+        icon: FingerprintIcon,
         permission: PERMISSIONS.PUNCH_SELF,
         phase: 1,
         reqs: 'REQ-D-01…D-13',
@@ -56,7 +56,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/my-attendance',
         label: 'My attendance',
-        icon: CalendarDays,
+        icon: CalendarDotsIcon,
         permission: PERMISSIONS.ATTENDANCE_VIEW_SELF,
         phase: 1,
         reqs: 'REQ-E-01, E-02',
@@ -64,7 +64,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/my-leave',
         label: 'My leave',
-        icon: Palmtree,
+        icon: TreePalmIcon,
         permission: PERMISSIONS.LEAVE_APPLY_SELF,
         phase: 2,
         reqs: 'REQ-G-03, G-06',
@@ -72,7 +72,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/approvals',
         label: 'Approvals',
-        icon: ClipboardCheck,
+        icon: ClipboardTextIcon,
         permission: PERMISSIONS.LEAVE_APPROVE_TEAM,
         phase: 2,
         reqs: 'REQ-I-03',
@@ -85,7 +85,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/employees',
         label: 'Employees',
-        icon: Users,
+        icon: UsersIcon,
         permission: PERMISSIONS.EMPLOYEE_VIEW,
         phase: 1,
         reqs: 'REQ-A-03, A-06',
@@ -93,7 +93,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/shifts',
         label: 'Shifts and rosters',
-        icon: Clock,
+        icon: ClockIcon,
         permission: PERMISSIONS.SHIFT_MANAGE,
         phase: 1,
         reqs: 'REQ-C-01…C-05',
@@ -101,7 +101,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/leave-types',
         label: 'Leave types',
-        icon: CalendarRange,
+        icon: CalendarBlankIcon,
         permission: PERMISSIONS.LEAVE_POLICY_MANAGE,
         phase: 2,
         reqs: 'REQ-G-01, G-03',
@@ -109,7 +109,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/holidays',
         label: 'Holidays',
-        icon: CalendarDays,
+        icon: CalendarDotsIcon,
         permission: PERMISSIONS.HOLIDAY_MANAGE,
         phase: 2,
         reqs: 'REQ-H-01…H-04',
@@ -122,7 +122,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/reports',
         label: 'Reports',
-        icon: SquareChartGantt,
+        icon: ChartBarIcon,
         permission: PERMISSIONS.REPORT_VIEW,
         phase: 3,
         reqs: 'REQ-J-01',
@@ -130,7 +130,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/downloads',
         label: 'Downloads',
-        icon: Download,
+        icon: DownloadSimpleIcon,
         permission: PERMISSIONS.REPORT_EXPORT,
         phase: 3,
         reqs: 'REQ-J-03',
@@ -138,7 +138,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/period-lock',
         label: 'Period lock',
-        icon: Lock,
+        icon: LockIcon,
         permission: PERMISSIONS.ATTENDANCE_LOCK,
         phase: 3,
         reqs: 'REQ-E-09',
@@ -151,7 +151,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/settings',
         label: 'Settings',
-        icon: Settings,
+        icon: GearIcon,
         permission: PERMISSIONS.SETTINGS_MANAGE,
         phase: 4,
         reqs: 'REQ-L-01…L-05',
@@ -159,7 +159,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/roles',
         label: 'Roles and permissions',
-        icon: ShieldCheck,
+        icon: ShieldCheckIcon,
         permission: PERMISSIONS.ROLES_MANAGE,
         phase: 4,
         reqs: 'REQ-B-07',
@@ -167,7 +167,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/integrations',
         label: 'Integrations',
-        icon: Plug,
+        icon: PlugIcon,
         permission: PERMISSIONS.INTEGRATION_MANAGE,
         phase: 6,
         reqs: 'Technical design §14',
@@ -175,7 +175,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/audit',
         label: 'Audit log',
-        icon: ScrollText,
+        icon: ScrollIcon,
         permission: PERMISSIONS.AUDIT_VIEW,
         phase: 4,
         reqs: 'REQ-M-02',
@@ -197,4 +197,42 @@ export function findNavItem(pathname: string): NavItem | undefined {
  */
 export function findNavGroup(pathname: string): string | undefined {
   return NAV_GROUPS.find((group) => group.items.some((item) => item.to === pathname))?.label;
+}
+
+export interface Crumb {
+  label: string;
+  to?: string;
+}
+
+/**
+ * Routes that carry a name but deliberately sit outside the sidebar.
+ *
+ * Gated on DEV for the same reason the route itself is: /patterns is mounted
+ * only in development, so naming it unconditionally would leave a production
+ * build showing "Shell patterns" in the header above a body that says there is
+ * no screen at this address. The label and the route have to appear and
+ * disappear together.
+ */
+const OFF_NAV_LABELS: Record<string, string> = import.meta.env.DEV
+  ? { '/patterns': 'Shell patterns' }
+  : {};
+
+/**
+ * The trail for a route, derived here rather than passed up from the screen.
+ * The header renders it, so a screen cannot forget to declare who it is, and
+ * two screens cannot describe the same route differently.
+ */
+export function findBreadcrumbs(pathname: string): [Crumb, ...Crumb[]] {
+  const offNav = OFF_NAV_LABELS[pathname];
+  if (offNav) return [{ label: offNav }];
+
+  const item = findNavItem(pathname);
+  if (!item) return [{ label: 'Not found' }];
+
+  const group = findNavGroup(pathname);
+  // "Reports" sits in a group also called Reports. A parent that repeats its
+  // child is noise, so it is dropped rather than rendered.
+  return group && group !== item.label
+    ? [{ label: group }, { label: item.label }]
+    : [{ label: item.label }];
 }

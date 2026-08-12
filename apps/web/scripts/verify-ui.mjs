@@ -168,10 +168,20 @@ const groups = await s.eval(
 );
 check('Nav groups match PRD 6.1', groups === '["Work","Records","Reports","Setup"]', groups);
 
+// The page name lives in the header breadcrumb and nowhere else. Counting every
+// h1 in the document, rather than reading the first one, is what makes this
+// fail if a screen ever states its name a second time in the body.
+//
+// Scoped to #main-content, not 'main': SidebarInset also renders a <main>, and
+// that outer one wraps the header — so 'main h1' matches the header's own
+// heading and would report a duplicate that does not exist.
+const h1Count = await s.eval(`document.querySelectorAll('h1').length`);
 check(
-  'Page header renders',
-  (await s.eval(`document.querySelector('main h1')?.textContent`)) === 'Dashboard',
-  'h1 = Dashboard',
+  'Page name stated exactly once, in the header breadcrumb',
+  h1Count === 1 &&
+    (await s.eval(`document.querySelector('header h1')?.textContent`)) === 'Dashboard' &&
+    (await s.eval(`document.querySelectorAll('#main-content h1').length`)) === 0,
+  `${h1Count} h1 in document, in the header`,
 );
 
 const ov = await s.eval(
@@ -267,20 +277,165 @@ check(
 );
 check(
   'Stacked record rows render',
+  // Asserts on the component's data-slot, not a Tailwind class string: the
+  // class is an implementation detail that changed the moment the row was
+  // rebuilt on shadcn's Item, and a probe keyed to it fails for the wrong
+  // reason.
   (await s.eval(
-    `[...document.querySelectorAll('div')].filter(d => typeof d.className === 'string' && d.className.includes('min-h-[3.25rem]')).length`,
+    `document.querySelectorAll('[data-slot="item-group"] [data-slot="item"]').length`,
   )) === 4,
-  '4 stacked rows',
+  '4 stacked rows built from shadcn Item',
 );
 check(
-  'No sub-24px touch targets at 360px',
+  'Stacked rows expose a tap target for the whole row',
   (await s.eval(
-    `[...document.querySelectorAll('button, a[href], [role="button"]')]
+    `[...document.querySelectorAll('[role="button"]')]
        .filter(e => e.offsetParent !== null)
        .map(e => e.getBoundingClientRect())
-       .filter(r => r.height > 0 && r.height < 24).length`,
-  )) === 0,
+       .filter(r => r.height >= 44).length >= 4`,
+  )) === true,
+  'the mobile record rows are the tap target, not a link inside them',
 );
+
+// CLAUDE.md §3 rule 1: at least 44px on a phone.
+//
+// The size floor is keyed on `pointer: coarse`, so a viewport override alone
+// proves nothing - Chrome still reports a fine pointer at 360px wide and the
+// rule never matches.
+//
+// Emulation.setEmulatedMedia does NOT support pointer/hover features: passing
+// them is accepted silently and matchMedia keeps returning false, which is
+// exactly the kind of probe that reports a phone as compliant while testing a
+// desktop. Chrome derives `pointer: coarse` from touch emulation instead, so
+// that is what we turn on, and the assertion below confirms the media query
+// actually flipped before trusting any measurement.
+await s.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+await s.goto('/patterns');
+
+check(
+  'Coarse-pointer emulation is actually active',
+  (await s.eval(`window.matchMedia('(pointer: coarse)').matches`)) === true,
+  'guards the measurement below from passing against a fine pointer',
+);
+
+const undersized = await s.eval(
+  `JSON.stringify([...document.querySelectorAll('button, a[href], [role="button"], [role="menuitem"]')]
+     // sr-only controls (the skip link) are 1px by design until focused.
+     .filter(e => e.offsetParent !== null && !e.className.toString().includes('sr-only'))
+     .map(e => ({ label: (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 24),
+                  h: Math.round(e.getBoundingClientRect().height) }))
+     .filter(o => o.h > 0 && o.h < 44))`,
+);
+const undersizedList = JSON.parse(undersized);
+check(
+  'All touch targets at least 44px with a coarse pointer',
+  undersizedList.length === 0,
+  undersizedList.length === 0
+    ? 'every control clears the 44px floor'
+    : JSON.stringify(undersizedList.slice(0, 4)),
+);
+
+// The same controls must stay dense on a desktop pointer - PRD §6.3 asks for a
+// compact operations tool, and a 44px floor everywhere would undo that. This
+// is the other half of the assertion: without it, "44px everywhere" would also
+// pass, and that is a different product.
+await s.send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+await s.viewport(1440, 900);
+await s.goto('/patterns');
+check(
+  'Fine-pointer emulation is actually active',
+  (await s.eval(`window.matchMedia('(pointer: fine)').matches`)) === true,
+);
+const desktopButtonHeight = await s.eval(
+  `Math.round(document.querySelector('[data-slot="button"]').getBoundingClientRect().height)`,
+);
+check(
+  'Desktop stays dense (the 44px floor is coarse-pointer only)',
+  desktopButtonHeight > 0 && desktopButtonHeight < 44,
+  `${desktopButtonHeight}px button with a fine pointer`,
+);
+await s.viewport(360, 740);
+
+// ------------------------------------------------------- motion (PRD §6.4)
+//
+// The keyboard surfaces must open with no motion, and - just as important -
+// the exemption must be scoped. A probe that only asserted "palette is 0s"
+// would still pass if someone disabled animation across the whole app, which
+// is a different and worse product. So both halves are asserted together.
+await s.viewport(1440, 900);
+await s.goto('/');
+await s.key('KeyG', 'g', 1);
+await sleep(400);
+
+const paletteMotion = await s.eval(
+  `(() => {
+     const popup = document.querySelector('[data-slot="dialog-content"]');
+     const overlay = document.querySelector('[data-slot="dialog-overlay"]');
+     if (!popup || !overlay) return null;
+     return JSON.stringify({
+       popup: getComputedStyle(popup).animationDuration,
+       overlay: getComputedStyle(overlay).animationDuration,
+     });
+   })()`,
+);
+check(
+  'Go To palette opens with zero motion',
+  paletteMotion !== null && JSON.parse(paletteMotion).popup === '0s' &&
+    JSON.parse(paletteMotion).overlay === '0s',
+  paletteMotion ?? 'palette or overlay not found',
+);
+await s.key('Escape', 'Escape');
+await sleep(400);
+
+// The control: an ordinary Dialog, opened deliberately rather than by reflex,
+// keeps its animation. Comparing two Dialogs isolates the exemption itself -
+// the only difference between this surface and the palette is the
+// surface-instant class, so if this also reported 0s the rule would be global
+// and the check above would be meaningless.
+//
+// Deliberately not the theme dropdown: base-lyra hard-codes animate-none! on
+// menus, so that surface can never animate and asserting on it would produce a
+// check that fails for a reason unrelated to anything we control.
+await s.goto('/patterns');
+await s.eval(
+  `(() => { const el = document.getElementById('demo-name');
+     const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+     set.call(el, 'dirty'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+);
+await s.key('KeyQ', 'q', 2); // Ctrl+Q with a dirty form opens the confirm dialog
+await sleep(500);
+const confirmDuration = await s.eval(
+  `(() => { const d = document.querySelector('[data-slot="dialog-content"]');
+     return d ? getComputedStyle(d).animationDuration : null; })()`,
+);
+check(
+  'An ordinary dialog keeps its animation (the exemption is scoped)',
+  confirmDuration !== null && parseFloat(confirmDuration) > 0,
+  `confirm dialog animation-duration ${String(confirmDuration)}`,
+);
+await s.key('Escape', 'Escape');
+await sleep(300);
+
+// NFR-07. prefers-reduced-motion IS a supported emulated feature, unlike
+// pointer, so this one can be driven directly.
+await s.send('Emulation.setEmulatedMedia', {
+  features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+});
+await s.goto('/patterns');
+// Parsed as a number, not string-compared: Chrome serialises 0.01ms as
+// "1e-05s", so an equality check against "0.01ms" fails while the feature
+// works perfectly. A probe that reports a working feature as broken costs as
+// much trust as one that reports a broken feature as working.
+const reducedDuration = await s.eval(
+  `parseFloat(getComputedStyle(document.querySelector('[data-slot="button"]')).transitionDuration)`,
+);
+check(
+  'Reduced motion is honoured',
+  (await s.eval(`window.matchMedia('(prefers-reduced-motion: reduce)').matches`)) === true &&
+    reducedDuration < 0.001,
+  `transition-duration ${String(reducedDuration)}s under reduce`,
+);
+await s.send('Emulation.setEmulatedMedia', { features: [] });
 
 // ------------------------------------------------------------ console
 check('No console errors', s.consoleErrors.length === 0, s.consoleErrors.slice(0, 2).join(' | ') || 'clean');
