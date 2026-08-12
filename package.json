@@ -7,11 +7,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm -r --parallel dev",
-    "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint",
-    "test": "pnpm -r test",
+    "dev": "pnpm --filter '@vyuha/*' --parallel dev",
+    "build": "pnpm --filter '@vyuha/*' build",
+    "typecheck": "pnpm --filter '@vyuha/*' typecheck",
+    "lint": "pnpm --filter '@vyuha/*' lint",
+    "test": "pnpm --filter '@vyuha/*' test",
     "infra:up": "docker compose -f docker/docker-compose.yml up -d --wait",
     "infra:down": "docker compose -f docker/docker-compose.yml down",
     "infra:reset": "docker compose -f docker/docker-compose.yml down -v",

@@ -1,0 +1,151 @@
+name: CI
+
+# Delivery plan, Phase 0: "CI: typecheck -> lint -> unit -> integration ->
+# build. Red CI blocks merge." This was listed as a Phase 0 deliverable and was
+# the one item that never got built, so it is here now rather than later.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A superseded run on the same branch tells you nothing you still care about.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The integration tests talk to a real Postgres, Redis and MinIO rather than
+  # to mocks, so the whole environment has to be present. Values mirror
+  # .env.example, with the two JWT secrets deliberately different - the schema
+  # rejects them being equal, because a shared secret would let a refresh token
+  # be presented as an access token.
+  NODE_ENV: test
+  PORT: '3000'
+  API_BASE_URL: http://localhost:3000
+  WEB_BASE_URL: http://localhost:5173
+  DATABASE_URL: postgresql://vyuha:vyuha_dev_only@localhost:55432/vyuha
+  REDIS_URL: redis://localhost:56379
+  S3_ENDPOINT: http://localhost:59000
+  S3_REGION: us-east-1
+  S3_ACCESS_KEY_ID: vyuha
+  S3_SECRET_ACCESS_KEY: vyuha_dev_only
+  S3_BUCKET_PHOTOS: vyuha-photos
+  S3_BUCKET_EXPORTS: vyuha-exports
+  S3_FORCE_PATH_STYLE: 'true'
+  S3_SIGNED_URL_TTL_SECONDS: '300'
+  JWT_ACCESS_SECRET: ci-access-secret-that-is-comfortably-over-32-chars
+  JWT_REFRESH_SECRET: ci-refresh-secret-also-comfortably-over-32-chars
+  JWT_ACCESS_TTL_SECONDS: '900'
+  JWT_REFRESH_TTL_SECONDS: '2592000'
+  SMTP_HOST: localhost
+  SMTP_PORT: '51025'
+  SMTP_SECURE: 'false'
+  MAIL_FROM: Vyuha CI <no-reply@vyuha.local>
+  MAIL_TRANSPORT: smtp
+  JOBS_WORKER_ENABLED: 'true'
+  DEFAULT_TIMEZONE: Asia/Kolkata
+  LOG_LEVEL: silent
+
+jobs:
+  verify:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # The compose file is the single definition of the dev stack. Declaring
+      # the same four services again as GitHub `services:` would be a second
+      # definition to keep in step, and MinIO needs a command argument that
+      # `services:` cannot express anyway.
+      - name: Start Postgres, Redis, MinIO and Mailpit
+        run: docker compose -f docker/docker-compose.yml up -d --wait
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # packages/shared emits the types both apps compile against, so nothing
+      # downstream can typecheck until it has been built once.
+      - name: Build shared contract
+        run: pnpm --filter @vyuha/shared build
+
+      # Scoped to @vyuha/* rather than plain `pnpm -r`. The workspace root is
+      # itself a package whose own `typecheck` script is `pnpm -r typecheck`,
+      # so a bare recursive run re-enters the root and executes every package
+      # twice. The root is named `vyuha`, so this glob leaves it out.
+      - name: Typecheck
+        run: pnpm --filter '@vyuha/*' typecheck
+
+      - name: Lint
+        run: pnpm --filter '@vyuha/*' lint
+
+      - name: Migrate
+        run: pnpm --filter @vyuha/api exec tsx src/platform/db/migrate.ts
+
+      - name: Test
+        run: pnpm --filter '@vyuha/*' test
+
+      - name: Build
+        run: pnpm --filter '@vyuha/*' build
+
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose -f docker/docker-compose.yml logs --tail=80
+
+  browser:
+    name: Browser checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Separate job because it needs a running dev server and a real browser,
+    # and because a flake here should be legible as "the browser pass failed"
+    # rather than hiding inside the unit-test job.
+    #
+    # It runs against the dev server, not a production build: the shell
+    # deliberately has no session without an API, and the pattern gallery the
+    # checks drive is mounted in development only.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared contract
+        run: pnpm --filter @vyuha/shared build
+
+      - name: Start the dev server
+        run: |
+          pnpm --filter @vyuha/web exec vite --port 5173 --strictPort &
+          for _ in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:5173/ && break
+            sleep 1
+          done
+          curl -sf -o /dev/null http://localhost:5173/
+
+      - name: Start headless Chrome
+        run: |
+          google-chrome --remote-debugging-port=9222 --headless=new --disable-gpu \
+            --no-sandbox --user-data-dir=/tmp/ci-chrome about:blank &
+          for _ in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:9222/json/version && break
+            sleep 1
+          done
+          curl -sf -o /dev/null http://localhost:9222/json/version
+
+      - name: Drive the app
+        run: node apps/web/scripts/verify-ui.mjs
