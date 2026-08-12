@@ -14,12 +14,12 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@fastify/helmet": "^13.0.1",
     "@nestjs/common": "^11.1.29",
     "@nestjs/core": "^11.1.29",
-    "@nestjs/platform-fastify": "^11.1.29",
+    "@nestjs/platform-express": "^11.1.29",
     "@vyuha/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
+    "helmet": "^8.3.0",
     "nestjs-pino": "^4.6.1",
     "pg": "^8.23.0",
     "pino": "^10.3.1",
@@ -32,6 +32,7 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.1.29",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.10.5",
     "@types/pg": "^8.21.0",
     "@vyuha/config": "workspace:*",

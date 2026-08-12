@@ -16,6 +16,8 @@ default being used until answered.
 | P0-1 | **Product name.** `CLAUDE.md` and the specs say **Setu**; the repository directory is **Vyuha**. Which is the product name? | Nothing yet — cosmetic | Using **Vyuha**, matching the directory. One find-replace changes it. Package names, the DB name, and bucket names all use `vyuha`. |
 | P0-2 | **shadcn MCP server was not configured.** `CLAUDE.md` §3 requires every component be installed through it. A `.mcp.json` has now been written pointing at `npx shadcn@latest mcp`, but it only takes effect after the CLI is reloaded. | All UI work | No UI has been built yet, so nothing has been sourced any other way. UI work waits for the MCP to be live. |
 | P0-3 | **MailHog replaced with Mailpit** in the dev stack. MailHog has had no release since 2020 and publishes no arm64 image, so on Apple Silicon it runs under emulation. | Nothing — dev infrastructure only | Mailpit v1.22, same SMTP port 1025, web UI on 8025. |
+| P0-4 | **Where do punch photos live in production?** Hostinger sells no S3-compatible object storage. Either MinIO on the same VPS, or Cloudflare R2. | Phase 1 | **Cloudflare R2.** At under 50 employees the estimate is roughly 4 GB a year, inside R2's 10 GB free tier, and egress is free. It keeps photos off the app disk, gives object versioning and lifecycle rules for the 12-month purge (REQ-L-03), and means a VPS rebuild cannot lose the evidence that makes a punch defensible. MinIO on the same box is the fallback if you would rather nothing left the VPS. Nothing in the code is R2-specific — the file service targets the S3 API. |
+| P0-5 | **Third-party identity provider (Clerk) instead of own auth?** | Phase 0 | **Recommend own auth**, per technical design §2. Reasoning is in the reply and in the pending ADR; awaiting your call before auth work starts. |
 
 ## Carried from `05-decisions.md` — still open
 
@@ -29,8 +31,8 @@ default being used until answered.
 | 6 | Who runs payroll, in what format, and the exact columns they need | Phase 3 | REQ-J-04's column set as v1, to be signed off before the contract locks. |
 | 7 | Attendance cycle — calendar month, or a cutoff like 26th–25th | Phase 3 | Calendar month. |
 | 8 | Do all employees have a work email address? | Phase 0 | Assuming yes. REQ-B-02 already allows an employee record without a login, so a no answer does not require a schema change — only another invite route. |
-| 9 | NestJS or Fastify | Phase 0 | **NestJS with the Fastify adapter**, the stated default. Its module system maps onto the platform/modules boundary and its DI is what makes the RBAC and audit interceptors clean. |
-| 10 | Hosting and file storage | Phase 0 | VPS + Cloudflare R2. Nothing in the code is R2-specific — the file service targets the S3 API, MinIO locally. |
+| 9 | NestJS or Fastify | Phase 0 | **Answered 12 Aug 2026: NestJS on the Express adapter.** Fastify is dropped at your instruction. It is also the lower-risk choice for REQ-D-02: punch photos arrive as multipart, and `@nestjs/platform-express` uses multer, which is far better trodden than `@fastify/multipart`. Throughput is irrelevant at 2,000 punches a day. |
+| 10 | Hosting and file storage | Phase 0 | **Answered 12 Aug 2026: Hostinger VPS.** Docker Compose behind Caddy, as in technical design §17. Object storage is still open — see P0-4 below, since Hostinger has no S3-compatible service. |
 | 11 | Brand colour, logo, typeface | Phase 0 | shadcn default theme tokens until supplied. |
 | 12 | Photo retention period | Phase 1 | 12 months (REQ-L-03). |
 | 13 | Consequence rules — does 3 lates equal a half day? | Phase 1 | No such rule. Lates are counted and reported; no automatic deduction. Inventing one would be a policy decision, not a technical one. |
