@@ -121,44 +121,53 @@ export function MobileBottomNav() {
       </nav>
 
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="max-h-[80vh] gap-0 overflow-y-auto">
-          <SheetHeader>
+        {/* The sheet itself no longer scrolls. It is a flex column whose middle
+            band scrolls, which pins the title and the action to the top and
+            bottom edges instead of letting them slide away — on a phone the
+            close control and the primary action are the two things that must
+            never require scrolling back to find. */}
+        <SheetContent side="bottom" className="max-h-[80vh] gap-0">
+          <SheetHeader className="shrink-0 border-b">
             <SheetTitle>All destinations</SheetTitle>
             <SheetDescription>Everything your access allows.</SheetDescription>
           </SheetHeader>
 
-          {/* A grid of tiles rather than a single column of rows. One row per
-              destination pushed the last few below the fold on a phone and
-              wasted the full width on a 20px icon; two columns fit twelve
-              destinations in a glance. It also matches the customise dialog,
-              which shows the same set — the two surfaces should not disagree
-              about what a destination looks like. */}
-          <ItemGroup role="presentation" className="grid grid-cols-2 gap-2 px-4 pb-4 sm:grid-cols-3">
-            {overflow.map((item) => (
-              <Item
-                key={item.to}
-                variant="outline"
-                render={<NavLink to={item.to} />}
-                onClick={() => {
-                  setMoreOpen(false);
-                }}
-                className="min-h-20 flex-col items-center justify-center gap-1.5 px-2 py-3"
-              >
-                <ItemMedia>
-                  <item.icon aria-hidden className="size-5" />
-                </ItemMedia>
-                <ItemContent className="flex-none">
-                  {/* line-clamp-2 rather than the default 1: "Roles and
-                      permissions" needs two lines in a 360px column. */}
-                  <ItemTitle className="line-clamp-2 w-full justify-center text-center leading-tight">
-                    {item.label}
-                  </ItemTitle>
-                </ItemContent>
-              </Item>
-            ))}
-          </ItemGroup>
+          {/* min-h-0 is load-bearing: a flex child defaults to min-height:auto,
+              which refuses to shrink below its content and would push the
+              footer off the sheet instead of scrolling. */}
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            {/* A grid of tiles rather than a single column of rows. One row per
+                destination pushed the last few below the fold on a phone and
+                wasted the full width on a 20px icon; two columns fit twelve
+                destinations in a glance. Three from sm, where the tile can be
+                wide enough for "Roles and permissions" without wrapping. */}
+            <ItemGroup role="presentation" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {overflow.map((item) => (
+                <Item
+                  key={item.to}
+                  variant="outline"
+                  render={<NavLink to={item.to} />}
+                  onClick={() => {
+                    setMoreOpen(false);
+                  }}
+                  className="min-h-20 flex-col items-center justify-center gap-1.5 px-2 py-3"
+                >
+                  <ItemMedia>
+                    <item.icon aria-hidden className="size-5" />
+                  </ItemMedia>
+                  <ItemContent className="flex-none">
+                    {/* line-clamp-2 rather than the default 1: "Roles and
+                        permissions" needs two lines in a 360px column. */}
+                    <ItemTitle className="line-clamp-2 w-full justify-center text-center leading-tight">
+                      {item.label}
+                    </ItemTitle>
+                  </ItemContent>
+                </Item>
+              ))}
+            </ItemGroup>
+          </div>
 
-          <div className="border-t p-4">
+          <SheetFooter className="shrink-0 border-t">
             <Button
               variant="outline"
               className="w-full"
@@ -167,10 +176,10 @@ export function MobileBottomNav() {
                 setCustomiseOpen(true);
               }}
             >
-              <SlidersHorizontalIcon />
+              <SlidersHorizontalIcon data-icon="inline-start" />
               Customise this bar
             </Button>
-          </div>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
 
@@ -230,8 +239,8 @@ function CustomiseSheet({
     // surfaces. CLAUDE.md §3.1 asks for a Sheet on small screens anyway, and
     // this component never renders above md.
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="max-h-[80vh] gap-0 overflow-y-auto">
-        <SheetHeader>
+      <SheetContent side="bottom" className="max-h-[80vh] gap-0">
+        <SheetHeader className="shrink-0 border-b">
           <SheetTitle>Customise the bar</SheetTitle>
           <SheetDescription>
             Pick up to {BOTTOM_NAV_SLOTS} destinations for the bottom bar. Everything else stays
@@ -239,35 +248,43 @@ function CustomiseSheet({
           </SheetDescription>
         </SheetHeader>
 
-        {/* Same grid, same tile size, same columns as the More sheet: this
-            chooser and the list it edits show the same destinations, so they
-            should not disagree about what a destination looks like. */}
-        <div className="grid grid-cols-2 gap-2 px-4 sm:grid-cols-3">
-          {permitted.map((item) => {
-            const checked = draft.includes(item.to);
-            // A full bar disables the unchosen tiles rather than silently
-            // ignoring the tap, so the limit is visible before it is hit.
-            const disabled = !checked && full;
-            return (
-              <Button
-                key={item.to}
-                type="button"
-                variant={checked ? 'default' : 'outline'}
-                aria-pressed={checked}
-                disabled={disabled}
-                onClick={() => {
-                  toggle(item.to, !checked);
-                }}
-                className="h-auto min-h-20 flex-col gap-1.5 px-2 py-3 text-center whitespace-normal"
-              >
-                <item.icon aria-hidden className="size-5 shrink-0" />
-                <span className="w-full text-[0.75rem] leading-tight">{item.label}</span>
-              </Button>
-            );
-          })}
+        {/* Only this band scrolls, so the title above and the three actions
+            below stay put while sixteen tiles move past. */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {/* Same grid, same tile size, same columns as the More sheet: this
+              chooser and the list it edits show the same destinations, so they
+              should not disagree about what a destination looks like. */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {permitted.map((item) => {
+              const checked = draft.includes(item.to);
+              // A full bar disables the unchosen tiles rather than silently
+              // ignoring the tap, so the limit is visible before it is hit.
+              const disabled = !checked && full;
+              return (
+                <Button
+                  key={item.to}
+                  type="button"
+                  variant={checked ? 'default' : 'outline'}
+                  aria-pressed={checked}
+                  disabled={disabled}
+                  onClick={() => {
+                    toggle(item.to, !checked);
+                  }}
+                  className="h-auto min-h-20 flex-col gap-1.5 px-2 py-3 text-center whitespace-normal"
+                >
+                  <item.icon aria-hidden className="size-5 shrink-0" />
+                  <span className="w-full text-[0.75rem] leading-tight">{item.label}</span>
+                </Button>
+              );
+            })}
+          </div>
         </div>
 
-        <p className="text-muted-foreground px-4 pt-3 pb-4 text-xs" aria-live="polite">
+        {/* Outside the scrolling band: this is the count against a hard limit,
+            and it is worth nothing if it scrolls away while tiles are being
+            tapped. It carries the divider so the fixed bottom block reads as
+            one piece rather than two stacked rules. */}
+        <p className="text-muted-foreground shrink-0 border-t px-4 pt-3 text-xs" aria-live="polite">
           {draft.length} of {BOTTOM_NAV_SLOTS} chosen
         </p>
 
@@ -275,8 +292,8 @@ function CustomiseSheet({
             into three full-width bars and pushed Save furthest from the thumb.
             They fit one row at 360px, so they stay in one row and share the
             width evenly. Each carries an icon, so the action is readable
-            before the label is. The border-t matches the More sheet's footer. */}
-        <SheetFooter className="flex-row justify-end gap-2 border-t">
+            before the label is. */}
+        <SheetFooter className="shrink-0 flex-row justify-end gap-2 pt-3">
           <Button
             variant="ghost"
             className="flex-1 sm:flex-none"
