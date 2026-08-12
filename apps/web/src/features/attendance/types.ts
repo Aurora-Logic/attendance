@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-import { ATTENDANCE_STATUSES, type AttendanceStatus, type Paginated } from '@vyuha/shared';
+import {
+  ATTENDANCE_STATUSES,
+  type AttendanceDaySummary,
+  type AttendanceStatus,
+  type Paginated,
+} from '@vyuha/shared';
 
 /**
  * The Attendance Day contract (REQ-E-01, REQ-E-02), as this client reads it.
@@ -11,6 +16,17 @@ import { ATTENDANCE_STATUSES, type AttendanceStatus, type Paginated } from '@vyu
  * `RecordTable` and says nothing about the server having changed `flags` from
  * an array to a comma-joined string; parsing turns that into the error state
  * every screen here already has.
+ *
+ * There are two shapes here, and the split is the point. `DayWire` is what the
+ * server sends, pinned to `AttendanceDaySummary` from the shared package so
+ * the compiler rejects this file the moment the two disagree. `AttendanceDay`
+ * is what the screens render. They were written in parallel and drifted -- the
+ * server sends `shift: { id, name }`, `firstInAt` and `lastOutAt`; the screens
+ * were built expecting `shiftName`, `firstIn` and `lastOut` -- and because
+ * nothing tied the parse to the shared type, that drift only surfaced as "the
+ * attendance day list came back in a shape this screen cannot read" on a live
+ * screen. Parsing the real shape and mapping it once, here, is what stops the
+ * next rename from reaching a cell renderer.
  */
 
 export interface AttendanceDayEmployee {
@@ -46,22 +62,68 @@ export interface AttendanceDay {
 
 const clockField = z.string().nullable();
 
-export const attendanceDaySchema: z.ZodType<AttendanceDay> = z.object({
+/**
+ * The server's row, with one deliberate loosening.
+ *
+ * `flags` is `string[]` here rather than the shared `AttendanceFlag[]` for the
+ * reason given on `AttendanceDay.flags`: flags are additive server-side and a
+ * day carrying an unknown one must render, not fail the page. Every other
+ * field is pinned, so a rename on the server is a compile error in this file
+ * instead of a runtime error on a screen.
+ */
+type DayWire = Omit<AttendanceDaySummary, 'flags'> & { flags: string[] };
+
+const dayWireSchema: z.ZodType<DayWire> = z.object({
+  id: z.string(),
   employee: z.object({ id: z.string(), name: z.string() }),
+  employeeCode: z.string(),
   date: z.string(),
-  shiftName: z.string().nullable(),
+  status: z.enum(ATTENDANCE_STATUSES),
+  shift: z.object({ id: z.string(), name: z.string() }).nullable(),
   scheduledIn: clockField,
   scheduledOut: clockField,
-  firstIn: clockField,
-  lastOut: clockField,
+  firstInAt: clockField,
+  lastOutAt: clockField,
   workedMinutes: z.number(),
+  breakMinutes: z.number(),
   otMinutes: z.number(),
   lateMinutes: z.number(),
-  status: z.enum(ATTENDANCE_STATUSES),
+  earlyExitMinutes: z.number(),
   flags: z.array(z.string()),
+  isManualOverride: z.boolean(),
+  locked: z.boolean(),
 });
 
-export const attendanceDaysResponseSchema: z.ZodType<Paginated<AttendanceDay>> = z.object({
+/** The one place the wire shape becomes the shape the screens render. */
+function toAttendanceDay(row: DayWire): AttendanceDay {
+  return {
+    employee: row.employee,
+    date: row.date,
+    shiftName: row.shift?.name ?? null,
+    // The server sends instants; `formatClock` accepts either an instant or an
+    // `HH:mm` string, so the conversion stays in the formatter where the org
+    // time zone is applied, rather than being done twice here.
+    scheduledIn: row.scheduledIn,
+    scheduledOut: row.scheduledOut,
+    firstIn: row.firstInAt,
+    lastOut: row.lastOutAt,
+    workedMinutes: row.workedMinutes,
+    otMinutes: row.otMinutes,
+    lateMinutes: row.lateMinutes,
+    status: row.status,
+    flags: row.flags,
+  };
+}
+
+export const attendanceDaySchema = dayWireSchema.transform(toAttendanceDay);
+
+// Left to inference. Annotating the envelope with `z.ZodType<Paginated<...>>`
+// forces a claim about the schema's *input* type too, and the input here is
+// the wire row rather than the mapped one - which is exactly what the
+// transform exists to change. The guarantee that matters is on `dayWireSchema`
+// above, where the shape is pinned to the shared contract; `assertDaysShape`
+// below keeps the output honest without over-constraining the input.
+export const attendanceDaysResponseSchema = z.object({
   data: z.array(attendanceDaySchema),
   meta: z.object({
     page: z.number().int(),
@@ -69,5 +131,10 @@ export const attendanceDaysResponseSchema: z.ZodType<Paginated<AttendanceDay>> =
     total: z.number().int(),
   }),
 });
+
+/** Fails to compile if the parsed envelope stops being what callers expect. */
+const assertDaysShape = (value: z.infer<typeof attendanceDaysResponseSchema>): Paginated<AttendanceDay> => value;
+export type { DayWire };
+void assertDaysShape;
 
 export type { AttendanceStatus };
