@@ -125,10 +125,10 @@ export const sampleShiftList: Shift[] = [
     id: 'shift-general',
     name: 'General',
     code: 'GEN',
+    crossesMidnight: false,
     scheduledIn: '09:00',
     scheduledOut: '18:00',
     breakMinutes: 60,
-    crossesMidnight: false,
     policy: {
       graceInBefore: 30,
       graceInAfter: 10,
@@ -395,14 +395,18 @@ export function sampleTodayStatus(): TodayStatus {
   return {
     serverTime: now.toISOString(),
     date: format(now, 'yyyy-MM-dd'),
-    employee: { id: me.id, name: me.name, employeeCode: me.employeeCode },
+    employee: {
+      id: me.id,
+      name: me.name,
+      employeeCode: me.employeeCode,
+      isFieldStaff: false,
+    },
     shift: {
       name: shift.name,
       scheduledIn: shift.scheduledIn,
       scheduledOut: shift.scheduledOut,
       windowStart,
       windowEnd,
-      crossesMidnight: shift.crossesMidnight,
     },
     status: today.status,
     nextPunchType: punchedIn ? 'OUT' : 'IN',
@@ -418,7 +422,11 @@ export function sampleTodayStatus(): TodayStatus {
     windowBehaviour: 'ALLOW_WITH_REASON',
     halfDayAllowed: !punchedIn,
     consentAccepted: false,
-    photoRetentionMonths: 12,
+    // Mirrors the real context: the sample must not be easier to satisfy than
+    // the server, or the screen gets developed against a shape that does not
+    // exist.
+    blockedReason: null,
+    reasonRequired: !(minutesNow >= startMinutes && minutesNow <= endMinutes),
   };
 }
 

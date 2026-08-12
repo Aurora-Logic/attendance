@@ -307,6 +307,12 @@ export function PunchPage() {
     }
     setCaptureError(null);
 
+    // Null means the server is not offering a punch at all - a locked period,
+    // or an account with no employee record. `canPunch` already covers it, but
+    // the type has to be narrowed here rather than asserted away, because the
+    // draft is what gets sent.
+    if (today.nextPunchType === null) return;
+
     const draft: PunchDraft = {
       type: today.nextPunchType,
       photo,
@@ -345,7 +351,9 @@ export function PunchPage() {
             id: 'not-recorded',
             type: draft.type,
             at: new Date().toISOString(),
-            status: today.status,
+            // No day row yet means no status yet; PENDING is what the day
+            // engine writes before it has decided anything.
+            status: today.status ?? 'PENDING',
             flags: [],
             photoThumbUrl: null,
           });
@@ -413,7 +421,7 @@ export function PunchPage() {
           date={today.date}
           shiftName={today.shift?.name ?? 'No shift today'}
           window={shiftWindow}
-          statusSlot={<AttendanceStatusBadge status={today.status} />}
+          statusSlot={today.status ? <AttendanceStatusBadge status={today.status} /> : null}
           lastPunch={
             today.lastPunch
               ? `${today.lastPunch.type === 'IN' ? 'In' : 'Out'} ${formatClock(today.lastPunch.at)}`
@@ -617,9 +625,16 @@ export function PunchPage() {
                           setConsented(next);
                         }}
                       />
+                      {/* No retention period is stated here on purpose. The
+                          screen used to promise a number that came from a
+                          field the server never sent, and punch photos are
+                          currently stored with no expiry at all, so the
+                          promise had nothing behind it. REQ-L-03 and REQ-M-03
+                          are open (OPEN-QUESTIONS P1-4); until a period is
+                          configured and enforced, saying nothing is the only
+                          honest option. */}
                       <FieldLabel htmlFor="punch-consent" className="font-normal">
-                        I understand that each punch stores a photo of me and my location, kept for{' '}
-                        {today.photoRetentionMonths} months.
+                        I understand that each punch stores a photo of me and my location.
                       </FieldLabel>
                     </Field>
                   ) : null}

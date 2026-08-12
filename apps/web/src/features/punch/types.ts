@@ -26,13 +26,12 @@ import {
 
 export interface TodayShift {
   name: string;
-  /** Wall-clock `HH:mm`. */
+  /** ISO instant; `formatClock` renders it in the org time zone. */
   scheduledIn: string;
   scheduledOut: string;
-  /** REQ-C-01 grace window, already resolved to wall clock by the server. */
+  /** REQ-C-01 grace window for the punch that is next, as instants. */
   windowStart: string;
   windowEnd: string;
-  crossesMidnight: boolean;
 }
 
 export interface LastPunch {
@@ -47,12 +46,25 @@ export interface TodayStatus {
   serverTime: string;
   /** Date-only `YYYY-MM-DD` for the attendance day this punch belongs to. */
   date: string;
-  employee: { id: string; name: string; employeeCode: string };
+  /**
+   * Null when the signed-in account has no employee record. Such accounts
+   * exist - an administrator created for the system itself - and they cannot
+   * punch, so the screen has to say so rather than assume a person.
+   */
+  employee: { id: string; name: string; employeeCode: string; isFieldStaff: boolean } | null;
   /** Null on a weekly off or a holiday, when no shift is scheduled. */
   shift: TodayShift | null;
-  status: AttendanceStatus;
-  /** REQ-D-01: punches alternate, so the server decides which one is next. */
-  nextPunchType: PunchType;
+  /**
+   * Null before the first punch of the day. The day row does not exist yet, so
+   * there is no status to show - and showing ABSENT to somebody who is about to
+   * punch in would be both wrong and alarming.
+   */
+  status: AttendanceStatus | null;
+  /**
+   * REQ-D-01: punches alternate, so the server decides which one is next. Null
+   * when no punch is possible at all - no employee record, or a locked period.
+   */
+  nextPunchType: PunchType | null;
   lastPunch: LastPunch | null;
   /** REQ-D-06: whether the current moment is inside the shift's grace window. */
   withinWindow: boolean;
@@ -61,39 +73,137 @@ export interface TodayStatus {
   halfDayAllowed: boolean;
   /** REQ-M-03: the consent notice is shown until it has been accepted once. */
   consentAccepted: boolean;
-  /** Stated in the consent notice, per REQ-M-03. */
-  photoRetentionMonths: number;
+  /** Set when punching is impossible right now, whatever the employee does. */
+  blockedReason: { code: string; message: string } | null;
+  /** REQ-D-06: true when the server will refuse this punch without a reason. */
+  reasonRequired: boolean;
 }
 
-export const todayStatusSchema: z.ZodType<TodayStatus> = z.object({
+/**
+ * What `GET /me/today` actually sends.
+ *
+ * Pinned to `PunchContext` from the shared package, so a rename on the server
+ * is a compile error here rather than "the today's status came back in a shape
+ * this screen cannot read" on a live screen - which is exactly how this drift
+ * was found. The two halves were written in parallel and never reconciled: the
+ * screen expected `date`, `windowStart` and a non-null `status`; the server
+ * sends `attendanceDate`, a pair of window objects, and the whole day row.
+ *
+ * `flags` on the nested records is loosened to `string[]` for the reason given
+ * on the attendance day contract: flags are additive server-side and an
+ * unknown one must not fail the page.
+ */
+const windowViewSchema = z.object({
+  opensAt: z.string(),
+  closesAt: z.string(),
+  isOpenNow: z.boolean(),
+});
+
+const punchContextSchema = z.object({
   serverTime: z.string(),
-  date: z.string(),
-  employee: z.object({ id: z.string(), name: z.string(), employeeCode: z.string() }),
-  shift: z
+  timezone: z.string(),
+  attendanceDate: z.string(),
+  employee: z
     .object({
+      id: z.string(),
       name: z.string(),
-      scheduledIn: z.string(),
-      scheduledOut: z.string(),
-      windowStart: z.string(),
-      windowEnd: z.string(),
-      crossesMidnight: z.boolean(),
+      employeeCode: z.string(),
+      isFieldStaff: z.boolean(),
     })
     .nullable(),
-  status: z.enum(ATTENDANCE_STATUSES),
-  nextPunchType: z.enum(PUNCH_TYPES),
+  canPunch: z.boolean(),
+  nextPunchType: z.enum(PUNCH_TYPES).nullable(),
+  shift: z
+    .object({
+      id: z.string(),
+      name: z.string(),
+      code: z.string(),
+      scheduledIn: z.string(),
+      scheduledOut: z.string(),
+      breakMinutes: z.number(),
+      inWindow: windowViewSchema,
+      outWindow: windowViewSchema,
+    })
+    .nullable(),
+  windowBehaviour: z.enum(PUNCH_WINDOW_BEHAVIOURS),
+  reasonRequired: z.boolean(),
+  photoRequired: z.literal(true),
+  geofence: z.object({
+    enforced: z.boolean(),
+    radiusM: z.number(),
+    exempt: z.boolean(),
+  }),
+  ipAllowlist: z.object({ enforced: z.boolean(), allowed: z.boolean() }),
   lastPunch: z
     .object({
       type: z.enum(PUNCH_TYPES),
-      at: z.string(),
+      serverTime: z.string(),
       source: z.enum(PUNCH_SOURCES),
     })
     .nullable(),
-  withinWindow: z.boolean(),
-  windowBehaviour: z.enum(PUNCH_WINDOW_BEHAVIOURS),
-  halfDayAllowed: z.boolean(),
-  consentAccepted: z.boolean(),
-  photoRetentionMonths: z.number().int(),
+  day: z.object({ status: z.enum(ATTENDANCE_STATUSES) }).nullable(),
+  blockedReason: z.object({ code: z.string(), message: z.string() }).nullable(),
 });
+
+export const todayStatusSchema = punchContextSchema.transform(
+  (context): TodayStatus => ({
+    serverTime: context.serverTime,
+    date: context.attendanceDate,
+    employee: context.employee,
+    shift:
+      context.shift === null
+        ? null
+        : {
+            name: context.shift.name,
+            scheduledIn: context.shift.scheduledIn,
+            scheduledOut: context.shift.scheduledOut,
+            // The window that matters is the one for the punch about to be
+            // made. Showing the IN window while somebody is punching out would
+            // tell them the wrong thing about whether they are late.
+            ...(context.nextPunchType === 'OUT'
+              ? {
+                  windowStart: context.shift.outWindow.opensAt,
+                  windowEnd: context.shift.outWindow.closesAt,
+                }
+              : {
+                  windowStart: context.shift.inWindow.opensAt,
+                  windowEnd: context.shift.inWindow.closesAt,
+                }),
+          },
+    // No day row yet means no status yet, not ABSENT.
+    status: context.day?.status ?? null,
+    nextPunchType: context.nextPunchType,
+    lastPunch:
+      context.lastPunch === null
+        ? null
+        : {
+            type: context.lastPunch.type,
+            at: context.lastPunch.serverTime,
+            source: context.lastPunch.source,
+          },
+    // The server states this per window rather than as one boolean, so read
+    // the one belonging to the next punch. No shift means no window to be
+    // inside of.
+    withinWindow:
+      context.shift === null
+        ? false
+        : context.nextPunchType === 'OUT'
+          ? context.shift.outWindow.isOpenNow
+          : context.shift.inWindow.isOpenNow,
+    windowBehaviour: context.windowBehaviour,
+    // REQ-D-07 offers the half-day choice at IN and nowhere else. There is no
+    // server-side policy switch for it (OPEN-QUESTIONS P1-3), so this states
+    // the requirement rather than inventing a setting.
+    halfDayAllowed: context.nextPunchType === 'IN',
+    // REQ-M-03 says acceptance is recorded. Nothing records it yet
+    // (OPEN-QUESTIONS P1-4), so the honest value is "not accepted" and the
+    // notice keeps appearing. Failing towards showing a required notice is the
+    // only safe direction for this one.
+    consentAccepted: false,
+    blockedReason: context.blockedReason,
+    reasonRequired: context.reasonRequired,
+  }),
+);
 
 /** What the server sends back after accepting a punch (technical design §7). */
 export interface PunchResult {
