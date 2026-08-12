@@ -15,6 +15,8 @@
  *   node scripts/verify-ui.mjs
  */
 
+import { readFileSync } from 'node:fs';
+
 const BASE = process.env.VERIFY_BASE ?? 'http://localhost:5173';
 const CDP = process.env.VERIFY_CDP ?? 'http://localhost:9222';
 
@@ -224,10 +226,36 @@ await s.viewport(1440, 900);
 check('React mounts on /', await s.goto('/'), 'react container key on #root');
 check('Signs in through the login form', await signIn(s), `as ${EMAIL}`);
 
+// Read from the registry rather than hardcoded.
+//
+// This assertion used to be `=== 16`. It went stale the moment a screen was
+// added, and it was the wrong claim even while it passed: sixteen links is
+// also what you get when the wrong sixteen render. Admin holds every
+// permission, so the honest statement is that an Admin sees exactly the routes
+// nav.ts declares - no more, and none missing.
+//
+// Parsed rather than imported because nav.ts pulls in icon components and TSX
+// that plain node cannot load. A regex over `to: '...'` is enough: the type's
+// own `to: string;` has no quotes, so it cannot be mistaken for an entry. Not
+// anchored to the line start - Dashboard is written inline as `{ to: '/', ...`
+// and an anchored pattern silently dropped it, which is exactly the kind of
+// quiet undercount that makes a derived expectation worse than a literal one.
+const navSource = readFileSync(new URL('../src/lib/nav.ts', import.meta.url), 'utf8');
+const declaredRoutes = [...navSource.matchAll(/\bto: '([^']+)'/g)].map((m) => m[1]).sort();
+const renderedRoutes = JSON.parse(
+  await s.eval(
+    `JSON.stringify([...document.querySelectorAll('[data-slot="sidebar"] a[href]')]
+       .map(a => new URL(a.href).pathname).sort())`,
+  ),
+);
+const missing = declaredRoutes.filter((r) => !renderedRoutes.includes(r));
+const extra = renderedRoutes.filter((r) => !declaredRoutes.includes(r));
 check(
-  'Sidebar renders permission-filtered nav',
-  (await s.eval(`document.querySelectorAll('[data-slot="sidebar"] a[href]').length`)) === 16,
-  `${await s.eval(`document.querySelectorAll('[data-slot="sidebar"] a[href]').length`)} links for Admin`,
+  'Sidebar renders every route nav.ts declares, and nothing else',
+  declaredRoutes.length > 0 && missing.length === 0 && extra.length === 0,
+  missing.length || extra.length
+    ? `missing ${JSON.stringify(missing)}, unexpected ${JSON.stringify(extra)}`
+    : `${String(declaredRoutes.length)} routes for Admin`,
 );
 
 const groups = await s.eval(
@@ -275,7 +303,13 @@ check('Alt+G opens the Go To palette', Boolean(await s.waitFor(`!!document.query
 const items = await s.eval(
   `document.querySelectorAll('[cmdk-item], [data-slot="command-item"]').length`,
 );
-check('Palette is permission-filtered and populated', items === 16, `${items} items`);
+// Same registry, same reason: the palette lists what the sidebar lists
+// (REQ-N-01), so it is the declared count that decides, not a literal.
+check(
+  'Palette offers one entry per navigable route',
+  items === declaredRoutes.length,
+  `${items} items against ${String(declaredRoutes.length)} declared`,
+);
 
 await s.key('Escape', 'Escape');
 check(
@@ -1017,6 +1051,13 @@ check('No uncaught exceptions', s.exceptions.length === 0, s.exceptions.slice(0,
 // logs. That 401 is the app correctly discovering it has no session, not a
 // fault, and folding it into the console check would make this suite fail for
 // doing the right thing.
+//
+// Back to a desktop viewport first. The preceding checks leave the browser at
+// 360px, where the account control is a bottom Sheet rather than a dropdown -
+// so the dropdown selector below found nothing and `.click()` threw on
+// undefined, failing the last check for a reason that had nothing to do with
+// signing out. A sequence that depends on a viewport has to set it.
+await s.viewport(1440, 900);
 await s.goto('/');
 await s.waitFor(`!!document.querySelector('[aria-label^="Account menu"]')`);
 await s.eval(`document.querySelector('[aria-label^="Account menu"]').click(); true`);
