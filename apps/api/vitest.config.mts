@@ -18,6 +18,13 @@ export default defineConfig({
     // jobs, and a job enqueued by one file being executed by another. The jobs
     // suite starts the workers itself, through the same `JobRunner.startWorkers`
     // the bootstrap hook calls, so nothing about the runner goes untested.
-    env: { LOG_LEVEL: 'silent', JOBS_WORKER_ENABLED: 'false' },
+    //
+    // The prefix is what keeps the suite out of the developer's own API. That
+    // process consumes the same queue names on the same Redis, and it won it
+    // often enough that the failure-path test - which mocks the handler's
+    // dependency to make the job fail - watched a job complete instead,
+    // because the API's unmocked worker had run it. Nothing in the test could
+    // see that; it just reported "expected failed, got completed".
+    env: { LOG_LEVEL: 'silent', JOBS_WORKER_ENABLED: 'false', JOBS_QUEUE_PREFIX: 'vyuha-test' },
   },
 });

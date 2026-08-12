@@ -73,6 +73,7 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
 
     const queue = new Queue(name, {
       connection: bullConnectionOptions(),
+      prefix: env.JOBS_QUEUE_PREFIX,
       defaultJobOptions: DEFAULT_JOB_OPTIONS,
     });
     this.queues.set(name, queue);
@@ -135,8 +136,11 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
     for (const queueName of queuesWithHandlers) {
       if (this.workers.has(queueName)) continue;
 
+      // Same prefix as the producer, necessarily: a worker reading a different
+      // namespace is a worker that never sees the job and never says so.
       const worker = new Worker(queueName, (job: Job) => this.process(job), {
         connection: bullConnectionOptions(),
+        prefix: env.JOBS_QUEUE_PREFIX,
         concurrency: 2,
       });
 

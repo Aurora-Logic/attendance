@@ -163,6 +163,22 @@ export const envSchema = z
      */
     JOBS_WORKER_ENABLED: optionalFlag(true),
 
+    /**
+     * The Redis key namespace BullMQ puts every queue under.
+     *
+     * `bull` is BullMQ's own default, so leaving this unset changes nothing.
+     * It exists because a queue is addressed by name alone: any two processes
+     * pointed at one Redis are the same queue, and either may consume a job
+     * the other enqueued. That is correct for two API instances sharing work,
+     * and wrong for a staging deployment next to production, or for a test run
+     * next to the developer's own API -- where it looks like a job silently
+     * doing the wrong thing rather than like a collision.
+     */
+    JOBS_QUEUE_PREFIX: z
+      .string()
+      .optional()
+      .transform((value) => (value !== undefined && value.length > 0 ? value : 'bull')),
+
     DEFAULT_TIMEZONE: z.string().refine(isValidTimeZone, 'must be a valid IANA time zone'),
 
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']),
