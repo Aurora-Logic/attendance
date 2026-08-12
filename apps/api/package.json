@@ -15,18 +15,25 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1108.0",
+    "@aws-sdk/s3-request-presigner": "^3.1108.0",
     "@nestjs/common": "^11.1.29",
     "@nestjs/core": "^11.1.29",
     "@nestjs/platform-express": "^11.1.29",
     "@vyuha/shared": "workspace:*",
+    "bullmq": "^6.1.0",
     "drizzle-orm": "^0.45.2",
     "helmet": "^8.3.0",
+    "ioredis": "^6.0.0",
+    "jose": "^6.2.8",
     "nestjs-pino": "^4.6.1",
+    "nodemailer": "^9.0.5",
     "pg": "^8.23.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
+    "sharp": "^0.35.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -35,6 +42,7 @@
     "@nestjs/testing": "^11.1.29",
     "@types/express": "^5.0.6",
     "@types/node": "^22.10.5",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.21.0",
     "@vyuha/config": "workspace:*",
     "drizzle-kit": "^0.31.10",
