@@ -1,4 +1,9 @@
-import { CalendarDotsIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import {
+  CalendarDotsIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
+  WarningCircleIcon,
+} from '@phosphor-icons/react';
 import { format, parseISO } from 'date-fns';
 import { useSearchParams } from 'react-router';
 
@@ -8,6 +13,7 @@ import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ButtonGroup } from '@/components/ui/button-group';
 import {
   Empty,
   EmptyDescription,
@@ -46,6 +52,16 @@ import { useHolidayCalendars } from './use-holidays';
 /** Two years back and one forward is the range anyone edits or checks. */
 function yearOptions(current: number): number[] {
   return [current - 2, current - 1, current, current + 1];
+}
+
+/**
+ * The stepper and the menu have to agree on the range, or an arrow walks to a
+ * year the menu cannot show and the trigger renders a value with no option
+ * behind it.
+ */
+function yearBounds(current: number): { earliest: number; latest: number } {
+  const options = yearOptions(current);
+  return { earliest: Math.min(...options), latest: Math.max(...options) };
 }
 
 function readYear(raw: string | null, fallback: number): number {
@@ -159,6 +175,7 @@ export function HolidaysPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const thisYear = new Date().getFullYear();
   const year = readYear(searchParams.get('year'), thisYear);
+  const { earliest: earliestYear, latest: latestYear } = yearBounds(thisYear);
 
   const query = useHolidayCalendars(year);
   const calendars = query.data?.data ?? [];
@@ -195,25 +212,73 @@ export function HolidaysPage() {
 
       <PageHeader description="Each calendar is a named list of dated holidays. Employees inherit one from their location." />
 
+      {/* Toolbar row (PRD §6.2), built the same way My Attendance builds its
+          month toolbar: a stepper either side of the period control, and a
+          reset that only appears when there is something to reset to. Moving
+          one year is the common action and was two taps through a menu; it is
+          one tap now, and the menu stays for a jump. */}
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={String(year)} onValueChange={setYear}>
-          <SelectTrigger
-            id="holiday-year"
-            aria-label="Holiday year"
-            className="w-full pointer-coarse:h-11 sm:w-32"
+        <ButtonGroup>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Previous year"
+            disabled={year <= earliestYear}
+            className="pointer-coarse:size-11"
+            onClick={() => {
+              setYear(String(year - 1));
+            }}
           >
-            <SelectValue>{(value: string) => <span className="tabular-nums">{value}</span>}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {yearOptions(thisYear).map((option) => (
-                <SelectItem key={option} value={String(option)}>
-                  <span className="tabular-nums">{option}</span>
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+            <CaretLeftIcon />
+          </Button>
+          <Select value={String(year)} onValueChange={setYear}>
+            <SelectTrigger
+              id="holiday-year"
+              aria-label="Holiday year"
+              className="pointer-coarse:h-11 w-28"
+            >
+              <SelectValue>
+                {(value: string) => <span className="tabular-nums">{value}</span>}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {yearOptions(thisYear).map((option) => (
+                  <SelectItem key={option} value={String(option)}>
+                    <span className="tabular-nums">{option}</span>
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Next year"
+            // Nothing is entered beyond next year, so stepping further would
+            // show an empty calendar that reads as a loading failure.
+            disabled={year >= latestYear}
+            className="pointer-coarse:size-11"
+            onClick={() => {
+              setYear(String(year + 1));
+            }}
+          >
+            <CaretRightIcon />
+          </Button>
+        </ButtonGroup>
+
+        {year === thisYear ? null : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setYear(String(thisYear));
+            }}
+          >
+            This year
+          </Button>
+        )}
+
         <ShortcutHint keys="alt+f2" className="hidden md:inline-flex" />
       </div>
 

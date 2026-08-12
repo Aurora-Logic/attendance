@@ -243,15 +243,16 @@ export function LeaveApplicationForm({
         sat empty beside it — vertical space spent to keep horizontal space
         unused.
 
-        Two columns from sm, three from md. The cap moves 3xl to 5xl: wide
-        enough for three columns of controls, still short of the full width,
-        because a form that stretches to 1920px has a line length nobody wants
-        to read a description at.
+        Two columns from sm, three from md, and no width cap: the balances row
+        above and the history table below both run the full content width, so a
+        form stopping short of them left a ragged right edge down the page. The
+        three columns keep any single control from becoming the over-wide line
+        the cap was there to prevent.
 
         Spans are declared per breakpoint so the pairing is deliberate at each
         one rather than whatever the flow happens to produce.
       */}
-      <FieldGroup className="grid max-w-5xl gap-5 sm:grid-cols-2 md:grid-cols-3">
+      <FieldGroup className="grid gap-5 sm:grid-cols-2 md:grid-cols-3">
         <Field
           className="sm:col-span-2 md:col-span-1"
           data-invalid={attempted && errors.leaveType ? true : undefined}
@@ -415,7 +416,7 @@ export function LeaveApplicationForm({
       <dl
         id={summaryId}
         aria-live="polite"
-        className="grid max-w-5xl grid-cols-2 gap-x-6 gap-y-3 border p-3 sm:grid-cols-4"
+        className="grid grid-cols-2 gap-x-6 gap-y-3 border p-3 sm:grid-cols-4"
       >
         <div className="flex flex-col gap-0.5">
           <dt className="text-muted-foreground text-xs">Days consumed</dt>

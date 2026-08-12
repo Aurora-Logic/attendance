@@ -334,7 +334,7 @@ export function MyLeavePage() {
         />
 
         {typesQuery.isPending ? (
-          <div role="status" aria-busy="true" aria-label="Loading leave types" className="flex max-w-3xl flex-col gap-4">
+          <div role="status" aria-busy="true" aria-label="Loading leave types" className="flex flex-col gap-4">
             <Skeleton className="h-8 w-72" />
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-16 w-full" />
