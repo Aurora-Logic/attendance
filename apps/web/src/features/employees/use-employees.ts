@@ -26,6 +26,8 @@ export interface EmployeeListParams {
   /** Free text over employee code and name. Empty means unfiltered. */
   q: string;
   status: EmployeeStatus | null;
+  /** Department id, or null for every department. */
+  departmentId: string | null;
 }
 
 const namedRefSchema = z.object({ id: z.string(), name: z.string() });
@@ -79,6 +81,7 @@ function toSearch(params: EmployeeListParams): string {
   // a strict server-side schema is concerned, and this one has a min length.
   if (params.q) search.set('q', params.q);
   if (params.status) search.set('status', params.status);
+  if (params.departmentId) search.set('departmentId', params.departmentId);
   return search.toString();
 }
 

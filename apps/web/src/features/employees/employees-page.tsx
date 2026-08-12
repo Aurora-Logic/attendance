@@ -36,6 +36,7 @@ import {
   type EmployeeStatus,
 } from '@vyuha/shared';
 
+import { useDepartments } from './use-departments';
 import { useEmployees } from './use-employees';
 
 /**
@@ -48,6 +49,7 @@ import { useEmployees } from './use-employees';
  * than a list of prefixes.
  */
 
+const ALL_DEPARTMENTS = '__all_departments__';
 const ALL_STATUSES = 'ALL';
 
 const STATUS_LABELS: Record<EmployeeStatus, string> = {
@@ -208,6 +210,7 @@ export function EmployeesPage() {
   const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
   const pageSize = readPositiveInt(searchParams.get('pageSize'), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
   const q = searchParams.get('q')?.trim() ?? '';
+  const departmentId = searchParams.get('departmentId');
   const statusParam = searchParams.get('status');
   const status = isEmployeeStatus(statusParam) ? statusParam : null;
 
@@ -261,19 +264,33 @@ export function EmployeesPage() {
     });
   }
 
+  function setDepartment(next: string | null) {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      if (next === null || next === ALL_DEPARTMENTS) params.delete('departmentId');
+      else params.set('departmentId', next);
+      params.delete('page');
+      return params;
+    });
+  }
+
   function clearFilters() {
     setDraft('');
     setSearchParams((current) => {
       const params = new URLSearchParams(current);
       params.delete('q');
       params.delete('status');
+      params.delete('departmentId');
       params.delete('page');
       return params;
     });
   }
 
-  const filtered = q.length > 0 || status !== null;
-  const query = useEmployees({ page, pageSize, q, status });
+  const filtered = q.length > 0 || status !== null || departmentId !== null;
+  const query = useEmployees({ page, pageSize, q, status, departmentId });
+  // A failed picker must not take the table with it, so the error is swallowed
+  // here on purpose: no options simply means no department filter is offered.
+  const departments = useDepartments().data ?? [];
 
   const rows = query.data?.data ?? [];
   const total = query.data?.meta.total ?? 0;
@@ -315,6 +332,33 @@ export function EmployeesPage() {
               ))}
             </SelectContent>
           </Select>
+
+          {/* Only rendered once the options are in. A picker that appears
+              empty and fills in a moment later reads as broken, and one with a
+              single option is furniture - an organisation with one department
+              does not need to filter by it. */}
+          {departments.length > 1 ? (
+            <Select value={departmentId ?? ALL_DEPARTMENTS} onValueChange={setDepartment}>
+              <SelectTrigger
+                aria-label="Filter by department"
+                className="pointer-coarse:h-11 w-full sm:w-48"
+              >
+                <SelectValue>
+                  {(value: string) =>
+                    departments.find((d) => d.id === value)?.name ?? 'All departments'
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_DEPARTMENTS}>All departments</SelectItem>
+                {departments.map((department) => (
+                  <SelectItem key={department.id} value={department.id}>
+                    {department.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
 
           {filtered ? (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
