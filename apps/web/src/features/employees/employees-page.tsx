@@ -312,10 +312,18 @@ export function EmployeesPage() {
             className="w-full sm:w-64"
           />
 
+          {/* The two filters share one row on a phone. Each was w-full, so each
+              claimed a row of its own and the toolbar cost 148px of a 780px
+              screen before a single employee appeared. They are 44px either
+              way — this buys the height back from the layout rather than from
+              the touch target. `sm:contents` dissolves this wrapper above the
+              breakpoint so the desktop toolbar keeps its original single-row
+              wrap. */}
+          <div className="flex w-full gap-2 sm:contents">
           <Select value={status ?? ALL_STATUSES} onValueChange={setStatus}>
             <SelectTrigger
               aria-label="Filter by status"
-              className="pointer-coarse:h-11 w-full sm:w-40"
+              className="pointer-coarse:h-11 min-w-0 flex-1 sm:w-40 sm:flex-none"
             >
               <SelectValue>
                 {(value: string) =>
@@ -341,7 +349,7 @@ export function EmployeesPage() {
             <Select value={departmentId ?? ALL_DEPARTMENTS} onValueChange={setDepartment}>
               <SelectTrigger
                 aria-label="Filter by department"
-                className="pointer-coarse:h-11 w-full sm:w-48"
+                className="pointer-coarse:h-11 min-w-0 flex-1 sm:w-48 sm:flex-none"
               >
                 <SelectValue>
                   {(value: string) =>
@@ -359,6 +367,7 @@ export function EmployeesPage() {
               </SelectContent>
             </Select>
           ) : null}
+          </div>
 
           {filtered ? (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
