@@ -20,7 +20,12 @@ export interface AttendanceDaysParams {
   /** Date-only `YYYY-MM-DD`, inclusive at both ends. */
   from: string;
   to: string;
-  /** `me` reads the caller's own days; a UUID reads one person's. */
+  /**
+   * One person's days, by id. There is no `me` sentinel: the server validates
+   * this as a UUID and answers 400 for anything else, and it is safe to send a
+   * real id because every query runs inside the caller's scope predicate -
+   * asking for a colleague's id returns no rows rather than their attendance.
+   */
   employeeId?: string | null;
   departmentId?: string | null;
   status?: AttendanceStatus | null;
@@ -45,10 +50,22 @@ function toSearch(params: AttendanceDaysParams): string {
   return search.toString();
 }
 
+/**
+ * Kept out of `AttendanceDaysParams` on purpose: that object is the query
+ * string and it is the cache key. Folding a client-side switch into it would
+ * make the same request cache under two keys depending on whether it was
+ * allowed to run.
+ */
+export interface AttendanceDaysOptions {
+  enabled?: boolean;
+}
+
 export function useAttendanceDays(
   params: AttendanceDaysParams,
+  options: AttendanceDaysOptions = {},
 ): UseQueryResult<Sampled<Paginated<AttendanceDay>>, Error> {
   return useQuery({
+    enabled: options.enabled ?? true,
     queryKey: ['attendance', 'days', params],
     queryFn: async ({ signal }) => {
       try {

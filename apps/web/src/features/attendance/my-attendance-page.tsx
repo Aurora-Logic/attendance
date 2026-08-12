@@ -17,6 +17,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
+import { useMe } from '@/lib/session/use-session';
 
 import { DayDetailSheet } from './day-detail-sheet';
 import { formatClock, formatDuration, fromDateParam, toDateParam } from './format';
@@ -154,6 +155,7 @@ function SummaryStrip({ totals }: { totals: Totals }) {
 }
 
 export function MyAttendancePage() {
+  const me = useMe();
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selected, setSelected] = useState<AttendanceDay | null>(null);
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
@@ -161,14 +163,25 @@ export function MyAttendancePage() {
   const from = toDateParam(startOfMonth(month));
   const to = toDateParam(endOfMonth(month));
 
-  const query = useAttendanceDays({
-    from,
-    to,
-    // The server resolves `me` from the session; the client never sends its own
-    // employee id for its own records, so a tampered id cannot widen the scope.
-    employeeId: 'me',
-    pageSize: 31,
-  });
+  // The id comes from the session, not from a `me` sentinel. This screen used
+  // to send `employeeId=me` on the belief that the server resolved it; the
+  // server validates the parameter as a UUID and answered 400 on every load,
+  // which the sample-data fallback did not cover because it only substitutes
+  // for a missing endpoint (404), not a rejected request.
+  //
+  // Sending the real id is safe: every attendance query runs inside the
+  // caller's scope predicate. Verified against the running API - an Employee
+  // asking for a colleague's id gets 200 with zero rows, not their days.
+  const employeeId = me.data?.user.employeeId ?? null;
+
+  const query = useAttendanceDays(
+    { from, to, employeeId, pageSize: 31 },
+    // A user account need not be linked to an employee record - an
+    // administrator created for the system itself has no attendance. Asking
+    // anyway would return the whole organisation for someone holding
+    // ATTENDANCE_VIEW_ALL, which is the opposite of what this screen means.
+    { enabled: employeeId !== null },
+  );
 
   const days = useMemo(() => query.data?.value.data ?? [], [query.data]);
   const totals = useMemo(() => summarise(days), [days]);
@@ -255,7 +268,22 @@ export function MyAttendancePage() {
 
         {query.data?.sample ? <SampleDataNotice what="attendance day" /> : null}
 
-        {query.isPending ? <MonthSkeleton /> : null}
+        {me.isSuccess && employeeId === null ? (
+          <Empty className="border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <CalendarXIcon />
+              </EmptyMedia>
+              <EmptyTitle>This account has no employee record</EmptyTitle>
+              <EmptyDescription>
+                Attendance belongs to an employee, and this sign-in is not linked to one. An
+                administrator can link it from the employee register.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : null}
+
+        {query.isPending && employeeId !== null ? <MonthSkeleton /> : null}
 
         {query.isError ? (
           <QueryErrorAlert
