@@ -4,6 +4,12 @@ name: vyuha
 # services but with real credentials injected from the environment, never
 # from this file.
 
+# Host ports are offset into a 5xxxx range on purpose. A developer machine very
+# often already runs Postgres or Redis natively - this one did, via a Homebrew
+# launch agent holding 5432 - and the failure is nasty: the container reports
+# healthy, connections succeed, and you are talking to the wrong database.
+# Container-internal ports are unchanged, so service-to-service URLs are normal.
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -17,7 +23,7 @@ services:
     # developer's local clock out of attendance arithmetic.
     command: ['postgres', '-c', 'timezone=UTC', '-c', 'log_statement=none']
     ports:
-      - '5432:5432'
+      - '55432:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -32,7 +38,7 @@ services:
     restart: unless-stopped
     command: ['redis-server', '--appendonly', 'yes']
     ports:
-      - '6379:6379'
+      - '56379:6379'
     volumes:
       - redis-data:/data
     healthcheck:
@@ -50,8 +56,8 @@ services:
       MINIO_ROOT_USER: vyuha
       MINIO_ROOT_PASSWORD: vyuha_dev_only
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '59000:9000'
+      - '59001:9001'
     volumes:
       - minio-data:/data
     healthcheck:
@@ -91,8 +97,8 @@ services:
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
     ports:
-      - '1025:1025'
-      - '8025:8025'
+      - '51025:1025'
+      - '58025:8025'
     healthcheck:
       test: ['CMD', '/mailpit', 'readyz']
       interval: 5s

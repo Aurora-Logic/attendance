@@ -57,11 +57,26 @@ export const base = tseslint.config(
 );
 
 /**
+ * Every module that will ever live under `src/modules/`. CRM and ERP are
+ * listed before they exist because the boundary has to be enforced from the
+ * first line of code, not retrofitted once there is something to separate.
+ *
+ * Adding a module means adding it here. That is deliberate: a new module is a
+ * new boundary, and it should be a conscious act rather than a side effect of
+ * creating a directory.
+ */
+export const API_MODULES = ['attendance', 'crm', 'erp'];
+
+/**
  * Technical design §1: `modules/*` may import `platform/*`; `platform/*` must
  * never import `modules/*`; modules must never import each other.
  *
- * Enforced on the import specifier string, which covers both the `@/modules/x`
- * alias form and the `../../modules/x` relative form.
+ * `no-restricted-imports` matches the literal specifier string, which is the
+ * subtlety here. A sibling import from inside `modules/crm/` is written
+ * `../attendance/thing` and contains no `modules/` segment at all, so a
+ * pattern like `**\/modules\/**` silently misses exactly the violation it was
+ * written to catch. Each module therefore gets its own rule naming its
+ * siblings in both the alias form and the relative form.
  */
 export const moduleBoundaries = [
   {
@@ -72,7 +87,7 @@ export const moduleBoundaries = [
         {
           patterns: [
             {
-              group: ['**/modules/**', '@/modules/*', '@/modules/**'],
+              group: ['**/modules/**', '@/modules/*', '@/modules/**', '../modules/**'],
               message:
                 'platform/ must never import from modules/ (technical design §1). ' +
                 'If attendance needs to hand something to the platform, invert it: ' +
@@ -83,24 +98,38 @@ export const moduleBoundaries = [
       ],
     },
   },
-  {
-    files: ['src/modules/*/**/*.ts'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              // Any modules/<name>/ path other than the importer's own. Sibling
-              // modules communicate through the platform event bus only.
-              group: ['**/modules/*/**', '@/modules/*/**'],
-              message:
-                'Modules must not import each other (technical design §1). ' +
-                'Use the platform event bus. Within your own module, use a relative import.',
-            },
-          ],
-        },
-      ],
-    },
-  },
+  ...API_MODULES.map((self) => {
+    const siblings = API_MODULES.filter((m) => m !== self);
+    return {
+      files: [`src/modules/${self}/**/*.ts`],
+      rules: {
+        'no-restricted-imports': [
+          'error',
+          {
+            patterns: [
+              {
+                group: siblings.flatMap((other) => [
+                  `**/modules/${other}`,
+                  `**/modules/${other}/**`,
+                  `@/modules/${other}`,
+                  `@/modules/${other}/**`,
+                  // Relative sibling escapes, at any nesting depth.
+                  `../${other}`,
+                  `../${other}/**`,
+                  `../../${other}`,
+                  `../../${other}/**`,
+                  `../../../${other}`,
+                  `../../../${other}/**`,
+                ]),
+                message:
+                  `Module "${self}" must not import module ${siblings.map((s) => `"${s}"`).join(' or ')} ` +
+                  '(technical design §1). Modules communicate through the platform event bus. ' +
+                  'Within your own module, use a relative import.',
+              },
+            ],
+          },
+        ],
+      },
+    };
+  }),
 ];

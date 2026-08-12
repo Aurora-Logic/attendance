@@ -1,0 +1,15 @@
+/**
+ * Platform tables only (technical design §4.1).
+ *
+ * Attendance tables live in `modules/attendance/` and are picked up separately
+ * by drizzle.config.ts. They are deliberately not re-exported here: the
+ * dependency rule in §1 says platform must never reach into a module, and a
+ * barrel that pulled them in would make that violation invisible.
+ */
+export * from './organizations.schema.js';
+export * from './people.schema.js';
+export * from './identity.schema.js';
+export * from './audit.schema.js';
+export * from './notification.schema.js';
+export * from './file.schema.js';
+export * from './integration.schema.js';

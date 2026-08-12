@@ -22,6 +22,8 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*.ts", "drizzle.config.ts"],
+  // drizzle.config.ts is deliberately outside the program: it sits above
+  // rootDir, and drizzle-kit compiles it itself.
+  "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }
