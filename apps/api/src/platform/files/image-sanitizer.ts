@@ -1,5 +1,5 @@
 import { ERROR_CODES } from '@vyuha/shared';
-import sharp from 'sharp';
+import sharp, { type Sharp } from 'sharp';
 
 import { AppError, describeError } from '../common/errors.js';
 import { isAcceptedUpload, sniffType, type SniffedType } from './magic-bytes.js';
@@ -38,9 +38,19 @@ const MAX_INPUT_PIXELS = 50_000_000;
 export interface SanitizeOptions {
   /** Longest edge of the output. Smaller inputs are never enlarged. */
   readonly maxEdge: number;
-  /** JPEG quality. Ignored when the output is PNG. */
+  /** JPEG quality, and the top of the ladder when `maxBytes` is set. */
   readonly quality: number;
   readonly format: 'jpeg' | 'png';
+  /**
+   * Re-encode at falling quality until the result fits in this many bytes.
+   *
+   * A caller with a storage budget rather than a quality preference (REQ-D-03a
+   * puts punch photos in an 80-150 KB band) needs the output size to be the
+   * constraint, and only the encoder can see that. Nothing is inflated to
+   * reach a lower bound: an image that is already small at full quality is
+   * left alone rather than degraded to make a number come out.
+   */
+  readonly maxBytes?: number;
 }
 
 export interface SanitizedImage {
@@ -109,13 +119,12 @@ export async function sanitizeImage(
       withoutEnlargement: true,
     });
 
-  const encoded =
-    options.format === 'png'
-      ? resized.png({ compressionLevel: 9 })
-      : resized.jpeg({ quality: options.quality, progressive: true });
-
   try {
-    const { data, info } = await encoded.toBuffer({ resolveWithObject: true });
+    const { data, info } =
+      options.format === 'png'
+        ? await resized.png({ compressionLevel: 9 }).toBuffer({ resolveWithObject: true })
+        : await encodeJpegWithinBudget(resized, options);
+
     return {
       bytes: data,
       mime: options.format === 'png' ? 'image/png' : 'image/jpeg',
@@ -129,4 +138,52 @@ export async function sanitizeImage(
   } catch (error: unknown) {
     throw invalidPhoto('That image could not be processed.', { reason: describeError(error) });
   }
+}
+
+/**
+ * The quality ladder REQ-D-03a asks for, expressed as fixed steps rather than a
+ * binary search.
+ *
+ * Fixed steps because the result has to be reproducible: a search over a
+ * continuous range lands on a slightly different quality for two nearly
+ * identical photographs, and "why is yesterday's punch photo sharper than
+ * today's" is not a question worth being unable to answer. Eight steps is at
+ * most eight encodes of a 1280px image, and in practice the first or second
+ * lands inside the band.
+ */
+const JPEG_QUALITY_LADDER: readonly number[] = [76, 68, 60, 52, 44, 36, 28];
+
+interface EncodedImage {
+  readonly data: Buffer;
+  readonly info: { readonly width: number; readonly height: number };
+}
+
+async function encodeJpegWithinBudget(
+  pipeline: Sharp,
+  options: SanitizeOptions,
+): Promise<EncodedImage> {
+  const encode = async (quality: number): Promise<EncodedImage> => {
+    // `clone()` per attempt: a sharp pipeline is single-use, and reusing one
+    // would apply the second encoder's settings on top of the first.
+    const { data, info } = await pipeline
+      .clone()
+      .jpeg({ quality, progressive: true, mozjpeg: true })
+      .toBuffer({ resolveWithObject: true });
+    return { data, info };
+  };
+
+  let best = await encode(options.quality);
+  const budget = options.maxBytes;
+  if (budget === undefined) return best;
+
+  for (const quality of JPEG_QUALITY_LADDER) {
+    if (best.data.length <= budget) return best;
+    if (quality >= options.quality) continue;
+    best = await encode(quality);
+  }
+
+  // Still over budget at the bottom of the ladder. The bytes are returned
+  // rather than refused: a punch photo that is 10 KB too large is not a reason
+  // to stop somebody clocking in, and the caller records the real size.
+  return best;
 }

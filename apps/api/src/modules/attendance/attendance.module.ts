@@ -1,0 +1,25 @@
+import { Module } from '@nestjs/common';
+
+import { DayEngineService } from './day-engine/day-engine.service.js';
+import { AttendanceDayController } from './days/attendance-day.controller.js';
+import { AttendanceDayService } from './days/attendance-day.service.js';
+import { PunchContextController, PunchController } from './punch/punch.controller.js';
+import { PunchService } from './punch/punch.service.js';
+
+/**
+ * The attendance module (technical design §3). Phase 1 puts the day engine and
+ * the punch slice in it; roster, leave, holiday, regularization, approval and
+ * report services join it as their slices land.
+ *
+ * `DbModule`, `AuditModule`, `FileModule`, `RbacModule`, `JobsModule` and
+ * `NotificationsModule` are all `@Global()`, so nothing is imported here -- the
+ * boundary this module has to respect is the other direction, and ESLint
+ * enforces it: `modules/attendance` may reach into `platform/`, and `platform/`
+ * may never reach back.
+ */
+@Module({
+  controllers: [PunchController, PunchContextController, AttendanceDayController],
+  providers: [DayEngineService, PunchService, AttendanceDayService],
+  exports: [DayEngineService],
+})
+export class AttendanceModule {}

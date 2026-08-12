@@ -34,12 +34,27 @@ import { sanitizeImage } from './image-sanitizer.js';
 /** Technical design §7: "Reject uploads over 3MB". */
 const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 
-/** REQ-D-03a: the client already downscales; this is the server's backstop. */
-const PHOTO_MAX_EDGE = 1280;
 const PHOTO_JPEG_QUALITY = 82;
 
-/** REQ-L-01: the header renders it small, and it is on every page. */
-const LOGO_MAX_EDGE = 256;
+/**
+ * The longest edge kept for each kind of file.
+ *
+ * REQ-D-03a: the client already downscales a punch photo to 1280, and this is
+ * the server's backstop; the 256px thumbnail is the same requirement's "used
+ * everywhere except the full-size viewer". REQ-L-01's logo is rendered small
+ * in a page header.
+ *
+ * A `Record<FilePurpose, ...>` so a new purpose cannot be added without
+ * deciding how large its images may be.
+ */
+const MAX_EDGE_BY_PURPOSE: Record<FilePurpose, number> = {
+  PUNCH_PHOTO: 1280,
+  PUNCH_PHOTO_THUMB: 256,
+  ATTACHMENT: 1280,
+  ORG_LOGO: 256,
+  EXPORT: 1280,
+  IMPORT: 1280,
+};
 
 const BUCKET_BY_PURPOSE: Record<FilePurpose, BucketName> = {
   PUNCH_PHOTO: BUCKETS.PHOTOS,
@@ -74,6 +89,12 @@ export interface StoreImageInput {
   readonly pathSegments?: readonly string[];
   /** REQ-L-03: when the retention job may remove this. */
   readonly expiresAt?: Date | null;
+  /**
+   * A storage budget in bytes. The image is re-encoded at falling quality
+   * until it fits (REQ-D-03a's 80-150 KB band for a punch photo). Omitted, the
+   * image is encoded once at the standard quality.
+   */
+  readonly maxBytes?: number;
 }
 
 export interface StoredFile {
@@ -128,8 +149,9 @@ export class FileService {
     const wantsPng = input.purpose === 'ORG_LOGO';
     const sanitized = await sanitizeImage(input.bytes, {
       format: wantsPng ? 'png' : 'jpeg',
-      maxEdge: wantsPng ? LOGO_MAX_EDGE : PHOTO_MAX_EDGE,
+      maxEdge: MAX_EDGE_BY_PURPOSE[input.purpose],
       quality: PHOTO_JPEG_QUALITY,
+      ...(input.maxBytes === undefined ? {} : { maxBytes: input.maxBytes }),
     });
 
     // Belt and braces against a future edit to the sanitiser that adds a

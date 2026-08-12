@@ -2,6 +2,7 @@ import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 
+import { AttendanceModule } from './modules/attendance/attendance.module.js';
 import { AuditContextMiddleware } from './platform/audit/audit-context.middleware.js';
 import { AuditInterceptor } from './platform/audit/audit.interceptor.js';
 import { AuditModule } from './platform/audit/audit.module.js';
@@ -17,6 +18,8 @@ import { HealthModule } from './platform/health/health.module.js';
 import { JobsModule } from './platform/jobs/jobs.module.js';
 import { MailModule } from './platform/mail/mail.module.js';
 import { NotificationsModule } from './platform/notifications/notifications.module.js';
+import { OrgModule } from './platform/org/org.module.js';
+import { PeopleModule } from './platform/people/people.module.js';
 import { AccessGuard } from './platform/rbac/access.guard.js';
 import { RbacModule } from './platform/rbac/rbac.module.js';
 import { RedisModule } from './platform/redis/redis.module.js';
@@ -51,7 +54,12 @@ import { StorageModule } from './platform/storage/storage.module.js';
     JobsModule,
     NotificationsModule,
     AuthModule,
+    OrgModule,
+    PeopleModule,
     HealthModule,
+    // The first `modules/` entry. Everything above it is the shared kernel;
+    // CRM and ERP will sit beside this one and import nothing from it.
+    AttendanceModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AppExceptionFilter },
