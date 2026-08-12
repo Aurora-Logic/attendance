@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from 'react-router';
 
+import { OrgBrand } from '@/components/shared/org-brand';
 import {
   Sidebar,
   SidebarContent,
@@ -26,15 +27,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-2 py-1.5">
-          <div className="bg-primary text-primary-foreground flex size-7 shrink-0 items-center justify-center text-sm font-semibold">
-            V
-          </div>
-          <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-sm font-semibold">Vyuha</span>
-            <span className="text-muted-foreground truncate text-xs">Attendance</span>
-          </div>
-        </div>
+        <OrgBrand />
       </SidebarHeader>
 
       <SidebarContent>
