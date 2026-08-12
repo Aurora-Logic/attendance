@@ -50,7 +50,12 @@ export function BreadcrumbTrail({ crumbs }: BreadcrumbTrailProps) {
         ))}
 
         <BreadcrumbItem className="min-w-0">
-          <h1 aria-current="page" className="text-foreground truncate text-sm font-medium">
+          {/* text-xs, matching the list it sits in. At text-sm the current page
+              was 14px beside a 12px ancestor, so a two-crumb trail changed type
+              size halfway along one line. The current page is distinguished by
+              weight and colour instead, which is what the rest of this system
+              does. */}
+          <h1 aria-current="page" className="text-foreground truncate text-xs font-medium">
             {current.label}
           </h1>
         </BreadcrumbItem>
