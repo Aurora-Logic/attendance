@@ -166,6 +166,38 @@ class Session {
   }
 }
 
+const EMAIL = process.env.VERIFY_EMAIL ?? 'admin@vyuha.local';
+const PASSWORD = process.env.VERIFY_PASSWORD ?? '';
+
+/**
+ * The app requires a real session now, so the harness has to sign in the way a
+ * person does - through the form. Doing it by injecting a token would skip the
+ * one path every user takes, and would keep passing after the login screen
+ * broke.
+ */
+async function signIn(s) {
+  const onLogin = await s.eval(`!!document.querySelector('#email')`);
+  if (!onLogin) return true;
+
+  if (!PASSWORD) {
+    console.log('FAIL  Sign in — VERIFY_PASSWORD is not set, and the app now requires a session');
+    return false;
+  }
+
+  const fill = (sel, value) =>
+    s.eval(`(() => { const el = document.querySelector(${JSON.stringify(sel)});
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      set.call(el, ${JSON.stringify(value)});
+      el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+
+  await fill('#email', EMAIL);
+  await fill('#password', PASSWORD);
+  await s.eval(`document.querySelector('form').requestSubmit(); true`);
+
+  const ok = await s.waitFor(`!!document.querySelector('[data-slot="sidebar"]')`, 15000);
+  return Boolean(ok);
+}
+
 const results = [];
 function check(name, pass, detail = '') {
   results.push({ name, pass, detail });
@@ -186,6 +218,7 @@ await s.send('Log.enable');
 // ---------------------------------------------------------------- desktop
 await s.viewport(1440, 900);
 check('React mounts on /', await s.goto('/'), 'react container key on #root');
+check('Signs in through the login form', await signIn(s), `as ${EMAIL}`);
 
 check(
   'Sidebar renders permission-filtered nav',

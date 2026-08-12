@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router';
 
 import { AppShell } from '@/app/layout/app-shell';
+import { SessionGate } from '@/app/session-gate';
 import { DashboardPage } from '@/features/dashboard/dashboard-page';
 import { PatternsPage } from '@/features/patterns/patterns-page';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
@@ -24,6 +25,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <SessionGate>
         <ShortcutProvider>
           <Routes>
             <Route element={<AppShell />}>
@@ -43,6 +45,7 @@ export default function App() {
             </Route>
           </Routes>
         </ShortcutProvider>
+        </SessionGate>
       </BrowserRouter>
     </QueryClientProvider>
   );

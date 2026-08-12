@@ -135,6 +135,38 @@ jobs:
       - name: Build shared contract
         run: pnpm --filter @vyuha/shared build
 
+      # The app requires a real session now, so the browser job needs the whole
+      # stack, not just a static server. Signing in through the form is the
+      # point: injecting a token would skip the one path every user takes.
+      - name: Start Postgres, Redis, MinIO and Mailpit
+        run: |
+          docker compose -f docker/docker-compose.yml up -d --wait postgres redis minio mailpit
+          docker compose -f docker/docker-compose.yml up --exit-code-from minio-init minio-init
+
+      - name: Migrate and seed
+        id: seed
+        run: |
+          pnpm --filter @vyuha/api exec tsx src/platform/db/migrate.ts
+          # The seeded password is random and printed exactly once, by design.
+          # Captured here rather than pinned to a constant, so CI never
+          # normalises a fixed administrator password into the codebase.
+          seed_output=$(pnpm --filter @vyuha/api run db:seed)
+          echo "$seed_output" | sed 's/[A-Za-z0-9_-]\{20,\}/<redacted>/g'
+          password=$(echo "$seed_output" | grep -oE '^ +[A-Za-z0-9_-]{20,}$' | head -1 | tr -d ' ')
+          if [ -z "$password" ]; then echo "could not read the seeded password"; exit 1; fi
+          echo "::add-mask::$password"
+          echo "password=$password" >> "$GITHUB_OUTPUT"
+
+      - name: Start the API
+        run: |
+          pnpm --filter @vyuha/api build
+          node apps/api/dist/main.js &
+          for _ in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:3000/api/v1/health && break
+            sleep 1
+          done
+          curl -sf -o /dev/null http://localhost:3000/api/v1/health
+
       - name: Start the dev server
         run: |
           pnpm --filter @vyuha/web exec vite --port 5173 --strictPort &
@@ -155,6 +187,9 @@ jobs:
           curl -sf -o /dev/null http://localhost:9222/json/version
 
       - name: Drive the app
+        env:
+          VERIFY_EMAIL: admin@vyuha.local
+          VERIFY_PASSWORD: ${{ steps.seed.outputs.password }}
         run: node apps/web/scripts/verify-ui.mjs 2>&1 | tee /tmp/verify-ui.log
 
       # Downloading raw run logs needs admin rights on the repository, which
