@@ -114,6 +114,21 @@ export interface SeededUser {
   readonly employeeId: string | null;
 }
 
+export interface HarnessOptions {
+  /**
+   * Skips the employee/master-data wipe in `resetOrganisation`.
+   *
+   * Required by any fixture that records a punch: `punches` is append-only
+   * (REQ-D-12, enforced by trigger), `punches.employee_id` is RESTRICT, so an
+   * employee who has ever punched can never be deleted. A file using this must
+   * create its people with per-run unique codes instead -- reusing a code
+   * would reuse an employee whose punch state from the previous run is still
+   * standing, and "already punched in" failures would depend on which run came
+   * before.
+   */
+  readonly preservePeople?: boolean;
+}
+
 export class ApiHarness {
   private constructor(
     private readonly app: INestApplication,
@@ -130,7 +145,11 @@ export class ApiHarness {
    * audit row its organisation can never be deleted. A random id per run would
    * leave a permanent new orphan behind every time the suite ran.
    */
-  static async start(orgId: string, orgName: string): Promise<ApiHarness> {
+  static async start(
+    orgId: string,
+    orgName: string,
+    options: HarnessOptions = {},
+  ): Promise<ApiHarness> {
     // Guards against a Homebrew Postgres answering on the default port: the
     // whole suite would pass against an empty, wrong database.
     expect(new URL(env.DATABASE_URL).port).toBe('55432');
@@ -154,7 +173,7 @@ export class ApiHarness {
     }
 
     const harness = new ApiHarness(app, `${url}${API_PREFIX_PATH}`, db, orgId, mail);
-    await harness.resetOrganisation(orgName);
+    await harness.resetOrganisation(orgName, options.preservePeople ?? false);
     await harness.clearLoginRateLimit();
     return harness;
   }
@@ -249,8 +268,11 @@ export class ApiHarness {
   /**
    * Removes everything this organisation owns except the organisation row and
    * its audit trail, both of which cannot be deleted (see `start`).
+   *
+   * With `preservePeople`, employees and the masters they point at survive
+   * too -- see `HarnessOptions` for why a punch fixture has no other choice.
    */
-  async resetOrganisation(name: string): Promise<void> {
+  async resetOrganisation(name: string, preservePeople = false): Promise<void> {
     await this.db
       .insert(organizations)
       .values({ id: this.orgId, name })
@@ -284,6 +306,8 @@ export class ApiHarness {
       );
       await this.db.delete(roles).where(eq(roles.orgId, this.orgId));
     }
+
+    if (preservePeople) return;
 
     // Employees reference each other through reporting_manager_id and
     // departments through head_employee_id, so the links are cut before the
