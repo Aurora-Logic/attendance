@@ -15,6 +15,7 @@ import {
   SquaresFourIcon,
   TreePalmIcon,
   UsersIcon,
+  UsersThreeIcon,
 } from '@phosphor-icons/react';
 
 import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
@@ -76,6 +77,15 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: PERMISSIONS.LEAVE_APPLY_SELF,
         phase: 2,
         reqs: 'REQ-G-03, G-06',
+      },
+      {
+        to: '/team-attendance',
+        label: 'Team attendance',
+        shortLabel: 'Team',
+        icon: UsersThreeIcon,
+        permission: PERMISSIONS.ATTENDANCE_VIEW_TEAM,
+        phase: 1,
+        reqs: 'REQ-E-02, J-01',
       },
       {
         to: '/approvals',

@@ -5,7 +5,13 @@ import { AppShell } from '@/app/layout/app-shell';
 import { SessionGate } from '@/app/session-gate';
 import { DashboardPage } from '@/features/dashboard/dashboard-page';
 import { EmployeesPage } from '@/features/employees/employees-page';
+import { ApprovalsPage } from '@/features/approvals';
+import { MyAttendancePage, TeamAttendancePage } from '@/features/attendance';
+import { HolidaysPage } from '@/features/holidays';
+import { LeaveTypesPage, MyLeavePage } from '@/features/leave';
 import { PatternsPage } from '@/features/patterns/patterns-page';
+import { PunchPage } from '@/features/punch';
+import { ShiftsPage } from '@/features/shifts';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { ProfilePage } from '@/features/profile/profile-page';
 import { ShortcutProvider } from '@/lib/keyboard/registry';
@@ -17,7 +23,18 @@ import { ALL_NAV_ITEMS } from '@/lib/nav';
  * filter below is driven by this set rather than by a second hand-written list
  * that would go stale the next time a screen ships.
  */
-const BUILT_ROUTES = new Set(['/', '/employees']);
+const BUILT_ROUTES = new Set([
+  '/',
+  '/employees',
+  '/punch',
+  '/my-attendance',
+  '/team-attendance',
+  '/shifts',
+  '/my-leave',
+  '/approvals',
+  '/leave-types',
+  '/holidays',
+]);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +59,15 @@ export default function App() {
               <Route index element={<DashboardPage />} />
 
               <Route path="employees" element={<EmployeesPage />} />
+
+              <Route path="punch" element={<PunchPage />} />
+              <Route path="my-leave" element={<MyLeavePage />} />
+              <Route path="approvals" element={<ApprovalsPage />} />
+              <Route path="leave-types" element={<LeaveTypesPage />} />
+              <Route path="holidays" element={<HolidaysPage />} />
+              <Route path="my-attendance" element={<MyAttendancePage />} />
+              <Route path="team-attendance" element={<TeamAttendancePage />} />
+              <Route path="shifts" element={<ShiftsPage />} />
 
               {/* Off the sidebar on purpose: reached from the user menu, not
                   from the navigation groups the PRD fixes (§6.1). */}
