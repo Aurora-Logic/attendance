@@ -41,6 +41,7 @@ class Session {
     this.pending = new Map();
     this.consoleErrors = [];
     this.exceptions = [];
+    this.navToken = 0;
 
     ws.addEventListener('message', (ev) => {
       const msg = JSON.parse(ev.data);
@@ -117,17 +118,46 @@ class Session {
     });
   }
 
+  /**
+   * Polls until an expression is truthy. A probe that reads the DOM the instant
+   * a navigation resolves is racing the render, and an intermittent probe is
+   * worse than no probe: it teaches you to rerun until it passes.
+   */
+  async waitFor(expression, timeoutMs = 8000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const value = await this.eval(expression).catch(() => null);
+      if (value) return value;
+      if (Date.now() > deadline) return null;
+      await sleep(100);
+    }
+  }
+
   async goto(path) {
     this.consoleErrors.length = 0;
     this.exceptions.length = 0;
+
+    // Stamp the current document before navigating. Polling only for "React is
+    // mounted" can be satisfied by the page we are leaving - most visibly when
+    // navigating to the URL already open, where the old document stays intact
+    // for a moment and every probe afterwards reads the wrong page. This is
+    // exactly the failure this harness exists to catch, so it must not have it
+    // itself: waiting for the stamp to disappear proves a new document.
+    const token = `nav-${String(++this.navToken)}`;
+    await this.eval(`window.__verifyToken = ${JSON.stringify(token)}; true`).catch(() => null);
+
     await this.send('Page.navigate', { url: `${BASE}${path}` });
-    for (let i = 0; i < 60; i++) {
-      await sleep(200);
-      const mounted = await this.eval(
-        `(() => { const r = document.getElementById('root');
-           return !!r && Object.keys(r).some(k => k.startsWith('__reactContainer')) && r.innerHTML.length > 0; })()`,
+
+    for (let i = 0; i < 80; i++) {
+      await sleep(150);
+      const ready = await this.eval(
+        `(() => {
+           if (window.__verifyToken === ${JSON.stringify(token)}) return false;
+           const r = document.getElementById('root');
+           return !!r && Object.keys(r).some(k => k.startsWith('__reactContainer')) && r.innerHTML.length > 0;
+         })()`,
       ).catch(() => false);
-      if (mounted) {
+      if (ready) {
         await sleep(250);
         return true;
       }
@@ -426,16 +456,193 @@ await s.goto('/patterns');
 // "1e-05s", so an equality check against "0.01ms" fails while the feature
 // works perfectly. A probe that reports a working feature as broken costs as
 // much trust as one that reports a broken feature as working.
+await s.waitFor(`!!document.querySelector('[data-slot="button"]')`);
 const reducedDuration = await s.eval(
-  `parseFloat(getComputedStyle(document.querySelector('[data-slot="button"]')).transitionDuration)`,
+  `(() => { const b = document.querySelector('[data-slot="button"]');
+     return b ? parseFloat(getComputedStyle(b).transitionDuration) : null; })()`,
 );
 check(
   'Reduced motion is honoured',
   (await s.eval(`window.matchMedia('(prefers-reduced-motion: reduce)').matches`)) === true &&
+    reducedDuration !== null &&
     reducedDuration < 0.001,
   `transition-duration ${String(reducedDuration)}s under reduce`,
 );
 await s.send('Emulation.setEmulatedMedia', { features: [] });
+
+// -------------------------------------------- mobile bottom nav (PRD 6.5)
+await s.viewport(360, 740);
+await s.goto('/');
+
+const tabs = await s.eval(
+  `document.querySelectorAll('nav[aria-label="Primary"] li').length`,
+);
+check('Bottom nav shows 4 destinations plus More', tabs === 5, `${tabs} tabs`);
+
+check(
+  'Bottom nav is phone-only',
+  (await s.eval(
+    `getComputedStyle(document.querySelector('nav[aria-label="Primary"]')).display`,
+  )) !== 'none',
+  'visible at 360px',
+);
+
+// The bar is position:fixed, so it covers content unless the scroll container
+// reserves room. Measuring the gap is the only way to know it actually does.
+const clearance = await s.eval(
+  `(() => {
+     const bar = document.querySelector('nav[aria-label="Primary"]').getBoundingClientRect();
+     const main = document.getElementById('main-content');
+     const pad = parseFloat(getComputedStyle(main).paddingBottom);
+     return Math.round(pad - bar.height);
+   })()`,
+);
+check(
+  'Content clears the fixed bar',
+  clearance >= 0,
+  `${clearance}px of padding beyond the bar height`,
+);
+
+await s.viewport(1440, 900);
+await s.goto('/');
+check(
+  'Bottom nav is hidden on desktop',
+  (await s.eval(
+    `(() => { const n = document.querySelector('nav[aria-label="Primary"]');
+       return !n || getComputedStyle(n).display === 'none'; })()`,
+  )) === true,
+);
+
+// ----------------------------------------------------- sidebar brand
+// The brand used to be a hand-padded div beside SidebarMenuButton rows, so its
+// mark sat off the icon column. Comparing centres is what catches that;
+// comparing that it merely renders would not.
+const brandAlignment = await s.eval(
+  `(() => {
+     const brand = document.querySelector('[data-slot="sidebar-header"] [data-slot="sidebar-menu-button"]');
+     const nav = document.querySelector('[data-slot="sidebar-content"] [data-slot="sidebar-menu-button"]');
+     if (!brand || !nav) return null;
+     const b = brand.getBoundingClientRect(), n = nav.getBoundingClientRect();
+     return Math.round(Math.abs(b.left - n.left));
+   })()`,
+);
+check(
+  'Sidebar brand aligns with the nav column',
+  brandAlignment !== null && brandAlignment <= 1,
+  `${String(brandAlignment)}px horizontal offset from the first nav item`,
+);
+
+// ------------------------------------------------- shortcut reference
+await s.key('F1', 'F1');
+await sleep(500);
+check(
+  'F1 opens the shortcut reference as a centred dialog',
+  (await s.eval(
+    `!!document.querySelector('[data-slot="dialog-content"]') &&
+     !document.querySelector('[data-slot="sheet-content"]') &&
+     document.body.textContent.includes('Keyboard shortcuts')`,
+  )) === true,
+);
+await s.key('Escape', 'Escape');
+await sleep(300);
+
+// ------------------------------------------------------------ dark mode
+// The theme tokens moved wholesale with the preset and had only ever been
+// looked at in light. Rendering dark and reading real computed colours is the
+// difference between "the class is applied" and "it is legible".
+await s.eval(`document.documentElement.classList.add('dark'); true`);
+await sleep(400);
+
+function contrastExpr(selector) {
+  // Colours are resolved by painting them, not by parsing the string.
+  // getComputedStyle now returns the authored colour space - this theme
+  // yields `oklch(0.147 0.004 49.25)` and `oklab(... / 0.7)` - so a regex that
+  // assumes rgb() reads the lightness and hue as if they were red and green
+  // and reports a confident, meaningless ratio. Painting the background and
+  // then the foreground over it also composites alpha exactly as the screen
+  // does, which a string parse cannot do at all.
+  return `(() => {
+    const el = ${selector};
+    if (!el) return null;
+    let node = el, bgCss = null;
+    while (node) {
+      const c = getComputedStyle(node).backgroundColor;
+      if (c && c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent') { bgCss = c; break; }
+      node = node.parentElement;
+    }
+    if (!bgCss) bgCss = getComputedStyle(document.documentElement).backgroundColor || '#ffffff';
+
+    const cv = document.createElement('canvas');
+    cv.width = 2; cv.height = 2;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = bgCss; ctx.fillRect(0, 0, 2, 2);
+    const bg = ctx.getImageData(0, 0, 1, 1).data;
+    ctx.fillStyle = getComputedStyle(el).color; ctx.fillRect(0, 0, 2, 2);
+    const fg = ctx.getImageData(0, 0, 1, 1).data;
+
+    const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    const lum = (d) => 0.2126 * lin(d[0]) + 0.7152 * lin(d[1]) + 0.0722 * lin(d[2]);
+    const a = lum(fg), b = lum(bg);
+    return Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100;
+  })()`;
+}
+
+const darkBody = await s.eval(contrastExpr(`document.querySelector('header h1')`));
+check(
+  'Dark mode: page title clears WCAG AA (4.5:1)',
+  darkBody !== null && darkBody >= 4.5,
+  `${String(darkBody)}:1`,
+);
+
+const darkMuted = await s.eval(
+  contrastExpr(`document.querySelector('[data-slot="sidebar-group-label"]')`),
+);
+check(
+  'Dark mode: muted sidebar labels clear WCAG AA large-text (3:1)',
+  darkMuted !== null && darkMuted >= 3,
+  `${String(darkMuted)}:1`,
+);
+
+await s.eval(`document.documentElement.classList.remove('dark'); true`);
+await sleep(300);
+const lightMuted = await s.eval(
+  contrastExpr(`document.querySelector('[data-slot="sidebar-group-label"]')`),
+);
+check(
+  'Light mode: muted sidebar labels clear WCAG AA large-text (3:1)',
+  lightMuted !== null && lightMuted >= 3,
+  `${String(lightMuted)}:1`,
+);
+
+// ------------------------------------------------------- focus order
+// The skip link only earns its place if it is genuinely the first stop.
+await s.eval(`document.activeElement?.blur(); true`);
+// rawKeyDown delivers the event but suppresses the browser's default action,
+// so focus never actually moves and the probe reads whatever was focused
+// before. Tab is only meaningful as a real keyDown.
+await s.send('Input.dispatchKeyEvent', {
+  type: 'keyDown', code: 'Tab', key: 'Tab', windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9,
+});
+await s.send('Input.dispatchKeyEvent', {
+  type: 'keyUp', code: 'Tab', key: 'Tab', windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9,
+});
+await sleep(250);
+const firstStop = await s.eval(
+  `(document.activeElement?.textContent ?? '').trim().slice(0, 20)`,
+);
+check(
+  'First Tab stop is the skip link',
+  firstStop === 'Skip to content',
+  `focus landed on "${String(firstStop)}"`,
+);
+
+const focusRing = await s.eval(
+  `(() => { const el = document.activeElement; if (!el) return null;
+     const cs = getComputedStyle(el);
+     return cs.outlineStyle !== 'none' || cs.boxShadow !== 'none' ||
+            parseFloat(cs.getPropertyValue('--tw-ring-shadow') ? '1' : '0') === 1; })()`,
+);
+check('Focused element has a visible focus indicator', focusRing === true);
 
 // ------------------------------------------------------------ console
 check('No console errors', s.consoleErrors.length === 0, s.consoleErrors.slice(0, 2).join(' | ') || 'clean');
