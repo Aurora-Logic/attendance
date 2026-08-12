@@ -37,14 +37,24 @@ const TEST_ADMIN_EMAIL = 'seed-test-admin@vyuha.test';
 let pool: Pool;
 let db: Database;
 
-async function countRows(table: 'roles' | 'users' | 'role_permissions'): Promise<number> {
+type CountableTable =
+  | 'roles'
+  | 'users'
+  | 'role_permissions'
+  | 'employees'
+  | 'departments'
+  | 'designations'
+  | 'locations';
+
+async function countRows(table: CountableTable): Promise<number> {
   const query =
     table === 'role_permissions'
       ? sql`SELECT count(*) AS count FROM role_permissions rp
               JOIN roles r ON r.id = rp.role_id WHERE r.org_id = ${TEST_ORG_ID}`
-      : table === 'roles'
-        ? sql`SELECT count(*) AS count FROM roles WHERE org_id = ${TEST_ORG_ID}`
-        : sql`SELECT count(*) AS count FROM users WHERE org_id = ${TEST_ORG_ID}`;
+      : // The rest differ only by table name, which cannot be a bind parameter.
+        // `sql.raw` is safe here and only here: the value comes from the union
+        // type above, never from anything a request could influence.
+        sql`SELECT count(*) AS count FROM ${sql.raw(table)} WHERE org_id = ${TEST_ORG_ID}`;
 
   const rows = await db.execute<{ count: string }>(query);
   return Number(rows.rows[0]?.count ?? 0);
@@ -168,11 +178,100 @@ describe('seed', () => {
     await db.delete(users).where(eq(users.id, rerun.admin.userId));
   });
 
+  it('creates the master data and links it up (REQ-A-01 … REQ-A-03)', async () => {
+    // The seed ran in the first test of this file; this reads what it left.
+    expect(await countRows('locations')).toBe(1);
+    expect(await countRows('departments')).toBe(6);
+    expect(await countRows('designations')).toBe(7);
+    expect(await countRows('employees')).toBe(25);
+
+    const linked = await db.execute<{ count: string }>(
+      sql`SELECT count(*) AS count FROM employees
+           WHERE org_id = ${TEST_ORG_ID} AND reporting_manager_id IS NOT NULL`,
+    );
+    expect(Number(linked.rows[0]?.count ?? 0)).toBe(24);
+
+    const heads = await db.execute<{ count: string }>(
+      sql`SELECT count(*) AS count FROM departments
+           WHERE org_id = ${TEST_ORG_ID} AND head_employee_id IS NOT NULL`,
+    );
+    expect(Number(heads.rows[0]?.count ?? 0)).toBe(6);
+  });
+
+  it('seeds one general shift, marked as a placeholder, and points everyone at it', async () => {
+    const rows = await db.execute<{ code: string; name: string; count: string }>(
+      sql`SELECT code, name FROM shifts WHERE org_id = ${TEST_ORG_ID} AND deleted_at IS NULL`,
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]?.code).toBe('GEN');
+    // OPEN-QUESTIONS item 2 is open. The warning has to be visible wherever the
+    // shift is rendered, not only in a comment nobody reads at handover.
+    expect(rows.rows[0]?.name).toContain('placeholder');
+
+    // Without a default shift the day engine refuses the day outright, so this
+    // is what makes the seeded workforce punchable at all (REQ-C-04).
+    const unassigned = await db.execute<{ count: string }>(
+      sql`SELECT count(*) AS count FROM employees
+           WHERE org_id = ${TEST_ORG_ID} AND deleted_at IS NULL AND default_shift_id IS NULL`,
+    );
+    expect(Number(unassigned.rows[0]?.count ?? 0)).toBe(0);
+  });
+
+  it('builds a hierarchy deeper than two levels, with people on notice and inactive', async () => {
+    // A two-level tree would satisfy "has a reporting hierarchy" while telling
+    // the team-scope resolver nothing, so the depth is asserted rather than
+    // assumed. Five levels: Anita, Bharat, Farhan, Lalit, Varun.
+    const depth = await db.execute<{ depth: number }>(sql`
+      WITH RECURSIVE chain AS (
+        SELECT id, 1 AS depth FROM employees
+         WHERE org_id = ${TEST_ORG_ID} AND deleted_at IS NULL AND reporting_manager_id IS NULL
+        UNION ALL
+        SELECT e.id, chain.depth + 1 FROM employees e
+          JOIN chain ON e.reporting_manager_id = chain.id
+         WHERE e.org_id = ${TEST_ORG_ID} AND e.deleted_at IS NULL AND chain.depth < 20
+      )
+      SELECT max(depth)::int AS depth FROM chain
+    `);
+    expect(depth.rows[0]?.depth ?? 0).toBeGreaterThanOrEqual(5);
+
+    const statuses = await db.execute<{ status: string; count: string }>(
+      sql`SELECT status, count(*) AS count FROM employees
+           WHERE org_id = ${TEST_ORG_ID} GROUP BY status`,
+    );
+    const byStatus = new Map(statuses.rows.map((row) => [row.status, Number(row.count)]));
+    expect(byStatus.get('ON_NOTICE')).toBe(2);
+    expect(byStatus.get('INACTIVE')).toBe(2);
+
+    // REQ-A-05: an inactive employee without a last working date cannot be
+    // reported on, and the seed must not create one.
+    const undated = await db.execute<{ count: string }>(
+      sql`SELECT count(*) AS count FROM employees
+           WHERE org_id = ${TEST_ORG_ID} AND status = 'INACTIVE' AND date_of_leaving IS NULL`,
+    );
+    expect(Number(undated.rows[0]?.count ?? 0)).toBe(0);
+  });
+
+  it('leaves the geofence and the IP allowlist unanswered (OPEN-QUESTIONS 1 and 3)', async () => {
+    const rows = await db.execute<{ count: string }>(
+      sql`SELECT count(*) AS count FROM locations
+           WHERE org_id = ${TEST_ORG_ID}
+             AND (geofence_lat IS NOT NULL OR geofence_lng IS NOT NULL
+                  OR array_length(ip_allowlist, 1) IS NOT NULL)`,
+    );
+    // A seeded coordinate would let geofenced punch look configured while
+    // pointing at somewhere nobody works.
+    expect(Number(rows.rows[0]?.count ?? 0)).toBe(0);
+  });
+
   it('is idempotent: a second run changes nothing and prints no password', async () => {
     const before = {
       roles: await countRows('roles'),
       users: await countRows('users'),
       grants: await countRows('role_permissions'),
+      employees: await countRows('employees'),
+      departments: await countRows('departments'),
+      designations: await countRows('designations'),
+      locations: await countRows('locations'),
     };
 
     const second = await seed();
@@ -185,11 +284,22 @@ describe('seed', () => {
     // The most important line in this test: a re-run must not rotate a
     // credential someone is already using, and must not print one.
     expect(second.admin.password).toBeNull();
+    expect(second.masterData.employees.created).toBe(0);
+    expect(second.masterData.departments.created).toBe(0);
+    expect(second.masterData.links).toEqual({
+      reportingManagers: 0,
+      departmentHeads: 0,
+      defaultShifts: 0,
+    });
 
     expect({
       roles: await countRows('roles'),
       users: await countRows('users'),
       grants: await countRows('role_permissions'),
+      employees: await countRows('employees'),
+      departments: await countRows('departments'),
+      designations: await countRows('designations'),
+      locations: await countRows('locations'),
     }).toEqual(before);
   });
 

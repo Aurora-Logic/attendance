@@ -1,6 +1,13 @@
 import type { Abstract, INestApplication, Type } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { ROLE_PERMISSION_MATRIX, uuidv7, type PermissionKey, type SystemRoleName } from '@vyuha/shared';
+import {
+  ROLE_PERMISSION_MATRIX,
+  uuidv7,
+  type EmployeeStatus,
+  type EmploymentType,
+  type PermissionKey,
+  type SystemRoleName,
+} from '@vyuha/shared';
 import { eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { expect } from 'vitest';
 
@@ -16,8 +23,10 @@ import { Mailer } from '../platform/mail/mailer.js';
 import { REDIS_CLIENT } from '../platform/redis/redis.provider.js';
 import {
   departments,
+  designations,
   employees,
   invitations,
+  locations,
   organizations,
   passwordResets,
   permissions,
@@ -231,6 +240,10 @@ export class ApiHarness {
     return this.request<T>('GET', path, options, jar);
   }
 
+  patch<T = unknown>(path: string, options?: RequestOptions, jar?: CookieJar): Promise<HttpResult<T>> {
+    return this.request<T>('PATCH', path, options, jar);
+  }
+
   // -------------------------------------------------------------- fixtures
 
   /**
@@ -285,6 +298,10 @@ export class ApiHarness {
       .where(eq(departments.orgId, this.orgId));
     await this.db.delete(employees).where(eq(employees.orgId, this.orgId));
     await this.db.delete(departments).where(eq(departments.orgId, this.orgId));
+    // After the employees that point at them, so the foreign keys have nothing
+    // left to cascade to null.
+    await this.db.delete(designations).where(eq(designations.orgId, this.orgId));
+    await this.db.delete(locations).where(eq(locations.orgId, this.orgId));
   }
 
   /** Ensures the global permission catalogue exists, without running the seed. */
@@ -374,8 +391,15 @@ export class ApiHarness {
   async createEmployee(input: {
     code: string;
     firstName: string;
+    lastName?: string | null;
     reportingManagerId?: string | null;
     departmentId?: string | null;
+    designationId?: string | null;
+    locationId?: string | null;
+    status?: EmployeeStatus;
+    dateOfJoining?: string;
+    dateOfLeaving?: string | null;
+    employmentType?: EmploymentType;
   }): Promise<string> {
     const inserted = await this.db
       .insert(employees)
@@ -383,14 +407,47 @@ export class ApiHarness {
         orgId: this.orgId,
         employeeCode: input.code,
         firstName: input.firstName,
-        dateOfJoining: '2026-01-01',
+        lastName: input.lastName ?? null,
+        dateOfJoining: input.dateOfJoining ?? '2026-01-01',
+        dateOfLeaving: input.dateOfLeaving ?? null,
+        status: input.status ?? 'ACTIVE',
+        employmentType: input.employmentType ?? 'PERMANENT',
         reportingManagerId: input.reportingManagerId ?? null,
         departmentId: input.departmentId ?? null,
+        designationId: input.designationId ?? null,
+        locationId: input.locationId ?? null,
       })
       .returning({ id: employees.id });
 
     const row = inserted[0];
     if (row === undefined) throw new Error('Employee fixture insert returned no row.');
+    return row.id;
+  }
+
+  async createDesignation(input: { code: string; name: string; grade?: string }): Promise<string> {
+    const inserted = await this.db
+      .insert(designations)
+      .values({
+        orgId: this.orgId,
+        code: input.code,
+        name: input.name,
+        grade: input.grade ?? null,
+      })
+      .returning({ id: designations.id });
+
+    const row = inserted[0];
+    if (row === undefined) throw new Error('Designation fixture insert returned no row.');
+    return row.id;
+  }
+
+  async createLocation(input: { code: string; name: string }): Promise<string> {
+    const inserted = await this.db
+      .insert(locations)
+      .values({ orgId: this.orgId, code: input.code, name: input.name })
+      .returning({ id: locations.id });
+
+    const row = inserted[0];
+    if (row === undefined) throw new Error('Location fixture insert returned no row.');
     return row.id;
   }
 

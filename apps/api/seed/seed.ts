@@ -20,6 +20,7 @@ import {
   users,
 } from '../src/platform/db/schema/index.js';
 import { hashPassword } from '../src/platform/auth/password.js';
+import { seedMasterData, type MasterDataReport } from './master-data.js';
 
 /**
  * Technical design §18 and PRD §2.1: one organisation, the four seeded roles
@@ -75,6 +76,8 @@ export interface SeedReport {
     /** Present only on the run that created the account. Printed once, never stored. */
     password: string | null;
   };
+  /** REQ-A-01 … REQ-A-03: locations, departments, designations, employees. */
+  readonly masterData: MasterDataReport;
 }
 
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -94,12 +97,16 @@ export async function runSeed(db: Database, options: SeedOptions = {}): Promise<
     const organization = await ensureOrganisation(tx, orgId, orgName);
     const roleReport = await reconcileRoles(tx, orgId);
     const admin = await ensureAdministrator(tx, orgId, adminEmail, candidateHash, candidatePassword);
+    // Last, because the departments it creates are headed by the employees it
+    // creates, and both need the organisation to exist first.
+    const masterData = await seedMasterData(tx, orgId);
 
     return {
       permissions: permissionReport,
       organization,
       roles: roleReport,
       admin,
+      masterData,
     };
   });
 }

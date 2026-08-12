@@ -66,6 +66,24 @@ function print(report: SeedReport, elapsedMs: number): void {
     `administrator ${report.admin.email} ${report.admin.created ? '(created)' : '(already present)'}`,
   );
 
+  const master = report.masterData;
+  for (const [label, counts] of [
+    ['locations', master.locations],
+    ['departments', master.departments],
+    ['designations', master.designations],
+    ['shifts', master.shifts],
+    ['employees', master.employees],
+  ] as const) {
+    lines.push(
+      `${label.padEnd(13)} ${String(counts.created)} created, ${String(counts.total)} defined`,
+    );
+  }
+  lines.push(
+    `links         ${String(master.links.reportingManagers)} reporting manager(s), ` +
+      `${String(master.links.departmentHeads)} department head(s), ` +
+      `${String(master.links.defaultShifts)} default shift(s)`,
+  );
+
   process.stdout.write(`${lines.join('\n')}\n`);
 
   if (report.admin.password !== null) {

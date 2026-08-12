@@ -45,6 +45,20 @@ export interface CursorPaginated<T> {
 }
 
 /**
+ * The §6 collection envelope, assembled in one place. Every list endpoint
+ * calls this rather than writing the object literal, so no endpoint can ship
+ * `{ items, total }` or `{ data, page }` and force the client to special-case it.
+ */
+export function paginated<T>(data: T[], query: PageQuery, total: number): Paginated<T> {
+  return { data, meta: { page: query.page, pageSize: query.pageSize, total } };
+}
+
+/** LIMIT and OFFSET for a page, so the off-by-one is written once. */
+export function pageSlice(query: PageQuery): { limit: number; offset: number } {
+  return { limit: query.pageSize, offset: (query.page - 1) * query.pageSize };
+}
+
+/**
  * `?sort=-date,employeeCode` — a leading minus means descending. Parsing lives
  * here so the API and any client-side optimistic sort stay consistent.
  */
