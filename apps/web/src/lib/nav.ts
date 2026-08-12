@@ -22,6 +22,12 @@ import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
 export interface NavItem {
   to: string;
   label: string;
+  /**
+   * Shorter name for the phone's bottom bar, where a tab gets a fifth of
+   * 360px. Falls back to `label`. "My attend..." tells the reader nothing the
+   * icon had not already said, so the tab gets a word that fits instead.
+   */
+  shortLabel?: string;
   icon: Icon;
   /** Sidebar items are permission-filtered (PRD §6.1). Undefined means always. */
   permission?: PermissionKey;
@@ -56,6 +62,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/my-attendance',
         label: 'My attendance',
+        shortLabel: 'Attendance',
         icon: CalendarDotsIcon,
         permission: PERMISSIONS.ATTENDANCE_VIEW_SELF,
         phase: 1,
@@ -64,6 +71,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/my-leave',
         label: 'My leave',
+        shortLabel: 'Leave',
         icon: TreePalmIcon,
         permission: PERMISSIONS.LEAVE_APPLY_SELF,
         phase: 2,
@@ -93,6 +101,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/shifts',
         label: 'Shifts and rosters',
+        shortLabel: 'Shifts',
         icon: ClockIcon,
         permission: PERMISSIONS.SHIFT_MANAGE,
         phase: 1,
@@ -138,6 +147,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/period-lock',
         label: 'Period lock',
+        shortLabel: 'Lock',
         icon: LockIcon,
         permission: PERMISSIONS.ATTENDANCE_LOCK,
         phase: 3,
@@ -159,6 +169,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/roles',
         label: 'Roles and permissions',
+        shortLabel: 'Roles',
         icon: ShieldCheckIcon,
         permission: PERMISSIONS.ROLES_MANAGE,
         phase: 4,
@@ -175,6 +186,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         to: '/audit',
         label: 'Audit log',
+        shortLabel: 'Audit',
         icon: ScrollIcon,
         permission: PERMISSIONS.AUDIT_VIEW,
         phase: 4,
