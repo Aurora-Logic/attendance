@@ -1,0 +1,27 @@
+{
+  "extends": "@vyuha/config/tsconfig.base.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "dist",
+    "rootDir": "src",
+    "baseUrl": ".",
+    "types": ["node"],
+
+    // NestJS dependency injection resolves constructor parameters from
+    // design:paramtypes metadata, so both of these are load-bearing rather
+    // than stylistic.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
+    // Nest's own decorator signatures do not satisfy exactOptionalPropertyTypes
+    // in a few places; strictness is kept everywhere else.
+    "exactOptionalPropertyTypes": false,
+
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "drizzle.config.ts"],
+  "exclude": ["dist", "node_modules"]
+}
