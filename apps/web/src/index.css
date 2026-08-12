@@ -70,7 +70,18 @@
     [role='tab'],
     a[href],
     summary,
-    select
+    select,
+    /* Text entry was missing from this list, which is why the employee search
+       measured 32px on a phone while everything around it measured 44. A field
+       you have to hit before you can type is as much a tap target as a button,
+       and CLAUDE.md 3.1 names the search field specifically.
+
+       Checkbox, radio and range are excluded on purpose: they are drawn at a
+       fixed intrinsic size, and a height floor turns a checkbox into a tall
+       thin rectangle rather than a bigger checkbox. Their tap area has to be
+       solved by the control's own padding, not here. */
+    input:not([type='hidden'], [type='checkbox'], [type='radio'], [type='range']),
+    textarea
   ) {
     min-height: 44px;
   }
