@@ -1,6 +1,7 @@
 import {
   createEmployeeSchema,
   employeeListQuerySchema,
+  employeeImportSchema,
   updateEmployeeSchema,
 } from '@vyuha/shared';
 
@@ -16,3 +17,4 @@ import { createZodDto } from '../common/zod-validation.pipe.js';
 export class EmployeeListQueryDto extends createZodDto(employeeListQuerySchema) {}
 export class CreateEmployeeDto extends createZodDto(createEmployeeSchema) {}
 export class UpdateEmployeeDto extends createZodDto(updateEmployeeSchema) {}
+export class EmployeeImportDto extends createZodDto(employeeImportSchema) {}

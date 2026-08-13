@@ -13,6 +13,7 @@ import {
 import {
   PERMISSIONS,
   type EmployeeDetail,
+  type EmployeeImportReport,
   type EmployeeListItem,
   type Paginated,
 } from '@vyuha/shared';
@@ -21,6 +22,7 @@ import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
 import {
   CreateEmployeeDto,
+  EmployeeImportDto,
   EmployeeListQueryDto,
   UpdateEmployeeDto,
 } from './employee.dto.js';
@@ -77,6 +79,35 @@ export class EmployeeController {
     @Body() body: CreateEmployeeDto,
   ): Promise<EmployeeDetail> {
     return this.employees.create(principal, body);
+  }
+
+  /**
+   * REQ-A-06, the preview. 200 rather than 201: nothing was created, and a 201
+   * is a claim a client could reasonably act on.
+   */
+  @Post('import/validate')
+  @RequirePermission(PERMISSIONS.EMPLOYEE_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  validateImport(
+    @CurrentUser() principal: Principal,
+    @Body() body: EmployeeImportDto,
+  ): Promise<EmployeeImportReport> {
+    return this.employees.validateImport(principal, body);
+  }
+
+  /**
+   * REQ-A-06, the commit. 200 rather than 201 as well, because a partial import
+   * is the normal outcome and "created" would describe only part of what
+   * happened; the body carries what was and was not.
+   */
+  @Post('import/commit')
+  @RequirePermission(PERMISSIONS.EMPLOYEE_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  commitImport(
+    @CurrentUser() principal: Principal,
+    @Body() body: EmployeeImportDto,
+  ): Promise<EmployeeImportReport> {
+    return this.employees.commitImport(principal, body);
   }
 
   /** REQ-A-05 lifecycle changes come through here too: status plus a last working date. */

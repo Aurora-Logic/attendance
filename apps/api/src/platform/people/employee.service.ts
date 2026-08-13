@@ -9,6 +9,8 @@ import {
   parseSort,
   type CreateEmployeeInput,
   type EmployeeDetail,
+  type EmployeeImportReport,
+  type EmployeeImportRequest,
   type EmployeeListItem,
   type EmployeeListQuery,
   type EmployeeStatus,
@@ -25,6 +27,10 @@ import { departments, designations, employees, locations } from '../db/schema/in
 import { ScopedRepository } from '../db/scoped-repository.js';
 import { orgContextOf, type Principal } from '../rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../rbac/scope.service.js';
+import {
+  countImportActions,
+  planEmployeeImport,
+} from './employee-import.js';
 import { EmployeeRepository } from './employee.repository.js';
 
 /**
@@ -167,6 +173,100 @@ export class EmployeeService {
    */
   private scopeFor(principal: Principal): SQL {
     return this.scopes.resolve(principal, EMPLOYEE_SCOPE_GRANTS, employees.id).where;
+  }
+
+  /**
+   * REQ-A-06, the preview. Writes nothing, ever.
+   *
+   * Separate from the commit rather than a flag on it, because "show me what
+   * this file would do" and "do it" are different intentions and a boolean is
+   * a poor place to keep them apart -- particularly on the one operation that
+   * can create several hundred people.
+   */
+  async validateImport(
+    principal: Principal,
+    request: EmployeeImportRequest,
+  ): Promise<EmployeeImportReport> {
+    const plan = planEmployeeImport(request.rows, await this.repository(principal).importLookups());
+    return {
+      rows: plan.results,
+      counts: countImportActions(plan.results),
+      committed: false,
+      createdCount: 0,
+    };
+  }
+
+  /**
+   * REQ-A-06, the commit. Partial by design: the valid rows are created and the
+   * bad ones are reported, because refusing a hundred good rows over one typo
+   * is how somebody ends up editing records by hand instead.
+   *
+   * The plan is recomputed here rather than carried over from the preview. A
+   * preview is a photograph of a moment, and between the two calls somebody may
+   * have taken the employee code this file wants.
+   */
+  async commitImport(
+    principal: Principal,
+    request: EmployeeImportRequest,
+  ): Promise<EmployeeImportReport> {
+    const repository = this.repository(principal);
+    const plan = planEmployeeImport(request.rows, await repository.importLookups());
+
+    const createdIdByCode = new Map<string, string>();
+    for (const row of plan.creatable) {
+      const created = await this.insert(repository, {
+        employeeCode: row.employeeCode,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        workEmail: row.workEmail,
+        personalEmail: row.personalEmail,
+        mobile: row.mobile,
+        dateOfJoining: row.dateOfJoining,
+        dateOfLeaving: null,
+        employmentType: row.employmentType,
+        status: row.status,
+        departmentId: row.departmentId,
+        designationId: row.designationId,
+        locationId: row.locationId,
+        reportingManagerId: row.reportingManagerId,
+        isFieldStaff: row.isFieldStaff,
+      });
+      createdIdByCode.set(row.employeeCode.toUpperCase(), created.id);
+    }
+
+    // Managers who were themselves in this file could not be linked on insert:
+    // their id did not exist yet. Linking is a second pass rather than a sort,
+    // because a sort cannot order a chain that arrives in any order and would
+    // still leave the first row pointing at nothing.
+    for (const row of plan.creatable) {
+      if (row.reportingManagerCode === null) continue;
+      const managerId = createdIdByCode.get(row.reportingManagerCode);
+      const selfId = createdIdByCode.get(row.employeeCode.toUpperCase());
+      if (managerId === undefined || selfId === undefined) continue;
+      await repository.update(selfId, { reportingManagerId: managerId });
+    }
+
+    // One audit row for the import, not one per employee: the individual
+    // creations are already audited by `insert`, and REQ-M-01 wants the action
+    // somebody took to be findable, which was "imported this file".
+    this.auditContext.record({
+      action: 'employee.imported',
+      entityType: 'employee',
+      entityId: null,
+      before: null,
+      after: {
+        rows: request.rows.length,
+        created: plan.creatable.length,
+        errors: plan.results.filter((row) => row.action === 'ERROR').length,
+      },
+    });
+
+    return {
+      rows: plan.results,
+      counts: countImportActions(plan.results),
+      committed: true,
+      createdCount: plan.creatable.length,
+    };
   }
 
   private async insert(

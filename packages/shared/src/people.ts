@@ -190,3 +190,73 @@ export type UpdateEmployeeInput = z.infer<typeof updateEmployeeSchema>;
 export function employeeDisplayName(firstName: string, lastName: string | null): string {
   return lastName === null || lastName.length === 0 ? firstName : `${firstName} ${lastName}`;
 }
+
+/**
+ * REQ-A-06: one row of a bulk employee import.
+ *
+ * Deliberately not `createEmployeeSchema`. A spreadsheet row is typed by a
+ * person and names things the way that person knows them -- "Operations",
+ * "Head Office", the manager's employee code -- and it has never seen a UUID.
+ * Making the importer take ids would push the lookup onto whoever prepares the
+ * file, which is the one place it cannot be done.
+ *
+ * Every optional field accepts an empty string, because a spreadsheet exports
+ * blanks as empty cells rather than omitting the column, and rejecting the
+ * whole row for a blank optional would make the file unusable.
+ */
+const importTextField = z
+  .string()
+  .trim()
+  .max(120)
+  .optional()
+  .transform((value) => (value !== undefined && value.length > 0 ? value : undefined));
+
+export const employeeImportRowSchema = z.object({
+  employeeCode: employeeCodeField,
+  firstName: nameField,
+  lastName: importTextField,
+  workEmail: importTextField,
+  personalEmail: importTextField,
+  mobile: importTextField,
+  dateOfJoining: dateField,
+  employmentType: importTextField,
+  status: importTextField,
+  /** Resolved by name, case-insensitively. */
+  department: importTextField,
+  designation: importTextField,
+  location: importTextField,
+  /** The manager's employee code, not their name: names are not unique. */
+  reportingManagerCode: importTextField,
+  isFieldStaff: importTextField,
+});
+
+export type EmployeeImportRow = z.infer<typeof employeeImportRowSchema>;
+
+/** Bounded so one request cannot hold a connection open resolving ten thousand names. */
+export const MAX_EMPLOYEE_IMPORT_ROWS = 500;
+
+export const employeeImportSchema = z.object({
+  rows: z.array(employeeImportRowSchema).min(1).max(MAX_EMPLOYEE_IMPORT_ROWS),
+});
+
+export type EmployeeImportRequest = z.infer<typeof employeeImportSchema>;
+
+export const EMPLOYEE_IMPORT_ACTIONS = ['CREATE', 'ERROR'] as const;
+export type EmployeeImportAction = (typeof EMPLOYEE_IMPORT_ACTIONS)[number];
+
+export interface EmployeeImportRowResult {
+  /** 1-based, matching what the person sees in their spreadsheet. */
+  readonly rowNumber: number;
+  readonly employeeCode: string;
+  readonly action: EmployeeImportAction;
+  /** Empty when the row is fine; one entry per problem, so nothing is hidden. */
+  readonly errors: readonly string[];
+}
+
+export interface EmployeeImportReport {
+  readonly rows: readonly EmployeeImportRowResult[];
+  readonly counts: { readonly CREATE: number; readonly ERROR: number };
+  /** True only for a commit that ran; false for a validate, which writes nothing. */
+  readonly committed: boolean;
+  readonly createdCount: number;
+}

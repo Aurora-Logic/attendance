@@ -251,6 +251,72 @@ export class EmployeeRepository extends ScopedRepository<typeof employees> {
       );
   }
 
+  /**
+   * REQ-A-06: everything the import planner needs to resolve a spreadsheet,
+   * in four queries rather than four per row.
+   *
+   * A hundred-row file naming a department on every row would otherwise be a
+   * hundred lookups for the same handful of names. The masters are small
+   * enough to read whole, and reading them whole also means the planner sees
+   * one consistent picture rather than a moving one.
+   */
+  async importLookups(): Promise<{
+    departments: Map<string, string>;
+    designations: Map<string, string>;
+    locations: Map<string, string>;
+    employeesByCode: Map<string, string>;
+    managerEdges: Map<string, string>;
+  }> {
+    const orgId = this.ctx.orgId;
+    const byLowerName = (rows: readonly { id: string; name: string }[]): Map<string, string> =>
+      new Map(rows.map((r) => [r.name.trim().toLowerCase(), r.id]));
+
+    const [departmentRows, designationRows, locationRows] = await Promise.all([
+      this.db
+        .select({ id: departments.id, name: departments.name })
+        .from(departments)
+        .where(and(eq(departments.orgId, orgId), isNull(departments.deletedAt))),
+      this.db
+        .select({ id: designations.id, name: designations.name })
+        .from(designations)
+        .where(and(eq(designations.orgId, orgId), isNull(designations.deletedAt))),
+      this.db
+        .select({ id: locations.id, name: locations.name })
+        .from(locations)
+        .where(and(eq(locations.orgId, orgId), isNull(locations.deletedAt))),
+    ]);
+
+    // Codes and edges come from one pass. Reading them separately could show a
+    // manager that the code map does not contain.
+    const manager = alias(employees, 'import_manager');
+    const peopleRows = await this.db
+      .select({
+        code: employees.employeeCode,
+        id: employees.id,
+        managerCode: manager.employeeCode,
+      })
+      .from(employees)
+      .leftJoin(manager, eq(employees.reportingManagerId, manager.id))
+      .where(and(eq(employees.orgId, orgId), isNull(employees.deletedAt)));
+
+    const employeesByCode = new Map<string, string>();
+    const managerEdges = new Map<string, string>();
+    for (const person of peopleRows) {
+      employeesByCode.set(person.code.toUpperCase(), person.id);
+      if (person.managerCode !== null) {
+        managerEdges.set(person.code.toUpperCase(), person.managerCode.toUpperCase());
+      }
+    }
+
+    return {
+      departments: byLowerName(departmentRows),
+      designations: byLowerName(designationRows),
+      locations: byLowerName(locationRows),
+      employeesByCode,
+      managerEdges,
+    };
+  }
+
   private filterPredicate(filters: EmployeeListFilters): SQL | undefined {
     const parts: SQL[] = [];
 

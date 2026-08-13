@@ -113,7 +113,7 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
 function FormSkeleton() {
   return (
     <div role="status" aria-busy="true" aria-label="Loading settings" className="border p-4">
-      <div className="flex max-w-xl flex-col gap-6">
+      <div className="grid gap-6 md:grid-cols-2">
         {Array.from({ length: 5 }, (_, index) => (
           <div key={index} aria-hidden className="flex flex-col gap-2">
             <Skeleton className="h-3 w-32" />
@@ -294,12 +294,12 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         </TabsList>
 
         <TabsContent value="organisation">
-          <div className="flex max-w-xl flex-col gap-4 border p-4">
+          <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Organisation profile"
               note="REQ-L-01. These decide how every date on every screen and export is written."
             />
-            <FieldGroup>
+            <FieldGroup className="grid gap-5 md:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="org-name">Name</FieldLabel>
                 <Input
@@ -383,12 +383,12 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         </TabsContent>
 
         <TabsContent value="attendance">
-          <div className="flex max-w-xl flex-col gap-4 border p-4">
+          <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Attendance policy"
               note="REQ-L-02. Changing a value here alters behaviour without a redeploy."
             />
-            <FieldGroup>
+            <FieldGroup className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               <PolicyChoiceField
                 id="policy-punch-window"
                 label="Punch outside the shift window"
@@ -436,7 +436,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                 }}
               />
 
-              <FieldSeparator />
+              <FieldSeparator className="md:col-span-2 xl:col-span-3" />
 
               <PolicyNumberField
                 id="policy-max-work"
@@ -498,7 +498,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         </TabsContent>
 
         <TabsContent value="photos">
-          <div className="flex max-w-xl flex-col gap-4 border p-4">
+          <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Punch photos"
               note="REQ-L-03. Retention decides how long a face is kept, so it is a privacy setting as much as a storage one."
@@ -520,7 +520,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
               </Alert>
             ) : null}
 
-            <FieldGroup>
+            <FieldGroup className="grid gap-5 md:grid-cols-2">
               <PolicyNumberField
                 id="photo-retention"
                 label="Keep punch photos for"
@@ -597,7 +597,7 @@ function EmailTab({ settings }: { settings: OrgSettings }) {
   const test = useTestEmail();
 
   return (
-    <div className="flex max-w-xl flex-col gap-4 border p-4">
+    <div className="flex flex-col gap-4 border p-4">
       <SectionHeading
         title="Outbound email"
         note="REQ-L-04. Read from the server's own configuration; change it where the service is deployed."
