@@ -21,6 +21,7 @@ import { ReportsPage } from '@/features/reports';
 import { RolesPage } from '@/features/roles';
 import { SettingsPage } from '@/features/settings';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
+import { OrgMastersPage } from '@/features/org-masters';
 import { ProfilePage } from '@/features/profile/profile-page';
 import { UpdatesPage } from '@/features/updates';
 import { ShortcutProvider } from '@/lib/keyboard/registry';
@@ -51,6 +52,7 @@ const BUILT_ROUTES = new Set([
   '/reports',
   '/downloads',
   '/recycle-bin',
+  '/organisation',
 ]);
 
 const queryClient = new QueryClient({
@@ -95,6 +97,7 @@ export default function App() {
               <Route path="reports" element={<ReportsPage />} />
               <Route path="downloads" element={<DownloadsPage />} />
               <Route path="recycle-bin" element={<RecycleBinPage />} />
+              <Route path="organisation" element={<OrgMastersPage />} />
 
               {/* Off the sidebar on purpose: reached from the user menu, not
                   from the navigation groups the PRD fixes (§6.1). */}

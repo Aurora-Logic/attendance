@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { CalendarBlankIcon, PlusIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { RowActions } from '@/components/shared/row-actions';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +18,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DeleteMasterDialog, type DeleteTarget } from '@/features/org-masters';
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
@@ -52,7 +55,7 @@ function DaysOrNone({ value, unlimited }: { value: number | null; unlimited?: bo
   return <span className="tabular-nums">{value}</span>;
 }
 
-const COLUMNS: RecordColumn<LeaveTypePolicy>[] = [
+const BASE_COLUMNS: RecordColumn<LeaveTypePolicy>[] = [
   {
     key: 'name',
     header: 'Type',
@@ -133,6 +136,7 @@ export function LeaveTypesPage() {
   const canManage = usePermission(PERMISSIONS.LEAVE_POLICY_MANAGE);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<LeaveTypePolicy | null>(null);
+  const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
 
   const query = useLeaveTypes();
   const rows = query.data?.data ?? [];
@@ -147,6 +151,60 @@ export function LeaveTypesPage() {
     setEditing(row);
     setSheetOpen(true);
   }
+
+  /**
+   * The two verbs each row offers.
+   *
+   * Rendered in a trailing column above 768px and in the stacked row's action
+   * slot below it, so a phone is not left with a policy it can read and not
+   * change (PRD §6.5). This replaced a whole-row click that opened the editor
+   * with nothing on screen saying so — which is the gap this slice exists to
+   * close.
+   */
+  function actionsFor(row: LeaveTypePolicy) {
+    const blocked = canManage
+      ? undefined
+      : 'Needs the leave.policy.manage permission, which your account does not hold.';
+    return (
+      <RowActions
+        label={`Actions for ${row.name}`}
+        actions={[
+          {
+            key: 'edit',
+            label: 'Edit leave type',
+            icon: ACTION_ICONS.edit,
+            onSelect: () => {
+              openEdit(row);
+            },
+            ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+          },
+          {
+            key: 'delete',
+            label: 'Delete leave type',
+            icon: ACTION_ICONS.remove,
+            destructive: true,
+            onSelect: () => {
+              setDeleting({
+                entityType: 'leaveType',
+                id: row.id,
+                name: row.name,
+                consequences: [
+                  'Nobody can apply for it afterwards, and it disappears from the leave form.',
+                  'Balances already earned against it are kept, and past requests still name it.',
+                ],
+              });
+            },
+            ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+          },
+        ]}
+      />
+    );
+  }
+
+  const columns: RecordColumn<LeaveTypePolicy>[] = [
+    ...BASE_COLUMNS,
+    { key: 'actions', header: 'Actions', className: 'w-12 text-right', cell: actionsFor },
+  ];
 
   // PRD §6.4: Alt+C creates a master on the fly. A leave type is a master.
   useShortcut({
@@ -242,12 +300,21 @@ export function LeaveTypesPage() {
 
       {rows.length > 0 ? (
         <RecordTable
-          columns={COLUMNS}
+          columns={columns}
           rows={rows}
           rowKey={(row) => row.id}
-          onRowActivate={canManage ? openEdit : undefined}
           mobilePrimary={(row) => row.name}
-          mobileStatus={(row) => <Badge variant="outline">{row.code}</Badge>}
+          // The whole row is deliberately not clickable any more. A gesture
+          // with nothing on screen announcing it is the reason an
+          // administrator could not find edit or delete at all; the menu says
+          // both out loud, and nesting a button inside a clickable row would
+          // announce one control as two to a screen reader.
+          mobileStatus={(row) => (
+            <div className="flex items-center gap-1">
+              <Badge variant="outline">{row.code}</Badge>
+              {actionsFor(row)}
+            </div>
+          )}
           mobileSupporting={(row) =>
             `${row.isPaid ? 'Paid' : 'Unpaid'} · ${String(row.annualEntitlement)} days a year · ${
               row.allowsHalfDay ? 'half days allowed' : 'full days only'
@@ -257,6 +324,12 @@ export function LeaveTypesPage() {
       ) : null}
 
       <LeaveTypeSheet open={sheetOpen} onOpenChange={setSheetOpen} editing={editing} />
+      <DeleteMasterDialog
+        target={deleting}
+        onOpenChange={(open) => {
+          if (!open) setDeleting(null);
+        }}
+      />
     </>
   );
 }

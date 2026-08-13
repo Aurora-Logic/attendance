@@ -1,5 +1,6 @@
 import { useId, useState, type ReactNode } from 'react';
 import { WarningCircleIcon } from '@phosphor-icons/react';
+import { z } from 'zod';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -15,7 +16,7 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/api/client';
-import { MAX_ADMIN_REASON, MIN_ADMIN_REASON } from '@vyuha/shared';
+import { MAX_ADMIN_REASON, MIN_ADMIN_REASON, type BlockingReference } from '@vyuha/shared';
 
 /**
  * The confirm step for every destructive or overriding action (REQ-B-09a).
@@ -106,7 +107,10 @@ function ReasonDialogBody({
         <Alert variant="destructive">
           <WarningCircleIcon />
           <AlertTitle>{failureCopy(error).title}</AlertTitle>
-          <AlertDescription>{failureCopy(error).description}</AlertDescription>
+          <AlertDescription>
+            {failureCopy(error).description}
+            <BlockingReferences error={error} />
+          </AlertDescription>
         </Alert>
       ) : null}
 
@@ -159,6 +163,56 @@ function ReasonDialogBody({
     </>
   );
 }
+
+/**
+ * The rows that are standing in the way, named.
+ *
+ * The server's prose already says how many and lists up to three, but it says
+ * it in one sentence that has to carry every blocker at once. This renders the
+ * structured `details.references` underneath it, one line per kind, so
+ * "8 employees" and "2 child departments" are two facts rather than one long
+ * clause — and so the examples are readable at 360px instead of wrapping into
+ * the middle of a sentence.
+ *
+ * Renders nothing unless the server sent references, which only `RECORD_IN_USE`
+ * does. Parsed rather than cast: `details` is `Record<string, unknown>` on the
+ * client, and a shape that moved must produce no list rather than a crash
+ * inside an error dialog, which is the worst place to throw.
+ */
+function BlockingReferences({ error }: { error: unknown }) {
+  if (!(error instanceof ApiError)) return null;
+  const parsed = blockingReferencesSchema.safeParse(error.details?.references);
+  if (!parsed.success || parsed.data.length === 0) return null;
+
+  return (
+    <ul className="mt-2 flex list-disc flex-col gap-1 pl-4">
+      {parsed.data.map((reference) => (
+        <li key={reference.label}>
+          <span className="tabular-nums">{reference.count}</span> {reference.label}
+          {reference.examples.length > 0 ? (
+            <>
+              {': '}
+              <span className="font-medium">{reference.examples.join(', ')}</span>
+              {reference.count > reference.examples.length
+                ? ` and ${String(reference.count - reference.examples.length)} more`
+                : null}
+            </>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Mirrors `BlockingReference` from `@vyuha/shared`, which the server builds these from. */
+const blockingReferencesSchema = z.array(
+  z.object({
+    entityType: z.string(),
+    label: z.string(),
+    count: z.number(),
+    examples: z.array(z.string()),
+  }),
+) satisfies z.ZodType<BlockingReference[]>;
 
 /**
  * Maps the error *code*, never the message (technical design §6).

@@ -767,10 +767,26 @@ check(
 const headers = await s.eval(
   `JSON.stringify([...document.querySelectorAll('table thead th')].map(e => e.textContent.trim()))`,
 );
+// The data columns, in order, and then whatever affordance column the screen
+// adds. Pinning the whole list meant that giving each row an actions menu -
+// the thing that was missing - failed a check about the contract, which is not
+// what this is for. What must not change is which facts are shown and in what
+// order.
+const CONTRACT_COLUMNS = [
+  'Code',
+  'Employee',
+  'Department',
+  'Designation',
+  'Location',
+  'Type',
+  'Joined',
+  'Status',
+];
+const headerList = JSON.parse(headers);
 check(
   'Employee columns match the contract',
-  headers ===
-    '["Code","Employee","Department","Designation","Location","Type","Joined","Status"]',
+  CONTRACT_COLUMNS.every((column, index) => headerList[index] === column) &&
+    headerList.slice(CONTRACT_COLUMNS.length).every((extra) => extra === 'Actions'),
   headers,
 );
 
@@ -802,8 +818,18 @@ check(
 // list that cannot be linked or reloaded is a different feature.
 await s.goto('/employees?status=ON_NOTICE');
 await s.waitFor(`document.querySelectorAll('table tbody tr').length > 0`, 12000);
+// Read the Status column by name, not as "the last cell". It was the last cell
+// until the row grew an actions menu, and then this silently began asserting
+// that every row's menu said "On notice" - a check that had stopped looking at
+// the thing it is named after.
 const filteredStatuses = await s.eval(
-  `JSON.stringify([...document.querySelectorAll('table tbody tr')].map(r => r.lastElementChild.textContent.trim()))`,
+  `JSON.stringify((() => {
+     const headings = [...document.querySelectorAll('table thead th')].map(e => e.textContent.trim());
+     const column = headings.indexOf('Status');
+     if (column < 0) return ['NO STATUS COLUMN'];
+     return [...document.querySelectorAll('table tbody tr')]
+       .map(r => r.children[column]?.textContent.trim() ?? '');
+   })())`,
 );
 check(
   'A status filter survives a cold load from the URL',

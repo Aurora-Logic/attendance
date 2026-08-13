@@ -10,6 +10,7 @@ import {
   type Icon,
   LockIcon,
   PlugIcon,
+  BuildingsIcon,
   ScrollIcon,
   TrashIcon,
   ShieldCheckIcon,
@@ -101,6 +102,21 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Records',
     items: [
+      {
+        to: '/organisation',
+        label: 'Organisation',
+        shortLabel: 'Org',
+        icon: BuildingsIcon,
+        // employee.view, not a manage key: the three masters are what an
+        // employee list filters by, so anybody who can read the register needs
+        // to be able to see them. The screen splits the write keys the way the
+        // server does - departments and designations on employee.manage,
+        // locations on settings.manage, because a location carries the geofence
+        // and the IP allowlist (OPEN-QUESTIONS P1-1).
+        permission: PERMISSIONS.EMPLOYEE_VIEW,
+        phase: 1,
+        reqs: 'REQ-A-01, REQ-A-02',
+      },
       {
         to: '/employees',
         label: 'Employees',

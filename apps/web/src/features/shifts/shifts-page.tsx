@@ -14,6 +14,7 @@ import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { RowActions, type RowAction } from '@/components/shared/row-actions';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { TabsToolbar, TabsToolbarAction } from '@/components/shared/tabs-toolbar';
@@ -43,6 +44,7 @@ import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
 import { useDepartments } from '@/features/attendance/use-attendance-days';
+import { DeleteMasterDialog, type DeleteTarget } from '@/features/org-masters';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
@@ -54,6 +56,7 @@ import {
 } from '@vyuha/shared';
 
 import { BulkRosterSheet } from './bulk-roster-sheet';
+import { RosterEditSheet } from './roster-edit-sheet';
 import { RosterSheet } from './roster-sheet';
 import { ShiftSheet } from './shift-sheet';
 import type { RosterEntry, Shift, WeeklyOffPattern } from './types';
@@ -225,11 +228,75 @@ function ManageAction({ children, label }: { children: React.ReactElement; label
   );
 }
 
+/**
+ * The reason a row's actions are unavailable, or undefined when they are not.
+ *
+ * Every write on this screen is gated on the same key, so the sentence is
+ * written once rather than five times with three different wordings.
+ */
+function shiftManageBlock(canManage: boolean): string | undefined {
+  return canManage
+    ? undefined
+    : 'Needs the shift.manage permission, which your account does not hold.';
+}
+
 function ShiftsTab() {
   const [open, setOpen] = useState<Shift | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
   const canManage = usePermission(PERMISSIONS.SHIFT_MANAGE);
   const query = useShifts();
   const shifts = query.data?.value.data ?? [];
+  const sample = query.data?.sample ?? false;
+
+  /**
+   * The two verbs a shift row offers.
+   *
+   * Rendered in a trailing column above 768px and in the stacked row's action
+   * slot below it, so a phone is not left with a shift it can read and not
+   * change (PRD §6.5). Both are refused for a sample row: a delete against an
+   * invented id would 404, and the notice above already says the rows are not
+   * real.
+   */
+  const actionsFor = (row: Shift) => {
+    const blocked = sample
+      ? 'These rows are sample data, not records on the server.'
+      : shiftManageBlock(canManage);
+    const actions: RowAction[] = [
+      {
+        key: 'edit',
+        label: 'Edit shift',
+        icon: ACTION_ICONS.edit,
+        onSelect: () => {
+          setOpen(row);
+        },
+        ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+      },
+      {
+        key: 'delete',
+        label: 'Delete shift',
+        icon: ACTION_ICONS.remove,
+        destructive: true,
+        onSelect: () => {
+          setDeleting({
+            entityType: 'shift',
+            id: row.id,
+            name: row.name,
+            consequences: [
+              'It can no longer be rostered, and disappears from every shift picker.',
+              'Days already computed against it keep their timings; nothing is recomputed.',
+            ],
+          });
+        },
+        ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+      },
+    ];
+    return <RowActions label={`Actions for ${row.name}`} actions={actions} />;
+  };
+
+  const columns: RecordColumn<Shift>[] = [
+    ...SHIFT_COLUMNS,
+    { key: 'actions', header: 'Actions', className: 'w-12 text-right', cell: actionsFor },
+  ];
 
   return (
     <div className="flex flex-col gap-4">
@@ -294,20 +361,26 @@ function ShiftsTab() {
       {shifts.length > 0 ? (
         <>
           <RecordTable
-            columns={SHIFT_COLUMNS}
+            columns={columns}
             rows={shifts}
             rowKey={(row) => row.id}
             mobilePrimary={(row) => row.name}
-            mobileStatus={(row) =>
-              row.crossesMidnight ? <Badge variant="secondary">Crosses</Badge> : null
-            }
+            // The whole row is deliberately no longer clickable. A gesture with
+            // nothing on screen announcing it is why an administrator could not
+            // find edit or delete at all, and nesting a button inside a
+            // clickable row would announce one control as two.
+            mobileStatus={(row) => (
+              <div className="flex items-center gap-1">
+                {row.crossesMidnight ? <Badge variant="secondary">Crosses</Badge> : null}
+                {actionsFor(row)}
+              </div>
+            )}
             mobileSupporting={(row) =>
               `${row.code} · ${formatClock(row.scheduledIn)}–${formatClock(row.scheduledOut)}`
             }
-            onRowActivate={setOpen}
           />
           <p className="text-muted-foreground text-xs">
-            Open a shift to see and edit all nine policy fields.
+            Edit a shift to see and change all nine policy fields.
           </p>
         </>
       ) : null}
@@ -316,6 +389,12 @@ function ShiftsTab() {
         shift={open}
         onOpenChange={(next) => {
           if (!next) setOpen(null);
+        }}
+      />
+      <DeleteMasterDialog
+        target={deleting}
+        onOpenChange={(next) => {
+          if (!next) setDeleting(null);
         }}
       />
     </div>
@@ -327,6 +406,46 @@ function WeeklyOffsTab() {
   const canManage = usePermission(PERMISSIONS.SHIFT_MANAGE);
   const query = useWeeklyOffPatterns();
   const patterns = query.data?.value.data ?? [];
+
+  /**
+   * Edit only, and the menu says why rather than leaving a gap.
+   *
+   * A weekly off pattern is not in `SOFT_DELETABLE_ENTITIES` and the server has
+   * no `DELETE /weekly-off-patterns/:id` at all — verified with curl, which
+   * answers 404 for the route rather than for the row. Offering a delete that
+   * could only fail would be worse than saying there is not one.
+   */
+  const actionsFor = (row: WeeklyOffPattern) => {
+    const blocked = shiftManageBlock(canManage);
+    const actions: RowAction[] = [
+      {
+        key: 'edit',
+        label: 'Edit pattern',
+        icon: ACTION_ICONS.edit,
+        onSelect: () => {
+          setOpen(row);
+        },
+        ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+      },
+      {
+        key: 'delete',
+        label: 'Delete pattern',
+        icon: ACTION_ICONS.remove,
+        destructive: true,
+        onSelect: () => {
+          /* Unreachable: the item is always disabled. */
+        },
+        unavailableReason:
+          'The server has no delete for a weekly off pattern. Move everybody off it and leave it unused instead.',
+      },
+    ];
+    return <RowActions label={`Actions for ${row.name}`} actions={actions} />;
+  };
+
+  const columns: RecordColumn<WeeklyOffPattern>[] = [
+    ...PATTERN_COLUMNS,
+    { key: 'actions', header: 'Actions', className: 'w-12 text-right', cell: actionsFor },
+  ];
 
   return (
     <div className="flex flex-col gap-4">
@@ -389,17 +508,19 @@ function WeeklyOffsTab() {
       {patterns.length > 0 ? (
         <>
           <RecordTable
-            columns={PATTERN_COLUMNS}
+            columns={columns}
             rows={patterns}
             rowKey={(row) => row.id}
             mobilePrimary={(row) => row.name}
-            mobileStatus={(row) =>
-              row.employeeCount > 0 ? (
-                <Badge variant="secondary">{row.employeeCount}</Badge>
-              ) : null
-            }
+            mobileStatus={(row) => (
+              <div className="flex items-center gap-1">
+                {row.employeeCount > 0 ? (
+                  <Badge variant="secondary">{row.employeeCount}</Badge>
+                ) : null}
+                {actionsFor(row)}
+              </div>
+            )}
             mobileSupporting={(row) => describeWeeklyOffPattern(row.config)}
-            onRowActivate={setOpen}
           />
           <p className="text-muted-foreground text-xs">
             A pattern is assigned to a person on their employee record. REQ-C-03&apos;s location
@@ -423,6 +544,7 @@ function RosterTab() {
   const [periodOpen, setPeriodOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [editing, setEditing] = useState<RosterEntry | null>(null);
 
   const canManage = usePermission(PERMISSIONS.SHIFT_MANAGE);
 
@@ -489,6 +611,50 @@ function RosterTab() {
   const filtered = q.length > 0 || departmentId !== null;
   const departmentOptions = departments.data?.value.data ?? [];
   const shiftOptions = shifts.data?.value.data ?? [];
+  const sample = query.data?.sample ?? false;
+
+  /**
+   * What a roster row offers.
+   *
+   * Edit only: the server has no `DELETE /rosters/:id` — verified with curl,
+   * which answers 404 for the route rather than for the row — and a roster is
+   * ended by setting its last date, which the edit sheet does. An offer to
+   * delete that could only fail would read as a bug in this screen.
+   */
+  const actionsFor = (row: RosterEntry) => {
+    const blocked = sample
+      ? 'These rows are sample data, not records on the server.'
+      : shiftManageBlock(canManage);
+    const actions: RowAction[] = [
+      {
+        key: 'edit',
+        label: 'Edit assignment',
+        icon: ACTION_ICONS.edit,
+        onSelect: () => {
+          setEditing(row);
+        },
+        ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+      },
+      {
+        key: 'end',
+        label: 'End assignment',
+        icon: ACTION_ICONS.remove,
+        destructive: true,
+        onSelect: () => {
+          setEditing(row);
+        },
+        ...(blocked === undefined
+          ? {}
+          : { unavailableReason: blocked }),
+      },
+    ];
+    return <RowActions label={`Actions for ${row.employee.name}`} actions={actions} />;
+  };
+
+  const rosterColumns: RecordColumn<RosterEntry>[] = [
+    ...ROSTER_COLUMNS,
+    { key: 'actions', header: 'Actions', className: 'w-12 text-right', cell: actionsFor },
+  ];
 
   function clearFilters() {
     setDraft('');
@@ -635,11 +801,16 @@ function RosterTab() {
       {rows.length > 0 ? (
         <>
           <RecordTable
-            columns={ROSTER_COLUMNS}
+            columns={rosterColumns}
             rows={rows}
             rowKey={(row) => row.id}
             mobilePrimary={(row) => row.employee.name}
-            mobileStatus={(row) => <Badge variant="secondary">{row.shift.code}</Badge>}
+            mobileStatus={(row) => (
+              <div className="flex items-center gap-1">
+                <Badge variant="secondary">{row.shift.code}</Badge>
+                {actionsFor(row)}
+              </div>
+            )}
             mobileSupporting={(row) =>
               `${row.employee.employeeCode} · ${formatDate(row.from)} – ${row.to ? formatDate(row.to) : 'open'}`
             }
@@ -648,6 +819,13 @@ function RosterTab() {
         </>
       ) : null}
 
+      <RosterEditSheet
+        entry={editing}
+        shifts={shiftOptions}
+        onOpenChange={(open) => {
+          if (!open) setEditing(null);
+        }}
+      />
       <RosterSheet
         open={assignOpen}
         onOpenChange={setAssignOpen}

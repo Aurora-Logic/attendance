@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react';
-import { UsersThreeIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import {
+  ArrowCounterClockwiseIcon,
+  PlusIcon,
+  UserMinusIcon,
+  UsersThreeIcon,
+  WarningCircleIcon,
+} from '@phosphor-icons/react';
 import { useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { RowActions, type RowAction } from '@/components/shared/row-actions';
 import { SearchField } from '@/components/shared/search-field';
+import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,15 +36,20 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/api/client';
 import { EMPTY_VALUE, formatDate, humaniseEnum } from '@/lib/format';
+import { useShortcut } from '@/lib/keyboard/registry';
+import { usePermission } from '@/lib/session/permissions';
 import {
   DEFAULT_PAGE_SIZE,
   EMPLOYEE_STATUSES,
   MAX_PAGE_SIZE,
+  PERMISSIONS,
   employeeDisplayName,
   type EmployeeListItem,
   type EmployeeStatus,
 } from '@vyuha/shared';
 
+import { EmployeeSheet } from './employee-sheet';
+import { EmployeeLifecycleDialog, type LifecycleTarget } from './lifecycle-dialog';
 import { STATUS_LABELS, STATUS_VARIANT } from './status';
 import { useDepartments } from './use-departments';
 import { useEmployees } from './use-employees';
@@ -67,7 +80,7 @@ function readPositiveInt(raw: string | null, fallback: number, max: number): num
   return Math.min(parsed, max);
 }
 
-const COLUMNS: RecordColumn<EmployeeListItem>[] = [
+const BASE_COLUMNS: RecordColumn<EmployeeListItem>[] = [
   {
     key: 'employeeCode',
     header: 'Code',
@@ -191,6 +204,21 @@ function EmployeesSkeleton() {
 export function EmployeesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const canManage = usePermission(PERMISSIONS.EMPLOYEE_MANAGE);
+  const [sheet, setSheet] = useState<EmployeeListItem | 'new' | null>(null);
+  const [lifecycle, setLifecycle] = useState<LifecycleTarget | null>(null);
+
+  // PRD §6.4: Alt+C creates a master on the fly. An employee is a master.
+  useShortcut({
+    id: 'employees.create',
+    keys: 'alt+c',
+    label: 'New employee',
+    scope: 'screen',
+    when: () => canManage,
+    run: () => {
+      setSheet('new');
+    },
+  });
 
   const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
   const pageSize = readPositiveInt(searchParams.get('pageSize'), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
@@ -280,9 +308,97 @@ export function EmployeesPage() {
   const rows = query.data?.data ?? [];
   const total = query.data?.meta.total ?? 0;
 
+  /**
+   * What a row offers, and the sentence that replaces a verb the viewer may
+   * not use.
+   *
+   * There is no delete, on purpose and permanently. REQ-A-05 retires an
+   * employee — INACTIVE plus a last working date — and the menu says "Retire"
+   * rather than borrowing a word for something the product does not do. The
+   * transitions offered depend on where the record already is, so an inactive
+   * person is offered reactivation rather than a second retirement.
+   */
+  function actionsFor(row: EmployeeListItem) {
+    const blocked = canManage
+      ? undefined
+      : 'Needs the employee.manage permission, which your account does not hold.';
+
+    const actions: RowAction[] = [
+      {
+        key: 'edit',
+        label: 'Edit employee',
+        icon: ACTION_ICONS.edit,
+        onSelect: () => {
+          setSheet(row);
+        },
+        ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+      },
+    ];
+
+    if (row.status === 'INACTIVE') {
+      actions.push({
+        key: 'reactivate',
+        label: 'Reactivate employee',
+        icon: ArrowCounterClockwiseIcon,
+        onSelect: () => {
+          setLifecycle({ mode: 'reactivate', employee: row });
+        },
+        ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+      });
+    } else {
+      if (row.status === 'ACTIVE') {
+        actions.push({
+          key: 'notice',
+          label: 'Put on notice',
+          icon: UserMinusIcon,
+          onSelect: () => {
+            setLifecycle({ mode: 'notice', employee: row });
+          },
+          ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+        });
+      }
+      actions.push({
+        key: 'retire',
+        label: 'Retire employee',
+        icon: UserMinusIcon,
+        destructive: true,
+        onSelect: () => {
+          setLifecycle({ mode: 'retire', employee: row });
+        },
+        ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+      });
+    }
+
+    return <RowActions label={`Actions for ${employeeDisplayName(row.firstName, row.lastName)}`} actions={actions} />;
+  }
+
+  const columns: RecordColumn<EmployeeListItem>[] = [
+    ...BASE_COLUMNS,
+    { key: 'actions', header: 'Actions', className: 'w-12 text-right', cell: actionsFor },
+  ];
+
   return (
     <>
-      <PageHeader description="Every employee on record, with their department, location and status." />
+      <PageHeader
+        description="Every employee on record, with their department, location and status."
+        action={
+          canManage ? (
+            <Button
+              onClick={() => {
+                setSheet('new');
+              }}
+            >
+              <PlusIcon data-icon="inline-start" />
+              New employee
+              <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
+            </Button>
+          ) : (
+            <span className="text-muted-foreground text-xs">
+              Adding and editing needs the employee.manage permission.
+            </span>
+          )
+        }
+      />
 
       <div className="flex flex-col gap-4">
         {/* Toolbar row (PRD §6.2). Wraps to two rows at 360px rather than
@@ -410,6 +526,19 @@ export function EmployeesPage() {
                   Clear filters
                 </Button>
               </EmptyContent>
+            ) : canManage ? (
+              <EmptyContent>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSheet('new');
+                  }}
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  New employee
+                </Button>
+              </EmptyContent>
             ) : null}
           </Empty>
         ) : null}
@@ -417,12 +546,15 @@ export function EmployeesPage() {
         {rows.length > 0 ? (
           <>
             <RecordTable
-              columns={COLUMNS}
+              columns={columns}
               rows={rows}
               rowKey={(row) => row.id}
               mobilePrimary={(row) => employeeDisplayName(row.firstName, row.lastName)}
               mobileStatus={(row) => (
-                <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
+                <div className="flex items-center gap-1">
+                  <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
+                  {actionsFor(row)}
+                </div>
               )}
               mobileSupporting={(row) =>
                 `${row.employeeCode} · ${row.department?.name ?? 'No department'}`
@@ -430,6 +562,10 @@ export function EmployeesPage() {
               // PRD §6.4: Enter drills into the focused row, and a tap does the
               // same thing on a phone. RecordTable owns both, so the register
               // and the muster cannot disagree about what activating a row does.
+              //
+              // Kept here, unlike the master lists, because this row genuinely
+              // drills down: it opens a person's own page rather than a form.
+              // The menu stops the click reaching this handler itself.
               onRowActivate={(row) => {
                 void navigate(`/employees/${row.id}`);
               }}
@@ -438,6 +574,19 @@ export function EmployeesPage() {
           </>
         ) : null}
       </div>
+
+      <EmployeeSheet
+        target={sheet}
+        onOpenChange={(open) => {
+          if (!open) setSheet(null);
+        }}
+      />
+      <EmployeeLifecycleDialog
+        target={lifecycle}
+        onOpenChange={(open) => {
+          if (!open) setLifecycle(null);
+        }}
+      />
     </>
   );
 }

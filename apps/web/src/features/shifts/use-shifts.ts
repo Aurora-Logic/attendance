@@ -274,6 +274,44 @@ export function useCreateRosterAssignment(): UseMutationResult<RosterEntry, Erro
   });
 }
 
+export interface RosterEditDraft {
+  id: string;
+  shiftId: string;
+  from: string;
+  to: string | null;
+}
+
+/**
+ * REQ-C-04, the edit side. `PATCH /rosters/:id` takes the shift and the range
+ * and nothing else -- the employee is not editable, because moving an
+ * assignment to a different person is two changes to two people's history and
+ * the server models it as a delete and a create rather than a rename.
+ *
+ * `to` is sent explicitly even when null: absent means "leave it alone" in a
+ * partial update, and null is what closes an open-ended assignment. Omitting it
+ * would make "make this open-ended again" impossible to express.
+ */
+export function useUpdateRosterAssignment(): UseMutationResult<
+  RosterEntry,
+  Error,
+  RosterEditDraft
+> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, ...draft }: RosterEditDraft) => {
+      const body = await apiRequest<unknown>(`/rosters/${id}`, {
+        method: 'PATCH',
+        body: { shiftId: draft.shiftId, from: draft.from, to: draft.to },
+      });
+      return parseOrThrow(rosterEntrySchema, body, 'roster assignment');
+    },
+    onSuccess: () => {
+      invalidateAfterRosterWrite(queryClient);
+    },
+  });
+}
+
 export interface BulkRosterDraft {
   shiftId: string;
   from: string;

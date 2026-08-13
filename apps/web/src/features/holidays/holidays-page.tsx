@@ -11,8 +11,10 @@ import {
 import { addMonths, format, isSameMonth, parseISO, startOfMonth } from 'date-fns';
 import { useSearchParams } from 'react-router';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { RowActions } from '@/components/shared/row-actions';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -37,6 +39,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MonthField } from '@/features/attendance/pickers';
+import { DeleteMasterDialog, type DeleteTarget } from '@/features/org-masters';
 import { apiErrorCopy } from '@/features/leave/api-error-copy';
 import { SampleDataNotice } from '@/features/leave/sample-data-notice';
 import { ApiError } from '@/lib/api/client';
@@ -46,6 +49,7 @@ import { PERMISSIONS } from '@vyuha/shared';
 import { usePermission } from '@/lib/session/permissions';
 
 import { CalendarSheet } from './calendar-sheet';
+import { DeleteHolidayDialog } from './delete-holiday-dialog';
 import {
   draftFromCalendar,
   draftFromHoliday,
@@ -100,7 +104,7 @@ function readMonth(raw: string | null): Date {
   return new Date(year, month - 1, 1);
 }
 
-const COLUMNS: RecordColumn<Holiday>[] = [
+const BASE_COLUMNS: RecordColumn<Holiday>[] = [
   {
     key: 'date',
     header: 'Date',
@@ -167,21 +171,68 @@ function CalendarSection({
   onMonthChange,
   canManage,
   onEditCalendar,
+  onDeleteCalendar,
   onAddHoliday,
   onEditHoliday,
+  onDeleteHoliday,
 }: {
   calendar: HolidayCalendar;
   month: Date;
   onMonthChange: (month: Date) => void;
   canManage: boolean;
   onEditCalendar: () => void;
+  onDeleteCalendar: () => void;
   onAddHoliday: () => void;
   onEditHoliday: (holiday: Holiday) => void;
+  onDeleteHoliday: (holiday: Holiday) => void;
 }) {
   const restricted = calendar.holidays.filter((holiday) => holiday.restricted).length;
   const allowance = allowanceOf(calendar);
   const monthKey = format(month, 'yyyy-MM');
   const inMonth = calendar.holidays.filter((holiday) => holiday.date.startsWith(monthKey));
+
+  const blocked = canManage
+    ? undefined
+    : 'Needs the holiday.manage permission, which your account does not hold.';
+
+  /**
+   * The two verbs each dated holiday offers.
+   *
+   * Rendered in a trailing column above 768px and in the stacked row's action
+   * slot below it, so a phone is not left with a date it can read and not
+   * change (PRD §6.5).
+   */
+  const actionsFor = (row: Holiday) => (
+    <RowActions
+      label={`Actions for ${row.name}`}
+      actions={[
+        {
+          key: 'edit',
+          label: 'Edit holiday',
+          icon: ACTION_ICONS.edit,
+          onSelect: () => {
+            onEditHoliday(row);
+          },
+          ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+        },
+        {
+          key: 'delete',
+          label: 'Remove holiday',
+          icon: ACTION_ICONS.remove,
+          destructive: true,
+          onSelect: () => {
+            onDeleteHoliday(row);
+          },
+          ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+        },
+      ]}
+    />
+  );
+
+  const columns: RecordColumn<Holiday>[] = [
+    ...BASE_COLUMNS,
+    { key: 'actions', header: 'Actions', className: 'w-12 text-right', cell: actionsFor },
+  ];
 
   return (
     <section className="flex flex-col gap-3">
@@ -195,16 +246,28 @@ function CalendarSection({
           (calendar.locations.length > 0 ? ` · ${calendar.locations.join(', ')}` : '')
         }
         action={
-          canManage ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onEditCalendar}
-            >
+          <>
+            <Button variant="outline" size="sm" disabled={!canManage} onClick={onEditCalendar}>
               <PencilSimpleIcon data-icon="inline-start" />
               Edit calendar
             </Button>
-          ) : null
+            {/* The delete sits in the menu rather than beside Edit: a
+                destructive control a few pixels from an ordinary one is the
+                classic mis-tap, and this one takes a whole year of dates. */}
+            <RowActions
+              label={`More actions for ${calendar.name}`}
+              actions={[
+                {
+                  key: 'delete',
+                  label: 'Delete calendar',
+                  icon: ACTION_ICONS.remove,
+                  destructive: true,
+                  onSelect: onDeleteCalendar,
+                  ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+                },
+              ]}
+            />
+          </>
         }
       />
 
@@ -238,15 +301,21 @@ function CalendarSection({
         </Empty>
       ) : (
         <RecordTable
-          columns={COLUMNS}
+          columns={columns}
           rows={inMonth}
           rowKey={(row) => row.id}
           mobilePrimary={(row) => row.name}
-          mobileStatus={(row) =>
-            row.restricted ? <Badge variant="outline">Restricted</Badge> : null
-          }
+          // The whole row is deliberately no longer clickable. A gesture with
+          // nothing on screen announcing it is why an administrator could not
+          // find edit or delete at all, and nesting a button inside a clickable
+          // row would announce one control as two.
+          mobileStatus={(row) => (
+            <div className="flex items-center gap-1">
+              {row.restricted ? <Badge variant="outline">Restricted</Badge> : null}
+              {actionsFor(row)}
+            </div>
+          )}
           mobileSupporting={(row) => `${formatDate(row.date)} · ${format(parseISO(row.date), 'EEEE')}`}
-          {...(canManage ? { onRowActivate: onEditHoliday } : {})}
         />
       )}
     </section>
@@ -262,6 +331,8 @@ export function HolidaysPage() {
   const [calendarDraft, setCalendarDraft] = useState<CalendarDraft | null>(null);
   const [holidayDraft, setHolidayDraft] = useState<HolidayDraft | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [deletingCalendar, setDeletingCalendar] = useState<DeleteTarget | null>(null);
+  const [deletingHoliday, setDeletingHoliday] = useState<Holiday | null>(null);
 
   // The month lives in the URL rather than in state: a month somebody is
   // looking at is a link worth pasting, and it survives a reload. The year the
@@ -517,12 +588,24 @@ export function HolidaysPage() {
           onEditCalendar={() => {
             setCalendarDraft(draftFromCalendar(active));
           }}
+          onDeleteCalendar={() => {
+            setDeletingCalendar({
+              entityType: 'holidayCalendar',
+              id: active.id,
+              name: `${active.name} ${String(active.year)}`,
+              consequences: [
+                `All ${String(active.holidays.length)} dates in it go with it.`,
+                'Employees who inherit it lose their holiday list, and their days are judged as ordinary working days.',
+              ],
+            });
+          }}
           onAddHoliday={() => {
             setHolidayDraft(newHolidayDraft(active.id, active.year, month));
           }}
           onEditHoliday={(holiday) => {
             setHolidayDraft(draftFromHoliday(holiday, active.id, active.year));
           }}
+          onDeleteHoliday={setDeletingHoliday}
         />
       ) : null}
 
@@ -543,6 +626,19 @@ export function HolidaysPage() {
         calendarName={active?.name ?? ''}
         year={active?.year ?? year}
         onOpenChange={setImportOpen}
+      />
+      <DeleteMasterDialog
+        target={deletingCalendar}
+        onOpenChange={(open) => {
+          if (!open) setDeletingCalendar(null);
+        }}
+      />
+      <DeleteHolidayDialog
+        holiday={deletingHoliday}
+        calendarName={active?.name ?? 'this calendar'}
+        onOpenChange={(open) => {
+          if (!open) setDeletingHoliday(null);
+        }}
       />
     </>
   );
