@@ -580,7 +580,23 @@ describe('bulk decisions (REQ-I-03)', () => {
 });
 
 describe('delegation (REQ-I-04)', () => {
-  const today = new Date().toISOString().slice(0, 10);
+  // The organisation's date, not UTC's.
+  //
+  // The server decides whether a delegation is live with
+  // `(now() AT TIME ZONE <the org's timezone>)::date`, which is the right
+  // question -- a delegation covering "today" means the day the office is
+  // having. `toISOString()` answers a different one, and between midnight and
+  // 05:30 in an Asia/Kolkata organisation the two disagree: the delegation was
+  // created for a day that had already ended, so the delegate was refused and
+  // the code was right. Five and a half hours a night in which this test failed
+  // for a reason that had nothing to do with delegation.
+  // Resolved in beforeAll because the organisation has to be asked, and a
+  // describe body cannot await.
+  let today = '';
+  beforeAll(async () => {
+    const orgTimezone = await harness.orgTimezone();
+    today = new Intl.DateTimeFormat('en-CA', { timeZone: orgTimezone }).format(new Date());
+  });
 
   it('refuses a delegation to somebody who cannot approve anything', async () => {
     const result = await harness.post<ErrorBody>('/approvals/delegations', {

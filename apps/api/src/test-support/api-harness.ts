@@ -192,6 +192,25 @@ export class ApiHarness {
     );
   }
 
+  /**
+   * The organisation's IANA timezone.
+   *
+   * Anything a test computes as "today" has to be computed in this zone,
+   * because that is the zone the server reduces `now()` in. A test that uses
+   * `toISOString()` instead agrees with the server for most of the day and
+   * disagrees for the offset -- five and a half hours a night for an Indian
+   * organisation -- which reads as a broken feature rather than a broken
+   * fixture.
+   */
+  async orgTimezone(): Promise<string> {
+    const rows = await this.db.execute<{ timezone: string }>(
+      sql`SELECT timezone FROM organizations WHERE id = ${this.orgId}`,
+    );
+    const timezone = rows.rows[0]?.timezone;
+    if (timezone === undefined) throw new Error(`No organisation ${this.orgId}`);
+    return timezone;
+  }
+
   async close(): Promise<void> {
     await this.app.close();
   }
