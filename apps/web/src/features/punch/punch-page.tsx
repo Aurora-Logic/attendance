@@ -407,6 +407,42 @@ export function PunchPage() {
     );
   }
 
+  // The server decides whether punching is possible at all, and it says so in
+  // three ways: no employee record behind the account, no next punch type, or
+  // an explicit blockedReason. None of them were read, so an account with no
+  // employee saw a live clock, an empty shift, a reason field demanding an
+  // explanation for a window that does not exist, and a button labelled
+  // "Punch out" - because `nextPunchType === 'IN'` is false when the value is
+  // null, and the label falls through to the other branch. A screen that
+  // cannot do the thing it is for has to say so instead of offering it.
+  const blocked =
+    today.blockedReason ??
+    (today.employee === null
+      ? {
+          code: 'NO_EMPLOYEE_RECORD',
+          message:
+            'This sign-in is not linked to an employee record, so there is nobody to punch for. An administrator can link it from the employee register.',
+        }
+      : today.nextPunchType === null
+        ? {
+            code: 'PUNCH_UNAVAILABLE',
+            message: 'Punching is not available right now.',
+          }
+        : null);
+
+  if (blocked) {
+    return (
+      <>
+        <PageHeader description="Punch in and out. A live photo is required every time." />
+        <Alert variant="destructive">
+          <WarningCircleIcon />
+          <AlertTitle>You cannot punch here</AlertTitle>
+          <AlertDescription>{blocked.message}</AlertDescription>
+        </Alert>
+      </>
+    );
+  }
+
   const punchingIn = today.nextPunchType === 'IN';
 
   return (
