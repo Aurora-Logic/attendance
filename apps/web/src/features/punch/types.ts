@@ -211,23 +211,64 @@ export interface PunchResult {
   type: PunchType;
   /** ISO instant, stamped by the server. */
   at: string;
-  status: AttendanceStatus;
+  /**
+   * Null when the day engine did not run, which is what happens on a locked
+   * period (REQ-E-09). The punch is still recorded; there is simply no derived
+   * status yet, and inventing one would be worse than showing none.
+   */
+  status: AttendanceStatus | null;
   flags: string[];
   /**
    * The 256px thumbnail of the stamped photo (REQ-D-03a). Lists and
    * confirmations load this and never the full image.
+   *
+   * Always null on this path: the receipt carries a file id, and turning one
+   * into something an `img` can load means a second call for a signed URL
+   * (NFR-09). The confirmation falls back to the frame the camera produced,
+   * which is the same picture without the server's stamp.
    */
   photoThumbUrl: string | null;
+  /** REQ-D-11: true when the key had been used before and no second punch was made. */
+  replayed: boolean;
 }
 
-export const punchResultSchema: z.ZodType<PunchResult> = z.object({
-  id: z.string(),
-  type: z.enum(PUNCH_TYPES),
-  at: z.string(),
-  status: z.enum(ATTENDANCE_STATUSES),
-  flags: z.array(z.string()),
-  photoThumbUrl: z.string().nullable(),
+/**
+ * `PunchReceipt` as the server actually sends it, mapped to what the screen
+ * shows.
+ *
+ * Pinned to the server's shape rather than to a convenient one, for the same
+ * reason `todayStatusSchema` above is: the two halves had drifted and neither
+ * end had been run against the other. The screen was posting flat multipart
+ * fields to an endpoint that wants one JSON `payload` part, and parsing the
+ * reply as a bare punch when it is a receipt wrapping one — so every online
+ * punch answered 400 and every one that had somehow succeeded would have
+ * failed to render.
+ *
+ * `flags` stays `string[]`: flags are additive server-side and an unknown one
+ * must not fail the confirmation of a punch that was accepted.
+ */
+const punchReceiptSchema = z.object({
+  punch: z.object({
+    id: z.string(),
+    type: z.enum(PUNCH_TYPES),
+    serverTime: z.string(),
+    flags: z.array(z.string()),
+  }),
+  day: z.object({ status: z.enum(ATTENDANCE_STATUSES) }).nullable(),
+  replayed: z.boolean(),
 });
+
+export const punchResultSchema: z.ZodType<PunchResult, unknown> = punchReceiptSchema.transform(
+  (receipt): PunchResult => ({
+    id: receipt.punch.id,
+    type: receipt.punch.type,
+    at: receipt.punch.serverTime,
+    status: receipt.day?.status ?? null,
+    flags: receipt.punch.flags,
+    photoThumbUrl: null,
+    replayed: receipt.replayed,
+  }),
+);
 
 /** The multipart payload of `POST /punches`. */
 export interface PunchDraft {

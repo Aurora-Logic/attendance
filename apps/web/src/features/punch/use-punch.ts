@@ -5,7 +5,6 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { z } from 'zod';
 
 import {
   isUnbuiltEndpoint,
@@ -13,8 +12,8 @@ import {
   parseOrThrow,
   type Sampled,
 } from '@/features/attendance/api';
-import { ApiError, apiRequest, getAccessToken } from '@/lib/api/client';
-import { ERROR_CODES } from '@vyuha/shared';
+import { apiRequest } from '@/lib/api/client';
+import { postMultipart } from '@/lib/offline/multipart';
 
 import {
   punchResultSchema,
@@ -75,34 +74,42 @@ export function useToday(): UseQueryResult<TodaySnapshot, Error> {
   });
 }
 
-const BASE_URL: string =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:3000/api/v1';
-
 /**
- * The API's error envelope (technical design §6), parsed rather than trusted.
+ * The JSON half of the `POST /punches` multipart body.
  *
- * The code is checked against the shared enum instead of accepted as any
- * string, because the whole point of the envelope is that the client maps
- * codes to messages; an unrecognised code should fall through to the generic
- * message rather than be cast into the union and quietly miss every branch.
+ * One `payload` part carrying JSON, plus one `photo` file part — not a flat
+ * field per fact. `punch.dto.ts` on the server parses `payload` with
+ * `punchSubmissionSchema` and there is no shape without it; the flat version
+ * this used to send answered 400 on every punch.
+ *
+ * `source` is `WEB` and not `MOBILE`, deliberately. The server enforces the
+ * office IP allowlist (REQ-D-09) on a `WEB` punch and the geofence (REQ-D-08)
+ * on a `MOBILE` one, and the client is the wrong place to decide which control
+ * it is subject to: a laptop claiming `MOBILE` would walk around the allowlist.
+ * This is a browser, so it says so, and the stricter of the two applies. Which
+ * signal a PWA installed on a phone should be judged by is a policy question
+ * neither the PRD nor the technical design settles.
  */
-const errorEnvelopeSchema = z.object({
-  error: z.object({
-    code: z.enum(ERROR_CODES),
-    message: z.string(),
-    requestId: z.string().optional(),
-  }),
-});
+function submissionPayload(draft: PunchDraft): string {
+  return JSON.stringify({
+    type: draft.type,
+    clientTime: draft.clientTime,
+    source: 'WEB',
+    ...(draft.coords
+      ? {
+          latitude: draft.coords.latitude,
+          longitude: draft.coords.longitude,
+          gpsAccuracyM: draft.coords.accuracyM,
+        }
+      : {}),
+    isHalfDay: draft.halfDay !== null,
+    ...(draft.halfDay === null ? {} : { halfDayPart: draft.halfDay }),
+    ...(draft.reason === null || draft.reason === '' ? {} : { reason: draft.reason }),
+  });
+}
 
 /**
  * `POST /punches`, multipart (technical design §7).
- *
- * This does not go through `apiRequest`, which speaks JSON only and would
- * `JSON.stringify` a FormData into `{}`. Everything else about the call is
- * kept identical to it - the same bearer token, the same `credentials:
- * 'include'` for the refresh cookie, the same `ApiError` shape - so the
- * screen's error handling does not have to know there are two senders. When
- * `apiRequest` grows multipart support this collapses into it.
  *
  * There is deliberately no sample fallback on this path. A read may be
  * invented and labelled; a write may not. Telling somebody their punch was
@@ -111,72 +118,16 @@ const errorEnvelopeSchema = z.object({
  */
 export async function postPunch(draft: PunchDraft): Promise<PunchResult> {
   const form = new FormData();
-  form.set('type', draft.type);
-  form.set('clientTime', draft.clientTime);
+  form.set('payload', submissionPayload(draft));
   form.set('photo', draft.photo, 'punch.jpg');
-  if (draft.coords) {
-    form.set('latitude', String(draft.coords.latitude));
-    form.set('longitude', String(draft.coords.longitude));
-    form.set('accuracyM', String(draft.coords.accuracyM));
-  }
-  if (draft.halfDay) form.set('halfDay', draft.halfDay);
-  if (draft.reason) form.set('reason', draft.reason);
 
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
+  return postMultipart(
+    '/punches',
+    form,
+    (body) => parseOrThrow(punchResultSchema, body, 'punch confirmation'),
     // REQ-D-11: the same key on every retry of the same punch.
-    'Idempotency-Key': draft.idempotencyKey,
-  };
-  const token = getAccessToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  // Content-Type is left unset on purpose: fetch writes it, with the multipart
-  // boundary, and setting it by hand produces a body the server cannot parse.
-
-  let response: Response;
-  try {
-    response = await fetch(`${BASE_URL}/punches`, {
-      method: 'POST',
-      headers,
-      credentials: 'include',
-      body: form,
-    });
-  } catch (cause) {
-    throw new ApiError({
-      code: 'NETWORK_ERROR',
-      message: 'Could not reach the server.',
-      status: 0,
-      ...(cause instanceof Error ? { details: { cause: cause.message } } : {}),
-    });
-  }
-
-  if (!response.ok) {
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch {
-      // A response that is not JSON is still a failure; it just cannot explain
-      // itself. Reporting the status beats reporting a parse error.
-      body = undefined;
-    }
-    const parsed = errorEnvelopeSchema.safeParse(body);
-    if (parsed.success) {
-      throw new ApiError({
-        code: parsed.data.error.code,
-        message: parsed.data.error.message,
-        status: response.status,
-        ...(parsed.data.error.requestId === undefined
-          ? {}
-          : { requestId: parsed.data.error.requestId }),
-      });
-    }
-    throw new ApiError({
-      code: 'INTERNAL_ERROR',
-      message: `The server returned ${String(response.status)}.`,
-      status: response.status,
-    });
-  }
-
-  return parseOrThrow(punchResultSchema, await response.json(), 'punch confirmation');
+    { 'Idempotency-Key': draft.idempotencyKey },
+  );
 }
 
 export function usePunch(): UseMutationResult<PunchResult, Error, PunchDraft> {

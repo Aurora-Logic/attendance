@@ -32,14 +32,17 @@ import { AttendanceFlags, AttendanceStatusBadge } from '@/features/attendance/st
 import { ApiError } from '@/lib/api/client';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
+import { OFFLINE_QUEUE_MAX_AGE_HOURS, type QueuedPunch } from '@/lib/offline/punch-queue';
 import { cn } from '@/lib/utils';
 
 import { CameraPanel } from './camera-panel';
+import { QueuePanel } from './queue-panel';
 import { HALF_DAY_PARTS, type HalfDayPart, type PunchDraft, type PunchResult } from './types';
 import { useCamera } from './use-camera';
 import { POOR_ACCURACY_M, useGeolocation } from './use-geolocation';
 import { useOnline } from './use-online';
-import { postPunch, usePunch, useToday } from './use-punch';
+import { usePunch, useToday } from './use-punch';
+import { usePunchQueue } from './use-punch-queue';
 import { CLOCK_SKEW_LIMIT_MS, useServerClock } from './use-server-clock';
 
 /**
@@ -162,7 +165,9 @@ function Confirmation({
           </p>
           <p className="text-muted-foreground text-xs">
             {recorded
-              ? 'The stamped photo is stored against this punch.'
+              ? result.replayed
+                ? 'This punch had already been recorded, so nothing was added. The stamped photo is stored against the original.'
+                : 'The stamped photo is stored against this punch.'
               : 'The punch endpoint is not connected yet, so nothing was sent and nothing was saved. This is what the confirmation will look like.'}
           </p>
         </div>
@@ -170,9 +175,9 @@ function Confirmation({
 
       <div className="flex items-start gap-3">
         {photoUrl ? (
-          // The 256px thumbnail, never the full image (technical design §7).
-          // Before the endpoint exists this is the frame captured locally, and
-          // it carries no server stamp — which is the point of REQ-D-03.
+          // The frame the camera produced, not the server's stamped copy: the
+          // receipt carries a file id rather than a URL, and fetching a signed
+          // one (NFR-09) would be a second round trip for the same picture.
           <img
             src={photoUrl}
             alt="The photo taken with this punch"
@@ -180,12 +185,15 @@ function Confirmation({
           />
         ) : null}
         <dl className="flex min-w-0 flex-col gap-1 text-xs">
-          <div className="flex gap-2">
-            <dt className="text-muted-foreground">Day status</dt>
-            <dd>
-              <AttendanceStatusBadge status={result.status} />
-            </dd>
-          </div>
+          {/* Absent on a locked period, where the day engine did not run. */}
+          {result.status ? (
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground">Day status</dt>
+              <dd>
+                <AttendanceStatusBadge status={result.status} />
+              </dd>
+            </div>
+          ) : null}
           {result.flags.length > 0 ? (
             <div className="flex flex-col gap-1">
               <dt className="text-muted-foreground">Flags</dt>
@@ -196,6 +204,58 @@ function Confirmation({
           ) : null}
         </dl>
       </div>
+
+      <Button variant="outline" className="self-start" onClick={onAgain}>
+        <ArrowClockwiseIcon data-icon="inline-start" />
+        Back to the punch screen
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The counterpart to `Confirmation`, for a punch that reached this device and
+ * no further (REQ-D-10).
+ *
+ * Same shape, deliberately different words and a different mark. Technical
+ * design §8: "Never let someone believe a queued punch is confirmed" — so this
+ * says "not recorded yet" where the other says "Punched in", and there is no
+ * tick anywhere on it.
+ */
+function QueuedNotice({
+  entry,
+  photoUrl,
+  onAgain,
+}: {
+  entry: QueuedPunch;
+  photoUrl: string | null;
+  onAgain: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4 border p-4">
+      <div className="flex items-start gap-3">
+        <CloudSlashIcon aria-hidden className="text-muted-foreground size-6 shrink-0" />
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="text-sm font-medium">
+            {entry.type === 'IN' ? 'Punch in' : 'Punch out'} queued at{' '}
+            {formatClock(entry.clientTime)} — not recorded yet
+          </p>
+          <p className="text-muted-foreground text-xs">
+            It is saved on this device with its photo and will survive closing the app. It becomes a
+            real punch only when the server accepts it, which happens automatically when you are
+            back online. Sync within {String(OFFLINE_QUEUE_MAX_AGE_HOURS)} hours or it will need a
+            regularization instead.
+          </p>
+        </div>
+      </div>
+
+      {photoUrl ? (
+        <img
+          src={photoUrl}
+          alt="The photo taken with this punch"
+          className="size-24 shrink-0 border object-cover"
+        />
+      ) : null}
 
       <Button variant="outline" className="self-start" onClick={onAgain}>
         <ArrowClockwiseIcon data-icon="inline-start" />
@@ -220,9 +280,12 @@ export function PunchPage() {
   const [result, setResult] = useState<PunchResult | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [recorded, setRecorded] = useState(true);
-  const [queue, setQueue] = useState<PunchDraft[]>([]);
+  /** The punch just written to the offline queue, if the last attempt was one. */
+  const [queued, setQueued] = useState<QueuedPunch | null>(null);
+  /** Set only when the device itself refused to store the punch. */
   const [queueError, setQueueError] = useState<string | null>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
+  const outbox = usePunchQueue();
 
   // Revoking on replacement rather than on unmount: a second punch in the same
   // session would otherwise leak the first blob for the life of the tab.
@@ -232,41 +295,6 @@ export function PunchPage() {
       URL.revokeObjectURL(photoUrl);
     };
   }, [photoUrl]);
-
-  /**
-   * REQ-D-10: drain the queue when connectivity returns.
-   *
-   * One at a time, head first, so the punches reach the server in the order
-   * they were taken. A success shifts the head and re-runs this effect for the
-   * next one; a failure leaves the queue alone, which also stops the effect
-   * re-running, so a dead server is not retried in a loop.
-   */
-  useEffect(() => {
-    if (!online) return undefined;
-    const next = queue[0];
-    if (!next) return undefined;
-
-    let cancelled = false;
-    postPunch(next)
-      .then(() => {
-        if (!cancelled) {
-          setQueue((rest) => rest.slice(1));
-          setQueueError(null);
-        }
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setQueueError(
-          error instanceof ApiError
-            ? error.message
-            : 'The queued punch could not be sent. It is still queued.',
-        );
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [online, queue]);
 
   const outsideWindow = today ? !today.withinWindow : false;
   const blockedByWindow = outsideWindow && today?.windowBehaviour === 'BLOCK';
@@ -328,7 +356,7 @@ export function PunchPage() {
     if (!online) {
       // Queued, and said so. Technical design §8: never let somebody believe a
       // queued punch is confirmed.
-      setQueue((rest) => [...rest, draft]);
+      await queueOffline(draft);
       return;
     }
 
@@ -341,28 +369,37 @@ export function PunchPage() {
         setHalfDay(null);
       },
       onError: (error) => {
-        // The endpoint does not exist yet in development. Rather than hide the
-        // confirmation until it does, it is rendered and labelled as not
-        // recorded — the flow stays reviewable and nobody is told a lie.
-        const unbuilt =
-          error instanceof ApiError && (error.code === 'NETWORK_ERROR' || error.status === 404);
-        if (import.meta.env.DEV && unbuilt) {
-          setResult({
-            id: 'not-recorded',
-            type: draft.type,
-            at: new Date().toISOString(),
-            // No day row yet means no status yet; PENDING is what the day
-            // engine writes before it has decided anything.
-            status: today.status ?? 'PENDING',
-            flags: [],
-            photoThumbUrl: null,
-          });
-          setRecorded(false);
-          setPhotoUrl(URL.createObjectURL(photo));
+        // The server was never reached, so nobody knows whether this punch
+        // exists. It goes in the queue rather than being lost: the key was
+        // generated once and travels with it, so if the request did in fact
+        // land, the drain gets `replayed` back and no second punch is made
+        // (REQ-D-11). A refusal is different - the server answered - and falls
+        // through to the error state below.
+        if (error instanceof ApiError && error.code === 'NETWORK_ERROR') {
+          void queueOffline(draft);
         }
-        // Otherwise the mutation's error state renders below the action.
       },
     });
+  }
+
+  async function queueOffline(draft: PunchDraft): Promise<void> {
+    try {
+      const entry = await outbox.queue(draft);
+      setQueued(entry);
+      setPhotoUrl(URL.createObjectURL(draft.photo));
+      setQueueError(null);
+      setReason('');
+      setHalfDay(null);
+    } catch (cause) {
+      // The device refused to store it, which means the punch is genuinely
+      // gone. That is the one outcome this screen must never round off into a
+      // reassuring message.
+      setQueueError(
+        cause instanceof Error
+          ? `This punch could not be saved on the device: ${cause.message}`
+          : 'This punch could not be saved on the device.',
+      );
+    }
   }
 
   // PRD §6.4: Ctrl+A accepts. On this screen the accepted thing is the punch.
@@ -383,10 +420,36 @@ export function PunchPage() {
     return formatWindow(today.shift.windowStart, today.shift.windowEnd);
   }, [today]);
 
+  /**
+   * Rendered in every branch below, including the ones that cannot show a
+   * punch screen at all.
+   *
+   * This screen has three early returns - loading, unreachable server, and
+   * "you cannot punch here" - and the queue used to live past all of them. The
+   * consequence was exactly backwards: reload while offline and `GET /me/today`
+   * fails, so the person saw "could not reach the server" and no sign
+   * whatsoever of the punch sitting on their device. The one moment the queue
+   * matters most is the one moment it was invisible.
+   */
+  const queuePanel = (
+    <QueuePanel
+      waiting={outbox.waiting}
+      refused={outbox.refused}
+      unreadable={outbox.unreadable}
+      draining={outbox.draining}
+      lastResult={outbox.lastResult}
+      lastAttemptAt={outbox.lastAttemptAt}
+      online={online}
+      onRetry={outbox.retry}
+      onDismiss={outbox.dismiss}
+    />
+  );
+
   if (query.isPending) {
     return (
       <>
         <PageHeader description="Punch in and out. A live photo is required every time." />
+        {queuePanel}
         <PunchSkeleton />
       </>
     );
@@ -396,6 +459,7 @@ export function PunchPage() {
     return (
       <>
         <PageHeader description="Punch in and out. A live photo is required every time." />
+        {queuePanel}
         <QueryErrorAlert
           error={query.error}
           subject="today's punch status"
@@ -434,6 +498,7 @@ export function PunchPage() {
     return (
       <>
         <PageHeader description="Punch in and out. A live photo is required every time." />
+        {queuePanel}
         <Alert variant="destructive">
           <WarningCircleIcon />
           <AlertTitle>You cannot punch here</AlertTitle>
@@ -487,20 +552,29 @@ export function PunchPage() {
           </Alert>
         ) : null}
 
-        {queue.length > 0 ? (
-          <Alert>
-            <CloudSlashIcon />
-            <AlertTitle>
-              {queue.length === 1 ? '1 punch queued' : `${String(queue.length)} punches queued`}
-            </AlertTitle>
+        {queueError ? (
+          <Alert variant="destructive">
+            <WarningCircleIcon />
+            <AlertTitle>The punch was not saved anywhere</AlertTitle>
             <AlertDescription>
-              {queueError ??
-                'Waiting to reach the server. They will be sent in the order they were taken.'}
+              {queueError} The server never saw it and this device could not keep it, so it is gone.
+              Punch again, and raise a regularization if the window has closed.
             </AlertDescription>
           </Alert>
         ) : null}
 
-        {result ? (
+        {queuePanel}
+
+        {queued ? (
+          <QueuedNotice
+            entry={queued}
+            photoUrl={photoUrl}
+            onAgain={() => {
+              setQueued(null);
+              setPhotoUrl(null);
+            }}
+          />
+        ) : result ? (
           <Confirmation
             result={result}
             photoUrl={photoUrl}
