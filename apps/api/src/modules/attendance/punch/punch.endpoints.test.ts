@@ -174,7 +174,18 @@ beforeAll(async () => {
   // an IN right now is inside grace, closing hours away so an OUT right now is
   // outside its window and exercises the reason path. Clamped to the same
   // calendar day -- crossesMidnight stays false.
-  const startTime = istTime(-2);
+  //
+  // Both ends are clamped, not just the end. `istTime(-2)` wraps to the
+  // previous day between 00:00 and 00:02 IST, which produced a start of 23:5x
+  // against an end of 04:59 on a shift declaring it does not cross midnight -
+  // a two-minute window each night in which this file failed for a reason that
+  // had nothing to do with punching. Migration 0006 added
+  // shifts_schedule_ordered, which now refuses the row outright, so the
+  // latent bug became a hard failure. Comparing the two strings detects the
+  // wrap without any date arithmetic: they are same-length zero-padded clocks,
+  // so a start that sorts after "now" can only have come from wrapping.
+  const startCandidate = istTime(-2);
+  const startTime = startCandidate > istTime(0) ? '00:00:00' : startCandidate;
   const endHour = Math.min(Number(istTime(0).slice(0, 2)) + 4, 23);
   const endTime = `${String(endHour).padStart(2, '0')}:59:00`;
 

@@ -43,6 +43,41 @@
       "when": 1786535491688,
       "tag": "0005_punch_photo_pipeline",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786603000000,
+      "tag": "0006_shifts_rosters",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786604006344,
+      "tag": "0007_holidays",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786607000000,
+      "tag": "0008_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786608000000,
+      "tag": "0009_leave",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786610000000,
+      "tag": "0010_reports",
+      "breakpoints": true
     }
   ]
 }

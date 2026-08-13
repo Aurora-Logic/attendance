@@ -12,6 +12,13 @@ import { LeaveTypesPage, MyLeavePage } from '@/features/leave';
 import { PatternsPage } from '@/features/patterns/patterns-page';
 import { PunchPage } from '@/features/punch';
 import { ShiftsPage } from '@/features/shifts';
+import { AuditLogPage } from '@/features/audit';
+import { DownloadsPage } from '@/features/downloads';
+import { IntegrationsPage } from '@/features/integrations';
+import { PeriodLockPage } from '@/features/period-lock';
+import { ReportsPage } from '@/features/reports';
+import { RolesPage } from '@/features/roles';
+import { SettingsPage } from '@/features/settings';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { ProfilePage } from '@/features/profile/profile-page';
 import { ShortcutProvider } from '@/lib/keyboard/registry';
@@ -34,6 +41,13 @@ const BUILT_ROUTES = new Set([
   '/approvals',
   '/leave-types',
   '/holidays',
+  '/settings',
+  '/roles',
+  '/integrations',
+  '/audit',
+  '/period-lock',
+  '/reports',
+  '/downloads',
 ]);
 
 const queryClient = new QueryClient({
@@ -68,6 +82,14 @@ export default function App() {
               <Route path="my-attendance" element={<MyAttendancePage />} />
               <Route path="team-attendance" element={<TeamAttendancePage />} />
               <Route path="shifts" element={<ShiftsPage />} />
+
+              <Route path="settings" element={<SettingsPage />} />
+              <Route path="roles" element={<RolesPage />} />
+              <Route path="integrations" element={<IntegrationsPage />} />
+              <Route path="audit" element={<AuditLogPage />} />
+              <Route path="period-lock" element={<PeriodLockPage />} />
+              <Route path="reports" element={<ReportsPage />} />
+              <Route path="downloads" element={<DownloadsPage />} />
 
               {/* Off the sidebar on purpose: reached from the user menu, not
                   from the navigation groups the PRD fixes (§6.1). */}

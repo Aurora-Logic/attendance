@@ -26,8 +26,16 @@ import { resolvePunchSettings, type PunchSettings } from './punch-settings.js';
  * the one place that filters `org_id` by hand.
  */
 
-/** The `punches` columns plus the employee the row is about. */
-const PUNCH_COLUMNS = {
+/**
+ * The `punches` columns plus the employee the row is about.
+ *
+ * Exported, with `PunchRow` and `toPunchRecord`, so the punch audit report can
+ * page the same table without a second copy of the mapping. `composeFlags` is
+ * the reason that matters: it reassembles a verdict from three storage
+ * locations, and a report that reimplemented it would silently disagree with
+ * the feed about which punches are flagged.
+ */
+export const PUNCH_COLUMNS = {
   id: punches.id,
   employeeId: punches.employeeId,
   employeeCode: employees.employeeCode,
@@ -55,7 +63,7 @@ const PUNCH_COLUMNS = {
   flags: punches.flags,
 } as const;
 
-interface PunchRow {
+export interface PunchRow {
   id: string;
   employeeId: string;
   employeeCode: string;
@@ -116,7 +124,7 @@ const PUNCH_FLAG_ORDER: readonly PunchFlag[] = [
   'offline_sync',
 ];
 
-function toPunchRecord(row: PunchRow): PunchRecord {
+export function toPunchRecord(row: PunchRow): PunchRecord {
   return {
     id: row.id,
     employee: {

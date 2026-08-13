@@ -24,6 +24,12 @@ export const NOTIFICATION_EVENTS = {
   LEAVE_REJECTED: 'leave.rejected',
   LEAVE_CANCELLED: 'leave.cancelled',
   LEAVE_BALANCE_LOW: 'leave.balance_low',
+  /**
+   * REQ-G-11 makes this one mandatory rather than a nicety: a comp-off credit
+   * expires 30 days after it is earned, which is short enough that somebody
+   * who is not told will lose it, and the requirement says so.
+   */
+  LEAVE_COMP_OFF_EXPIRING: 'leave.comp_off_expiring',
 
   REGULARIZATION_DECIDED: 'regularization.decided',
   APPROVAL_OVERDUE: 'approval.overdue',
@@ -135,6 +141,14 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
       `You have ${text(p, 'remainingDays', '0')} day(s) of ${text(p, 'leaveType', 'leave')} left this year.`,
     path: () => '/leave',
     defaultChannels: IN_APP_ONLY,
+  },
+  'leave.comp_off_expiring': {
+    title: () => 'A comp-off credit is about to expire',
+    body: (p) =>
+      `${text(p, 'days', '1')} day(s) of comp-off earned for ${text(p, 'earnedForDate')} ` +
+      `expire on ${text(p, 'expiresOn')}, in ${text(p, 'daysRemaining')} day(s).`,
+    path: () => '/leave',
+    defaultChannels: IN_APP_AND_EMAIL,
   },
 
   'regularization.decided': {

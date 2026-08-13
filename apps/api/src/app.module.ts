@@ -23,6 +23,7 @@ import { PeopleModule } from './platform/people/people.module.js';
 import { AccessGuard } from './platform/rbac/access.guard.js';
 import { RbacModule } from './platform/rbac/rbac.module.js';
 import { RedisModule } from './platform/redis/redis.module.js';
+import { SettingsModule } from './platform/settings/settings.module.js';
 import { StorageModule } from './platform/storage/storage.module.js';
 
 /**
@@ -56,6 +57,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     AuthModule,
     OrgModule,
     PeopleModule,
+    SettingsModule,
     HealthModule,
     // The first `modules/` entry. Everything above it is the shared kernel;
     // CRM and ERP will sit beside this one and import nothing from it.

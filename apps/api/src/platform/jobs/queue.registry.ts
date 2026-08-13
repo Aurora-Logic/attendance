@@ -43,6 +43,30 @@ export interface JobPayloads {
     readonly requestedAt: string;
   };
 
+  /**
+   * REQ-J-03: "Exports run as background jobs and land in a Downloads tray."
+   *
+   * Only the id of the `export_jobs` row travels. The filters, the column
+   * selection and the requester are all on that row already, and a payload
+   * that repeated them would be a second copy able to disagree with the row
+   * the tray is showing.
+   */
+  'generate-report-export': {
+    readonly orgId: string;
+    readonly exportJobId: string;
+    /** Only for the trail; the handler works from the row and the current clock. */
+    readonly requestedAt: string;
+  };
+
+  /**
+   * REQ-G-09 / REQ-I-05: approvals nobody has touched for N days move up a
+   * level. §11 lists it on the notification queue, next to `punch-reminders`.
+   */
+  'escalate-stale-approvals': {
+    /** Only for the trail. The handler always works from the current clock. */
+    readonly requestedAt: string;
+  };
+
   /** REQ-K-02: one queued envelope per domain event, fanned out by channel. */
   'send-notification': {
     readonly orgId: string;
@@ -50,13 +74,46 @@ export interface JobPayloads {
     readonly audience: unknown;
     readonly payload: Record<string, unknown>;
   };
+
+  /**
+   * REQ-G-05. Posts the accrual for one calendar month across every
+   * organisation.
+   *
+   * `month` is optional and exists for a backfill: the scheduler never sets
+   * it, so the routine run always accrues the month that has just finished --
+   * a job retried three days late must still post March, not June.
+   */
+  'accrue-leave': {
+    readonly requestedAt: string;
+    /** `YYYY-MM`. Omitted means the month before `requestedAt`. */
+    readonly month?: string;
+  };
+
+  /**
+   * REQ-G-01's carry forward, at the leave year boundary. Runs daily and does
+   * nothing on the days that are not one: the start month is per-organisation
+   * (REQ-G-04), so no cron expression can name the date for everybody.
+   */
+  'carry-forward-leave': {
+    readonly requestedAt: string;
+  };
+
+  /** REQ-G-11: lapse expired comp-off credits, and warn before they lapse. */
+  'expire-comp-off': {
+    readonly requestedAt: string;
+  };
 }
 
 export type JobName = keyof JobPayloads;
 
 export const JOB_QUEUE: Record<JobName, QueueName> = {
   'purge-expired-files': QUEUES.MAINTENANCE,
+  'generate-report-export': QUEUES.EXPORT,
+  'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-notification': QUEUES.NOTIFICATION,
+  'accrue-leave': QUEUES.LEAVE,
+  'carry-forward-leave': QUEUES.LEAVE,
+  'expire-comp-off': QUEUES.LEAVE,
 };
 
 /**
@@ -94,4 +151,19 @@ export interface ScheduledJob {
 
 export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   { schedulerId: 'maintenance:purge-expired-files', jobName: 'purge-expired-files', pattern: '0 3 * * 0' },
+  // Daily rather than weekly: REQ-G-09's threshold is measured in days, and a
+  // weekly sweep would turn "escalate after 3 days" into "escalate after
+  // somewhere between 3 and 10". 02:00 keeps it clear of the working day.
+  { schedulerId: 'notification:escalate-stale-approvals', jobName: 'escalate-stale-approvals', pattern: '0 2 * * *' },
+  // REQ-G-05. On the 1st, for the month that has just finished. Accruing on
+  // the last day of a month instead would need a cron that can say "last day",
+  // and would pro-rate a leaver's final month before their last day had ended.
+  { schedulerId: 'leave:accrue', jobName: 'accrue-leave', pattern: '30 1 1 * *' },
+  // REQ-G-01/G-04. Daily, because the leave year start month is per
+  // organisation and the handler is the only thing that can know whose year
+  // opened today. A day that is nobody's boundary costs one settings read.
+  { schedulerId: 'leave:carry-forward', jobName: 'carry-forward-leave', pattern: '0 2 * * *' },
+  // REQ-G-11. Daily, because the warnings are at 7 and 2 days and a weekly
+  // sweep would miss the 2-day one entirely.
+  { schedulerId: 'leave:expire-comp-off', jobName: 'expire-comp-off', pattern: '30 3 * * *' },
 ];
