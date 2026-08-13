@@ -10,6 +10,7 @@ export * from './organizations.schema.js';
 export * from './people.schema.js';
 export * from './identity.schema.js';
 export * from './audit.schema.js';
+export * from './deletion.schema.js';
 export * from './notification.schema.js';
 export * from './file.schema.js';
 export * from './report.schema.js';

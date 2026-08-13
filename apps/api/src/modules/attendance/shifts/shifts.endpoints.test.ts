@@ -921,7 +921,7 @@ describe('recompute on a roster change (REQ-C-06)', () => {
       locationId: null,
       year: 2026,
       month: 1,
-      reason: 'Closed for payroll input',
+      lockReason: 'Closed for payroll input',
     });
 
     const rejected = await harness.post<ErrorBody>('/rosters', {
@@ -963,7 +963,7 @@ describe('recompute on a roster change (REQ-C-06)', () => {
       locationId: null,
       year: 2027,
       month: 6,
-      reason: 'Closed early',
+      lockReason: 'Closed early',
     });
 
     const created = await harness.post<RosterAssignment>('/rosters', {

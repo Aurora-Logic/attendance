@@ -1,26 +1,13 @@
 import { useState } from 'react';
-import {
-  LockKeyIcon,
-  LockKeyOpenIcon,
-  LockSimpleIcon,
-  WarningCircleIcon,
-} from '@phosphor-icons/react';
+import { LockKeyIcon, LockKeyOpenIcon, LockSimpleIcon } from '@phosphor-icons/react';
 import { parseISO } from 'date-fns';
 
 import { PageHeader } from '@/components/shared/page-header';
+import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   Empty,
   EmptyDescription,
@@ -28,28 +15,17 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Spinner } from '@/components/ui/spinner';
-import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { toDateParam } from '@/features/attendance/format';
 import { MonthField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
-import { ApiError } from '@/lib/api/client';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
-import {
-  MAX_UNLOCK_REASON,
-  MIN_UNLOCK_REASON,
-  isLive,
-  periodLabel,
-  type PeriodLock,
-} from './types';
+import { isLive, periodLabel, type PeriodLock } from './types';
 import { useLockPeriod, usePeriodLocks, useUnlockPeriod } from './use-period-locks';
 
 /**
@@ -60,6 +36,13 @@ import { useLockPeriod, usePeriodLocks, useUnlockPeriod } from './use-period-loc
  * and recomputes, and it is the precondition for the payroll handoff
  * (REQ-J-04), so it is the one action here that other people notice
  * immediately.
+ *
+ * **The two actions carry different permissions.** Locking needs
+ * `attendance.lock`, which HR holds. Unlocking needs `attendance.unlock`, which
+ * only Admin holds — REQ-E-09 says "unlocking requires Admin", and until this
+ * slice there was no key that could say so, only a dialog that claimed it
+ * (docs/OPEN-QUESTIONS P2-1). The Unlock control is now absent for HR, with the
+ * reason stated in its place, rather than present and then refused.
  */
 
 function printInstant(value: string | null): string {
@@ -99,6 +82,12 @@ const COLUMNS: RecordColumn<PeriodLock>[] = [
     className: 'tabular-nums',
   },
   {
+    key: 'lockReason',
+    header: 'Locked because',
+    cell: (row) => row.lockReason ?? EMPTY_VALUE,
+    secondary: true,
+  },
+  {
     key: 'unlockedAt',
     header: 'Unlocked on',
     cell: (row) => printInstant(row.unlockedAt),
@@ -106,9 +95,9 @@ const COLUMNS: RecordColumn<PeriodLock>[] = [
     secondary: true,
   },
   {
-    key: 'reason',
-    header: 'Reason',
-    cell: (row) => row.reason ?? EMPTY_VALUE,
+    key: 'unlockReason',
+    header: 'Unlocked because',
+    cell: (row) => row.unlockReason ?? EMPTY_VALUE,
     secondary: true,
   },
 ];
@@ -133,8 +122,9 @@ function ListSkeleton() {
 
 export function PeriodLockPage() {
   const canLock = usePermission(PERMISSIONS.ATTENDANCE_LOCK);
+  const canUnlock = usePermission(PERMISSIONS.ATTENDANCE_UNLOCK);
 
-  if (!canLock) {
+  if (!canLock && !canUnlock) {
     return (
       <>
         <PageHeader description="Closing a month freezes it against any further change." />
@@ -145,8 +135,9 @@ export function PeriodLockPage() {
             </EmptyMedia>
             <EmptyTitle>You cannot lock or unlock a period</EmptyTitle>
             <EmptyDescription>
-              This needs the attendance.lock permission, which HR and Admin hold. A locked month is
-              what payroll is calculated from, so the control is narrow on purpose.
+              Locking needs attendance.lock, which HR and Admin hold. Unlocking needs
+              attendance.unlock, which only Admin holds. A locked month is what payroll is
+              calculated from, so both controls are narrow on purpose.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -154,10 +145,10 @@ export function PeriodLockPage() {
     );
   }
 
-  return <PeriodLockBody />;
+  return <PeriodLockBody canLock={canLock} canUnlock={canUnlock} />;
 }
 
-function PeriodLockBody() {
+function PeriodLockBody({ canLock, canUnlock }: { canLock: boolean; canUnlock: boolean }) {
   // Last month rather than this one: locking a month that is still running is
   // almost never what somebody means, and a default that has to be corrected
   // every time is a default that will eventually not be.
@@ -171,8 +162,9 @@ function PeriodLockBody() {
 
   const query = usePeriodLocks();
   const lock = useLockPeriod();
+  const unlock = useUnlockPeriod();
 
-  const rows = query.data?.value.data ?? [];
+  const rows = query.data?.data ?? [];
   const year = period.getFullYear();
   const month = period.getMonth() + 1;
   const already = rows.find((row) => row.year === year && row.month === month && isLive(row));
@@ -188,28 +180,9 @@ function PeriodLockBody() {
     },
   });
 
-  function submitLock() {
-    lock.mutate(
-      { year, month, locationId: null },
-      {
-        onSuccess: () => {
-          toast.add({
-            type: 'success',
-            title: `${periodLabel(year, month)} locked`,
-            description: 'Nothing in this month can change until it is unlocked.',
-          });
-          setConfirming(false);
-        },
-        // No success toast on failure and no optimistic row. The dialog stays
-        // open with the error, because a month that was not locked must never
-        // look locked.
-      },
-    );
-  }
-
   return (
     <>
-      <PageHeader description="Closing a month freezes it against any further change. Both locking and unlocking are audited." />
+      <PageHeader description="Closing a month freezes it against any further change. Locking and unlocking each take a reason, and both are audited." />
 
       <div className="flex flex-col gap-4">
         {/* Toolbar row (PRD §6.2). */}
@@ -222,24 +195,29 @@ function PeriodLockBody() {
             onOpenChange={setPeriodOpen}
             hint={<ShortcutHint keys="alt+f2" className="ml-1 hidden md:inline-flex" />}
           />
-          <Button
-            disabled={already !== undefined}
-            onClick={() => {
-              lock.reset();
-              setConfirming(true);
-            }}
-          >
-            <LockSimpleIcon data-icon="inline-start" />
-            Lock {periodLabel(year, month)}
-          </Button>
-          {already !== undefined ? (
+          {canLock ? (
+            <Button
+              className="pointer-coarse:h-11"
+              disabled={already !== undefined}
+              onClick={() => {
+                lock.reset();
+                setConfirming(true);
+              }}
+            >
+              <LockSimpleIcon data-icon="inline-start" />
+              Lock {periodLabel(year, month)}
+            </Button>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              You can reopen a closed month but not close one; closing needs attendance.lock.
+            </p>
+          )}
+          {canLock && already !== undefined ? (
             <p className="text-muted-foreground text-xs">
               {periodLabel(year, month)} is already locked.
             </p>
           ) : null}
         </div>
-
-        {query.data?.sample ? <SampleDataNotice what="period lock" /> : null}
 
         {query.isPending ? <ListSkeleton /> : null}
 
@@ -287,19 +265,23 @@ function PeriodLockBody() {
               {rows.filter(isLive).map((row) => (
                 <div key={row.id} className="flex flex-wrap items-center gap-2">
                   <p className="text-muted-foreground min-w-0 flex-1 text-xs">
-                    {periodLabel(row.year, row.month)} is locked. Unlocking needs a reason and is
-                    recorded against your name.
+                    {canUnlock
+                      ? `${periodLabel(row.year, row.month)} is locked. Unlocking needs a reason and is recorded against your name.`
+                      : `${periodLabel(row.year, row.month)} is locked. Reopening it is an Admin action: it needs the attendance.unlock permission, which your account does not hold.`}
                   </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setUnlocking(row);
-                    }}
-                  >
-                    <LockKeyOpenIcon data-icon="inline-start" />
-                    Unlock {periodLabel(row.year, row.month)}
-                  </Button>
+                  {canUnlock ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        unlock.reset();
+                        setUnlocking(row);
+                      }}
+                    >
+                      <LockKeyOpenIcon data-icon="inline-start" />
+                      Unlock {periodLabel(row.year, row.month)}
+                    </Button>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -307,206 +289,89 @@ function PeriodLockBody() {
         ) : null}
       </div>
 
-      <ConfirmLockDialog
+      <ReasonDialog
         open={confirming}
-        period={periodLabel(year, month)}
+        onOpenChange={setConfirming}
+        title={`Lock ${periodLabel(year, month)}?`}
+        description="This is what the rest of the system will refuse afterwards."
+        consequences={[
+          'No punch can be recorded against a day in this month.',
+          'No leave, regularization or on-duty request can affect it.',
+          'No manual override, and the day engine will not recompute it.',
+          'Reopening it needs an Admin and a typed reason.',
+        ]}
+        prompt="Why is this month being closed?"
+        hint="Stored on the lock row and shown in the audit log."
+        confirmLabel="Lock the month"
+        pendingLabel="Locking"
+        confirmIcon={<LockSimpleIcon data-icon="inline-start" />}
         pending={lock.isPending}
         error={lock.error}
-        onCancel={() => {
-          setConfirming(false);
+        onConfirm={(reason) => {
+          lock.mutate(
+            { year, month, locationId: null, reason },
+            {
+              onSuccess: () => {
+                toast.add({
+                  type: 'success',
+                  title: `${periodLabel(year, month)} locked`,
+                  description: 'Nothing in this month can change until an Admin unlocks it.',
+                });
+                setConfirming(false);
+              },
+              // No success toast on failure and no optimistic row. The dialog
+              // stays open with the error, because a month that was not locked
+              // must never look locked.
+            },
+          );
         }}
-        onConfirm={submitLock}
       />
 
-      <UnlockDialog
-        lock={unlocking}
-        onClose={() => {
-          setUnlocking(null);
+      <ReasonDialog
+        open={unlocking !== null}
+        onOpenChange={(next) => {
+          if (!next) setUnlocking(null);
+        }}
+        title={
+          unlocking === null ? 'Unlock' : `Unlock ${periodLabel(unlocking.year, unlocking.month)}?`
+        }
+        description="The month becomes changeable again. Anything recomputed afterwards can differ from what payroll was already given."
+        consequences={
+          unlocking === null
+            ? []
+            : [
+                unlocking.lockReason === null
+                  ? 'No reason was recorded when it was closed.'
+                  : `It was closed because: ${unlocking.lockReason}`,
+                'Punches, leave, regularizations and overrides can affect it again.',
+                'The lock row is kept, so both decisions stay on the record.',
+              ]
+        }
+        prompt="Why is this being unlocked?"
+        hint="REQ-E-09 requires it. Write what a reader in six months would need."
+        confirmLabel="Unlock"
+        pendingLabel="Unlocking"
+        confirmIcon={<LockKeyOpenIcon data-icon="inline-start" />}
+        destructive
+        pending={unlock.isPending}
+        error={unlock.error}
+        onConfirm={(reason) => {
+          if (unlocking === null) return;
+          unlock.mutate(
+            { id: unlocking.id, reason },
+            {
+              onSuccess: () => {
+                toast.add({
+                  type: 'success',
+                  title: `${periodLabel(unlocking.year, unlocking.month)} unlocked`,
+                  description: 'Your reason is recorded in the audit log.',
+                });
+                setUnlocking(null);
+              },
+            },
+          );
         }}
       />
-    </>
-  );
-}
-
-function writeFailureCopy(error: unknown, verb: string): { title: string; description: string } {
-  if (error instanceof ApiError && (error.code === 'NETWORK_ERROR' || error.status === 404)) {
-    return {
-      title: `Not ${verb}: the period lock endpoint is not built yet`,
-      description:
-        'POST /attendance/locks does not exist on the server, so nothing was recorded. Nothing about this month has changed.',
-    };
-  }
-  if (error instanceof ApiError && error.code === 'FORBIDDEN') {
-    return {
-      title: `Not ${verb}`,
-      description: 'The server refused this. It needs a permission your account does not hold.',
-    };
-  }
-  return {
-    title: `Not ${verb}`,
-    description:
-      error instanceof ApiError ? error.message : 'Something went wrong on the way. Try again.',
-  };
-}
-
-function ConfirmLockDialog({
-  open,
-  period,
-  pending,
-  error,
-  onCancel,
-  onConfirm,
-}: {
-  open: boolean;
-  period: string;
-  pending: boolean;
-  error: unknown;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next: boolean) => {
-        if (!next) onCancel();
-      }}
-    >
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Lock {period}?</DialogTitle>
-          <DialogDescription>
-            This is what the rest of the system will refuse afterwards.
-          </DialogDescription>
-        </DialogHeader>
-
-        <ul className="text-muted-foreground flex list-disc flex-col gap-1 pl-5 text-sm">
-          <li>No punch can be recorded against a day in this month.</li>
-          <li>No leave, regularization or on-duty request can affect it.</li>
-          <li>No manual override, and the day engine will not recompute it.</li>
-          <li>Unlocking needs an Admin and a typed reason, and both are audited.</li>
-        </ul>
-
-        {error != null ? (
-          <Alert variant="destructive">
-            <WarningCircleIcon />
-            <AlertTitle>{writeFailureCopy(error, 'locked').title}</AlertTitle>
-            <AlertDescription>{writeFailureCopy(error, 'locked').description}</AlertDescription>
-          </Alert>
-        ) : null}
-
-        {/* Two short actions fit one row at 360px, so they stay in one row
-            rather than stacking and putting the confirm furthest from the
-            thumb. */}
-        <DialogFooter className="flex-row justify-end gap-2">
-          <Button variant="outline" className="flex-1 sm:flex-none" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button className="flex-1 sm:flex-none" disabled={pending} onClick={onConfirm}>
-            {pending ? <Spinner data-icon="inline-start" /> : <LockSimpleIcon data-icon="inline-start" />}
-            {pending ? 'Locking' : 'Lock the month'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function UnlockDialog({ lock, onClose }: { lock: PeriodLock | null; onClose: () => void }) {
-  return (
-    <Dialog
-      open={lock !== null}
-      onOpenChange={(next: boolean) => {
-        if (!next) onClose();
-      }}
-    >
-      <DialogContent className="sm:max-w-md">
-        {/* Remounted per lock, so the typed reason belongs to the month that
-            was opened rather than to whichever was opened first. */}
-        {lock ? <UnlockDialogBody key={lock.id} lock={lock} onClose={onClose} /> : null}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function UnlockDialogBody({ lock, onClose }: { lock: PeriodLock; onClose: () => void }) {
-  const [reason, setReason] = useState('');
-  const unlock = useUnlockPeriod();
-
-  const trimmed = reason.trim();
-  const tooShort = trimmed.length < MIN_UNLOCK_REASON;
-
-  function submit() {
-    if (tooShort) return;
-    unlock.mutate(
-      { id: lock.id, reason: trimmed },
-      {
-        onSuccess: () => {
-          toast.add({
-            type: 'success',
-            title: `${periodLabel(lock.year, lock.month)} unlocked`,
-            description: 'Your reason is recorded in the audit log.',
-          });
-          onClose();
-        },
-      },
-    );
-  }
-
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle>Unlock {periodLabel(lock.year, lock.month)}?</DialogTitle>
-        <DialogDescription>
-          The month becomes changeable again. Anything recomputed afterwards can differ from what
-          payroll was already given.
-        </DialogDescription>
-      </DialogHeader>
-
-      {unlock.isError ? (
-        <Alert variant="destructive">
-          <WarningCircleIcon />
-          <AlertTitle>{writeFailureCopy(unlock.error, 'unlocked').title}</AlertTitle>
-          <AlertDescription>
-            {writeFailureCopy(unlock.error, 'unlocked').description}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <Field>
-        <FieldLabel htmlFor="unlock-reason">Why is this being unlocked?</FieldLabel>
-        <Textarea
-          id="unlock-reason"
-          rows={3}
-          maxLength={MAX_UNLOCK_REASON}
-          value={reason}
-          onChange={(event) => {
-            setReason(event.target.value);
-          }}
-        />
-        <FieldDescription>
-          REQ-E-09 requires a reason. It is stored on the lock row and shown in the audit log, so
-          write what a reader in six months would need.
-        </FieldDescription>
-      </Field>
-
-      <DialogFooter className="flex-row justify-end gap-2">
-        <Button variant="outline" className="flex-1 sm:flex-none" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          variant="destructive"
-          className="flex-1 sm:flex-none"
-          disabled={tooShort || unlock.isPending}
-          onClick={submit}
-        >
-          {unlock.isPending ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <LockKeyOpenIcon data-icon="inline-start" />
-          )}
-          {unlock.isPending ? 'Unlocking' : 'Unlock'}
-        </Button>
-      </DialogFooter>
     </>
   );
 }

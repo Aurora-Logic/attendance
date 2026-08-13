@@ -22,6 +22,7 @@ import { OrgModule } from './platform/org/org.module.js';
 import { PeopleModule } from './platform/people/people.module.js';
 import { AccessGuard } from './platform/rbac/access.guard.js';
 import { RbacModule } from './platform/rbac/rbac.module.js';
+import { RecycleBinModule } from './platform/recycle-bin/recycle-bin.module.js';
 import { RedisModule } from './platform/redis/redis.module.js';
 import { SettingsModule } from './platform/settings/settings.module.js';
 import { StorageModule } from './platform/storage/storage.module.js';
@@ -51,6 +52,10 @@ import { StorageModule } from './platform/storage/storage.module.js';
     StorageModule,
     AuditModule,
     RbacModule,
+    // Before every module that registers a soft-deletable record with it.
+    // Nest resolves the graph rather than the array order, but reading it in
+    // dependency order is how a reader learns that the registry exists.
+    RecycleBinModule,
     FileModule,
     JobsModule,
     NotificationsModule,

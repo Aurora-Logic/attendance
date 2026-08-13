@@ -6,6 +6,7 @@ import { DesignationController } from './designation.controller.js';
 import { DesignationService } from './designation.service.js';
 import { LocationController } from './location.controller.js';
 import { LocationService } from './location.service.js';
+import { OrgSoftDeletes } from './org-soft-deletes.js';
 
 /**
  * The three masters an employee points at (REQ-A-01, REQ-A-02).
@@ -17,7 +18,7 @@ import { LocationService } from './location.service.js';
  */
 @Module({
   controllers: [DepartmentController, DesignationController, LocationController],
-  providers: [DepartmentService, DesignationService, LocationService],
+  providers: [DepartmentService, DesignationService, LocationService, OrgSoftDeletes],
   exports: [DepartmentService, DesignationService, LocationService],
 })
 export class OrgModule {}

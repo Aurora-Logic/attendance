@@ -4,6 +4,9 @@ import { DiscoveryModule } from '@nestjs/core';
 import { AccessGuard } from './access.guard.js';
 import { PrincipalService } from './principal.service.js';
 import { RbacAdminService } from './rbac-admin.service.js';
+import { RoleController } from './role.controller.js';
+import { RoleService } from './role.service.js';
+import { RoleSoftDeletes } from './role-soft-deletes.js';
 import { RoutePolicyAudit } from './route-policy.audit.js';
 import { ScopeService } from './scope.service.js';
 
@@ -20,7 +23,16 @@ import { ScopeService } from './scope.service.js';
 @Global()
 @Module({
   imports: [DiscoveryModule],
-  providers: [AccessGuard, PrincipalService, ScopeService, RbacAdminService, RoutePolicyAudit],
-  exports: [AccessGuard, PrincipalService, ScopeService, RbacAdminService],
+  controllers: [RoleController],
+  providers: [
+    AccessGuard,
+    PrincipalService,
+    ScopeService,
+    RbacAdminService,
+    RoleService,
+    RoleSoftDeletes,
+    RoutePolicyAudit,
+  ],
+  exports: [AccessGuard, PrincipalService, ScopeService, RbacAdminService, RoleService],
 })
 export class RbacModule {}

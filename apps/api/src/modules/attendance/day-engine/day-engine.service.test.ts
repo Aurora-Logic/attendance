@@ -557,7 +557,7 @@ describe('DayEngine against Postgres', () => {
       locationId: null,
       year: 2026,
       month: 4,
-      reason: 'Month closed for payroll input',
+      lockReason: 'Month closed for payroll input',
     });
 
     // A change that would certainly rewrite the row if it were considered.

@@ -6,9 +6,13 @@ import { LeaveModule } from './leave/leave.module.js';
 import { ReportModule } from './reports/reports.module.js';
 import { ShiftModule } from './shifts/shifts.module.js';
 
+import { AttendanceSoftDeletes } from './attendance-soft-deletes.js';
 import { DayEngineService } from './day-engine/day-engine.service.js';
 import { AttendanceDayController } from './days/attendance-day.controller.js';
 import { AttendanceDayService } from './days/attendance-day.service.js';
+import { AttendanceOverrideService } from './days/attendance-override.service.js';
+import { PeriodLockController } from './days/period-lock.controller.js';
+import { PeriodLockService } from './days/period-lock.service.js';
 import { PunchContextController, PunchController } from './punch/punch.controller.js';
 import { PunchService } from './punch/punch.service.js';
 
@@ -27,8 +31,20 @@ import { PunchService } from './punch/punch.service.js';
   // One import line per slice, added up front so five parallel builds
   // never contend for this file.
   imports: [ShiftModule, HolidayModule, ApprovalModule, LeaveModule, ReportModule],
-  controllers: [PunchController, PunchContextController, AttendanceDayController],
-  providers: [DayEngineService, PunchService, AttendanceDayService],
+  controllers: [
+    PunchController,
+    PunchContextController,
+    AttendanceDayController,
+    PeriodLockController,
+  ],
+  providers: [
+    DayEngineService,
+    PunchService,
+    AttendanceDayService,
+    AttendanceOverrideService,
+    PeriodLockService,
+    AttendanceSoftDeletes,
+  ],
   exports: [DayEngineService],
 })
 export class AttendanceModule {}

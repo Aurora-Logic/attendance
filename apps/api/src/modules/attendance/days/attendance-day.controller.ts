@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query } from '@nestjs/common';
 import {
   PERMISSIONS,
   type AttendanceDayDetail,
@@ -12,13 +12,16 @@ import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js
 import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { AttendanceDayQueryDto } from '../punch/punch.dto.js';
 import { AttendanceDayService } from './attendance-day.service.js';
+import { AttendanceOverrideService } from './attendance-override.service.js';
+import { OverrideDayDto } from './period-lock.dto.js';
 
 /**
- * `/api/v1/attendance/days` (technical design §6). REQ-E-01 … REQ-E-05.
+ * `/api/v1/attendance/days` (technical design §6). REQ-E-01 … REQ-E-05, and
+ * REQ-E-08's override, which §6 lists here as
+ * `PATCH /attendance/days/:employeeId/:date/override`.
  *
- * Read only. The override (REQ-E-08) and the period lock (REQ-E-09) that §6
- * also lists under this resource are separate slices with separate
- * permissions, and adding a write here without them would be the wrong half.
+ * The reads and the override carry different keys on purpose: `attendance.edit`
+ * is not implied by being able to see the muster.
  *
  * The three view keys are named together because they are one family: the
  * guard's job is to keep out an account holding none of them, and
@@ -48,7 +51,10 @@ function requireDate(raw: string): string {
 
 @Controller('attendance/days')
 export class AttendanceDayController {
-  constructor(private readonly days: AttendanceDayService) {}
+  constructor(
+    private readonly days: AttendanceDayService,
+    private readonly overrides: AttendanceOverrideService,
+  ) {}
 
   @Get()
   @RequirePermission(...ATTENDANCE_VIEW_KEYS)
@@ -67,5 +73,21 @@ export class AttendanceDayController {
     @Param('date') date: string,
   ): Promise<AttendanceDayDetail> {
     return this.days.findDay(principal, employeeId, requireDate(date));
+  }
+
+  /**
+   * REQ-E-08. `status: null` lifts the override and hands the day back to the
+   * engine; the reason is required either way, because withdrawing a decision
+   * needs explaining as much as making one.
+   */
+  @Patch(':employeeId/:date/override')
+  @RequirePermission(PERMISSIONS.ATTENDANCE_EDIT)
+  override(
+    @CurrentUser() principal: Principal,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('date') date: string,
+    @Body() body: OverrideDayDto,
+  ): Promise<AttendanceDayDetail> {
+    return this.overrides.override(principal, employeeId, requireDate(date), body);
   }
 }

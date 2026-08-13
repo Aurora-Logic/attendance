@@ -6,45 +6,32 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 
-import { isUnbuiltEndpoint, parseOrThrow, type Sampled } from '@/features/attendance/api';
+import { parseOrThrow } from '@/features/attendance/api';
 import { apiRequest } from '@/lib/api/client';
 
-import { periodLocksResponseSchema, type PeriodLocksResponse } from './types';
+import { periodLocksResponseSchema, type PeriodLock, type PeriodLocksResponse } from './types';
 
 /**
  * `GET/POST/DELETE /attendance/locks` (REQ-E-09).
  *
- * None of the three is deployed. The read falls back to a sample set in
- * development and says so; the two writes do not fall back and never will.
- * Locking a month is the act that freezes payroll input -- a screen that
- * reported success without a server having heard about it would be the single
- * most damaging lie this application could tell.
+ * The development sample fallback that stood here while none of the three
+ * existed is gone. Locking a month is the act that freezes payroll input, and a
+ * screen that showed invented locks would be telling somebody a month was
+ * closed when it was open — the single most damaging lie this application could
+ * tell. An unreachable endpoint is now an error state, which is the truth.
  */
 
 const LOCKS_QUERY_KEY = ['attendance', 'locks'] as const;
 
 export function usePeriodLocks(
   options: { enabled?: boolean } = {},
-): UseQueryResult<Sampled<PeriodLocksResponse>, Error> {
+): UseQueryResult<PeriodLocksResponse, Error> {
   return useQuery({
     enabled: options.enabled ?? true,
     queryKey: LOCKS_QUERY_KEY,
     queryFn: async ({ signal }) => {
-      try {
-        const body = await apiRequest<unknown>('/attendance/locks', { signal });
-        return {
-          value: parseOrThrow(periodLocksResponseSchema, body, 'period lock list'),
-          sample: false,
-        };
-      } catch (error) {
-        if (isUnbuiltEndpoint(error)) {
-          if (import.meta.env.DEV) {
-            const module = await import('./sample');
-            return { value: module.samplePeriodLocks(), sample: true };
-          }
-        }
-        throw error;
-      }
+      const body = await apiRequest<unknown>('/attendance/locks', { signal });
+      return parseOrThrow(periodLocksResponseSchema, body, 'period lock list');
     },
   });
 }
@@ -54,21 +41,13 @@ export interface LockPeriodInput {
   month: number;
   /** Null is an org-wide lock, which is the only kind while there is one location. */
   locationId: string | null;
+  reason: string;
 }
 
-export function useLockPeriod(): UseMutationResult<unknown, Error, LockPeriodInput> {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (input: LockPeriodInput) =>
-      apiRequest<unknown>('/attendance/locks', { method: 'POST', body: input }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: LOCKS_QUERY_KEY });
-      // A locked month refuses punches, leave, overrides and recomputes, so
-      // everything derived that is already on screen is now wrong.
-      void queryClient.invalidateQueries({ queryKey: ['attendance'] });
-    },
-  });
+export function useLockPeriod(): UseMutationResult<PeriodLock, Error, LockPeriodInput> {
+  return useInvalidating((input: LockPeriodInput) =>
+    apiRequest<PeriodLock>('/attendance/locks', { method: 'POST', body: input }),
+  );
 }
 
 export interface UnlockPeriodInput {
@@ -76,15 +55,30 @@ export interface UnlockPeriodInput {
   reason: string;
 }
 
-export function useUnlockPeriod(): UseMutationResult<unknown, Error, UnlockPeriodInput> {
+export function useUnlockPeriod(): UseMutationResult<PeriodLock, Error, UnlockPeriodInput> {
+  return useInvalidating((input: UnlockPeriodInput) =>
+    apiRequest<PeriodLock>(`/attendance/locks/${input.id}`, {
+      method: 'DELETE',
+      body: { reason: input.reason },
+    }),
+  );
+}
+
+/**
+ * Both writes invalidate the same two caches.
+ *
+ * `['attendance']` covers the lock list and every muster and day detail below
+ * it: a locked month refuses punches, leave, overrides and recomputes, so
+ * anything derived that is already on screen is now answering a different
+ * question from the one the server would answer.
+ */
+function useInvalidating<TInput>(
+  mutationFn: (input: TInput) => Promise<PeriodLock>,
+): UseMutationResult<PeriodLock, Error, TInput> {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: UnlockPeriodInput) =>
-      apiRequest<unknown>(`/attendance/locks/${input.id}`, {
-        method: 'DELETE',
-        body: { reason: input.reason },
-      }),
+    mutationFn,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: LOCKS_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: ['attendance'] });

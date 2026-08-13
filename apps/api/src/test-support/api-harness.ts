@@ -263,6 +263,15 @@ export class ApiHarness {
     return this.request<T>('PATCH', path, options, jar);
   }
 
+  /**
+   * `del` rather than `delete`, which is a reserved word as a bare method name
+   * in some call positions. The body is not optional in practice: every DELETE
+   * this API exposes takes a reason (technical design §6).
+   */
+  del<T = unknown>(path: string, options?: RequestOptions, jar?: CookieJar): Promise<HttpResult<T>> {
+    return this.request<T>('DELETE', path, options, jar);
+  }
+
   // -------------------------------------------------------------- fixtures
 
   /**
@@ -340,11 +349,20 @@ export class ApiHarness {
     return new Map(rows.map((row) => [row.key as PermissionKey, row.id]));
   }
 
-  async createRole(name: string, keys: readonly PermissionKey[]): Promise<string> {
+  /**
+   * `isSystem` defaults to false, which is *not* what the seed does for the
+   * four named roles. A test asserting the seeded-role protection has to opt
+   * in, or it passes because there is nothing to protect.
+   */
+  async createRole(
+    name: string,
+    keys: readonly PermissionKey[],
+    options: { isSystem?: boolean } = {},
+  ): Promise<string> {
     const catalogue = await this.ensurePermissionCatalogue();
     const inserted = await this.db
       .insert(roles)
-      .values({ orgId: this.orgId, name })
+      .values({ orgId: this.orgId, name, isSystem: options.isSystem ?? false })
       .returning({ id: roles.id });
 
     const role = inserted[0];
@@ -363,8 +381,8 @@ export class ApiHarness {
     return role.id;
   }
 
-  createSystemRole(name: SystemRoleName): Promise<string> {
-    return this.createRole(name, ROLE_PERMISSION_MATRIX[name]);
+  createSystemRole(name: SystemRoleName, options: { isSystem?: boolean } = {}): Promise<string> {
+    return this.createRole(name, ROLE_PERMISSION_MATRIX[name], options);
   }
 
   /**

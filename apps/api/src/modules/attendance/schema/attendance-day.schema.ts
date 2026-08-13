@@ -156,7 +156,15 @@ export const attendancePeriodLocks = pgTable(
     lockedAt: timestamp('locked_at', { withTimezone: true }).notNull().defaultNow(),
     unlockedBy: uuid('unlocked_by').references(() => users.id, { onDelete: 'set null' }),
     unlockedAt: timestamp('unlocked_at', { withTimezone: true }),
-    reason: text('reason'),
+    /**
+     * REQ-E-09 requires a reason for both actions, and one column cannot hold
+     * two — an unlock would overwrite the reason the month was closed for.
+     * Renamed from `reason` in migration 0011; both are enforced by NOT VALID
+     * CHECKs, so every lock and unlock from here on carries a real sentence
+     * while the rows written before the rule existed are left as they are.
+     */
+    lockReason: text('lock_reason'),
+    unlockReason: text('unlock_reason'),
     ...standardColumns(),
   },
   (t) => [

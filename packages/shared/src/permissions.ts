@@ -6,6 +6,10 @@
  * check goes through a key defined here.
  */
 
+import { z } from 'zod';
+
+import { adminReasonSchema } from './org.js';
+
 export const PERMISSIONS = {
   PUNCH_SELF: 'punch.self',
 
@@ -14,6 +18,16 @@ export const PERMISSIONS = {
   ATTENDANCE_VIEW_ALL: 'attendance.view.all',
   ATTENDANCE_EDIT: 'attendance.edit',
   ATTENDANCE_LOCK: 'attendance.lock',
+  /**
+   * REQ-E-09: "Unlocking requires Admin and a reason."
+   *
+   * Separate from `attendance.lock` because gating unlock on the lock key makes
+   * unlock exactly as available as lock, which is not what the requirement
+   * says — and nothing may branch on a role name to make up the difference
+   * (PRD §2). See docs/OPEN-QUESTIONS P2-1, which recorded that this key was
+   * the fix and that adding it changes the seed matrix.
+   */
+  ATTENDANCE_UNLOCK: 'attendance.unlock',
 
   LEAVE_APPLY_SELF: 'leave.apply.self',
   LEAVE_APPROVE_TEAM: 'leave.approve.team',
@@ -49,6 +63,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'attendance.view.all': 'View attendance for the whole organisation',
   'attendance.edit': 'Override an attendance day with a reason',
   'attendance.lock': 'Lock an attendance period',
+  'attendance.unlock': 'Unlock a locked attendance period with a reason',
   'leave.apply.self': 'Apply for own leave',
   'leave.approve.team': "Approve the team's leave",
   'leave.approve.all': 'Approve leave for anyone',
@@ -116,6 +131,9 @@ const HR_PERMISSIONS = [
 
 const ADMIN_PERMISSIONS = [
   ...HR_PERMISSIONS,
+  // REQ-E-09. Admin only, and deliberately not in `HR_PERMISSIONS`: HR closes
+  // a month, only Admin reopens one.
+  PERMISSIONS.ATTENDANCE_UNLOCK,
   PERMISSIONS.SETTINGS_MANAGE,
   PERMISSIONS.ROLES_MANAGE,
   PERMISSIONS.AUDIT_VIEW,
@@ -138,3 +156,77 @@ export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionK
  * Exported so the guard that enforces it names the same constant the seed does.
  */
 export const IRREVOCABLE_LAST_HOLDER_PERMISSION = PERMISSIONS.ROLES_MANAGE;
+
+// ---------------------------------------------------------------------------
+// REQ-B-07 write contract: `GET/POST/PATCH/DELETE /roles`
+// ---------------------------------------------------------------------------
+
+/**
+ * One role as the roles screen reads it.
+ *
+ * `memberCount` counts *active* accounts. A suspended holder cannot sign in, so
+ * counting them would tell an administrator the role is still in use by someone
+ * who can do nothing with it.
+ */
+export interface RoleSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  /**
+   * A seeded role. Editable (REQ-B-07 says Admin edits permission sets and
+   * makes no exception), but not renameable and not deletable — the seed
+   * reconciles by name, so a renamed `Admin` becomes a second `Admin` on the
+   * next run and the original silently stops being reconciled.
+   */
+  readonly isSystem: boolean;
+  readonly permissions: readonly PermissionKey[];
+  readonly memberCount: number;
+}
+
+const roleNameField = z.string().trim().min(2).max(60);
+const roleDescriptionField = z.string().trim().min(1).max(240);
+
+/**
+ * The permission set as a whole, never a delta.
+ *
+ * REQ-B-07 edits are wholesale for the same reason a reorder sends the whole
+ * order: two administrators each sending "add X" and "remove Y" against a set
+ * they both read a moment ago would compose into a set neither of them chose.
+ */
+const permissionSetField = z
+  .array(z.enum(ALL_PERMISSIONS as unknown as [PermissionKey, ...PermissionKey[]]))
+  .max(ALL_PERMISSIONS.length)
+  .transform((keys) => [...new Set(keys)]);
+
+export const createRoleSchema = z.object({
+  name: roleNameField,
+  description: roleDescriptionField.nullish(),
+  permissions: permissionSetField.default([]),
+  reason: adminReasonSchema,
+});
+
+export type CreateRoleInput = z.infer<typeof createRoleSchema>;
+
+/**
+ * Absent means unchanged, which is what makes this a PATCH. An empty
+ * `permissions` array is *not* absent — it is "this role grants nothing", and
+ * the last-holder guard in `RbacAdminService` is what stops that locking
+ * everybody out.
+ */
+export const updateRoleSchema = z
+  .object({
+    name: roleNameField,
+    description: roleDescriptionField.nullable(),
+    permissions: permissionSetField,
+  })
+  .partial()
+  .extend({ reason: adminReasonSchema })
+  .refine(
+    (value) =>
+      value.name !== undefined ||
+      value.description !== undefined ||
+      value.permissions !== undefined,
+    { message: 'Change at least one of name, description or permissions.' },
+  );
+
+export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;

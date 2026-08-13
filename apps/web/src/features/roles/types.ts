@@ -2,21 +2,25 @@ import { ALL_PERMISSIONS, PERMISSION_DESCRIPTIONS, type PermissionKey } from '@v
 import { z } from 'zod';
 
 /**
- * `GET /roles` (REQ-B-07), as this screen reads it.
+ * `GET/POST/PATCH /roles` and `DELETE /masters/role/:id` (REQ-B-07).
  *
- * The endpoint does not exist yet, so the shape here is the one the technical
- * design implies -- `roles` plus its `role_permissions` -- rather than one
- * observed from a response. When the endpoint lands, a mismatch surfaces as a
- * visible parse error rather than as blank cells.
+ * `permissions` is parsed as the `PermissionKey` union rather than as plain
+ * strings. A key the client does not know about is a contract break -- the
+ * catalogue is code, shared by both sides -- and it must surface as a visible
+ * parse error rather than as a checkbox that silently never appears.
  */
+
+const permissionKeySchema = z.enum(
+  ALL_PERMISSIONS as unknown as [PermissionKey, ...PermissionKey[]],
+);
 
 export const roleSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
-  /** Seeded roles are protected from deletion, not from edits. */
+  /** Seeded roles are protected from renaming and deletion, not from edits. */
   isSystem: z.boolean(),
-  permissions: z.array(z.string()),
+  permissions: z.array(permissionKeySchema),
   /** Active accounts holding this role. */
   memberCount: z.number().int(),
 });
@@ -79,3 +83,18 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = (() => {
     permissions,
   }));
 })();
+
+export function countAllPermissions(): number {
+  return PERMISSION_GROUPS.reduce((total, group) => total + group.permissions.length, 0);
+}
+
+/** Sorted, so two comparisons of the same set cannot differ by arrangement. */
+export function samePermissionSet(
+  left: readonly PermissionKey[],
+  right: readonly PermissionKey[],
+): boolean {
+  if (left.length !== right.length) return false;
+  const a = [...left].sort();
+  const b = [...right].sort();
+  return a.every((key, index) => key === b[index]);
+}
