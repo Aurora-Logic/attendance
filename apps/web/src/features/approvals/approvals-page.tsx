@@ -33,6 +33,7 @@ import { SampleDataNotice } from '@/features/leave/sample-data-notice';
 import { ApiError } from '@/lib/api/client';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
+import { useSessionStore } from '@/lib/session/session-store';
 import { cn } from '@/lib/utils';
 import {
   APPROVAL_STATUSES,
@@ -154,7 +155,23 @@ export function ApprovalsPage() {
   const type = isApprovalType(typeParam) ? typeParam : null;
   const status = isApprovalStatus(statusParam) ? statusParam : null;
 
-  const query = useApprovals({ page, pageSize, type, status });
+  // An approver is asking "what is waiting on me"; anyone else can only be
+  // asking about what they raised. Sending `inbox` for a plain employee would
+  // answer with an empty list that is correct and useless, and the reader
+  // would read it as the screen being broken.
+  const view = canApprove ? 'inbox' : 'raised';
+
+  // The permission set arrives from `/me` through an effect, so the first
+  // render after the session gate opens still has an empty set -- and firing
+  // then would send `view=raised` for an approver and immediately refetch.
+  // Measured in Chrome: two requests, the first of them wrong. Waiting for the
+  // store to leave `loading` costs one skeleton frame and sends one request.
+  const permissionsKnown = useSessionStore((s) => s.status) !== 'loading';
+
+  const query = useApprovals(
+    { page, pageSize, view, type, status },
+    { enabled: permissionsKnown },
+  );
   // Memoised because the selection below derives from it: a fresh `[]` on
   // every render would rebuild the selection on every keystroke elsewhere.
   const rows = useMemo(() => query.data?.data ?? [], [query.data]);
@@ -369,7 +386,13 @@ export function ApprovalsPage() {
     <>
       {sample ? <SampleDataNotice endpoint="/api/v1/approvals" /> : null}
 
-      <PageHeader description="Everything waiting on you, of every kind. Filter by type to act on a set at once." />
+      <PageHeader
+        description={
+          canApprove
+            ? 'Everything waiting on you, of every kind. Filter by type to act on a set at once.'
+            : 'Everything you have put up for approval, of every kind, and where each one has got to.'
+        }
+      />
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -528,11 +551,19 @@ export function ApprovalsPage() {
               <EmptyMedia variant="icon">
                 <TrayIcon />
               </EmptyMedia>
-              <EmptyTitle>{filtered ? 'Nothing matches these filters' : 'Nothing waiting on you'}</EmptyTitle>
+              <EmptyTitle>
+                {filtered
+                  ? 'Nothing matches these filters'
+                  : canApprove
+                    ? 'Nothing waiting on you'
+                    : 'You have not raised anything'}
+              </EmptyTitle>
               <EmptyDescription>
                 {filtered
-                  ? 'Widen the filters to see the rest of the inbox.'
-                  : 'Leave, regularizations, on-duty requests, flagged punches and device rebinds all arrive here.'}
+                  ? 'Widen the filters to see the rest of the list.'
+                  : canApprove
+                    ? 'Leave, regularizations, on-duty requests, flagged punches and device rebinds all arrive here.'
+                    : 'Leave, regularizations and on-duty requests you raise will appear here with their progress.'}
               </EmptyDescription>
             </EmptyHeader>
             {filtered ? (

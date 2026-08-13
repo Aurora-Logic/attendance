@@ -8,7 +8,7 @@ import {
 } from '@tanstack/react-query';
 import { z } from 'zod';
 
-import type { ApprovalStatus, ApprovalType, Paginated } from '@vyuha/shared';
+import type { ApprovalStatus, ApprovalType, ApprovalView, Paginated } from '@vyuha/shared';
 
 import { withDevFixture, type Sampled } from '@/features/leave/dev-fixture-fallback';
 import { paginatedSchema } from '@/features/leave/types';
@@ -16,9 +16,9 @@ import { ApiError, apiRequest } from '@/lib/api/client';
 
 import {
   approvalRequestSchema,
-  approveSchema,
-  bulkActionSchema,
-  rejectSchema,
+  approveRequestSchema,
+  bulkApprovalDecisionSchema,
+  rejectRequestSchema,
   type ApprovalRequest,
   type BulkAction,
 } from './types';
@@ -29,6 +29,10 @@ import {
  * All four verbs go through the same generic endpoints (REQ-I-01) — there is
  * no per-type approve call and there must never be one, or the four separate
  * inboxes the requirement forbids reappear one mutation at a time.
+ *
+ * Every body is parsed by the schema the server parses it with, imported from
+ * `@vyuha/shared`. A client-side copy of "a rejection needs a reason" is how
+ * the two ends come to disagree about what a valid request is.
  */
 
 const approvalListSchema: z.ZodType<Paginated<ApprovalRequest>> =
@@ -39,21 +43,40 @@ export const APPROVALS_QUERY_ROOT = ['approvals'] as const;
 export interface ApprovalListParams {
   page: number;
   pageSize: number;
+  /**
+   * Which slice of the approvals to ask for. `inbox` is what was routed to the
+   * caller; `raised` is what they raised themselves. Two questions rather than
+   * one default, because collapsing them would either hide a requester's own
+   * request or bury an approver's inbox under everything they ever asked for.
+   */
+  view: ApprovalView;
   type: ApprovalType | null;
   status: ApprovalStatus | null;
 }
 
+/**
+ * Kept out of `ApprovalListParams` deliberately: that object is the query
+ * string and it is the cache key, so folding a switch into it would make the
+ * same request cache under two keys depending on whether it was allowed to run.
+ */
+export interface ApprovalListOptions {
+  enabled?: boolean;
+}
+
 export function useApprovals(
   params: ApprovalListParams,
+  options: ApprovalListOptions = {},
 ): UseQueryResult<Sampled<Paginated<ApprovalRequest>>, Error> {
   const search = new URLSearchParams({
     page: String(params.page),
     pageSize: String(params.pageSize),
+    view: params.view,
   });
   if (params.type) search.set('type', params.type);
   if (params.status) search.set('status', params.status);
 
   return useQuery({
+    enabled: options.enabled ?? true,
     queryKey: [...APPROVALS_QUERY_ROOT, 'list', params],
     queryFn: ({ signal }) =>
       withDevFixture(
@@ -89,8 +112,8 @@ export function useDecideApproval(): UseMutationResult<void, Error, SingleDecisi
     mutationFn: async ({ id, action, reason }: SingleDecision) => {
       const body =
         action === 'REJECT'
-          ? rejectSchema.parse({ reason })
-          : approveSchema.parse(reason === undefined ? {} : { reason });
+          ? rejectRequestSchema.parse({ reason })
+          : approveRequestSchema.parse(reason === undefined ? {} : { reason });
       await apiRequest<unknown>(
         `/approvals/${id}/${action === 'REJECT' ? 'reject' : 'approve'}`,
         { method: 'POST', body },
@@ -107,7 +130,8 @@ export function useDecideApproval(): UseMutationResult<void, Error, SingleDecisi
 /**
  * REQ-I-03 bulk. One request rather than a loop of single calls: a partial
  * failure halfway through a loop leaves the inbox in a state nobody chose, and
- * the server can apply the whole set in one transaction and one audit entry.
+ * the server can apply the whole set in one call and one audit entry per
+ * request it actually moved.
  */
 export function useBulkDecision(): UseMutationResult<void, Error, BulkAction> {
   const queryClient = useQueryClient();
@@ -115,7 +139,7 @@ export function useBulkDecision(): UseMutationResult<void, Error, BulkAction> {
     mutationFn: async (input: BulkAction) => {
       await apiRequest<unknown>('/approvals/bulk', {
         method: 'POST',
-        body: bulkActionSchema.parse(input),
+        body: bulkApprovalDecisionSchema.parse(input),
       });
     },
     onSuccess: () => {
