@@ -1,5 +1,11 @@
 import { Module } from '@nestjs/common';
 
+import { ApprovalModule } from './approvals/approvals.module.js';
+import { HolidayModule } from './holidays/holidays.module.js';
+import { LeaveModule } from './leave/leave.module.js';
+import { ReportModule } from './reports/reports.module.js';
+import { ShiftModule } from './shifts/shifts.module.js';
+
 import { DayEngineService } from './day-engine/day-engine.service.js';
 import { AttendanceDayController } from './days/attendance-day.controller.js';
 import { AttendanceDayService } from './days/attendance-day.service.js';
@@ -18,6 +24,9 @@ import { PunchService } from './punch/punch.service.js';
  * may never reach back.
  */
 @Module({
+  // One import line per slice, added up front so five parallel builds
+  // never contend for this file.
+  imports: [ShiftModule, HolidayModule, ApprovalModule, LeaveModule, ReportModule],
   controllers: [PunchController, PunchContextController, AttendanceDayController],
   providers: [DayEngineService, PunchService, AttendanceDayService],
   exports: [DayEngineService],
