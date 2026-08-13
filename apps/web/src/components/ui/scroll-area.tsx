@@ -17,7 +17,17 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+        // max-h-[inherit] is what makes `<ScrollArea className="max-h-80">`
+        // mean anything. `size-full` is height:100%, and a percentage height
+        // resolves against the parent's height -- which is auto here, because
+        // the root was given a max-height and not a height. The percentage
+        // therefore resolved to auto, the viewport grew to its content, and the
+        // content escaped the root instead of scrolling inside it: the column
+        // chooser rendered seventeen checkboxes straight out of the bottom of
+        // its own popover. Inheriting the max-height gives the viewport a
+        // ceiling to scroll against, and inherits `none` when the caller set no
+        // ceiling, so a ScrollArea sized by its parent is unaffected.
+        className="size-full max-h-[inherit] rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
