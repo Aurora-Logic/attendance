@@ -75,7 +75,7 @@
        and a sidebar row are all <button>, and none of them carries its own
        expansion. Only the Button component and the tab trigger are excluded,
        because those two do. */
-    button:not([data-slot='button'], [role='tab']),
+    button:not([data-slot='button'], [data-slot='toggle'], [data-slot='toggle-group-item'], [role='tab']),
     [role='button']:not([data-slot='button']),
     [role='menuitem'],
     [role='menuitemradio'],
