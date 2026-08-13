@@ -41,8 +41,15 @@ function YesNo({ value }: { value: boolean }) {
 }
 
 /** Zero means "not allowed" for both caps, and reads better said than shown. */
-function DaysOrNone({ value }: { value: number }) {
-  return value > 0 ? <span className="tabular-nums">{value}</span> : <span className="text-muted-foreground">None</span>;
+/**
+ * Null means the rule does not apply -- the type carries nothing forward, or
+ * carries everything. Zero means it applies and the answer is none, which is a
+ * different fact and reads differently.
+ */
+function DaysOrNone({ value, unlimited }: { value: number | null; unlimited?: boolean }) {
+  if (unlimited === true) return <span className="text-muted-foreground">Unlimited</span>;
+  if (value === null || value <= 0) return <span className="text-muted-foreground">None</span>;
+  return <span className="tabular-nums">{value}</span>;
 }
 
 const COLUMNS: RecordColumn<LeaveTypePolicy>[] = [
@@ -56,7 +63,7 @@ const COLUMNS: RecordColumn<LeaveTypePolicy>[] = [
     header: 'Code',
     cell: (row) => <span className="tabular-nums">{row.code}</span>,
   },
-  { key: 'paid', header: 'Paid', cell: (row) => <YesNo value={row.paid} /> },
+  { key: 'paid', header: 'Paid', cell: (row) => <YesNo value={row.isPaid} /> },
   {
     key: 'accrual',
     header: 'Accrual',
@@ -72,7 +79,12 @@ const COLUMNS: RecordColumn<LeaveTypePolicy>[] = [
   {
     key: 'carry',
     header: 'Carry-forward cap',
-    cell: (row) => <DaysOrNone value={row.carryForwardCap} />,
+    cell: (row) => (
+      <DaysOrNone
+        value={row.carryForwardAllowed ? row.carryForwardCap : null}
+        unlimited={row.carryForwardAllowed && row.carryForwardCap === null}
+      />
+    ),
     numeric: true,
   },
   {
@@ -88,11 +100,11 @@ const COLUMNS: RecordColumn<LeaveTypePolicy>[] = [
     numeric: true,
     secondary: true,
   },
-  { key: 'halfDay', header: 'Half day', cell: (row) => <YesNo value={row.halfDayAllowed} /> },
+  { key: 'halfDay', header: 'Half day', cell: (row) => <YesNo value={row.allowsHalfDay} /> },
   {
     key: 'encashable',
     header: 'Encashable',
-    cell: (row) => <YesNo value={row.encashable} />,
+    cell: (row) => <YesNo value={row.isEncashable} />,
     secondary: true,
   },
 ];
@@ -237,8 +249,8 @@ export function LeaveTypesPage() {
           mobilePrimary={(row) => row.name}
           mobileStatus={(row) => <Badge variant="outline">{row.code}</Badge>}
           mobileSupporting={(row) =>
-            `${row.paid ? 'Paid' : 'Unpaid'} · ${String(row.annualEntitlement)} days a year · ${
-              row.halfDayAllowed ? 'half days allowed' : 'full days only'
+            `${row.isPaid ? 'Paid' : 'Unpaid'} · ${String(row.annualEntitlement)} days a year · ${
+              row.allowsHalfDay ? 'half days allowed' : 'full days only'
             }`
           }
         />

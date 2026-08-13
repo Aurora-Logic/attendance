@@ -65,28 +65,28 @@ interface LeaveTypeSheetProps {
 interface Draft {
   name: string;
   code: string;
-  paid: boolean;
+  isPaid: boolean;
   accrualMethod: LeaveAccrualMethod;
   annualEntitlement: string;
   carryForwardCap: string;
   negativeBalanceLimit: string;
   noticeDays: string;
-  halfDayAllowed: boolean;
-  encashable: boolean;
+  allowsHalfDay: boolean;
+  isEncashable: boolean;
   countsSandwichDays: boolean;
 }
 
 const EMPTY_DRAFT: Draft = {
   name: '',
   code: '',
-  paid: true,
+  isPaid: true,
   accrualMethod: 'MONTHLY',
   annualEntitlement: '0',
   carryForwardCap: '0',
   negativeBalanceLimit: '0',
   noticeDays: '0',
-  halfDayAllowed: true,
-  encashable: false,
+  allowsHalfDay: true,
+  isEncashable: false,
   countsSandwichDays: false,
 };
 
@@ -95,14 +95,18 @@ function draftFrom(policy: LeaveTypePolicy | null): Draft {
   return {
     name: policy.name,
     code: policy.code,
-    paid: policy.paid,
+    isPaid: policy.isPaid,
     accrualMethod: policy.accrualMethod,
     annualEntitlement: String(policy.annualEntitlement),
-    carryForwardCap: String(policy.carryForwardCap),
+    // The contract carries "allowed" and "cap" separately, so it can express
+    // an uncapped carry forward. This field cannot, and shows such a type as
+    // 0 rather than pretending otherwise -- worth a control of its own the
+    // day an organisation asks for one.
+    carryForwardCap: String(policy.carryForwardAllowed ? (policy.carryForwardCap ?? 0) : 0),
     negativeBalanceLimit: String(policy.negativeBalanceLimit),
     noticeDays: String(policy.noticeDays),
-    halfDayAllowed: policy.halfDayAllowed,
-    encashable: policy.encashable,
+    allowsHalfDay: policy.allowsHalfDay,
+    isEncashable: policy.isEncashable,
     countsSandwichDays: policy.countsSandwichDays,
   };
 }
@@ -192,20 +196,34 @@ function LeaveTypeForm({
     setAttempted(true);
     if (!parsed.success) return;
 
+    // A cap of zero means the type carries nothing forward, which the contract
+    // spells as `carryForwardAllowed: false` -- and it refuses a cap on a type
+    // that cannot carry, so the two have to move together.
+    const cap = Number(parsed.data.carryForwardCap);
+
     save.mutate(
       {
         id: editing?.id ?? null,
         name: parsed.data.name,
         code: parsed.data.code.toUpperCase(),
-        paid: draft.paid,
+        isPaid: draft.isPaid,
         accrualMethod: parsed.data.accrualMethod,
         annualEntitlement: Number(parsed.data.annualEntitlement),
-        carryForwardCap: Number(parsed.data.carryForwardCap),
+        carryForwardAllowed: cap > 0,
+        carryForwardCap: cap > 0 ? cap : null,
         negativeBalanceLimit: Number(parsed.data.negativeBalanceLimit),
         noticeDays: Number(parsed.data.noticeDays),
-        halfDayAllowed: draft.halfDayAllowed,
-        encashable: draft.encashable,
+        allowsHalfDay: draft.allowsHalfDay,
+        isEncashable: draft.isEncashable,
         countsSandwichDays: draft.countsSandwichDays,
+        // Not on this form yet; the contract defaults them and a PATCH that
+        // omitted them would leave whatever is already stored alone.
+        minDays: editing?.minDays ?? null,
+        maxDays: editing?.maxDays ?? null,
+        attachmentRequiredAfterDays: editing?.attachmentRequiredAfterDays ?? null,
+        requiresTwoStepApproval: editing?.requiresTwoStepApproval ?? false,
+        applicableEmploymentTypes: [...(editing?.applicableEmploymentTypes ?? [])],
+        isActive: editing?.isActive ?? true,
       },
       {
         onSuccess: () => {
@@ -398,18 +416,18 @@ function LeaveTypeForm({
                         id="lt-paid"
                         label="Paid leave"
                         description="Unpaid types still record attendance; no amount is held here."
-                        checked={draft.paid}
+                        checked={draft.isPaid}
                         onCheckedChange={(value) => {
-                          set('paid', value);
+                          set('isPaid', value);
                         }}
                       />
                       <SwitchRow
                         id="lt-half"
                         label="Half day allowed"
                         description="Lets an application take half of a boundary day."
-                        checked={draft.halfDayAllowed}
+                        checked={draft.allowsHalfDay}
                         onCheckedChange={(value) => {
-                          set('halfDayAllowed', value);
+                          set('allowsHalfDay', value);
                         }}
                       />
                       <SwitchRow
@@ -425,9 +443,9 @@ function LeaveTypeForm({
                         id="lt-encashable"
                         label="Encashable"
                         description="Informational only. Encashment is calculated in payroll, never here."
-                        checked={draft.encashable}
+                        checked={draft.isEncashable}
                         onCheckedChange={(value) => {
-                          set('encashable', value);
+                          set('isEncashable', value);
                         }}
                       />
                     </div>

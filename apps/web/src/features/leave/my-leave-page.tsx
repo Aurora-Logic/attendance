@@ -1,10 +1,22 @@
-import { TreePalmIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { useState } from 'react';
+import { TreePalmIcon, WarningCircleIcon, XCircleIcon } from '@phosphor-icons/react';
 import { useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,6 +37,8 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
+import { toast } from '@/components/ui/toast';
 import { ApiError } from '@/lib/api/client';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -37,7 +51,7 @@ import {
   type ApprovalStatus,
 } from '@vyuha/shared';
 
-import { apiErrorCopy, type ErrorCopy } from './api-error-copy';
+import { actionErrorCopy, apiErrorCopy, type ErrorCopy } from './api-error-copy';
 import { SampleDataNotice } from './sample-data-notice';
 import { formatDays } from './leave-days';
 import { LeaveApplicationForm } from './leave-application-form';
@@ -47,7 +61,7 @@ import {
   type LeaveBalance,
   type LeaveRequest,
 } from './types';
-import { useLeaveBalances, useLeaveRequests, useLeaveTypes } from './use-leave';
+import { useCancelLeave, useLeaveBalances, useLeaveRequests, useLeaveTypes } from './use-leave';
 
 /**
  * REQ-G-03, G-06, G-08 / PRD §5 screen 5: balances, apply, history.
@@ -103,13 +117,13 @@ const HISTORY_COLUMNS: RecordColumn<LeaveRequest>[] = [
   {
     key: 'reason',
     header: 'Reason',
-    cell: (row) => <span className="line-clamp-1">{row.reason}</span>,
+    cell: (row) => <span className="line-clamp-1">{row.reason ?? '—'}</span>,
     secondary: true,
   },
   {
-    key: 'approver',
-    header: 'Approver',
-    cell: (row) => row.approver?.name ?? '—',
+    key: 'decidedBy',
+    header: 'Decided by',
+    cell: (row) => row.decidedBy?.name ?? '—',
     secondary: true,
   },
   {
@@ -126,7 +140,81 @@ const HISTORY_COLUMNS: RecordColumn<LeaveRequest>[] = [
       <Badge variant={LEAVE_STATUS_VARIANT[row.status]}>{LEAVE_STATUS_LABELS[row.status]}</Badge>
     ),
   },
+  {
+    key: 'cancel',
+    header: '',
+    cell: (row) => <CancelLeaveAction request={row} />,
+  },
 ];
+
+/**
+ * REQ-G-10: "before the start date by the employee directly; on or after the
+ * start date via approval."
+ *
+ * The button is only offered for the half the employee can do themselves.
+ * Leave that has started is not shown as disabled with a tooltip -- it is not
+ * this person's action at all, and a control that is always dimmed teaches
+ * people to stop reading it. The server enforces the same rule regardless.
+ */
+function CancelLeaveAction({ request }: { request: LeaveRequest }) {
+  const [open, setOpen] = useState(false);
+  const cancel = useCancelLeave();
+
+  const startsInTheFuture = request.fromDate > new Date().toISOString().slice(0, 10);
+  const cancellable =
+    startsInTheFuture && (request.status === 'PENDING' || request.status === 'APPROVED');
+  if (!cancellable) return null;
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger
+        render={
+          <Button variant="ghost" size="sm" className="pointer-coarse:min-h-11">
+            <XCircleIcon data-icon="inline-start" />
+            Cancel
+          </Button>
+        }
+      />
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Cancel this leave?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {request.leaveType.name} from {formatDate(request.fromDate)} to{' '}
+            {formatDate(request.toDate)}, {formatDays(request.totalDays)}.
+            {request.status === 'APPROVED'
+              ? ' The days go back onto the balance.'
+              : ' It has not been decided yet, so no balance moves.'}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep it</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={cancel.isPending}
+            onClick={() => {
+              cancel.mutate(
+                { id: request.id, reason: null },
+                {
+                  onSuccess: () => {
+                    setOpen(false);
+                    toast.add({ type: 'success', title: 'Leave cancelled' });
+                  },
+                  onError: (error) => {
+                    const copy = actionErrorCopy(error, 'Cancel leave');
+                    toast.add({ type: 'error', title: copy.title, description: copy.description });
+                  },
+                },
+              );
+            }}
+          >
+            {cancel.isPending ? <Spinner data-icon="inline-start" /> : null}
+            Cancel the leave
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
 
 function LoadFailure({ copy, error, onRetry }: { copy: ErrorCopy; error: unknown; onRetry: () => void }) {
   return (

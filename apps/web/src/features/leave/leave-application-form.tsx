@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { PaperPlaneTiltIcon, WarningCircleIcon } from '@phosphor-icons/react';
-import { differenceInCalendarDays, startOfToday } from 'date-fns';
 
 import { Form } from '@/components/shared/form';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -21,18 +20,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
-import { useHolidayCalendars } from '@/features/holidays/use-holidays';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { cn } from '@/lib/utils';
+import { LEAVE_PREVIEW_BLOCKER_LABELS } from '@vyuha/shared';
 
-import { actionErrorCopy } from './api-error-copy';
+import { actionErrorCopy, apiErrorCopy } from './api-error-copy';
 import { CheckboxRow } from './control-row';
 import { DateField } from './date-field';
-import { countLeaveDays, DEFAULT_WEEKLY_OFF_DAYS, formatDays, toIsoDate } from './leave-days';
-import { useApplyForLeave } from './use-leave';
+import { formatDays, toIsoDate } from './leave-days';
+import { useApplyForLeave, usePreviewLeave } from './use-leave';
 import type { LeaveBalance, LeaveDayPortion, LeaveTypePolicy } from './types';
 
 /**
@@ -67,7 +67,6 @@ export function LeaveApplicationForm({
   balances,
   canApply,
 }: LeaveApplicationFormProps) {
-  const today = startOfToday();
 
   const [leaveTypeId, setLeaveTypeId] = useState<string | null>(null);
   const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
@@ -83,68 +82,87 @@ export function LeaveApplicationForm({
   const selectedType = leaveTypes.find((type) => type.id === leaveTypeId) ?? null;
   const balance = balances.find((row) => row.leaveType.id === leaveTypeId) ?? null;
 
-  // A range can cross a calendar year (28 December to 3 January), and the
-  // holidays that matter then live in two calendars. Two calls with the same
-  // year resolve to one request — React Query keys on the year.
-  const fromYear = (fromDate ?? today).getFullYear();
-  const toYear = (toDate ?? fromDate ?? today).getFullYear();
-  const fromYearCalendars = useHolidayCalendars(fromYear);
-  const toYearCalendars = useHolidayCalendars(toYear);
-
-  /**
-   * REQ-H-02 gives each employee a calendar through their location, and there
-   * is no endpoint yet that says which one is theirs — so the first calendar
-   * is used and named on the screen. Naming it is the point: an assumption a
-   * reader can see is one they can correct, and the count below prints how
-   * many days it removed.
-   */
-  const calendar = fromYearCalendars.data?.data[0] ?? null;
-  const holidays = useMemo(() => {
-    const dates = new Set<string>();
-    for (const list of [fromYearCalendars.data?.data ?? [], toYearCalendars.data?.data ?? []]) {
-      const first = list[0];
-      if (!first) continue;
-      for (const holiday of first.holidays) dates.add(holiday.date);
-    }
-    return dates;
-  }, [fromYearCalendars.data, toYearCalendars.data]);
-
   const singleDay =
     fromDate !== undefined && toDate !== undefined && toIsoDate(fromDate) === toIsoDate(toDate);
-  const halfDayAllowed = selectedType?.halfDayAllowed ?? false;
+  const halfDayAllowed = selectedType?.allowsHalfDay ?? false;
 
-  const count =
-    fromDate && toDate
-      ? countLeaveDays({
-          from: fromDate,
-          to: toDate,
-          halfDayStart: halfDayAllowed && halfDayStart,
-          halfDayEnd: halfDayAllowed && (singleDay ? halfDayStart : halfDayEnd),
-          holidays,
-          weeklyOffDays: DEFAULT_WEEKLY_OFF_DAYS,
-          countsSandwichDays: selectedType?.countsSandwichDays ?? false,
-        })
+  /**
+   * A half day at the start of a range means the leave begins after lunch, so
+   * that day's second half is the part consumed; a half day at the end means
+   * the return is after lunch, so the first half is. On a single-day
+   * application the two collapse into one choice, and first half is the one
+   * people mean by "half day" far more often.
+   *
+   * Computed here rather than in `submit` because the preview has to ask for
+   * exactly the portions the application will send -- otherwise the number on
+   * screen is for a slightly different application than the one submitted.
+   */
+  const fromPortion: LeaveDayPortion =
+    halfDayAllowed && halfDayStart ? (singleDay ? 'FIRST_HALF' : 'SECOND_HALF') : 'FULL';
+  const toPortion: LeaveDayPortion = singleDay
+    ? fromPortion
+    : halfDayAllowed && halfDayEnd
+      ? 'FIRST_HALF'
+      : 'FULL';
+
+  /**
+   * REQ-G-06's "computed working days consumed and the balance before/after".
+   *
+   * Asked of the server, not worked out here. The employee's weekly-off
+   * pattern, their holiday calendar, the sandwich rule on the type and the
+   * balance behind it all live there, and `GET /leave/preview` runs the same
+   * evaluation the application will -- so this number is the number that gets
+   * deducted rather than an estimate the submission contradicts.
+   *
+   * Null while the form is incomplete, so a half-filled form asks nothing.
+   */
+  const previewParams =
+    leaveTypeId !== null && fromDate !== undefined && toDate !== undefined &&
+    toDate.getTime() >= fromDate.getTime()
+      ? {
+          leaveTypeId,
+          fromDate: toIsoDate(fromDate),
+          toDate: toIsoDate(toDate),
+          fromPortion,
+          toPortion,
+        }
       : null;
 
-  const balanceBefore = balance?.closing ?? null;
-  const balanceAfter =
-    balanceBefore !== null && count !== null ? balanceBefore - count.totalDays : null;
+  const preview = usePreviewLeave(previewParams);
+  const count = preview.data ?? null;
+
+  const balanceBefore = count?.balanceBefore ?? balance?.closing ?? null;
+  const balanceAfter = count?.balanceAfter ?? null;
 
   // REQ-G-08: a negative balance is allowed up to the per-type limit and
   // rejected beyond it. Zero on the type means not allowed at all.
-  const negativeLimit = selectedType?.negativeBalanceLimit ?? 0;
+  const negativeLimit = count?.negativeBalanceLimit ?? selectedType?.negativeBalanceLimit ?? 0;
   const overdrawn = balanceAfter !== null && balanceAfter < 0;
-  const beyondLimit = balanceAfter !== null && -balanceAfter > negativeLimit;
+  const blockers = count?.blockers ?? [];
+  const beyondLimit =
+    blockers.includes('NEGATIVE_LIMIT_EXCEEDED') || blockers.includes('INSUFFICIENT_BALANCE');
 
-  // REQ-G-07 asks the server to enforce the notice period. This is the same
-  // rule stated early, as a warning rather than a block: an application for
-  // leave that already started is a normal thing to file (illness), and this
-  // screen is not the place to decide which of those HR will accept.
-  const noticeShortfall =
-    selectedType && fromDate
-      ? selectedType.noticeDays - differenceInCalendarDays(fromDate, today)
-      : 0;
-  const noticeShort = selectedType !== null && fromDate !== undefined && noticeShortfall > 0;
+  // REQ-G-07 asks the server to enforce the notice period, and it does. This
+  // states the same rule early as a warning rather than a block: an
+  // application for leave that already started is a normal thing to file
+  // (illness), and this screen is not the place to decide which of those HR
+  // will accept.
+  const noticeShort = blockers.includes('NOTICE_PERIOD');
+
+  /**
+   * Blockers the summary shows as warnings rather than as a refusal to submit.
+   *
+   * The rest are stated once, next to the button, and the server refuses them
+   * anyway -- so a form that also refused them would be a second copy of a
+   * policy that is allowed to change without this file being redeployed.
+   */
+  const otherBlockers = blockers.filter(
+    (blocker) =>
+      blocker !== 'NEGATIVE_LIMIT_EXCEEDED' &&
+      blocker !== 'INSUFFICIENT_BALANCE' &&
+      blocker !== 'NOTICE_PERIOD' &&
+      blocker !== 'NO_WORKING_DAYS',
+  );
 
   const errors: FormErrors = {};
   if (leaveTypeId === null) errors.leaveType = 'Choose a leave type.';
@@ -154,8 +172,8 @@ export function LeaveApplicationForm({
     errors.toDate = 'The last day cannot be before the first day.';
   }
   if (reason.trim().length === 0) errors.reason = 'A reason is required.';
-  if (count !== null && count.totalDays === 0 && !errors.toDate) {
-    errors.toDate = 'Every day in this range is a holiday or a weekly off, so nothing is consumed.';
+  if (blockers.includes('NO_WORKING_DAYS') && !errors.toDate) {
+    errors.toDate = LEAVE_PREVIEW_BLOCKER_LABELS.NO_WORKING_DAYS;
   }
   if (beyondLimit) {
     errors.balance =
@@ -164,7 +182,9 @@ export function LeaveApplicationForm({
         : `This type allows a negative balance of up to ${formatDays(negativeLimit)}.`;
   }
 
-  const valid = Object.keys(errors).length === 0;
+  // The preview is what says whether these dates are allowed, so submitting
+  // before it answers would be submitting blind.
+  const valid = Object.keys(errors).length === 0 && count !== null;
   const apply = useApplyForLeave();
 
   function reset() {
@@ -180,22 +200,6 @@ export function LeaveApplicationForm({
   function submit() {
     setAttempted(true);
     if (!valid || !fromDate || !toDate || leaveTypeId === null) return;
-
-    // A half day at the start of a range means the leave begins after lunch,
-    // so that day's second half is the part consumed; a half day at the end
-    // means the return is after lunch, so the first half is consumed. On a
-    // single-day application the two collapse into one choice, and first half
-    // is the one people mean by "half day" far more often.
-    const fromPortion: LeaveDayPortion = halfDayAllowed && halfDayStart
-      ? singleDay
-        ? 'FIRST_HALF'
-        : 'SECOND_HALF'
-      : 'FULL';
-    const toPortion: LeaveDayPortion = singleDay
-      ? fromPortion
-      : halfDayAllowed && halfDayEnd
-        ? 'FIRST_HALF'
-        : 'FULL';
 
     apply.mutate(
       {
@@ -265,7 +269,7 @@ export function LeaveApplicationForm({
               // A type that does not allow half days must not carry one over
               // from the previous selection into a hidden part of the payload.
               const nextType = leaveTypes.find((type) => type.id === next);
-              if (!nextType?.halfDayAllowed) {
+              if (!nextType?.allowsHalfDay) {
                 setHalfDayStart(false);
                 setHalfDayEnd(false);
               }
@@ -294,11 +298,11 @@ export function LeaveApplicationForm({
           </Select>
           {selectedType ? (
             <FieldDescription>
-              {selectedType.paid ? 'Paid' : 'Unpaid'}
+              {selectedType.isPaid ? 'Paid' : 'Unpaid'}
               {selectedType.noticeDays > 0
                 ? ` · ${String(selectedType.noticeDays)} days' notice`
                 : ' · no notice required'}
-              {selectedType.halfDayAllowed ? ' · half days allowed' : ' · full days only'}
+              {selectedType.allowsHalfDay ? ' · half days allowed' : ' · full days only'}
             </FieldDescription>
           ) : null}
           {attempted ? <FieldError>{errors.leaveType}</FieldError> : null}
@@ -412,102 +416,152 @@ export function LeaveApplicationForm({
       </FieldGroup>
 
       {/* The summary sits directly on the page surface with one border, like
-          every other content surface here — no card, and no card inside one. */}
-      <dl
-        id={summaryId}
-        aria-live="polite"
-        className="grid grid-cols-2 gap-x-6 gap-y-3 border p-3 sm:grid-cols-4"
-      >
-        <div className="flex flex-col gap-0.5">
-          <dt className="text-muted-foreground text-xs">Days consumed</dt>
-          <dd className="text-sm font-medium tabular-nums">
-            {count ? formatDays(count.totalDays) : '—'}
-          </dd>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <dt className="text-muted-foreground text-xs">Balance before</dt>
-          <dd className="text-sm font-medium tabular-nums">
-            {balanceBefore === null ? '—' : formatDays(balanceBefore)}
-          </dd>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <dt className="text-muted-foreground text-xs">Balance after</dt>
-          {/* REQ-G-08: a negative balance is shown in red. Theme token, not a
-              raw colour, so it follows the theme and dark mode. */}
-          <dd
-            className={cn(
-              'text-sm font-medium tabular-nums',
-              overdrawn && 'text-destructive',
-            )}
-          >
-            {balanceAfter === null ? '—' : formatDays(balanceAfter)}
-          </dd>
-        </div>
-        <div className="col-span-2 flex flex-col gap-0.5 sm:col-span-1">
-          <dt className="text-muted-foreground text-xs">Range</dt>
-          <dd className="text-sm font-medium tabular-nums">
-            {count ? `${String(count.calendarDays)} calendar days` : '—'}
-          </dd>
-        </div>
-
-        {count && (count.holidaysSkipped > 0 || count.weeklyOffsSkipped > 0) ? (
-          <div className="col-span-2 sm:col-span-4">
-            <p className="text-muted-foreground text-xs">
-              Not consumed:{' '}
-              {[
-                count.holidaysSkipped > 0
-                  ? `${String(count.holidaysSkipped)} holiday${count.holidaysSkipped === 1 ? '' : 's'}${calendar ? ` from the ${calendar.name} calendar` : ''}`
-                  : null,
-                count.weeklyOffsSkipped > 0
-                  ? `${String(count.weeklyOffsSkipped)} weekly off${count.weeklyOffsSkipped === 1 ? '' : 's'}`
-                  : null,
-              ]
-                .filter((part) => part !== null)
-                .join(' and ')}
-              .
-            </p>
-          </div>
-        ) : null}
-
-        {count && count.holidaysSkipped === 0 && count.weeklyOffsSkipped === 0 && selectedType?.countsSandwichDays ? (
-          <div className="col-span-2 sm:col-span-4">
-            <p className="text-muted-foreground text-xs">
-              {selectedType.name} counts holidays and weekly offs inside the range.
-            </p>
-          </div>
-        ) : null}
-
-        {overdrawn ? (
-          <div className="col-span-2 sm:col-span-4">
-            <p
-              className={cn(
-                'flex items-start gap-2 text-xs',
-                beyondLimit ? 'text-destructive' : 'text-muted-foreground',
-              )}
+          every other content surface here -- no card, and no card inside one. */}
+      {preview.isError ? (
+        <div
+          role="alert"
+          className="border-destructive/50 text-destructive flex flex-col gap-1 border p-3"
+        >
+          <p className="text-sm font-medium">
+            {apiErrorCopy(preview.error, { subject: 'leave preview', permission: 'leave.apply.self' }).title}
+          </p>
+          <p className="text-xs">
+            {apiErrorCopy(preview.error, { subject: 'leave preview', permission: 'leave.apply.self' }).description}
+          </p>
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-1"
+              onClick={() => {
+                void preview.refetch();
+              }}
             >
-              <WarningCircleIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-              <span>
-                {beyondLimit
-                  ? errors.balance
-                  : `This takes the balance negative. ${selectedType?.name ?? 'This type'} allows up to ${formatDays(negativeLimit)} negative, and it becomes a recovery item at exit.`}
-              </span>
-            </p>
+              Try again
+            </Button>
           </div>
-        ) : null}
+        </div>
+      ) : previewParams !== null && count === null ? (
+        <div
+          role="status"
+          aria-busy
+          aria-label="Working out how many days this consumes"
+          className="grid grid-cols-2 gap-x-6 gap-y-3 border p-3 sm:grid-cols-4"
+        >
+          {['days', 'before', 'after', 'range'].map((key) => (
+            <div key={key} className="flex flex-col gap-1.5">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-4 w-14" />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <dl
+          id={summaryId}
+          aria-live="polite"
+          aria-busy={preview.isFetching || undefined}
+          className="grid grid-cols-2 gap-x-6 gap-y-3 border p-3 sm:grid-cols-4"
+        >
+          <div className="flex flex-col gap-0.5">
+            <dt className="text-muted-foreground text-xs">Days consumed</dt>
+            <dd className="text-sm font-medium tabular-nums">
+              {count ? formatDays(count.totalDays) : '\u2014'}
+            </dd>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <dt className="text-muted-foreground text-xs">Balance before</dt>
+            <dd className="text-sm font-medium tabular-nums">
+              {balanceBefore === null ? '\u2014' : formatDays(balanceBefore)}
+            </dd>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <dt className="text-muted-foreground text-xs">Balance after</dt>
+            {/* REQ-G-08: a negative balance is shown in red. Theme token, not a
+                raw colour, so it follows the theme and dark mode. */}
+            <dd className={cn('text-sm font-medium tabular-nums', overdrawn && 'text-destructive')}>
+              {balanceAfter === null ? '\u2014' : formatDays(balanceAfter)}
+            </dd>
+          </div>
+          <div className="col-span-2 flex flex-col gap-0.5 sm:col-span-1">
+            <dt className="text-muted-foreground text-xs">Range</dt>
+            <dd className="text-sm font-medium tabular-nums">
+              {count ? `${String(count.calendarDays)} calendar days` : '\u2014'}
+            </dd>
+          </div>
 
-        {noticeShort ? (
-          <div className="col-span-2 sm:col-span-4">
-            <p className="text-muted-foreground flex items-start gap-2 text-xs">
-              <WarningCircleIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-              <span>
-                {selectedType?.name} asks for {formatDays(selectedType?.noticeDays ?? 0)} of notice.
-                This application is {formatDays(noticeShortfall)} short, so an approver may return
-                it.
-              </span>
-            </p>
-          </div>
-        ) : null}
-      </dl>
+          {count && (count.holidaysSkipped > 0 || count.weeklyOffsSkipped > 0) ? (
+            <div className="col-span-2 sm:col-span-4">
+              <p className="text-muted-foreground text-xs">
+                Not consumed:{' '}
+                {[
+                  count.holidaysSkipped > 0
+                    ? `${String(count.holidaysSkipped)} holiday${count.holidaysSkipped === 1 ? '' : 's'}`
+                    : null,
+                  count.weeklyOffsSkipped > 0
+                    ? `${String(count.weeklyOffsSkipped)} weekly off${count.weeklyOffsSkipped === 1 ? '' : 's'}`
+                    : null,
+                ]
+                  .filter((part) => part !== null)
+                  .join(' and ')}
+                .
+              </p>
+            </div>
+          ) : null}
+
+          {count && count.sandwichDaysCounted > 0 ? (
+            <div className="col-span-2 sm:col-span-4">
+              <p className="text-muted-foreground text-xs">
+                {count.leaveType.name} counts holidays and weekly offs inside the range, so{' '}
+                {formatDays(count.sandwichDaysCounted)} of this are days off that still count.
+              </p>
+            </div>
+          ) : null}
+
+          {overdrawn ? (
+            <div className="col-span-2 sm:col-span-4">
+              <p
+                className={cn(
+                  'flex items-start gap-2 text-xs',
+                  beyondLimit ? 'text-destructive' : 'text-muted-foreground',
+                )}
+              >
+                <WarningCircleIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                <span>
+                  {beyondLimit
+                    ? errors.balance
+                    : `This takes the balance negative. ${count?.leaveType.name ?? 'This type'} allows up to ${formatDays(negativeLimit)} negative, and it becomes a recovery item at exit.`}
+                </span>
+              </p>
+            </div>
+          ) : null}
+
+          {noticeShort ? (
+            <div className="col-span-2 sm:col-span-4">
+              <p className="text-muted-foreground flex items-start gap-2 text-xs">
+                <WarningCircleIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                <span>
+                  {selectedType?.name} asks for {formatDays(selectedType?.noticeDays ?? 0)} of
+                  notice, and these dates give less. The server will refuse this application.
+                </span>
+              </p>
+            </div>
+          ) : null}
+
+          {otherBlockers.length > 0 ? (
+            <div className="col-span-2 sm:col-span-4">
+              <ul className="text-destructive flex flex-col gap-1 text-xs">
+                {otherBlockers.map((blocker) => (
+                  <li key={blocker} className="flex items-start gap-2">
+                    <WarningCircleIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                    <span>{LEAVE_PREVIEW_BLOCKER_LABELS[blocker]}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </dl>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" disabled={!canApply || apply.isPending}>
