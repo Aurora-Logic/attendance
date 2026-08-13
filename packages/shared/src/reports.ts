@@ -488,7 +488,12 @@ export interface AttendanceRegisterSource {
   readonly lastOutAt: string | null;
   readonly workedMinutes: number;
   readonly breakMinutes: number;
-  readonly otMinutes: number;
+  /** Optional for the reason `AttendanceDaySummary.otMinutes` is: a viewer who
+   * may not see overtime is sent a row without the key at all. Reports are
+   * gated on `report.view`, which no self-only account holds, so in practice
+   * the register always has it -- but the extractor must not assume a field
+   * the source type no longer guarantees. */
+  readonly otMinutes?: number;
   readonly lateMinutes: number;
   readonly earlyExitMinutes: number;
   readonly flags: readonly string[];
@@ -522,7 +527,10 @@ export function attendanceRegisterCell(
     case 'breakMinutes':
       return row.breakMinutes;
     case 'otMinutes':
-      return row.otMinutes;
+      // Null, not zero: a withheld overtime figure renders as the empty-value
+      // dash, the same as any column with nothing in it. Zero would read as
+      // "worked no overtime", which is a claim this row is not making.
+      return row.otMinutes ?? null;
     case 'lateMinutes':
       return row.lateMinutes;
     case 'earlyExitMinutes':

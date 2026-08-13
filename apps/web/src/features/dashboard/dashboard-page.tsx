@@ -24,6 +24,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
 import { AttendanceStatusBadge } from '@/features/attendance/status-badge';
 import { useShortcut } from '@/lib/keyboard/registry';
+import { useCanViewOvertime } from '@/features/attendance/visibility';
 import { usePermissions } from '@/lib/session/permissions';
 import { useMe } from '@/lib/session/use-session';
 import { cn } from '@/lib/utils';
@@ -203,6 +204,7 @@ const PRESS =
 export function DashboardPage() {
   const me = useMe();
   const granted = usePermissions();
+  const canViewOvertime = useCanViewOvertime();
   const employeeId = me.data?.user.employeeId ?? null;
 
   const canSeeOthers =
@@ -367,13 +369,19 @@ export function DashboardPage() {
                 title="This month, so far"
                 note="Your own days, counted from the first of the month."
               />
+              {/* The overtime tile is dropped, not blanked, for a viewer the
+                  server withholds overtime from. It rendered an em dash, which
+                  leaks no number but states something false: "you did no
+                  overtime" rather than "this is not yours to see". */}
               <FigureStrip
                 entries={[
                   ['Present', String(myTotals.present)],
                   ['Half day', String(myTotals.halfDay)],
                   ['On leave', String(myTotals.leave)],
                   ['Absent', String(myTotals.absent)],
-                  ['Overtime', formatDuration(myTotals.otMinutes)],
+                  ...(canViewOvertime
+                    ? ([['Overtime', formatDuration(myTotals.otMinutes)]] as [string, string][])
+                    : []),
                 ]}
               />
 

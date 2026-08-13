@@ -74,7 +74,12 @@ export const attendanceRegisterRowSchema = z.object({
   lastOutAt: z.string().nullable(),
   workedMinutes: z.number(),
   breakMinutes: z.number(),
-  otMinutes: z.number(),
+  // Optional to stay identical to `AttendanceDaySummary`, which the assertion
+  // at the foot of this file enforces. The server withholds `otMinutes` from a
+  // viewer who may see only their own attendance; a report needs `report.view`,
+  // which no such account holds, so the register is expected to carry it -- but
+  // "expected to" is not a shape a parser may require.
+  otMinutes: z.number().optional(),
   lateMinutes: z.number(),
   earlyExitMinutes: z.number(),
   flags: z.array(z.string()).readonly(),

@@ -21,6 +21,11 @@ import { attendanceDays } from '../schema/index.js';
 import { ATTENDANCE_SCOPE_GRANTS } from '../punch/punch.service.js';
 import { PunchRepository } from '../punch/punch.repository.js';
 import { AttendanceDayRepository } from './attendance-day.repository.js';
+import {
+  dayDetailForViewer,
+  dayForViewer,
+  overtimeVisibleTo,
+} from './attendance-day-visibility.js';
 
 /**
  * The muster and the single-day view (REQ-E-01 … REQ-E-05, PRD §5).
@@ -56,7 +61,17 @@ export class AttendanceDayService {
       offset,
     });
 
-    return paginated(rows, query, total);
+    // Scope decides *which* rows this caller gets; this decides which fields
+    // are on them. Applied here rather than in the controller because it is a
+    // rule about the data, and controllers validate and delegate (CLAUDE.md
+    // §6).
+    const canSeeOvertime = overtimeVisibleTo(principal);
+
+    return paginated(
+      rows.map((row) => dayForViewer(row, canSeeOvertime)),
+      query,
+      total,
+    );
   }
 
   /**
@@ -81,7 +96,7 @@ export class AttendanceDayService {
       date,
     );
 
-    return { ...day, punches };
+    return dayDetailForViewer({ ...day, punches }, overtimeVisibleTo(principal));
   }
 
   // ------------------------------------------------------------- internals

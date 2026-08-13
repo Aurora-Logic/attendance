@@ -16,6 +16,7 @@ import {
 import type { ErrorCode } from './errors.js';
 import { cursorQuerySchema, pageQuerySchema } from './pagination.js';
 import type { NamedRef } from './people.js';
+import { PERMISSIONS, type PermissionKey } from './permissions.js';
 
 /**
  * The punch and attendance-day contract (REQ-D-01 … REQ-D-13, REQ-E-01 …
@@ -257,7 +258,17 @@ export interface AttendanceDaySummary {
   readonly lastOutAt: string | null;
   readonly workedMinutes: number;
   readonly breakMinutes: number;
-  readonly otMinutes: number;
+  /**
+   * REQ-E-05, and the one field on this row that is not sent to everybody.
+   *
+   * Absent — not zero — for a viewer who may see only their own attendance.
+   * Optional rather than nullable because absence is the honest wire shape:
+   * `null` would still be a value the row carries, and a client reading it as
+   * "no overtime" would be wrong in exactly the case that matters. See
+   * `canViewOvertime`; the server omits the key, so hiding it in the client is
+   * a courtesy rather than the control.
+   */
+  readonly otMinutes?: number;
   readonly lateMinutes: number;
   readonly earlyExitMinutes: number;
   readonly flags: readonly AttendanceFlag[];
@@ -268,6 +279,31 @@ export interface AttendanceDaySummary {
 
 export interface AttendanceDayDetail extends AttendanceDaySummary {
   readonly punches: readonly PunchRecord[];
+}
+
+/**
+ * Who may see `otMinutes` on an attendance day.
+ *
+ * No new permission key: overtime is a management figure, and the keys that
+ * already say "you are looking at this as a manager rather than as the person
+ * it is about" are the two breadth keys. An account holding only
+ * `attendance.view.self` sees its own hours and not its own overtime.
+ *
+ * The consequence worth stating plainly, because it looks like a bug and is
+ * not: a manager holds the team key, so a manager sees overtime on every row
+ * they can see -- including their own.
+ *
+ * Here rather than in either app so the server's omission and the client's
+ * hidden column are one rule. The server is the control; the client reads the
+ * same predicate only to avoid rendering a column that will always be empty.
+ */
+export const OVERTIME_VIEW_PERMISSIONS = [
+  PERMISSIONS.ATTENDANCE_VIEW_TEAM,
+  PERMISSIONS.ATTENDANCE_VIEW_ALL,
+] as const satisfies readonly PermissionKey[];
+
+export function canViewOvertime(permissions: ReadonlySet<PermissionKey>): boolean {
+  return OVERTIME_VIEW_PERMISSIONS.some((key) => permissions.has(key));
 }
 
 /** REQ-D-11: a replayed key returns the original punch rather than a new one. */

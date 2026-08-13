@@ -38,6 +38,7 @@ import { addDays, localDateIn } from '../day-engine/calendar-date.js';
 import { DayEngineRepository, type EmployeeContext } from '../day-engine/day-engine.repository.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
 import { AttendanceDayRepository } from '../days/attendance-day.repository.js';
+import { dayForViewer, overtimeVisibleTo } from '../days/attendance-day-visibility.js';
 import { punches } from '../schema/index.js';
 import { burnStamp } from './punch-photo.js';
 import {
@@ -949,6 +950,11 @@ export class PunchService {
    * Read back unscoped within the organisation. The employee just punched, so
    * they are entitled to their own day whatever breadth their permissions give
    * them for other people's.
+   *
+   * Entitled to the day, not to every field on it: the receipt and
+   * `GET /me/today` embed the same row `GET /attendance/days` serves, and a
+   * figure withheld from the muster that arrives in a punch receipt instead is
+   * not withheld at all.
    */
   private async readDay(
     principal: Principal,
@@ -956,7 +962,8 @@ export class PunchService {
     date: string,
   ): Promise<AttendanceDaySummary | null> {
     const repository = new AttendanceDayRepository(this.db, orgContextOf(principal));
-    return repository.findDay(employeeId, date, sql`true`);
+    const day = await repository.findDay(employeeId, date, sql`true`);
+    return day === null ? null : dayForViewer(day, overtimeVisibleTo(principal));
   }
 
   /**

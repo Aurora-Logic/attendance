@@ -305,6 +305,11 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
     // The receipt's day is the engine's inline run, not a cached view.
     expect(result.body.day).not.toBeNull();
     expect(result.body.day?.status).toBe('PENDING');
+    // `tokenA` is an Employee, so the day embedded here is subject to the same
+    // field visibility as the muster row. A figure withheld from
+    // `GET /attendance/days` that arrives in a punch receipt instead is not
+    // withheld at all -- see `attendance-day-visibility.endpoints.test.ts`.
+    expect(result.body.day === null || Object.hasOwn(result.body.day, 'otMinutes')).toBe(false);
 
     const rows = await harness.db
       .select({ firstIn: attendanceDays.firstInPunchId, status: attendanceDays.status })
