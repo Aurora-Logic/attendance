@@ -21,8 +21,16 @@ function Tabs({
   )
 }
 
+// `h-auto` on a coarse pointer is load-bearing, not a tweak. index.css raises
+// every [role='tab'] to a 44px floor, while this strip asserts h-8 — so the
+// trigger rendered 44px tall inside a 32px strip and spilled 6px above and 6px
+// below it on all three tabbed screens. The active tab's background is drawn on
+// the trigger, so the spill was visible as a pill standing proud of its own
+// track. Letting the strip take its height from its contents makes the two
+// agree at any floor, rather than pinning a second magic number next to the
+// first and hoping they stay in step.
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-none p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  "group/tabs-list inline-flex w-fit items-center justify-center rounded-none p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 pointer-coarse:group-data-horizontal/tabs:h-auto group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {

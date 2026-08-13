@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowCounterClockwiseIcon,
-  CheckIcon,
+  FloppyDiskIcon,
   DotsThreeIcon,
   SlidersHorizontalIcon,
   XIcon,
@@ -325,7 +325,7 @@ function CustomiseSheet({
               if (draft.length === 0) onNavigateHome();
             }}
           >
-            <CheckIcon data-icon="inline-start" />
+            <FloppyDiskIcon data-icon="inline-start" />
             Save
           </Button>
         </SheetFooter>

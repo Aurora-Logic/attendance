@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckIcon, PlusIcon, WarningIcon } from '@phosphor-icons/react';
+import { FloppyDiskIcon, PlusIcon, WarningIcon } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -135,7 +135,7 @@ export function PatternsPage() {
         description="Every screen is built from these. Development only."
         action={
           <Button onClick={save}>
-            <CheckIcon data-icon="inline-start" />
+            <FloppyDiskIcon data-icon="inline-start" />
             Save
             <ShortcutHint keys="ctrl+a" className="ml-1" />
           </Button>

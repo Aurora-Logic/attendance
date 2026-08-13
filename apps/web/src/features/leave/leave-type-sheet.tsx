@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckIcon, XIcon } from '@phosphor-icons/react';
+import { FloppyDiskIcon, XIcon } from '@phosphor-icons/react';
 import { z } from 'zod';
 
 import { Form } from '@/components/shared/form';
@@ -472,7 +472,7 @@ function LeaveTypeForm({
                   {save.isPending ? (
                     <Spinner data-icon="inline-start" />
                   ) : (
-                    <CheckIcon data-icon="inline-start" />
+                    <FloppyDiskIcon data-icon="inline-start" />
                   )}
                   Save
                   <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
