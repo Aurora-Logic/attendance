@@ -18,7 +18,12 @@
 import { readFileSync } from 'node:fs';
 
 const BASE = process.env.VERIFY_BASE ?? 'http://localhost:5173';
-const CDP = process.env.VERIFY_CDP ?? 'http://localhost:9222';
+// 127.0.0.1, not localhost. On a machine that resolves localhost to ::1 first,
+// the DevTools endpoint intermittently answers "CDP timeout: Page.enable" -- a
+// failure in the connection that reads exactly like a failure in the app. The
+// web origin below stays as localhost because that is the origin the app is
+// served from and the session cookie is scoped to.
+const CDP = process.env.VERIFY_CDP ?? 'http://127.0.0.1:9222';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
