@@ -30,7 +30,10 @@ export function AppSidebar() {
         <OrgBrand />
       </SidebarHeader>
 
-      <SidebarContent>
+      {/* Anchor for the guided tour's first step. On the content rather than
+          on one group, because which groups exist depends on the permission
+          set and a tour cannot point at a group that was filtered away. */}
+      <SidebarContent data-guide="nav.groups">
         {NAV_GROUPS.map((group) => {
           const items = group.items.filter((item) => isVisible(item, granted));
           // A group whose every item is hidden by permission renders nothing

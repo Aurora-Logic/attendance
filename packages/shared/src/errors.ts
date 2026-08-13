@@ -44,6 +44,8 @@ export const ERROR_CODES = {
 
   // Attendance (REQ-E-09)
   PERIOD_LOCKED: 'PERIOD_LOCKED',
+  PERIOD_ALREADY_LOCKED: 'PERIOD_ALREADY_LOCKED',
+  PERIOD_NOT_LOCKED: 'PERIOD_NOT_LOCKED',
   OVERRIDE_REASON_REQUIRED: 'OVERRIDE_REASON_REQUIRED',
 
   // Leave (REQ-G-07, G-08)
@@ -61,6 +63,14 @@ export const ERROR_CODES = {
   EMPLOYEE_CODE_IMMUTABLE: 'EMPLOYEE_CODE_IMMUTABLE',
   REPORTING_CYCLE: 'REPORTING_CYCLE',
   SHIFT_ASSIGNMENT_OVERLAP: 'SHIFT_ASSIGNMENT_OVERLAP',
+
+  // Admin CRUD (REQ-B-09a, REQ-M-04)
+  /** A soft delete was refused: live rows still point at the record. */
+  RECORD_IN_USE: 'RECORD_IN_USE',
+  /** A seeded role cannot be renamed or deleted; its permissions can be edited. */
+  SYSTEM_ROLE_PROTECTED: 'SYSTEM_ROLE_PROTECTED',
+  /** Restore was asked for a record that is not deleted. */
+  RECORD_NOT_DELETED: 'RECORD_NOT_DELETED',
 
   // Append-only guarantees (REQ-B-09a, REQ-D-12, REQ-M-01)
   RECORD_IS_APPEND_ONLY: 'RECORD_IS_APPEND_ONLY',

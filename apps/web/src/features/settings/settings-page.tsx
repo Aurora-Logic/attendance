@@ -281,7 +281,15 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
       </div>
 
       <Tabs defaultValue="organisation" className="gap-4">
-        <TabsList>
+        {/* Scrolls rather than stretching the page.
+            Four labelled tabs do not fit in 360px, and a TabsList that
+            overflows widens the document -- which then drags the fixed bottom
+            navigation out with it, because a fixed element at width 100% follows
+            the document, not the viewport. The visible symptom was 32px of
+            horizontal scroll on the whole screen, a long way from its cause.
+            A scrolling tab strip is the standard mobile answer; wrapping to two
+            rows would push the content down on every phone. */}
+        <TabsList className="max-w-full overflow-x-auto">
           <TabsTrigger value="organisation" className="px-3">
             <BuildingsIcon data-icon="inline-start" />
             Organisation

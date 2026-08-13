@@ -7,11 +7,95 @@ Design for two connected surfaces:
 - **Updates** — a changelog the person can open at any time, where a new entry
   can hand off to a short Guide run for the thing that changed.
 
-Nothing here is built yet. This document is the design and the impact
-assessment, so the decision to build it is made with the cost visible.
+This document is the design and the impact assessment. Both surfaces have
+since been built; §0 records where the implementation departs from what
+follows, and why.
 
-Status: **proposed**. Open questions are in §14 and mirrored into
-`OPEN-QUESTIONS.md` under "Raised during guided tour design".
+Status: **both built.** Open questions are in §14 and mirrored into
+`OPEN-QUESTIONS.md`. What shipped differs from this design in several places —
+those are listed in §0 rather than edited into the body, so the reasoning
+behind each original decision stays readable next to what actually happened.
+
+---
+
+## 0. As built
+
+Both halves are implemented, unit-tested, and driven end to end in a browser.
+
+**Where it starts.** On the sign-in screen, not the dashboard. `SignInTourOffer`
+renders under the form for anyone who has neither taken the tour nor declined
+it; "Show me around" parks a request in the store and `GuideOverlay` collects
+it on the first authenticated render. The post-sign-in invitation popover in
+§4.1 was not built — the offer lives at the door instead, which is what "start
+from the login screen" asked for and one fewer interruption.
+
+**Length.** One step per screen rather than the sub-steps in §4.1, so the real
+counts are lower than the table there:
+
+| Seeded role | Steps | On a phone |
+|---|---|---|
+| Employee | 8 | 7 |
+| Operations | 13 | 12 |
+| HR | 17 | 16 |
+| Admin | 21 | 20 |
+
+The phone loses one because the shortcut sheet is a desktop-only control and
+its step declares `mobileBehaviour: 'skip'` rather than pointing at nothing.
+All measured against the real `ROLE_PERMISSION_MATRIX`, not asserted.
+
+**Anchors: seven, not twenty-two.** Every screen step points at
+`screen.header`, which sits on the one shared `PageHeader` component all
+eighteen screens render. Eighteen attributes became one, and the drift risk
+collapses with it — a refactor cannot lose one screen's anchor quietly,
+because there is only one to lose.
+
+**The anchor guarantee is two layers, and G-8 is fully met.** `apps/web` had
+no test runner at all — vitest lived only in `apps/api` — so the first pass
+shipped `scripts/check-guide-anchors.mjs`, which reads the source and runs as
+part of `pnpm lint`. That catches a *deleted* attribute but is blind to a
+*duplicated* one. Vitest, jsdom and testing-library were then approved and
+added, and `guide-anchors.test.tsx` renders the real shell at both widths and
+asserts every anchor resolves to exactly one element.
+
+Both layers were falsified rather than assumed: renaming `screen.header`
+fails the static check and two render tests; adding a second
+`header.breadcrumb` passes the static check — which reports "all present" —
+and fails the render test. That difference is the whole justification for the
+dependency.
+
+**Updates.** `/updates`, off the sidebar and reached from the account menu,
+exactly as §9 describes. The changelog is a typed module, permission-filtered
+per entry, with an unread dot on the avatar cleared by opening the page.
+`changelog.test.ts` asserts every "Take me there" points at a real route,
+every "Show me" at a real tour step id, and — across the whole role matrix —
+that no role can see an entry whose destination would refuse it.
+
+**The mini-tours in §4.5 became one line instead of a second registry.** An
+entry carries a `guideStep`, and "Show me" starts the *main* tour at that
+step. The step already knows its route and carries its own permission, so a
+separate `MINI_TOURS` map would have been a second thing to keep in step with
+the first. Verified: "Show me" on Period lock lands on `/period-lock` at step
+17 of 21.
+
+**Reduced motion follows the repo, not §6.1.** `index.css` already collapses
+every transition to 0.01ms under `prefers-reduced-motion`, deliberately and
+with its reasoning written down. §6.1 wanted a 150ms fade kept. Punching a
+hole in an existing accessibility policy is not a change to make in passing,
+so the blanket rule wins and the tour cuts rather than fades. Raise it if the
+gentler behaviour is wanted.
+
+**Keys are arrows, not Enter.** `→` next, `←` back, `Esc` stop. §8 proposed
+Enter, which was wrong: the dispatcher runs in the capture phase, so Enter on
+the Back button would have moved the tour forwards. Enter is also "drill down"
+in PRD §6.4 and is left alone.
+
+**One bug worth recording.** The tour first ran with an empty permission set
+and froze a five-step list for an administrator entitled to twenty-one — every
+screen step silently filtered as unpermitted. `SessionGate` writes permissions
+in an effect and React runs a child's effects before its parent's, so
+`GuideOverlay` was starting before the store was filled. It is now gated on
+`sessionStatus === 'authenticated'`. Nothing about the code looked wrong; only
+driving it showed the counter reading "of 5".
 
 ---
 
@@ -151,16 +235,54 @@ person with no matching permission goes straight to the closing card.
 **Step 7+ — the role-shaped remainder.** Each block is included only if the
 signed-in permission set grants it.
 
-| Block | Gate | Steps |
+| # | Step | Gate |
 |---|---|---|
-| Your day | `punch.self` | Punch → the capture and consent notice → the half-day choice on an IN → My attendance → My leave |
-| Your team | `attendance.view_team` | Team attendance → Approvals (if `leave.approve_team`) |
-| Reporting | `report.view` | Reports → Downloads, and why an export is a job rather than a wait |
-| Setting it up | `settings.manage` | Employees → Shifts → Leave types and Holidays → Settings tabs → Roles → Period lock → Audit log |
+| 7 | Punch | `punch.self` |
+| 8 | The capture and the consent notice | `punch.self` |
+| 9 | The half-day choice, offered only on an IN | `punch.self` |
+| 10 | My attendance | `attendance.view.self` |
+| 11 | My leave | `leave.apply.self` |
+| 12 | Team attendance | `attendance.view.team` |
+| 13 | Approvals | `leave.approve.team` |
+| 14 | Reports | `report.view` |
+| 15 | Downloads, and why an export is a job rather than a wait | `report.export` |
+| 16 | Employees | `employee.view` |
+| 17 | Shifts and rosters | `shift.manage` |
+| 18 | Leave types | `leave.policy.manage` |
+| 19 | Holidays | `holiday.manage` |
+| 20 | Settings, and its four tabs | `settings.manage` |
+| 21 | Roles and permissions | `roles.manage` |
+| 22 | Period lock | `attendance.lock` |
+| 23 | Audit log | `audit.view` |
+| 24 | Integrations | `integration.manage` |
+
+Every gate is a real key from `ROLE_PERMISSION_MATRIX`, so the length of the
+tour is a property of the signed-in permission set and not a number written
+anywhere:
+
+| Seeded role | Steps |
+|---|---|
+| Employee | 11 |
+| Operations | 16 |
+| HR | 20 |
+| Admin | 24 |
+
+The counter reads "Step 9 of 16" for an Operations user and "Step 9 of 24" for
+an Admin, because both are counting the same filtered list they are actually
+walking. A fixed total would promise steps that will never arrive.
 
 Each block's first step **navigates**. The Guide calls `navigate('/punch')`,
 waits for the anchor to exist, then draws. See §6 for what happens when it does
 not appear.
+
+**What it does not do.** Two limits, both deliberate:
+
+- It does not visit a screen the person cannot open. That is the whole point of
+  the gate column.
+- Within a screen it highlights **one** representative control, not every
+  button on it. This is orientation — where things live and what the screen is
+  for — not a manual. A tour that stopped on every control on the Settings
+  screen would be forty steps long and nobody would finish it.
 
 **Closing card.** Not anchored to anything — a centred Dialog.
 
@@ -168,7 +290,7 @@ not appear.
 ┌────────────────────────────────────────────┐
 │  That is the tour                          │
 │                                            │
-│  You saw 14 of 14 steps.                    │
+│  You saw all 16 steps.                      │
 │  Alt+G gets you anywhere. Ctrl+F1 lists     │
 │  every key. The tour is in your account     │
 │  menu whenever you want it again.           │
@@ -176,6 +298,11 @@ not appear.
 │                             [ Done ]        │
 └────────────────────────────────────────────┘
 ```
+
+The 16 is the filtered length for whoever is reading it, not a constant. Where
+steps were skipped because an anchor never appeared, it reads "You saw 14 of
+16 steps" instead — the tour does not quietly claim to have shown something it
+could not find.
 
 ### 4.2 First sign-in, phone
 
@@ -205,7 +332,7 @@ it again within seven days, the invitation reads:
 
 ```
   Pick up where you left off?
-  You stopped at "Team attendance", step 9 of 14.
+  You stopped at "Team attendance", step 12 of 20.
 
               [ Start over ]  [ Continue ]
 ```
@@ -304,7 +431,7 @@ reviewable in one file.
 
 ---
 
-## 6. The highlight
+## 6. The highlight, and how it moves
 
 This is the only genuinely new UI mechanism, so it is specified precisely.
 
@@ -362,11 +489,102 @@ Notes that matter:
 - The rect is tracked with a `ResizeObserver` on the anchor plus a passive
   `scroll` listener on the capture phase, both throttled to `requestAnimationFrame`.
   A sticky header and a scrolling table both move things under the cutout.
-- `scrollIntoView({ block: 'center' })` before measuring, with
-  `behavior: 'smooth'` unless `prefers-reduced-motion` is set, in which case
-  `'auto'`.
-- Under `reduced-motion:`, the bubble uses the existing `.surface-instant`
-  class — the same exemption the Go To palette and shortcut sheet already take.
+
+### 6.1 Motion
+
+The Guide is the one surface in this application that is allowed to animate
+properly, and the reason is worth stating because it is the opposite of the
+call made everywhere else in the shell.
+
+Go To and the shortcut sheet carry `.surface-instant` — no entrance at all —
+because a Tally user opens them dozens of times a day and motion on something
+that frequent is felt as latency, not craft. **The tour is the inverse: most
+people see it once.** It is the rare, first-time surface where motion earns its
+place, and where it is doing real work — the cutout sliding from one control to
+the next is what tells the eye *these two things are related and we moved
+between them*. A cut would leave the reader re-finding the highlight on every
+step.
+
+So the frequency test says animate, and the following is the specification.
+
+**Curves.** The built-in CSS easings are too weak to read as intentional. Two
+custom curves, defined once alongside the existing theme tokens:
+
+```css
+--ease-out:    cubic-bezier(0.23, 1, 0.32, 1);      /* things arriving */
+--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);     /* things moving on screen */
+```
+
+`ease-in` appears nowhere. It delays the first few frames — exactly the moment
+the reader is watching hardest — so it reads as sluggish at any duration.
+
+**The table.**
+
+| What | Property | Duration | Curve | Why |
+|---|---|---|---|---|
+| Cutout moving between two anchors on the same screen | `top`, `left`, `width`, `height` | 240ms | `--ease-in-out` | On-screen movement, not an entrance. It accelerates and settles like a real object |
+| Bubble entering | `opacity`, `transform` | 200ms | `--ease-out` | From `scale(0.96)`, never `scale(0)` — nothing in the world appears out of nothing |
+| Bubble leaving | `opacity`, `transform` | 140ms | `--ease-out` | Exit is faster than entry. The reader has already decided; the system should get out of the way |
+| Bubble content swapping in place | `filter: blur(2px)`, `opacity` | 160ms | `ease` | Only when the bubble does not move. See below |
+| Scrim opacity on first appear / final dismiss | `opacity` | 200ms / 140ms | `--ease-out` | The tour arriving and leaving, once each |
+| Next / Back / Skip on press | `transform: scale(0.97)` | 120ms | `--ease-out` | The button has to feel like it heard the press |
+| Unread dot on the avatar | `opacity`, `transform` | 200ms | `--ease-out` | Appears once per release. From `scale(0.8)`, no bounce |
+
+Nothing exceeds 300ms. The bubble is `transform` and `opacity` only, so it
+stays off the main thread; the cutout has to animate `top`/`left`/`width`/`height`
+because a box-shadow hole cannot be expressed as a transform, and it is one
+element with no children, which is what makes that acceptable.
+
+**Origin.** The bubble scales from the control it points at, not from its own
+centre. `ui/popover.tsx` already sets `origin-(--transform-origin)` and Base UI
+already computes it, so this costs nothing — it just must not be overridden.
+The closing card is the exception and keeps a centred origin, because a Dialog
+is anchored to the viewport rather than to any trigger.
+
+**Transitions, not keyframes.** A reader who has decided to skim will hammer
+Next. Keyframes restart from zero on every re-trigger and the cutout would
+stutter between anchors; transitions retarget from wherever the element
+currently is and stay smooth. This is the same reason Sonner uses transitions
+for stacked toasts, and it is the single most likely thing to be got wrong here.
+
+**Two kinds of step change, deliberately different.**
+
+- *Same screen, a nearby anchor* — the cutout slides, the bubble slides with it,
+  and only the text swaps. The swap crossfades under a 2px blur, because a plain
+  crossfade shows two legible strings overlapping for 80ms and reads as a
+  rendering fault rather than a transition.
+- *A route change* — the bubble fades out (140ms), the navigation happens, the
+  new anchor is found and scrolled to, the cutout appears at its new home with
+  no travel, and the bubble fades in. Sliding a cutout across a screen that has
+  been replaced underneath it is a lie about continuity that was never there.
+
+**Scrolling to an off-screen anchor.** `scrollIntoView({ block: 'center',
+behavior: 'smooth' })`, and the cutout does not move until the scroll settles —
+animating the hole while the page is also moving produces two competing motions
+and the eye tracks neither.
+
+**Reduced motion means gentler, not none.** The distinction matters: motion
+sickness is caused by movement, not by opacity.
+
+| Under `prefers-reduced-motion: reduce` | |
+|---|---|
+| Removed | Cutout travel, bubble travel, `scrollIntoView` smoothing, the press scale |
+| Kept | Opacity on the bubble and the scrim, at 150ms |
+
+The cutout jumps to its new rect; the bubble crossfades in place. The tour is
+still comprehensible, which is what the opacity is there for. `.surface-instant`
+is deliberately *not* used — that class means "no motion because this is
+frequent", which is a different reason and would strip the fade too.
+
+**On a phone.** The Sheet enters from the bottom edge and leaves through the
+same edge, so a downward swipe to dismiss feels like the direction the thing
+already came from. Dismissal is velocity-based rather than distance-based — a
+quick flick past roughly `0.11 px/ms` ends the tour without needing to drag the
+sheet most of the way down — and the drag is damped past its boundary rather
+than hard-stopped.
+
+**Hover states** are gated behind `@media (hover: hover) and (pointer: fine)`,
+or a tap on a phone leaves the tour's Next button stuck in its hover state.
 
 **When the anchor is not there.** The Guide navigates, then polls for the
 anchor via `MutationObserver` with a 1500ms ceiling. If it never appears:
@@ -635,8 +853,13 @@ Beyond CLAUDE.md §4, which applies unchanged:
       element, and fails when an attribute is removed
 - [ ] Verified at 360px: the bubble is a Sheet, the highlight is visible above
       it, footer targets are 44px
-- [ ] Verified with `prefers-reduced-motion: reduce`: no scroll animation, no
-      bubble transition
+- [ ] Verified with `prefers-reduced-motion: reduce`: no cutout travel, no
+      bubble travel, no smooth scroll, no press scale — and the opacity fades
+      still present, because reduced motion is gentler, not none
+- [ ] Motion reviewed at 4x slow-motion in the DevTools animation panel, and
+      again the following day. Specifically: the cutout does not stutter when
+      Next is hammered, the bubble scales from the control rather than from its
+      own centre, and the text swap shows one string rather than two overlapping
 - [ ] Verified under three permission sets — punch-only, manager, admin — that
       no step points at a control the session cannot see
 - [ ] Verified that the highlighted control is genuinely clickable mid-run, and

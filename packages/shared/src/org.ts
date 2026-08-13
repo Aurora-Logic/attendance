@@ -164,3 +164,92 @@ export const updateLocationSchema = z
   .partial();
 
 export type UpdateLocationInput = z.infer<typeof updateLocationSchema>;
+
+// ---------------------------------------------------------------------------
+// Admin operations (REQ-B-09a, REQ-M-04)
+//
+// "Every Admin CRUD action writes an audit entry with before/after values and
+// the acting user" — and every destructive or overriding one takes a typed
+// reason first. The schema lives here rather than in each module so a new
+// destructive route cannot ship with a laxer definition of "a reason".
+// ---------------------------------------------------------------------------
+
+/**
+ * Long enough to be a sentence, not a keystroke.
+ *
+ * The failure this guards against is not a missing field — Zod would catch
+ * that — it is the field that is present and says "x". Ten characters is the
+ * shortest thing that can carry a why ("duplicate", "wrong year"), and the
+ * client shows the same floor so the refusal is not a surprise from the server.
+ */
+export const MIN_ADMIN_REASON = 10;
+export const MAX_ADMIN_REASON = 500;
+
+export const adminReasonSchema = z
+  .string()
+  .trim()
+  .min(MIN_ADMIN_REASON, `a reason of at least ${String(MIN_ADMIN_REASON)} characters is required`)
+  .max(MAX_ADMIN_REASON);
+
+/** Every destructive or restoring action carries the same body. */
+export const reasonBodySchema = z.object({ reason: adminReasonSchema });
+
+export type ReasonBody = z.infer<typeof reasonBodySchema>;
+
+/**
+ * The masters that support soft delete and restore (REQ-M-04, PRD §4.B).
+ *
+ * The list is the contract, not a convenience: the recycle bin, the delete
+ * route and the permission lookup all resolve an entity type against it, and
+ * anything not named here has no delete route at all rather than a delete route
+ * that quietly does nothing.
+ */
+export const SOFT_DELETABLE_ENTITIES = [
+  'department',
+  'designation',
+  'location',
+  'shift',
+  'leaveType',
+  'holidayCalendar',
+  /** REQ-B-07 / REQ-B-09a. Seeded roles refuse the delete; custom ones do not. */
+  'role',
+] as const;
+
+export type SoftDeletableEntity = (typeof SOFT_DELETABLE_ENTITIES)[number];
+
+export const softDeletableEntitySchema = z.enum(SOFT_DELETABLE_ENTITIES);
+
+/**
+ * One row that still points at the record somebody is trying to delete.
+ *
+ * `label` names the row, not the table. "In use" tells an administrator to go
+ * and look; "in use by Asha Menon and 4 others" tells them what to do about it.
+ */
+export interface BlockingReference {
+  readonly entityType: string;
+  readonly label: string;
+  /** Rows of this kind that point at the record, including any beyond `label`. */
+  readonly count: number;
+  /** Up to a handful of names, so the message can be specific without being long. */
+  readonly examples: readonly string[];
+}
+
+export interface RecycleBinEntry {
+  readonly entityType: SoftDeletableEntity;
+  /** "Department", "Leave type" — for a screen that lists several kinds at once. */
+  readonly entityLabel: string;
+  readonly id: string;
+  readonly name: string;
+  /** Masters keyed by a code show it; holiday calendars have none. */
+  readonly code: string | null;
+  readonly deletedAt: string;
+  readonly deletedBy: NamedRef | null;
+  readonly reason: string | null;
+}
+
+export const recycleBinQuerySchema = pageQuerySchema.extend({
+  entityType: softDeletableEntitySchema.optional(),
+  q: z.string().trim().min(1).max(80).optional(),
+});
+
+export type RecycleBinQuery = z.infer<typeof recycleBinQuerySchema>;

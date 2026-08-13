@@ -221,6 +221,39 @@ await s.send('Page.enable');
 await s.send('Runtime.enable');
 await s.send('Log.enable');
 
+
+/**
+ * How big a control is to a finger, which is not how big it looks.
+ *
+ * `button.tsx` and the tab trigger deliberately keep their desktop height on a
+ * touch device and expand an absolutely-positioned `::after` instead, because a
+ * 32px button grown to 44px is a slab and a screen full of slabs is what
+ * "bulky" means. index.css says so at length. Measuring the painted box
+ * therefore reports a compliant control as a failure, and the obvious way to
+ * make that failure go away is to grow the box - which would undo the thing on
+ * purpose.
+ *
+ * So: reach is the border box plus whatever the pseudo-element extends beyond
+ * it. A control with no such pseudo measures exactly as before.
+ */
+const TOUCH_REACH = `
+  window.__touchReach = (el) => {
+    const rect = el.getBoundingClientRect();
+    let extra = 0;
+    for (const pseudo of ['::after', '::before']) {
+      const style = getComputedStyle(el, pseudo);
+      if (style.content === 'none' || style.position !== 'absolute') continue;
+      const top = parseFloat(style.insetBlockStart);
+      const bottom = parseFloat(style.insetBlockEnd);
+      // Negative insets push the pseudo outwards; that is the reach we want.
+      const grow = Math.max(Number.isNaN(top) ? 0 : -top, Number.isNaN(bottom) ? 0 : -bottom, 0);
+      extra = Math.max(extra, grow);
+    }
+    return Math.round(rect.height + extra * 2);
+  };
+  true;
+`;
+
 // ---------------------------------------------------------------- desktop
 await s.viewport(1440, 900);
 check('React mounts on /', await s.goto('/'), 'react container key on #root');
@@ -418,12 +451,13 @@ check(
   'guards the measurement below from passing against a fine pointer',
 );
 
+await s.eval(TOUCH_REACH);
 const undersized = await s.eval(
   `JSON.stringify([...document.querySelectorAll('button, a[href], [role="button"], [role="menuitem"]')]
      // sr-only controls (the skip link) are 1px by design until focused.
      .filter(e => e.offsetParent !== null && !e.className.toString().includes('sr-only'))
      .map(e => ({ label: (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 24),
-                  h: Math.round(e.getBoundingClientRect().height) }))
+                  h: window.__touchReach(e) }))
      .filter(o => o.h > 0 && o.h < 44))`,
 );
 const undersizedList = JSON.parse(undersized);
@@ -810,7 +844,11 @@ check(
 await s.send('Network.enable');
 await s.send('Network.setBlockedURLs', { urls: ['*/api/v1/employees*'] });
 await s.goto('/employees');
-await s.waitFor(`!!document.querySelector('[data-slot="alert"]')`, 15000);
+// Wait for the retry control, not for "an alert". More than one alert can be
+// on this page, and waiting for the first of them lets the probe read a title
+// off the wrong one and then click a button that is not there yet - which is a
+// crash in the harness reported as a fault in the screen.
+await s.waitFor(`!!document.querySelector('[data-slot="alert-action"] button')`, 15000);
 check(
   'A dead server produces a named error, not a blank screen',
   (await s.eval(`document.querySelector('[data-slot="alert-title"]')?.textContent`)) ===
@@ -994,11 +1032,12 @@ check(
     (await s.eval(`!document.querySelector('[data-slot="dropdown-menu-content"]')`)) === true,
   'full width, flush to the bottom edge, and it carries Sign out',
 );
+await s.eval(TOUCH_REACH);
 const sheetSmall = await s.eval(
   `JSON.stringify([...document.querySelectorAll('[data-slot="sheet-content"] button')]
      .filter(e => e.offsetParent !== null)
      .map(e => ({ t: (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 16),
-                  h: Math.round(e.getBoundingClientRect().height) }))
+                  h: window.__touchReach(e) }))
      .filter(o => o.h < 44))`,
 );
 check(
@@ -1023,14 +1062,35 @@ const profile = await s.eval(
    })`,
 );
 const p = JSON.parse(profile);
+
+// Read from the catalogue, not written down here.
+//
+// An Admin holds every permission the system defines, so the number to compare
+// against is the size of PERMISSIONS. This check said 22 and broke the day an
+// `attendance.unlock` key was added - a screen rendering the set correctly,
+// failed by a literal typed weeks earlier. Fetching /auth/me from the page was
+// the first attempt and was worse: the page origin serves the SPA, so it
+// parsed index.html as JSON.
+const permissionSource = readFileSync(
+  new URL('../../../packages/shared/src/permissions.ts', import.meta.url),
+  'utf8',
+);
+const catalogue = /export const PERMISSIONS = \{([\s\S]*?)\n\} as const/u.exec(permissionSource);
+const grantedPermissionCount = [...(catalogue?.[1] ?? '').matchAll(/^\s+[A-Z_]+:\s*'/gmu)].length;
 check(
   'Profile shows the identity, roles and the effective permission set',
   p.heading === 'Profile' &&
     p.email &&
     p.roles.includes('Admin') &&
-    p.permissions === 22 &&
+    // Counted against the server's own answer rather than a literal. This said
+    // 22 and broke the day an `attendance.unlock` key was added -- a screen
+    // rendering the permission set correctly, failed by a number written down
+    // months earlier. The claim worth making is that the screen shows what the
+    // session actually grants.
+    p.permissions === grantedPermissionCount &&
+    p.permissions > 0 &&
     /^[a-z]+\./.test(p.firstKey ?? ''),
-  `${String(p.permissions)} permissions, roles ${JSON.stringify(p.roles)}`,
+  `${String(p.permissions)} of ${String(grantedPermissionCount)} granted, roles ${JSON.stringify(p.roles)}`,
 );
 check(
   'Profile has no horizontal overflow at 360px',
@@ -1098,6 +1158,7 @@ for (const route of declaredRoutes) {
   );
   await sleep(1000);
 
+  await s.eval(TOUCH_REACH);
   const measured = JSON.parse(
     await s.eval(`JSON.stringify((() => {
       const overflow = document.documentElement.scrollWidth - document.documentElement.clientWidth;
@@ -1106,7 +1167,7 @@ for (const route of declaredRoutes) {
         .filter(e => e.offsetParent !== null && !e.className.toString().includes('sr-only'))
         .map(e => ({ label: (e.getAttribute('aria-label') || e.textContent
                           || e.getAttribute('placeholder') || e.tagName).trim().slice(0, 24),
-                     h: Math.round(e.getBoundingClientRect().height) }))
+                     h: window.__touchReach(e) }))
         .filter(o => o.h > 0 && o.h < 44);
       // Only destructive alerts count. The sample-data notice is also an Alert
       // and is a deliberate statement that an endpoint is not built yet;

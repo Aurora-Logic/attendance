@@ -1,4 +1,6 @@
 import {
+  BellIcon,
+  CompassIcon,
   InfoIcon,
   KeyboardIcon,
   MagnifyingGlassIcon,
@@ -12,6 +14,7 @@ import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import { BreadcrumbTrail } from '@/components/shared/breadcrumb-trail';
+import { ErrorBoundary } from '@/components/shared/error-boundary';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { useTheme } from '@/components/theme-provider';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -42,7 +45,10 @@ import {
 } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/toast';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { GuideOverlay } from '@/features/guide';
+import { hasUnread } from '@/features/updates';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useGuideStore } from '@/lib/guide-store';
 import { ShortcutLayer } from '@/lib/keyboard/registry';
 import { findBreadcrumbs } from '@/lib/nav';
 import { useSessionStore } from '@/lib/session/session-store';
@@ -164,6 +170,25 @@ function UserMenu() {
   const logout = useLogout();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
+  /*
+   * Starting the tour is a request, not a call.
+   *
+   * The run state belongs to GuideOverlay, which is a sibling of this menu
+   * rather than an ancestor, so there is nothing to call into. Arming is the
+   * same channel the sign-in screen uses, and the overlay collects it either
+   * way — one path in, rather than a context provider existing only so a menu
+   * item can reach a component beside it.
+   */
+  const startTour = useGuideStore((s) => s.arm);
+  /*
+   * The unread dot.
+   *
+   * Compared against the newest release rather than counted, because "how many
+   * entries are new" is not a question anybody asks and maintaining a count
+   * would mean storing which entries were read rather than when.
+   */
+  const seenVersion = useGuideStore((s) => s.seenVersion);
+  const unread = hasUnread(seenVersion);
 
   // AppShell only renders behind SessionGate, so this is a type narrowing
   // rather than a real state. Rendering nothing beats rendering "Unknown".
@@ -200,7 +225,11 @@ function UserMenu() {
         <Button
           variant="ghost"
           size="icon"
-          aria-label={`Account menu for ${name}`}
+          aria-label={
+            unread ? `Account menu for ${name}, unread updates` : `Account menu for ${name}`
+          }
+          data-guide="header.account"
+          className="relative"
           onClick={() => {
             setSheetOpen(true);
           }}
@@ -208,6 +237,12 @@ function UserMenu() {
           <Avatar size="sm">
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
+          {unread ? (
+            <span
+              aria-hidden
+              className="bg-primary ring-background absolute top-1 right-1 size-2 rounded-full ring-2"
+            />
+          ) : null}
         </Button>
 
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
@@ -234,6 +269,34 @@ function UserMenu() {
                   small reads faster side by side, and it costs one row of
                   height instead of four. */}
               <ThemeToggleGroup />
+            </div>
+
+            <div className="flex flex-col gap-2 border-t p-4">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSheetOpen(false);
+                  void navigate('/updates');
+                }}
+              >
+                <BellIcon data-icon="inline-start" />
+                Updates
+                {unread ? (
+                  <span className="bg-primary ml-auto size-2 rounded-full" aria-hidden />
+                ) : null}
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSheetOpen(false);
+                  startTour();
+                }}
+              >
+                <CompassIcon data-icon="inline-start" />
+                Take the tour
+              </Button>
             </div>
 
             <SheetFooter className="flex-row gap-2 border-t">
@@ -270,12 +333,28 @@ function UserMenu() {
           initials — so nothing is lost by not printing it. */}
       <DropdownMenuTrigger
         render={
-          <Button variant="ghost" size="icon" aria-label={`Account menu for ${name}`} />
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={
+              unread ? `Account menu for ${name}, unread updates` : `Account menu for ${name}`
+            }
+            data-guide="header.account"
+            className="relative"
+          />
         }
       >
         <Avatar size="sm">
           <AvatarFallback>{initialsOf(name)}</AvatarFallback>
         </Avatar>
+        {/* aria-hidden: the trigger's own label already says "unread updates",
+            so announcing the dot separately would say it twice. */}
+        {unread ? (
+          <span
+            aria-hidden
+            className="bg-primary ring-background absolute top-1 right-1 size-2 rounded-full ring-2"
+          />
+        ) : null}
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="w-60">
@@ -298,6 +377,25 @@ function UserMenu() {
         <DropdownMenuSeparator />
 
         <DropdownMenuGroup>
+          <DropdownMenuItem
+            onClick={() => {
+              void navigate('/updates');
+            }}
+          >
+            <BellIcon />
+            Updates
+            {unread ? <span className="bg-primary ml-auto size-2 rounded-full" aria-hidden /> : null}
+          </DropdownMenuItem>
+          {/* Wrapped for the same reason as the sign-in offer: `arm` takes an
+              optional step id, and the raw handler would pass the click event. */}
+          <DropdownMenuItem
+            onClick={() => {
+              startTour();
+            }}
+          >
+            <CompassIcon />
+            Take the tour
+          </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => {
               void navigate('/profile');
@@ -414,6 +512,7 @@ export function AppShell() {
             <Button
               variant="outline"
               size="sm"
+              data-guide="header.goto"
               className="text-muted-foreground max-sm:size-11 max-sm:border-transparent max-sm:bg-transparent max-sm:px-0 max-sm:shadow-none gap-2 font-normal"
               onClick={toggleGoto}
             >
@@ -428,6 +527,7 @@ export function AppShell() {
               variant="ghost"
               size="icon"
               aria-label="Keyboard shortcuts"
+              data-guide="header.shortcuts"
               className="hidden sm:inline-flex"
               onClick={toggleShortcuts}
             >
@@ -471,7 +571,13 @@ export function AppShell() {
             // row of any list sits under the bar and cannot be reached.
             className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 outline-none md:p-6 md:pb-6"
           >
-            <Outlet />
+            {/* Inside the shell rather than around it, so a screen that throws
+                takes only itself down and the navigation is still there to
+                leave by. Keyed on the path: walking to another screen clears
+                the error, which is what anyone would expect that to do. */}
+            <ErrorBoundary resetKey={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
           </div>
         </ShortcutLayer>
       </SidebarInset>
@@ -480,6 +586,11 @@ export function AppShell() {
 
       <GoToPalette />
       <ShortcutDialog />
+      {/* Renders null unless a run is in progress, so the cost to somebody who
+          never takes the tour is one mounted component doing nothing. Sits
+          outside the screen's ShortcutLayer on purpose: it pushes a layer of
+          its own, which suspends the screen's keys while the tour is up. */}
+      <GuideOverlay />
       {/* Base UI's viewport owns its placement (bottom-right above sm, full
           width on a phone), so there is no position prop to pass. */}
       <Toaster />

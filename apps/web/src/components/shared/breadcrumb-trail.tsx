@@ -31,7 +31,10 @@ export function BreadcrumbTrail({ crumbs }: BreadcrumbTrailProps) {
   const current = crumbs[crumbs.length - 1] ?? crumbs[0];
 
   return (
-    <Breadcrumb className="min-w-0">
+    // data-guide anchors the guided tour's "where you are" step. On the
+    // wrapper rather than the h1, so the cutout covers the whole trail
+    // including the ancestor crumbs it is describing.
+    <Breadcrumb data-guide="header.breadcrumb" className="min-w-0">
       <BreadcrumbList className="flex-nowrap gap-1 sm:gap-1">
         {ancestors.map((crumb, index) => (
           // The separator is a sibling <li>, not a child of the item — nesting
