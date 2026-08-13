@@ -15,6 +15,7 @@ import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { TabsToolbar, TabsToolbarAction } from '@/components/shared/tabs-toolbar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -231,7 +232,7 @@ function ShiftsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
+      <TabsToolbarAction>
         <ManageAction label="You need the shift.manage permission to create a shift.">
           <Button
             size="sm"
@@ -245,7 +246,7 @@ function ShiftsTab() {
             New shift
           </Button>
         </ManageAction>
-      </div>
+      </TabsToolbarAction>
 
       {query.data?.sample ? <SampleDataNotice what="shift" /> : null}
 
@@ -329,7 +330,7 @@ function WeeklyOffsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
+      <TabsToolbarAction>
         <ManageAction label="You need the shift.manage permission to create a pattern.">
           <Button
             size="sm"
@@ -343,7 +344,7 @@ function WeeklyOffsTab() {
             New pattern
           </Button>
         </ManageAction>
-      </div>
+      </TabsToolbarAction>
 
       {query.isPending ? <ListSkeleton rows={3} label="Loading weekly off patterns" /> : null}
 
@@ -669,26 +670,31 @@ export function ShiftsPage() {
       <PageHeader description="Shift definitions, weekly off rules, and who is assigned to them." />
 
       <Tabs defaultValue="shifts" className="gap-4">
-        <TabsList>
-          <TabsTrigger value="shifts" className="pointer-coarse:min-h-11 px-3">
-            Shifts
-          </TabsTrigger>
-          <TabsTrigger value="roster" className="pointer-coarse:min-h-11 px-3">
-            Roster
-          </TabsTrigger>
-          <TabsTrigger value="weekly-offs" className="pointer-coarse:min-h-11 px-3">
-            Weekly offs
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="shifts">
-          <ShiftsTab />
-        </TabsContent>
-        <TabsContent value="roster">
-          <RosterTab />
-        </TabsContent>
-        <TabsContent value="weekly-offs">
-          <WeeklyOffsTab />
-        </TabsContent>
+        <TabsToolbar
+          list={
+            <TabsList>
+              <TabsTrigger value="shifts" className="pointer-coarse:min-h-11 px-3">
+                Shifts
+              </TabsTrigger>
+              <TabsTrigger value="roster" className="pointer-coarse:min-h-11 px-3">
+                Roster
+              </TabsTrigger>
+              <TabsTrigger value="weekly-offs" className="pointer-coarse:min-h-11 px-3">
+                Weekly offs
+              </TabsTrigger>
+            </TabsList>
+          }
+        >
+          <TabsContent value="shifts">
+            <ShiftsTab />
+          </TabsContent>
+          <TabsContent value="roster">
+            <RosterTab />
+          </TabsContent>
+          <TabsContent value="weekly-offs">
+            <WeeklyOffsTab />
+          </TabsContent>
+        </TabsToolbar>
       </Tabs>
     </>
   );
