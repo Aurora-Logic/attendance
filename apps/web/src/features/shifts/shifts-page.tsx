@@ -10,6 +10,7 @@ import { addDays, startOfMonth } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { useSearchParams } from 'react-router';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -557,6 +558,7 @@ function RosterTab() {
 
         {filtered ? (
           <Button variant="ghost" size="sm" onClick={clearFilters}>
+            <ACTION_ICONS.clearFilters data-icon="inline-start" />
             Clear filters
           </Button>
         ) : null}
@@ -622,6 +624,7 @@ function RosterTab() {
           {filtered ? (
             <EmptyContent>
               <Button variant="outline" size="sm" onClick={clearFilters}>
+                <ACTION_ICONS.clearFilters data-icon="inline-start" />
                 Clear filters
               </Button>
             </EmptyContent>
@@ -672,12 +675,15 @@ export function ShiftsPage() {
           list={
             <TabsList>
               <TabsTrigger value="shifts" className="px-3">
+                <ClockIcon data-icon="inline-start" />
                 Shifts
               </TabsTrigger>
               <TabsTrigger value="roster" className="px-3">
+                <UsersThreeIcon data-icon="inline-start" />
                 Roster
               </TabsTrigger>
               <TabsTrigger value="weekly-offs" className="px-3">
+                <CalendarBlankIcon data-icon="inline-start" />
                 Weekly offs
               </TabsTrigger>
             </TabsList>

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { UsersThreeIcon, WarningCircleIcon } from '@phosphor-icons/react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -36,6 +37,7 @@ import {
   type EmployeeStatus,
 } from '@vyuha/shared';
 
+import { STATUS_LABELS, STATUS_VARIANT } from './status';
 import { useDepartments } from './use-departments';
 import { useEmployees } from './use-employees';
 
@@ -51,24 +53,6 @@ import { useEmployees } from './use-employees';
 
 const ALL_DEPARTMENTS = '__all_departments__';
 const ALL_STATUSES = 'ALL';
-
-const STATUS_LABELS: Record<EmployeeStatus, string> = {
-  ACTIVE: 'Active',
-  ON_NOTICE: 'On notice',
-  INACTIVE: 'Inactive',
-};
-
-/**
- * Active is the ordinary state and reads as unremarkable; on notice is the one
- * a manager needs to spot while scanning. Inactive is outlined so a
- * deactivated record is visibly present rather than looking like a live one
- * (REQ-A-05 keeps the history).
- */
-const STATUS_VARIANT: Record<EmployeeStatus, 'secondary' | 'default' | 'outline'> = {
-  ACTIVE: 'secondary',
-  ON_NOTICE: 'default',
-  INACTIVE: 'outline',
-};
 
 function isEmployeeStatus(value: string | null): value is EmployeeStatus {
   return value !== null && (EMPLOYEE_STATUSES as readonly string[]).includes(value);
@@ -206,6 +190,7 @@ function EmployeesSkeleton() {
 
 export function EmployeesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
   const pageSize = readPositiveInt(searchParams.get('pageSize'), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
@@ -371,6 +356,7 @@ export function EmployeesPage() {
 
           {filtered ? (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <ACTION_ICONS.clearFilters data-icon="inline-start" />
               Clear filters
             </Button>
           ) : null}
@@ -420,6 +406,7 @@ export function EmployeesPage() {
             {filtered ? (
               <EmptyContent>
                 <Button variant="outline" size="sm" onClick={clearFilters}>
+                  <ACTION_ICONS.clearFilters data-icon="inline-start" />
                   Clear filters
                 </Button>
               </EmptyContent>
@@ -440,6 +427,12 @@ export function EmployeesPage() {
               mobileSupporting={(row) =>
                 `${row.employeeCode} · ${row.department?.name ?? 'No department'}`
               }
+              // PRD §6.4: Enter drills into the focused row, and a tap does the
+              // same thing on a phone. RecordTable owns both, so the register
+              // and the muster cannot disagree about what activating a row does.
+              onRowActivate={(row) => {
+                void navigate(`/employees/${row.id}`);
+              }}
             />
             <RecordPagination page={page} pageSize={pageSize} total={total} />
           </>

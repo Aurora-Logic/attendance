@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { TreePalmIcon, WarningCircleIcon, XCircleIcon } from '@phosphor-icons/react';
 import { useSearchParams } from 'react-router';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -229,6 +230,7 @@ function LoadFailure({ copy, error, onRetry }: { copy: ErrorCopy; error: unknown
       </AlertDescription>
       <AlertAction>
         <Button variant="outline" size="sm" onClick={onRetry}>
+          <ACTION_ICONS.retry data-icon="inline-start" />
           Try again
         </Button>
       </AlertAction>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PaperPlaneTiltIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Button } from '@/components/ui/button';
@@ -570,6 +571,7 @@ export function LeaveApplicationForm({
           <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
         </Button>
         <Button type="button" variant="ghost" onClick={reset} disabled={apply.isPending}>
+          <ACTION_ICONS.clearFilters data-icon="inline-start" />
           Clear
         </Button>
         {!canApply ? (

@@ -1,11 +1,17 @@
 import { useState } from 'react';
-import { CheckIcon, LockKeyIcon, ShieldCheckIcon } from '@phosphor-icons/react';
+import {
+  CheckIcon,
+  ListChecksIcon,
+  LockKeyIcon,
+  PlusIcon,
+  ShieldCheckIcon,
+} from '@phosphor-icons/react';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Empty,
   EmptyDescription,
@@ -14,22 +20,14 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Item, ItemContent, ItemDescription, ItemTitle } from '@/components/ui/item';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { usePermission, usePermissions } from '@/lib/session/permissions';
 import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
 
-import { PERMISSION_GROUPS, type Role } from './types';
+import { RoleEditorSheet } from './role-editor-sheet';
+import { PERMISSION_GROUPS, countAllPermissions, type Role } from './types';
 import { useRoles } from './use-roles';
 
 /**
@@ -37,9 +35,12 @@ import { useRoles } from './use-roles';
  *
  * Two tabs, because the screen answers two different questions. "Which roles
  * exist and what does each one carry" is the administrator's question and needs
- * the server. "What am I allowed to do" is everybody's question, and the answer
- * is already in the session -- so that tab shows real data even while the roles
- * endpoint does not exist.
+ * `roles.manage`. "What am I allowed to do" is everybody's question, and the
+ * answer is already in the session — so that tab needs no permission at all.
+ *
+ * P2-3 recorded that this screen was read-only because `PATCH /roles` did not
+ * exist. It does now, and every write goes through a confirm step that takes a
+ * typed reason.
  */
 
 const ROLE_COLUMNS: RecordColumn<Role>[] = [
@@ -97,14 +98,16 @@ export function RolesPage() {
 
   return (
     <>
-      <PageHeader description="Roles are named bundles of permissions. Nothing in the system branches on a role name." />
+      <PageHeader description="Roles are named bundles of permissions. Nothing in the system branches on a role name, and every change takes a reason." />
 
       <Tabs defaultValue="roles" className="gap-4">
         <TabsList>
-          <TabsTrigger value="roles" className="px-3">
+          <TabsTrigger value="roles" className="pointer-coarse:min-h-11 px-3">
+            <ShieldCheckIcon data-icon="inline-start" />
             Roles
           </TabsTrigger>
-          <TabsTrigger value="permissions" className="px-3">
+          <TabsTrigger value="permissions" className="pointer-coarse:min-h-11 px-3">
+            <ListChecksIcon data-icon="inline-start" />
             Permissions
           </TabsTrigger>
         </TabsList>
@@ -137,13 +140,30 @@ export function RolesPage() {
 }
 
 function RolesTab() {
-  const [open, setOpen] = useState<Role | null>(null);
+  const [editing, setEditing] = useState<Role | null>(null);
+  const [open, setOpen] = useState(false);
   const query = useRoles();
-  const roles = query.data?.value.data ?? [];
+  const roles = query.data?.data ?? [];
+
+  function openRole(role: Role | null) {
+    setEditing(role);
+    setOpen(true);
+  }
 
   return (
     <div className="flex flex-col gap-4">
-      {query.data?.sample ? <SampleDataNotice what="roles" /> : null}
+      {/* Toolbar row (PRD §6.2). */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          className="pointer-coarse:h-11"
+          onClick={() => {
+            openRole(null);
+          }}
+        >
+          <PlusIcon data-icon="inline-start" />
+          New role
+        </Button>
+      </div>
 
       {query.isPending ? <ListSkeleton /> : null}
 
@@ -180,101 +200,28 @@ function RolesTab() {
             rows={roles}
             rowKey={(row) => row.id}
             mobilePrimary={(row) => row.name}
-            mobileStatus={(row) => (
-              <Badge variant="secondary">{row.permissions.length} keys</Badge>
-            )}
+            mobileStatus={(row) => <Badge variant="secondary">{row.permissions.length} keys</Badge>}
             mobileSupporting={(row) => row.description ?? 'No description'}
-            onRowActivate={setOpen}
+            onRowActivate={openRole}
           />
           <p className="text-muted-foreground text-xs">
-            Open a role to see every permission it carries.
+            Open a role to change what it carries. Seeded roles can be edited but not renamed or
+            deleted.
           </p>
         </>
       ) : null}
 
-      <RoleSheet
-        role={open}
-        onOpenChange={(next) => {
-          if (!next) setOpen(null);
-        }}
-      />
+      <RoleEditorSheet role={editing} open={open} onOpenChange={setOpen} canManage />
     </div>
   );
 }
 
-function RoleSheet({
-  role,
-  onOpenChange,
-}: {
-  role: Role | null;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const isMobile = useIsMobile();
-  const held = new Set(role?.permissions ?? []);
-
-  return (
-    <Sheet open={role !== null} onOpenChange={onOpenChange}>
-      <SheetContent
-        side={isMobile ? 'bottom' : 'right'}
-        className="gap-0 sm:max-w-lg max-md:max-h-[90vh]"
-      >
-        {role ? (
-          <>
-            <SheetHeader className="shrink-0 border-b">
-              <SheetTitle>{role.name}</SheetTitle>
-              <SheetDescription>
-                {role.permissions.length} of {countAllPermissions()} permissions.{' '}
-                {role.description ?? ''}
-              </SheetDescription>
-            </SheetHeader>
-
-            {/* min-h-0 is load-bearing: a flex child defaults to
-                min-height:auto and would grow past the sheet instead of
-                scrolling inside it. */}
-            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-              <Alert>
-                <LockKeyIcon />
-                <AlertTitle>Read-only for now</AlertTitle>
-                <AlertDescription>
-                  REQ-B-07 makes these editable bundles, but the endpoint that saves a change
-                  (PATCH /roles) is not built yet. Editing here would be a control that fails on
-                  every press.
-                </AlertDescription>
-              </Alert>
-
-              {PERMISSION_GROUPS.map((group) => (
-                <div key={group.family} className="flex flex-col gap-2">
-                  <SectionHeading title={group.label} />
-                  <div className="flex flex-col gap-1">
-                    {group.permissions.map((permission) => (
-                      <PermissionRow
-                        key={permission.key}
-                        permissionKey={permission.key}
-                        description={permission.description}
-                        granted={held.has(permission.key)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : null}
-      </SheetContent>
-    </Sheet>
-  );
-}
-
-function countAllPermissions(): number {
-  return PERMISSION_GROUPS.reduce((total, group) => total + group.permissions.length, 0);
-}
-
 /**
- * One permission, with whether it is present.
+ * One permission, with whether the reader holds it.
  *
- * A tick and a dash rather than a disabled Checkbox. A greyed-out checkbox says
- * "you may not change this yet"; a tick says "this is how it is", which is what
- * a read-only matrix actually means.
+ * A tick and a phrase rather than a disabled checkbox. A greyed-out checkbox
+ * says "you may not change this yet"; this tab is not about changing anything,
+ * it is about telling somebody what they can currently do.
  */
 function PermissionRow({
   permissionKey,
@@ -308,9 +255,8 @@ function PermissionRow({
 /**
  * The permission catalogue, marked with what the reader themselves holds.
  *
- * This is real data on a screen whose other half is not: `ALL_PERMISSIONS` is
- * the contract package, and the held set came from `/me`. It carries no sample
- * notice for that reason.
+ * `ALL_PERMISSIONS` is the contract package and the held set came from `/me`,
+ * so this tab is real data whatever the roles endpoint is doing.
  */
 function PermissionCatalogueTab() {
   const held = usePermissions();

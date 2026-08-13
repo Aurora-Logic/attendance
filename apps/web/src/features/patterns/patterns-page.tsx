@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { FloppyDiskIcon, PlusIcon, WarningIcon } from '@phosphor-icons/react';
+import { PlusIcon, WarningIcon } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -135,7 +136,7 @@ export function PatternsPage() {
         description="Every screen is built from these. Development only."
         action={
           <Button onClick={save}>
-            <FloppyDiskIcon data-icon="inline-start" />
+            <ACTION_ICONS.save data-icon="inline-start" />
             Save
             <ShortcutHint keys="ctrl+a" className="ml-1" />
           </Button>

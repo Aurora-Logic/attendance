@@ -1,5 +1,6 @@
 import type { DateRange } from 'react-day-picker';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Button } from '@/components/ui/button';
 import {
@@ -238,6 +239,7 @@ export function ReportFilterBar({
 
       {isFiltered ? (
         <Button variant="ghost" size="sm" onClick={onClear}>
+          <ACTION_ICONS.clearFilters data-icon="inline-start" />
           Clear filters
         </Button>
       ) : null}

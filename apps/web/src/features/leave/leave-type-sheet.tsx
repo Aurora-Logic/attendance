@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { FloppyDiskIcon, XIcon } from '@phosphor-icons/react';
+import { XIcon } from '@phosphor-icons/react';
 import { z } from 'zod';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Button } from '@/components/ui/button';
@@ -472,7 +473,7 @@ function LeaveTypeForm({
                   {save.isPending ? (
                     <Spinner data-icon="inline-start" />
                   ) : (
-                    <FloppyDiskIcon data-icon="inline-start" />
+                    <ACTION_ICONS.save data-icon="inline-start" />
                   )}
                   Save
                   <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />

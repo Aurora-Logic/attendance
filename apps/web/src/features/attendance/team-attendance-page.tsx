@@ -3,6 +3,7 @@ import { CaretLeftIcon, CaretRightIcon, UsersThreeIcon } from '@phosphor-icons/r
 import { addDays, isToday, startOfDay } from 'date-fns';
 import { useSearchParams } from 'react-router';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -414,6 +415,7 @@ export function TeamAttendancePage() {
 
           {filtered ? (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <ACTION_ICONS.clearFilters data-icon="inline-start" />
               Clear filters
             </Button>
           ) : null}
@@ -451,6 +453,7 @@ export function TeamAttendancePage() {
             {filtered ? (
               <EmptyContent>
                 <Button variant="outline" size="sm" onClick={clearFilters}>
+                  <ACTION_ICONS.clearFilters data-icon="inline-start" />
                   Clear filters
                 </Button>
               </EmptyContent>

@@ -1,5 +1,10 @@
 import { useState } from 'react';
-import { EyeIcon, EyeSlashIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import {
+  EyeIcon,
+  EyeSlashIcon,
+  SignInIcon,
+  WarningCircleIcon,
+} from '@phosphor-icons/react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -16,6 +21,7 @@ import {
   InputGroupInput,
 } from '@/components/ui/input-group';
 import { Spinner } from '@/components/ui/spinner';
+import { SignInTourOffer } from '@/features/guide';
 import { ApiError } from '@/lib/api/client';
 import { useLogin } from '@/lib/session/use-session';
 
@@ -186,7 +192,11 @@ export function LoginPage() {
             {/* Stays enabled while submitting, per the interface guidelines: a
                 disabled submit button is indistinguishable from a broken one. */}
             <Button type="submit" className="w-full">
-              {login.isPending ? <Spinner data-icon="inline-start" /> : null}
+              {login.isPending ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <SignInIcon data-icon="inline-start" />
+              )}
               {login.isPending ? 'Signing in' : 'Sign in'}
             </Button>
           </FieldGroup>
@@ -195,6 +205,8 @@ export function LoginPage() {
         <p className="text-muted-foreground text-center text-xs">
           Accounts are created by invitation. Ask an administrator if you do not have one.
         </p>
+
+        <SignInTourOffer />
       </div>
     </main>
   );

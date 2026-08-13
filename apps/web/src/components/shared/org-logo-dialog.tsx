@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { ImageIcon, TrashIcon, UploadSimpleIcon } from '@phosphor-icons/react';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { toast } from '@/components/ui/toast';
 
 import { Button } from '@/components/ui/button';
@@ -158,6 +159,7 @@ export function OrgLogoDialog({ open, onOpenChange, monogram }: OrgLogoDialogPro
             Cancel
           </Button>
           <Button disabled={!pending} onClick={save}>
+            <ACTION_ICONS.save data-icon="inline-start" />
             Save logo
           </Button>
         </DialogFooter>

@@ -1,5 +1,6 @@
 import { WarningCircleIcon } from '@phosphor-icons/react';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api/client';
@@ -86,6 +87,7 @@ export function QueryErrorAlert({
       </AlertDescription>
       <AlertAction>
         <Button variant="outline" size="sm" onClick={onRetry}>
+          <ACTION_ICONS.retry data-icon="inline-start" />
           Try again
         </Button>
       </AlertAction>

@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { FloppyDiskIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { WarningCircleIcon } from '@phosphor-icons/react';
 import { addDays } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -235,13 +236,14 @@ function RosterSheetBody({
 
       <SheetFooter className="shrink-0 flex-row justify-end gap-2 border-t">
         <Button variant="outline" className="flex-1 sm:flex-none" onClick={onClose}>
+          <ACTION_ICONS.cancel data-icon="inline-start" />
           Cancel
         </Button>
         <Button className="flex-1 sm:flex-none" disabled={create.isPending} onClick={submit}>
           {create.isPending ? (
             <Spinner data-icon="inline-start" />
           ) : (
-            <FloppyDiskIcon data-icon="inline-start" />
+            <ACTION_ICONS.save data-icon="inline-start" />
           )}
           {create.isPending ? 'Assigning' : 'Assign'}
           <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />

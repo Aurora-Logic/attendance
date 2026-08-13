@@ -9,6 +9,7 @@ import {
 import { addDays } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -289,6 +290,7 @@ function BulkRosterSheetBody({
 
       <SheetFooter className="shrink-0 flex-col gap-2 border-t sm:flex-row sm:justify-end">
         <Button variant="outline" className="w-full sm:w-auto" onClick={onClose}>
+          <ACTION_ICONS.cancel data-icon="inline-start" />
           Cancel
         </Button>
         <Button

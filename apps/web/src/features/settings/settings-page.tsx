@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import {
+  BuildingsIcon,
+  CameraIcon,
+  ClockIcon,
   EnvelopeSimpleIcon,
-  FloppyDiskIcon,
   LockKeyIcon,
   PaperPlaneTiltIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -270,7 +273,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           {save.isPending ? (
             <Spinner data-icon="inline-start" />
           ) : (
-            <FloppyDiskIcon data-icon="inline-start" />
+            <ACTION_ICONS.save data-icon="inline-start" />
           )}
           {save.isPending ? 'Saving' : 'Save'}
           <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
@@ -280,15 +283,19 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
       <Tabs defaultValue="organisation" className="gap-4">
         <TabsList>
           <TabsTrigger value="organisation" className="px-3">
+            <BuildingsIcon data-icon="inline-start" />
             Organisation
           </TabsTrigger>
           <TabsTrigger value="attendance" className="px-3">
+            <ClockIcon data-icon="inline-start" />
             Attendance
           </TabsTrigger>
           <TabsTrigger value="photos" className="px-3">
+            <CameraIcon data-icon="inline-start" />
             Photos
           </TabsTrigger>
           <TabsTrigger value="email" className="px-3">
+            <EnvelopeSimpleIcon data-icon="inline-start" />
             Email
           </TabsTrigger>
         </TabsList>

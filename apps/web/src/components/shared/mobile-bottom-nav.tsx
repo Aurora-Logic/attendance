@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowCounterClockwiseIcon,
-  FloppyDiskIcon,
   DotsThreeIcon,
   SlidersHorizontalIcon,
   XIcon,
 } from '@phosphor-icons/react';
 import { NavLink, useLocation, useNavigate } from 'react-router';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Button } from '@/components/ui/button';
 import { Item, ItemContent, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
 import {
@@ -80,6 +80,9 @@ export function MobileBottomNav() {
       */}
       <nav
         aria-label="Primary"
+        // The phone's stand-in for the sidebar anchor, so the tour's first step
+        // points at the navigation that actually exists at this width.
+        data-guide="nav.bottom-bar"
         className="bg-background/95 supports-backdrop-filter:bg-background/80 reduced-transparency:bg-background reduced-transparency:backdrop-blur-none fixed inset-x-0 bottom-0 z-30 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
       >
         <ul className="flex items-stretch justify-around">
@@ -325,7 +328,7 @@ function CustomiseSheet({
               if (draft.length === 0) onNavigateHome();
             }}
           >
-            <FloppyDiskIcon data-icon="inline-start" />
+            <ACTION_ICONS.save data-icon="inline-start" />
             Save
           </Button>
         </SheetFooter>
