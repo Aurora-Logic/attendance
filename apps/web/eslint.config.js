@@ -100,6 +100,13 @@ export default defineConfig([
       // the registry and break `shadcn add --diff` updates for a hook that runs
       // once on mount.
       'react-hooks/set-state-in-effect': 'off',
+      // chart.tsx interpolates recharts' own tooltip name and value types,
+      // which are unions that include a function, and asserts types recharts
+      // has since narrowed upstream. Both are properties of the registry
+      // source; patching them here would be reverted by the next
+      // `shadcn add chart` without anybody noticing it had happened.
+      '@typescript-eslint/restrict-template-expressions': 'off',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
     },
   },
 ]);
