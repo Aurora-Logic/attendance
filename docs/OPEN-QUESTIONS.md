@@ -91,6 +91,24 @@ There is a second join: cancelling on or after the start date currently needs an
 approver key rather than raising an approval request, which is what REQ-G-10
 asks for.
 
+## Raised during guided tour and Updates design
+
+Design only — nothing built. Full design in
+[`06-guided-tour-and-updates.md`](06-guided-tour-and-updates.md). No REQ ID
+exists for either surface; neither appears in the PRD or in
+`03-scope-and-delivery-plan.md`, which is question G-6 below.
+
+| # | Question | Blocks | Recommended default in use |
+|---|---|---|---|
+| G-1 | **Does the tour auto-start on first sign-in, or offer itself and wait?** | Nothing — design only | **Offer.** A single popover on the avatar with "Not now" and "Start". The same account type is used by a shop-floor employee who opens Punch and closes the tab; taking over their first sign-in to explain a Reports menu they cannot open is hostile. Say the word if it should seize the screen instead. |
+| G-2 | **One permission-filtered tour, or a distinct tour per role?** | Nothing | **One registry, permission-filtered** on the same `PermissionKey` set the sidebar and the Go To palette already filter on. It cannot disagree with the navigation, and a new role needs no new tour. Separate tours per role means three lists that drift apart. |
+| G-3 | **Does "tour seen" and "changelog read" live per device or per user?** | Nothing | **Per device — `localStorage` via `zustand/persist`**, keyed `vyuha.guide`, exactly like `nav-preferences-store`. Cost of being wrong: the tour offers itself again on a second browser. Server-side is one `user_preferences` row and one endpoint away and the store is the only seam, but it is not needed to ship. |
+| G-4 | **Is `/updates` acceptable as an off-sidebar route?** PRD §6.1 fixes the sidebar to Work, Records, Reports and Setup, and a changelog belongs to none of them. | REQ-N-01 adjacency | **Yes — the same treatment `/profile` already takes.** Added to `OFF_NAV_LABELS` in `lib/nav.ts` so the breadcrumb can name it, never added to `NAV_GROUPS`, reached from the account menu. Recorded here rather than editing PRD §6.1 unasked. |
+| G-5 | **Does a release note ever need to interrupt?** A breaking change or a policy change may warrant more than a dot. | Nothing | **No interruption of any kind.** An unread dot on the avatar, cleared by opening `/updates`. No sign-in modal, no toast — it is the most resented pattern in operations software and these users open the app several times a day. If a "must read before continuing" tier is wanted, that is a different design and should be said before this is built. |
+| G-6 | **Which phase does this belong to?** Neither surface appears anywhere in `03-scope-and-delivery-plan.md`. | Nothing | **Phase 5 (polish and hardening)** for the Guide — a tour that describes screens is worth writing once the screens have stopped moving. The `data-guide` attributes are the exception and are free to add opportunistically from now, since an unused data attribute costs nothing. **Updates has no such dependency and could ship on its own at any point.** |
+| G-7 | **Who writes the changelog copy, and at what granularity?** | Nothing | **One entry per shipped change, grouped by release, written by whoever closes the phase**, from the REQ IDs already required in every commit message (CLAUDE.md §4). Entries carry their REQ IDs so a line traces back to the PRD. |
+| G-8 | **The `data-guide` attributes are a real coupling and this is the one place the design can rot.** Roughly 22 elements across the shell and every screen carry an attribute the step registry matches on. A refactor that drops one makes the step vanish with no error in production. | Nothing | **A registry test is a condition of building this**, not a nice-to-have: `guide.test.ts` renders the shell and every routed screen under a full permission set and asserts every anchor resolves to exactly one element. Plus a dev-only `console.error` when a step's anchor never appears. If that test is not written, the recommendation is not to build the Guide at all. |
+
 ## Carried from `05-decisions.md` — still open
 
 | # | Question | Needed by | Recommended default in use |
