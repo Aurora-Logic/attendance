@@ -16,6 +16,21 @@ export const holidayCalendars = pgTable(
       .references(() => organizations.id, { onDelete: 'restrict' }),
     name: text('name').notNull(),
     year: integer('year').notNull(),
+    /**
+     * REQ-H-03's N: how many of this calendar's restricted holidays one
+     * employee may elect in its year (migration 0007).
+     *
+     * On the calendar rather than in `settings` because the pool and the count
+     * are one policy: a state calendar with four optional festivals and a
+     * calendar with none cannot share a number, and a number kept away from
+     * the pool it limits is a number that drifts from it.
+     *
+     * Zero -- the default -- means this calendar does not run restricted
+     * holidays. Questionnaire Q36 ("how many may each person take?") has no
+     * answer yet, and 05-decisions says no dates ship assumed; an invented
+     * allowance would be the same assumption wearing a different hat.
+     */
+    restrictedAllowance: integer('restricted_allowance').notNull().default(0),
     ...standardColumns(),
   },
   (t) => [

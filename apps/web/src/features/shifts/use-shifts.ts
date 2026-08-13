@@ -14,23 +14,41 @@ import {
   type Sampled,
 } from '@/features/attendance/api';
 import { apiRequest } from '@/lib/api/client';
-import type { Paginated } from '@vyuha/shared';
+import { employeeDisplayName, type Paginated } from '@vyuha/shared';
 
 import {
+  bulkRosterResultSchema,
+  rosterCandidatesResponseSchema,
   rostersResponseSchema,
+  rosterEntrySchema,
   shiftSchema,
   shiftsResponseSchema,
+  weeklyOffPatternSchema,
+  weeklyOffPatternsResponseSchema,
+  type BulkRosterResult,
+  type RosterCandidate,
   type RosterEntry,
   type Shift,
+  type WeeklyOffConfig,
+  type WeeklyOffPattern,
 } from './types';
 
 /**
- * `GET /shifts` and `GET /rosters` (REQ-C-01, REQ-C-04).
+ * The read and write sides of `/shifts`, `/weekly-off-patterns` and `/rosters`
+ * (REQ-C-01 … REQ-C-05).
  *
- * The sample fallback is imported from the attendance feature rather than
- * duplicated: shifts, rosters and attendance days are one module, and there is
- * one place to delete when the endpoints land.
+ * Reads keep the sample fallback the rest of this module uses: when the call
+ * fails *because there is no such endpoint* -- and only then -- a development
+ * build serves invented rows and marks them, so the screen says out loud that
+ * it is not showing real data. A 403 or a 500 is a real answer from a real
+ * server and reaches the error state untouched.
+ *
+ * Writes have no fallback and never will. Reads may be invented and labelled;
+ * pretending a roster was saved when no server heard about it is exactly the
+ * lie the notice exists to prevent.
  */
+
+// ---------------------------------------------------------------- shifts
 
 export function useShifts(): UseQueryResult<Sampled<Paginated<Shift>>, Error> {
   return useQuery({
@@ -50,6 +68,118 @@ export function useShifts(): UseQueryResult<Sampled<Paginated<Shift>>, Error> {
   });
 }
 
+/** Everything a shift write invalidates. A shift decides every derived day. */
+function invalidateAfterShiftWrite(queryClient: ReturnType<typeof useQueryClient>): void {
+  void queryClient.invalidateQueries({ queryKey: ['shifts'] });
+  // A changed window or threshold makes every attendance day on screen stale
+  // (REQ-C-06), and a new shift changes what the roster form can offer.
+  void queryClient.invalidateQueries({ queryKey: ['attendance'] });
+  void queryClient.invalidateQueries({ queryKey: ['rosters'] });
+}
+
+export type ShiftDraft = Omit<Shift, 'id'>;
+
+function shiftBody(draft: ShiftDraft): Record<string, unknown> {
+  return {
+    name: draft.name,
+    code: draft.code,
+    scheduledIn: draft.scheduledIn,
+    scheduledOut: draft.scheduledOut,
+    breakMinutes: draft.breakMinutes,
+    crossesMidnight: draft.crossesMidnight,
+    policy: draft.policy,
+  };
+}
+
+export function useSaveShift(): UseMutationResult<Shift, Error, Shift> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (shift: Shift) => {
+      const body = await apiRequest<unknown>(`/shifts/${shift.id}`, {
+        method: 'PATCH',
+        body: shiftBody(shift),
+      });
+      return parseOrThrow(shiftSchema, body, 'saved shift');
+    },
+    onSuccess: () => {
+      invalidateAfterShiftWrite(queryClient);
+    },
+  });
+}
+
+export function useCreateShift(): UseMutationResult<Shift, Error, ShiftDraft> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (draft: ShiftDraft) => {
+      const body = await apiRequest<unknown>('/shifts', {
+        method: 'POST',
+        body: shiftBody(draft),
+      });
+      return parseOrThrow(shiftSchema, body, 'created shift');
+    },
+    onSuccess: () => {
+      invalidateAfterShiftWrite(queryClient);
+    },
+  });
+}
+
+// ----------------------------------------------------------- weekly offs
+
+export function useWeeklyOffPatterns(): UseQueryResult<
+  Sampled<Paginated<WeeklyOffPattern>>,
+  Error
+> {
+  return useQuery({
+    queryKey: ['weekly-off-patterns', 'list'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/weekly-off-patterns?pageSize=200', { signal });
+      return {
+        value: parseOrThrow(weeklyOffPatternsResponseSchema, body, 'weekly off pattern list'),
+        sample: false,
+      };
+    },
+    // No sample fallback. There is nothing invented to show here: an
+    // organisation with no patterns is a real and common state, and the empty
+    // state below says what to do about it. Inventing two would make the
+    // screen look configured when it is not.
+  });
+}
+
+export interface WeeklyOffPatternDraft {
+  name: string;
+  config: WeeklyOffConfig;
+}
+
+export function useSaveWeeklyOffPattern(): UseMutationResult<
+  WeeklyOffPattern,
+  Error,
+  WeeklyOffPatternDraft & { id: string | null }
+> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (draft) => {
+      const body = await apiRequest<unknown>(
+        draft.id === null ? '/weekly-off-patterns' : `/weekly-off-patterns/${draft.id}`,
+        {
+          method: draft.id === null ? 'POST' : 'PATCH',
+          body: { name: draft.name, config: draft.config },
+        },
+      );
+      return parseOrThrow(weeklyOffPatternSchema, body, 'saved weekly off pattern');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['weekly-off-patterns'] });
+      // Which days are off changed, so every computed day on screen is stale.
+      void queryClient.invalidateQueries({ queryKey: ['attendance'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------- roster
+
 export interface RosterParams {
   from: string;
   to: string;
@@ -64,6 +194,8 @@ function toSearch(params: RosterParams): string {
   search.set('from', params.from);
   search.set('to', params.to);
   if (params.departmentId) search.set('departmentId', params.departmentId);
+  // Absent rather than empty: `?q=` filters for the empty string as far as a
+  // strict server-side schema is concerned, and that schema has a min length.
   if (params.q) search.set('q', params.q);
   search.set('page', String(params.page));
   search.set('pageSize', String(params.pageSize));
@@ -87,42 +219,98 @@ export function useRoster(
         throw error;
       }
     },
+    // Stepping the period or paging changes the key. Without this the table
+    // empties to a skeleton between every step, which reads as the list
+    // breaking and coming back rather than as the period moving.
     placeholderData: keepPreviousData,
   });
 }
 
-/**
- * `PATCH /shifts/:id` (REQ-C-01), the write side.
- *
- * Deliberately has no sample fallback. Reads may be invented and labelled;
- * a write may not. Pretending a shift policy was saved when no server heard
- * about it is exactly the lie the sample notice exists to prevent, so a failed
- * save reports the failure and the sheet stays open with the edits intact.
- */
-export function useSaveShift(): UseMutationResult<Shift, Error, Shift> {
+/** The people the roster form can name, from the employee register (REQ-A-03). */
+export function useRosterCandidates(): UseQueryResult<RosterCandidate[], Error> {
+  return useQuery({
+    queryKey: ['rosters', 'candidates'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/employees?pageSize=200&status=ACTIVE', { signal });
+      const parsed = parseOrThrow(rosterCandidatesResponseSchema, body, 'employee list');
+      return parsed.data.map((row) => ({
+        id: row.id,
+        name: employeeDisplayName(row.firstName, row.lastName),
+        employeeCode: row.employeeCode,
+        department: row.department?.name ?? null,
+      }));
+    },
+    // People change a few times a month, and this list is reopened every time
+    // somebody rosters one more person.
+    staleTime: 5 * 60_000,
+  });
+}
+
+function invalidateAfterRosterWrite(queryClient: ReturnType<typeof useQueryClient>): void {
+  void queryClient.invalidateQueries({ queryKey: ['rosters'] });
+  // REQ-C-06: the server recomputed the days this change touched, so anything
+  // showing them is stale.
+  void queryClient.invalidateQueries({ queryKey: ['attendance'] });
+}
+
+export interface RosterDraft {
+  employeeId: string;
+  shiftId: string;
+  from: string;
+  to: string | null;
+}
+
+export function useCreateRosterAssignment(): UseMutationResult<RosterEntry, Error, RosterDraft> {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (shift: Shift) => {
-      const body = await apiRequest<unknown>(`/shifts/${shift.id}`, {
-        method: 'PATCH',
-        body: {
-          name: shift.name,
-          code: shift.code,
-          scheduledIn: shift.scheduledIn,
-          scheduledOut: shift.scheduledOut,
-          breakMinutes: shift.breakMinutes,
-          crossesMidnight: shift.crossesMidnight,
-          policy: shift.policy,
-        },
-      });
-      return parseOrThrow(shiftSchema, body, 'saved shift');
+    mutationFn: async (draft: RosterDraft) => {
+      const body = await apiRequest<unknown>('/rosters', { method: 'POST', body: draft });
+      return parseOrThrow(rosterEntrySchema, body, 'roster assignment');
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['shifts'] });
-      // A shift's window and thresholds decide every derived day, so a changed
-      // policy makes every attendance day on screen stale (REQ-C-06).
-      void queryClient.invalidateQueries({ queryKey: ['attendance'] });
+      invalidateAfterRosterWrite(queryClient);
+    },
+  });
+}
+
+export interface BulkRosterDraft {
+  shiftId: string;
+  from: string;
+  to: string;
+  departmentId?: string | null;
+  employeeIds?: string[];
+  preview: boolean;
+}
+
+/**
+ * REQ-C-05, both halves. The preview and the commit are one endpoint so the
+ * count the reader confirmed is the count the server acts on.
+ */
+export function useBulkRoster(): UseMutationResult<BulkRosterResult, Error, BulkRosterDraft> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (draft: BulkRosterDraft) => {
+      const body = await apiRequest<unknown>('/rosters/bulk', {
+        method: 'POST',
+        body: {
+          shiftId: draft.shiftId,
+          from: draft.from,
+          to: draft.to,
+          ...(draft.departmentId ? { departmentId: draft.departmentId } : {}),
+          ...(draft.employeeIds && draft.employeeIds.length > 0
+            ? { employeeIds: draft.employeeIds }
+            : {}),
+          preview: draft.preview,
+        },
+      });
+      return parseOrThrow(bulkRosterResultSchema, body, 'bulk roster result');
+    },
+    onSuccess: (result) => {
+      // A preview wrote nothing, so invalidating would refetch the whole
+      // roster for no reason every time somebody adjusted a date.
+      if (!result.preview) invalidateAfterRosterWrite(queryClient);
     },
   });
 }

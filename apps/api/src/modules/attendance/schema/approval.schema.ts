@@ -1,4 +1,6 @@
+import { sql, type SQL } from 'drizzle-orm';
 import {
+  date,
   index,
   integer,
   pgEnum,
@@ -55,9 +57,32 @@ export const approvalRequests = pgTable(
       .references(() => users.id, { onDelete: 'restrict' }),
     subjectType: text('subject_type').notNull(),
     subjectId: uuid('subject_id').notNull(),
+    /**
+     * REQ-I-03: the one line the inbox renders, written by whoever raised the
+     * request. It lives here rather than being joined per type because the
+     * join is the thing REQ-I-01 forbids -- five subject tables would mean
+     * five branches in the inbox query, which is four separate inboxes wearing
+     * one URL.
+     */
+    subjectSummary: text('subject_summary').notNull(),
     currentStep: integer('current_step').notNull().default(1),
     status: approvalStatusEnum('status').notNull().default('PENDING'),
-    /** REQ-I-04: set by the escalation job, so it is a fact, not a flag. */
+    /**
+     * When the current step began. REQ-G-09's "untouched for N days" is
+     * measured from here and not from `updated_at`, which any write touches --
+     * a notification flag flipped by a job would otherwise reset the clock the
+     * escalation depends on.
+     */
+    currentStepStartedAt: timestamp('current_step_started_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /**
+     * REQ-G-09's N, carried on the request rather than read at escalation
+     * time. The leave type that configured it may be edited afterwards, and a
+     * request must escalate on the terms it was raised under.
+     */
+    escalateAfterDays: integer('escalate_after_days').notNull().default(3),
+    /** REQ-G-09: set by the escalation job, so it is a fact, not a flag. */
     escalatedAt: timestamp('escalated_at', { withTimezone: true }),
     ...standardColumns(),
   },
@@ -66,6 +91,10 @@ export const approvalRequests = pgTable(
     index('approval_requests_queue_idx').on(t.orgId, t.status, t.currentStep),
     index('approval_requests_subject_idx').on(t.orgId, t.subjectType, t.subjectId),
     index('approval_requests_requester_idx').on(t.orgId, t.requesterUserId),
+    // The escalation sweep runs org-wide across every organisation, so org_id
+    // is deliberately not the leading column: the job asks "what is stale
+    // anywhere", and a leading org_id would make that a full scan per org.
+    index('approval_requests_escalation_idx').on(t.status, t.currentStepStartedAt),
   ],
 );
 
@@ -81,9 +110,22 @@ export const approvalSteps = pgTable(
       .notNull()
       .references(() => approvalRequests.id, { onDelete: 'cascade' }),
     stepNo: integer('step_no').notNull(),
+    /** Who the step was routed to. Never changes once the step exists. */
     approverUserId: uuid('approver_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
+    /**
+     * REQ-I-04: "Delegated actions record both identities." `acted_by` is the
+     * person who clicked and `delegated_from` is the approver whose authority
+     * they borrowed; on an ordinary decision `acted_by` equals
+     * `approver_user_id` and `delegated_from` is null. Storing only one of the
+     * two would make a delegated approval indistinguishable from the approver
+     * having done it themselves, which is exactly what the requirement is
+     * about.
+     */
+    actedByUserId: uuid('acted_by_user_id').references(() => users.id, {
+      onDelete: 'restrict',
+    }),
     delegatedFromUserId: uuid('delegated_from_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -100,3 +142,55 @@ export const approvalSteps = pgTable(
     index('approval_steps_approver_idx').on(t.orgId, t.approverUserId),
   ],
 );
+
+/**
+ * REQ-I-04: "an approver can delegate to another user for a date range."
+ *
+ * A standing grant rather than a per-request handover, because the case it
+ * exists for is an approver going on leave -- they cannot enumerate the
+ * requests that have not arrived yet. Whether a delegation is live is a
+ * question about today's date, asked at decision time; nothing is copied onto
+ * a request when a delegation is created, so revoking one takes effect
+ * immediately rather than leaving already-routed requests behind.
+ */
+export const approvalDelegations = pgTable(
+  'approval_delegations',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    fromUserId: uuid('from_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    toUserId: uuid('to_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    /** Inclusive at both ends. NFR-05: calendar dates, not instants. */
+    fromDate: date('from_date').notNull(),
+    toDate: date('to_date').notNull(),
+    reason: text('reason'),
+    /** Revoked rather than deleted: the trail has to keep saying it existed. */
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    ...standardColumns(),
+  },
+  (t) => [
+    // The decision-time lookup: "is anyone delegating to me today". Ordered
+    // delegate-first because that is the bound column on every check.
+    index('approval_delegations_delegate_idx').on(t.orgId, t.toUserId, t.fromDate, t.toDate),
+    index('approval_delegations_owner_idx').on(t.orgId, t.fromUserId),
+  ],
+);
+
+/**
+ * The predicate for "this delegation is live on `on`", written once.
+ *
+ * Exported from the schema rather than a repository because both the decision
+ * path and the delegation list ask it, and two hand-written copies of a date
+ * range comparison is how a revoked delegation stays usable for a day.
+ */
+export function delegationLiveOn(on: SQL | string): SQL {
+  return sql`${approvalDelegations.revokedAt} IS NULL
+    AND ${approvalDelegations.fromDate} <= ${on}
+    AND ${approvalDelegations.toDate} >= ${on}`;
+}

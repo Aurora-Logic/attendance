@@ -27,11 +27,12 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
 import { TimeField } from '@/features/attendance/pickers';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ApiError } from '@/lib/api/client';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
+import { SHIFT_POLICY_DEFAULTS, SHIFT_POLICY_FIELDS } from '@vyuha/shared';
 
-import { POLICY_FIELDS, type Shift, type ShiftPolicy } from './types';
-import { useSaveShift } from './use-shifts';
+import { rosterErrorCopy } from './roster-error-copy';
+import type { Shift, ShiftPolicy } from './types';
+import { useCreateShift, useSaveShift, type ShiftDraft } from './use-shifts';
 
 /**
  * One shift master and its nine policy fields (REQ-C-01).
@@ -39,8 +40,23 @@ import { useSaveShift } from './use-shifts';
  * A sheet rather than a page: a shift is nine numbers and four identity
  * fields, which is a form, not a screen, and opening it from the row keeps the
  * list in view behind it. Times go through TimeField - never a native time
- * input, on any screen, for any reason (CLAUDE.md §3).
+ * input, on any screen, for any reason (CLAUDE.md section 3).
+ *
+ * The nine labels and the nine defaults come from `@vyuha/shared`, beside the
+ * schema that validates them. A tenth policy field cannot be added to the
+ * contract without appearing here.
  */
+
+/** REQ-C-01 has no default timing for the general shift, so a new one starts blank-ish. */
+const NEW_SHIFT: ShiftDraft = {
+  name: '',
+  code: '',
+  scheduledIn: '09:00',
+  scheduledOut: '18:00',
+  breakMinutes: 60,
+  crossesMidnight: false,
+  policy: SHIFT_POLICY_DEFAULTS,
+};
 
 /**
  * A minutes field.
@@ -87,7 +103,8 @@ function MinutesField({
 }
 
 interface ShiftSheetProps {
-  shift: Shift | null;
+  /** The shift being edited, `'new'` to create, or null when closed. */
+  shift: Shift | 'new' | null;
   onOpenChange: (open: boolean) => void;
 }
 
@@ -102,45 +119,90 @@ export function ShiftSheet({ shift, onOpenChange }: ShiftSheetProps) {
       >
         {/* Remounted per shift, so the draft below starts from the row that was
             opened rather than from whichever row was opened first. */}
-        {shift ? (
-          <ShiftSheetBody key={shift.id} shift={shift} onClose={() => { onOpenChange(false); }} />
-        ) : null}
+        {shift === null ? null : (
+          <ShiftSheetBody
+            key={shift === 'new' ? 'new' : shift.id}
+            shift={shift}
+            onClose={() => {
+              onOpenChange(false);
+            }}
+          />
+        )}
       </SheetContent>
     </Sheet>
   );
 }
 
-function ShiftSheetBody({ shift, onClose }: { shift: Shift; onClose: () => void }) {
-  const [draft, setDraft] = useState<Shift>(shift);
+function ShiftSheetBody({ shift, onClose }: { shift: Shift | 'new'; onClose: () => void }) {
+  const existing = shift === 'new' ? null : shift;
+  const [draft, setDraft] = useState<ShiftDraft>(() =>
+    existing === null
+      ? NEW_SHIFT
+      : {
+          name: existing.name,
+          code: existing.code,
+          scheduledIn: existing.scheduledIn,
+          scheduledOut: existing.scheduledOut,
+          breakMinutes: existing.breakMinutes,
+          crossesMidnight: existing.crossesMidnight,
+          policy: existing.policy,
+        },
+  );
+  const [touched, setTouched] = useState(false);
+
   const save = useSaveShift();
+  const create = useCreateShift();
+  const pending = save.isPending || create.isPending;
+  const error: unknown = save.error ?? create.error;
+  const failed = save.isError || create.isError;
 
   function patchPolicy(key: keyof ShiftPolicy, value: number) {
     setDraft((current) => ({ ...current, policy: { ...current.policy, [key]: value } }));
   }
 
+  const identityMissing = draft.name.trim() === '' || draft.code.trim() === '';
+  /**
+   * The two cross-field rules, checked here as well as on the server so the
+   * reader is told which field is wrong before a round trip. The server checks
+   * them too, and Postgres checks them again -- this is the message, not the
+   * enforcement.
+   */
+  const scheduleReversed = !draft.crossesMidnight && draft.scheduledOut <= draft.scheduledIn;
+  const thresholdsInverted = draft.policy.minHalfDayMinutes > draft.policy.minFullDayMinutes;
+  const blocked = identityMissing || scheduleReversed || thresholdsInverted;
+
   function submit() {
-    save.mutate(draft, {
-      onSuccess: () => {
-        // PRD §6.6: the toast repeats the action the button named.
-        toast.add({ type: 'success', title: 'Shift saved', description: `${draft.name} updated.` });
-        onClose();
-      },
-      // No onError toast. The failure is rendered inside the sheet, next to
-      // the edits it did not save, rather than in a corner the reader has
-      // already looked away from.
-    });
+    setTouched(true);
+    if (blocked) return;
+
+    const body: ShiftDraft = { ...draft, name: draft.name.trim(), code: draft.code.trim() };
+
+    const onSuccess = (saved: Shift) => {
+      // PRD section 6.6: the toast repeats the action the button named.
+      toast.add({
+        type: 'success',
+        title: existing === null ? 'Shift created' : 'Shift saved',
+        description: `${saved.name} (${saved.code}).`,
+      });
+      onClose();
+    };
+
+    if (existing === null) create.mutate(body, { onSuccess });
+    else save.mutate({ ...body, id: existing.id }, { onSuccess });
   }
 
   return (
     // The sheet's shortcuts take precedence and the screen's are suspended
-    // while it is open (technical design §9).
-    <ShortcutLayer id={`modal:shift-${shift.id}`}>
+    // while it is open (technical design section 9).
+    <ShortcutLayer id={`modal:shift-${existing?.id ?? 'new'}`}>
       <SaveShortcut onSave={submit} />
 
       <SheetHeader className="shrink-0 border-b">
-        <SheetTitle>{shift.name}</SheetTitle>
+        <SheetTitle>{existing === null ? 'New shift' : existing.name}</SheetTitle>
         <SheetDescription>
-          Code {shift.code}. These fields decide how every punch on this shift is judged.
+          {existing === null
+            ? 'These fields decide how every punch on this shift is judged.'
+            : `Code ${existing.code}. These fields decide how every punch on this shift is judged.`}
         </SheetDescription>
       </SheetHeader>
 
@@ -148,17 +210,12 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift; onClose: () => void 
           below its content and pushes the footer off the sheet. */}
       <Form onSubmit={submit} className="min-h-0 flex-1 overflow-y-auto p-4">
         <FieldGroup>
-          {save.isError ? (
+          {failed ? (
             <Alert variant="destructive">
               <WarningCircleIcon />
-              <AlertTitle>
-                {save.error instanceof ApiError &&
-                (save.error.code === 'NETWORK_ERROR' || save.error.status === 404)
-                  ? 'Not saved — the shifts endpoint is not connected yet'
-                  : 'Could not save this shift'}
-              </AlertTitle>
+              <AlertTitle>{rosterErrorCopy(error).title}</AlertTitle>
               <AlertDescription>
-                Your edits are still here. Nothing was sent to the server, so nothing changed.
+                {rosterErrorCopy(error).description} Your edits are still here.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -173,6 +230,9 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift; onClose: () => void 
                 setDraft((current) => ({ ...current, name: event.target.value }));
               }}
             />
+            {touched && draft.name.trim() === '' ? (
+              <FieldDescription>A shift needs a name.</FieldDescription>
+            ) : null}
           </Field>
 
           <Field>
@@ -185,7 +245,11 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift; onClose: () => void 
                 setDraft((current) => ({ ...current, code: event.target.value }));
               }}
             />
-            <FieldDescription>Printed on every report. Unique per organisation.</FieldDescription>
+            <FieldDescription>
+              {touched && draft.code.trim() === ''
+                ? 'A shift needs a code; it is what appears on every report.'
+                : 'Printed on every report. Unique per organisation.'}
+            </FieldDescription>
           </Field>
 
           <FieldSet>
@@ -236,13 +300,25 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift; onClose: () => void 
                 REQ-C-02: a night shift is attributed to the date it starts, not the date the OUT
                 punch lands on.
               </FieldDescription>
+
+              {scheduleReversed ? (
+                <Alert variant="destructive">
+                  <WarningCircleIcon />
+                  <AlertTitle>This shift ends before it starts</AlertTitle>
+                  <AlertDescription>
+                    Turn on &quot;crosses midnight&quot; for a night shift, or move the end time
+                    later. Left as it is, every punch on this shift would be judged against a
+                    window of no length.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
             </FieldGroup>
           </FieldSet>
 
           <FieldSet>
             <FieldLegend>Policy</FieldLegend>
             <FieldGroup>
-              {POLICY_FIELDS.map((field) => (
+              {SHIFT_POLICY_FIELDS.map((field) => (
                 <MinutesField
                   key={field.key}
                   id={`shift-${field.key}`}
@@ -254,6 +330,17 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift; onClose: () => void 
                   }}
                 />
               ))}
+
+              {thresholdsInverted ? (
+                <Alert variant="destructive">
+                  <WarningCircleIcon />
+                  <AlertTitle>Half day can never be reached</AlertTitle>
+                  <AlertDescription>
+                    The minimum half day is above the minimum full day, so no number of worked
+                    minutes falls between them.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
             </FieldGroup>
           </FieldSet>
         </FieldGroup>
@@ -266,9 +353,13 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift; onClose: () => void 
         <Button variant="outline" className="flex-1 sm:flex-none" onClick={onClose}>
           Cancel
         </Button>
-        <Button className="flex-1 sm:flex-none" disabled={save.isPending} onClick={submit}>
-          {save.isPending ? <Spinner data-icon="inline-start" /> : <FloppyDiskIcon data-icon="inline-start" />}
-          {save.isPending ? 'Saving' : 'Save'}
+        <Button className="flex-1 sm:flex-none" disabled={pending} onClick={submit}>
+          {pending ? (
+            <Spinner data-icon="inline-start" />
+          ) : (
+            <FloppyDiskIcon data-icon="inline-start" />
+          )}
+          {pending ? 'Saving' : 'Save'}
           <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
         </Button>
       </SheetFooter>
@@ -288,7 +379,7 @@ function SaveShortcut({ onSave }: { onSave: () => void }) {
     keys: 'ctrl+a',
     label: 'Accept / Save',
     scope: 'modal',
-    // PRD §6.4: Ctrl+A saves from any field, so it fires inside inputs too.
+    // PRD section 6.4: Ctrl+A saves from any field, so it fires inside inputs too.
     allowInInput: true,
     run: onSave,
   });

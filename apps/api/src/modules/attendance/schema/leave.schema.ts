@@ -131,6 +131,13 @@ export const leaveBalances = pgTable(
       .on(t.employeeId, t.leaveTypeId, t.leaveYear)
       .where(ALIVE),
     index('leave_balances_org_year_idx').on(t.orgId, t.leaveYear),
+    // Migration 0009. THE INVARIANT, checked by the database on every path
+    // into the table -- including a repair script run by hand, which is
+    // exactly when a balance would otherwise be edited without its ledger.
+    check(
+      'leave_balances_closing_is_the_sum',
+      sql`closing = opening + accrued - availed + adjusted + carried_forward`,
+    ),
   ],
 );
 
@@ -160,6 +167,13 @@ export const leaveLedger = pgTable(
     referenceType: text('reference_type'),
     referenceId: uuid('reference_id'),
     note: text('note'),
+    /**
+     * Migration 0009. Set only by a scheduled job -- '2026-04' for April's
+     * accrual, '2026->2027' for a carry forward -- and unique per movement, so
+     * a retried job cannot post the same accrual twice into a table where
+     * nothing can be taken back.
+     */
+    periodKey: text('period_key'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     createdBy: uuid('created_by'),
   },
@@ -167,6 +181,9 @@ export const leaveLedger = pgTable(
     // Technical design §4.3, verbatim: the balance reconstruction query.
     index('leave_ledger_balance_idx').on(t.orgId, t.employeeId, t.leaveTypeId, t.leaveYear),
     index('leave_ledger_reference_idx').on(t.orgId, t.referenceType, t.referenceId),
+    uniqueIndex('leave_ledger_period_uq')
+      .on(t.orgId, t.employeeId, t.leaveTypeId, t.leaveYear, t.movementType, t.periodKey)
+      .where(sql`period_key IS NOT NULL`),
   ],
 );
 
@@ -196,6 +213,15 @@ export const leaveRequests = pgTable(
     }),
     status: approvalStatusEnum('status').notNull().default('PENDING'),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    /**
+     * Migration 0009. Separate from `updated_by`, which moves on any edit: an
+     * attachment added after approval would otherwise rewrite who approved it.
+     */
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decidedBy: uuid('decided_by'),
+    /** REQ-F-05 makes this mandatory on a rejection; the service enforces it. */
+    decisionReason: text('decision_reason'),
+    cancellationReason: text('cancellation_reason'),
     ...standardColumns(),
   },
   (t) => [
@@ -204,6 +230,10 @@ export const leaveRequests = pgTable(
     index('leave_requests_range_idx').on(t.orgId, t.employeeId, t.fromDate, t.toDate),
     index('leave_requests_status_idx').on(t.orgId, t.status),
     check('leave_requests_range_ordered', sql`to_date >= from_date`),
+    check(
+      'leave_requests_decision_is_attributed',
+      sql`(decided_at IS NULL) = (decided_by IS NULL)`,
+    ),
   ],
 );
 
@@ -235,7 +265,7 @@ export const leaveRequestDays = pgTable(
   ],
 );
 
-/** REQ-G-09: earned for working a holiday or weekly off, expiring in 30 days. */
+/** REQ-G-11: earned for working a holiday or weekly off, expiring in 30 days. */
 export const compOffCredits = pgTable(
   'comp_off_credits',
   {
@@ -246,6 +276,14 @@ export const compOffCredits = pgTable(
     employeeId: uuid('employee_id')
       .notNull()
       .references(() => employees.id, { onDelete: 'restrict' }),
+    /**
+     * Migration 0009. Which type the credit credits, rather than a code the
+     * service guesses at: a credit that names no type is a balance movement
+     * nobody can reconcile against a ledger.
+     */
+    leaveTypeId: uuid('leave_type_id')
+      .notNull()
+      .references(() => leaveTypes.id, { onDelete: 'restrict' }),
     earnedForDate: date('earned_for_date', { mode: 'string' }).notNull(),
     days: days('days').notNull(),
     expiresOn: date('expires_on', { mode: 'string' }).notNull(),
@@ -253,6 +291,10 @@ export const compOffCredits = pgTable(
       () => leaveRequests.id,
       { onDelete: 'set null' },
     ),
+    /** Migration 0009. Set when the sweep posts the LAPSE row, once. */
+    lapsedAt: timestamp('lapsed_at', { withTimezone: true }),
+    /** Migration 0009. The smallest warning threshold already sent: 7, then 2. */
+    expiryWarnedDays: integer('expiry_warned_days'),
     ...standardColumns(),
   },
   (t) => [
@@ -263,5 +305,10 @@ export const compOffCredits = pgTable(
       .where(ALIVE),
     // The lapse warnings at 7 and 2 days scan by expiry (05-decisions).
     index('comp_off_credits_expiry_idx').on(t.orgId, t.expiresOn),
+    index('comp_off_credits_pending_lapse_idx')
+      .on(t.orgId, t.expiresOn)
+      .where(
+        sql`lapsed_at IS NULL AND consumed_by_leave_request_id IS NULL AND deleted_at IS NULL`,
+      ),
   ],
 );

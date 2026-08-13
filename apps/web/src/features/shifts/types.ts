@@ -1,59 +1,49 @@
 import { z } from 'zod';
 
-import type { Paginated } from '@vyuha/shared';
+import type {
+  Paginated,
+  RosterAssignment,
+  RosterBulkPreview,
+  ShiftPolicy as SharedShiftPolicy,
+  ShiftSummary,
+  WeeklyOffPatternConfig,
+  WeeklyOffPatternSummary,
+} from '@vyuha/shared';
 
 /**
- * Shift masters and rosters (REQ-C-01, REQ-C-04) as this client reads them.
+ * Shift masters, weekly-off patterns and rosters (REQ-C-01 … REQ-C-05) as this
+ * client reads them.
  *
- * The nine policy fields are nested under `policy` rather than flattened onto
- * the shift, because they are one thing: the rule set that turns punches into
- * a day. Flattening them would make a shift a bag of eighteen fields where
- * half are identity and half are arithmetic, and the edit form would have no
- * natural grouping to follow.
+ * Every type here is *derived* from the contract in `@vyuha/shared` rather than
+ * restated. A hand-written copy is a copy that can drift, and the way it drifts
+ * is silent: the server adds a field, this file does not, the Zod schema below
+ * strips it, and the screen renders a shift that is missing a policy the day
+ * engine is applying. Deriving makes that a compile error instead.
+ *
+ * The Zod schemas are still written out, because the derivation is a
+ * *type*-level guarantee and a response is a runtime value. The
+ * `z.ZodType<...>` annotation on each is what ties the two together: a field
+ * added to the contract fails to compile here until the schema parses it.
  */
 
-export interface ShiftPolicy {
-  /** Earliest an IN punch is accepted before scheduled in. */
-  graceInBefore: number;
-  /** Latest an IN punch is accepted after scheduled in. */
-  graceInAfter: number;
-  /** Past this, the day is flagged Late. */
-  lateAfter: number;
-  graceOutBefore: number;
-  graceOutAfter: number;
-  /** Leaving earlier than this flags Early exit. */
-  earlyExitBefore: number;
-  /** Below this the day is Absent. */
-  minHalfDayMinutes: number;
-  /** Below this, but above half day, the day is Half day. */
-  minFullDayMinutes: number;
-  /** Minutes past scheduled out that start counting as overtime. */
-  otAfterMinutes: number;
-}
+export type ShiftPolicy = SharedShiftPolicy;
 
-export interface Shift {
-  id: string;
-  name: string;
-  code: string;
-  /** Wall-clock `HH:mm`. */
-  scheduledIn: string;
-  scheduledOut: string;
-  breakMinutes: number;
-  /** REQ-C-02: a night shift is attributed to its start date. */
-  crossesMidnight: boolean;
-  policy: ShiftPolicy;
-}
+/**
+ * The contract minus `isActive`.
+ *
+ * Deactivating a shift is a real operation -- the API supports it, and the list
+ * hides an inactive shift by default so this screen never receives one -- but
+ * putting the toggle on this form is REQ-B-09a's Admin-CRUD work rather than
+ * REQ-C-01's, and a switch that retires a shift belongs beside the confirm
+ * dialog that requirement asks for. Written as an `Omit` rather than a fresh
+ * interface so adding a field to the contract still fails to compile here.
+ */
+export type Shift = Omit<ShiftSummary, 'isActive'>;
 
-export interface RosterEntry {
-  id: string;
-  employee: { id: string; name: string; employeeCode: string };
-  shift: { id: string; name: string; code: string };
-  /** Date-only `YYYY-MM-DD`. */
-  from: string;
-  /** Null means open-ended, until a later assignment supersedes it. */
-  to: string | null;
-  department: string | null;
-}
+export type RosterEntry = RosterAssignment;
+export type WeeklyOffPattern = WeeklyOffPatternSummary;
+export type WeeklyOffConfig = WeeklyOffPatternConfig;
+export type BulkRosterResult = RosterBulkPreview;
 
 const shiftPolicySchema: z.ZodType<ShiftPolicy> = z.object({
   graceInBefore: z.number(),
@@ -78,13 +68,15 @@ export const shiftSchema: z.ZodType<Shift> = z.object({
   policy: shiftPolicySchema,
 });
 
+const pageMetaSchema = z.object({
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
+});
+
 export const shiftsResponseSchema: z.ZodType<Paginated<Shift>> = z.object({
   data: z.array(shiftSchema),
-  meta: z.object({
-    page: z.number().int(),
-    pageSize: z.number().int(),
-    total: z.number().int(),
-  }),
+  meta: pageMetaSchema,
 });
 
 export const rosterEntrySchema: z.ZodType<RosterEntry> = z.object({
@@ -98,75 +90,78 @@ export const rosterEntrySchema: z.ZodType<RosterEntry> = z.object({
 
 export const rostersResponseSchema: z.ZodType<Paginated<RosterEntry>> = z.object({
   data: z.array(rosterEntrySchema),
-  meta: z.object({
-    page: z.number().int(),
-    pageSize: z.number().int(),
-    total: z.number().int(),
-  }),
+  meta: pageMetaSchema,
+});
+
+const weeklyOffConfigSchema: z.ZodType<WeeklyOffConfig> = z.object({
+  weekdays: z.array(z.number().int()),
+  saturdaysOfMonth: z.array(z.number().int()).optional(),
+});
+
+export const weeklyOffPatternSchema: z.ZodType<WeeklyOffPattern> = z.object({
+  id: z.string(),
+  name: z.string(),
+  config: weeklyOffConfigSchema,
+  employeeCount: z.number().int(),
+});
+
+export const weeklyOffPatternsResponseSchema: z.ZodType<Paginated<WeeklyOffPattern>> = z.object({
+  data: z.array(weeklyOffPatternSchema),
+  meta: pageMetaSchema,
+});
+
+const rosterShiftRefSchema = z.object({ id: z.string(), name: z.string(), code: z.string() });
+
+export const bulkRosterResultSchema: z.ZodType<BulkRosterResult> = z.object({
+  shift: rosterShiftRefSchema,
+  from: z.string(),
+  to: z.string(),
+  days: z.number().int(),
+  assignable: z.number().int(),
+  blocked: z.number().int(),
+  employeeDays: z.number().int(),
+  targets: z.array(
+    z.object({
+      employee: z.object({ id: z.string(), name: z.string(), employeeCode: z.string() }),
+      department: z.string().nullable(),
+      conflict: z
+        .object({
+          assignmentId: z.string(),
+          shift: rosterShiftRefSchema,
+          from: z.string(),
+          to: z.string().nullable(),
+        })
+        .nullable(),
+    }),
+  ),
+  preview: z.boolean(),
+  created: z.number().int(),
+  recomputed: z.number().int(),
 });
 
 /**
- * REQ-C-01 defaults, and the labels the edit form uses. Kept beside the
- * contract so a new policy field cannot be added to one without the other.
+ * The people a roster row can name.
+ *
+ * Deliberately narrower than `EmployeeListItem`: the picker needs a name and a
+ * code, and parsing the fifteen other fields would make this screen fail to
+ * load because a field it never renders changed shape.
  */
-export const POLICY_FIELDS: {
-  key: keyof ShiftPolicy;
-  label: string;
-  help: string;
-  default: number;
-}[] = [
-  {
-    key: 'graceInBefore',
-    label: 'Grace in, before',
-    help: 'Earliest an IN punch is accepted before scheduled in.',
-    default: 30,
-  },
-  {
-    key: 'graceInAfter',
-    label: 'Grace in, after',
-    help: 'Latest an IN punch is accepted after scheduled in.',
-    default: 10,
-  },
-  {
-    key: 'lateAfter',
-    label: 'Late after',
-    help: 'Past this, the day is flagged Late.',
-    default: 10,
-  },
-  {
-    key: 'graceOutBefore',
-    label: 'Grace out, before',
-    help: 'Earliest an OUT punch is accepted before scheduled out.',
-    default: 10,
-  },
-  {
-    key: 'graceOutAfter',
-    label: 'Grace out, after',
-    help: 'Latest an OUT punch is accepted after scheduled out.',
-    default: 120,
-  },
-  {
-    key: 'earlyExitBefore',
-    label: 'Early exit before',
-    help: 'Leaving earlier than this flags Early exit.',
-    default: 10,
-  },
-  {
-    key: 'minHalfDayMinutes',
-    label: 'Minimum half day',
-    help: 'Below this the day is Absent.',
-    default: 240,
-  },
-  {
-    key: 'minFullDayMinutes',
-    label: 'Minimum full day',
-    help: 'Below this, but above half day, the day is Half day.',
-    default: 480,
-  },
-  {
-    key: 'otAfterMinutes',
-    label: 'Overtime after',
-    help: 'Minutes past scheduled out that start counting as overtime.',
-    default: 30,
-  },
-];
+export interface RosterCandidate {
+  id: string;
+  name: string;
+  employeeCode: string;
+  department: string | null;
+}
+
+export const rosterCandidatesResponseSchema = z.object({
+  data: z.array(
+    z.object({
+      id: z.string(),
+      employeeCode: z.string(),
+      firstName: z.string(),
+      lastName: z.string().nullable(),
+      department: z.object({ id: z.string(), name: z.string() }).nullable(),
+    }),
+  ),
+  meta: pageMetaSchema,
+});
