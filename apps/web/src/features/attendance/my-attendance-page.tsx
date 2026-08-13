@@ -18,7 +18,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { useMe } from '@/lib/session/use-session';
+import { cn } from '@/lib/utils';
 
+import { ChartPanel, TimekeepingChart, WorkedHoursChart } from './charts';
+import { dateRange, hasValues, timekeepingByDay, workedByDay } from './chart-series';
 import { DayDetailSheet } from './day-detail-sheet';
 import { formatClock, formatDuration, fromDateParam, toDateParam } from './format';
 import { MonthCalendar } from './month-calendar';
@@ -28,6 +31,8 @@ import { SampleDataNotice } from './sample-data-notice';
 import { AttendanceFlags, AttendanceStatusBadge } from './status-badge';
 import type { AttendanceDay } from './types';
 import { useAttendanceDays } from './use-attendance-days';
+import { useCanViewOvertime } from './visibility';
+import { useChartIntro } from './use-chart-motion';
 
 /**
  * REQ-E-01, REQ-E-02 / PRD §5 screen 4: one employee's own month.
@@ -80,6 +85,16 @@ const COLUMNS: RecordColumn<AttendanceDay>[] = [
   },
 ];
 
+/**
+ * The OT column is dropped, not blanked. The server sends no `otMinutes` to a
+ * viewer holding only `attendance.view.self`, so a column left in place would
+ * be a header over a row of dashes -- which reads as "you did no overtime"
+ * rather than "this is not yours to see".
+ */
+function columnsFor(canSeeOvertime: boolean): RecordColumn<AttendanceDay>[] {
+  return canSeeOvertime ? COLUMNS : COLUMNS.filter((column) => column.key !== 'ot');
+}
+
 /** Mirrors the calendar and the list it stands in for, so nothing resizes. */
 function MonthSkeleton() {
   return (
@@ -130,20 +145,28 @@ function summarise(days: AttendanceDay[]): Totals {
   );
 }
 
-function SummaryStrip({ totals }: { totals: Totals }) {
+function SummaryStrip({ totals, showOvertime }: { totals: Totals; showOvertime: boolean }) {
   const entries: [string, string][] = [
     ['Present', String(totals.present)],
     ['Half days', String(totals.halfDay)],
     ['Absent', String(totals.absent)],
     ['On leave', String(totals.leave)],
-    ['Overtime', formatDuration(totals.otMinutes)],
   ];
+  // Appended rather than blanked, and the column count follows it: four
+  // figures in a five-column grid would leave a labelled empty cell where the
+  // withheld one used to be.
+  if (showOvertime) entries.push(['Overtime', formatDuration(totals.otMinutes)]);
 
   return (
     // A bordered strip divided by rules, not five cards. PRD §6.2 puts the
     // content directly on the page surface, and five cards inside a page is
     // the box-in-box this product does not do.
-    <dl className="divide-border grid grid-cols-2 divide-x divide-y border sm:grid-cols-5 sm:divide-y-0">
+    <dl
+      className={cn(
+        'divide-border grid grid-cols-2 divide-x divide-y border sm:divide-y-0',
+        showOvertime ? 'sm:grid-cols-5' : 'sm:grid-cols-4',
+      )}
+    >
       {entries.map(([label, value]) => (
         <div key={label} className="flex flex-col gap-0.5 px-3 py-2">
           <dt className="text-muted-foreground text-[0.6875rem]">{label}</dt>
@@ -156,6 +179,7 @@ function SummaryStrip({ totals }: { totals: Totals }) {
 
 export function MyAttendancePage() {
   const me = useMe();
+  const canSeeOvertime = useCanViewOvertime();
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selected, setSelected] = useState<AttendanceDay | null>(null);
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
@@ -186,6 +210,32 @@ export function MyAttendancePage() {
   const days = useMemo(() => query.data?.value.data ?? [], [query.data]);
   const totals = useMemo(() => summarise(days), [days]);
   const byDate = useMemo(() => new Map(days.map((day) => [day.date, day])), [days]);
+  const columns = useMemo(() => columnsFor(canSeeOvertime), [canSeeOvertime]);
+
+  // Every date in the month, not only the ones that came back. A month plotted
+  // from returned rows alone would draw the 3rd next to the 7th and read as a
+  // continuous run of work.
+  const monthDates = useMemo(() => dateRange(from, to), [from, to]);
+  const hoursPoints = useMemo(() => workedByDay(days, monthDates), [days, monthDates]);
+  const timekeepingPoints = useMemo(
+    () => timekeepingByDay(days, monthDates),
+    [days, monthDates],
+  );
+  const workedDays = useMemo(
+    () => hoursPoints.filter((point) => point.workedMinutes > 0).length,
+    [hoursPoints],
+  );
+  const timekeepingTotal = useMemo(
+    () =>
+      timekeepingPoints.reduce(
+        (sum, point) => sum + point.lateMinutes + point.earlyExitMinutes,
+        0,
+      ),
+    [timekeepingPoints],
+  );
+  // One policy for both charts: draw once, when the first month lands. Stepping
+  // to another month redraws instantly.
+  const monthIntro = useChartIntro(query.isSuccess);
 
   // PRD §6.4: F2 changes the date. On a month view that means the month.
   useShortcut({
@@ -297,7 +347,7 @@ export function MyAttendancePage() {
 
         {query.isSuccess ? (
           <>
-            <SummaryStrip totals={totals} />
+            <SummaryStrip totals={totals} showOvertime={canSeeOvertime} />
 
             <MonthCalendar
               month={month}
@@ -313,6 +363,51 @@ export function MyAttendancePage() {
               }}
             />
 
+            {/* Two readings the calendar and the strip cannot give.
+                The calendar says what each day *was*; this says how long it
+                ran, which is the difference between a present day and a
+                present day that finished at four. The strip counts days and
+                never mentions minutes at all, so neither chart restates it.
+
+                They are here rather than only on the dashboard because the
+                dashboard is fixed to the current month; this screen is the
+                only place a reader can ask the same question about June. */}
+            {days.length > 0 ? (
+              <>
+                <ChartPanel
+                  caption="Hours worked, day by day"
+                  note={
+                    workedDays > 0
+                      ? `${String(workedDays)} day${workedDays === 1 ? '' : 's'} with hours`
+                      : undefined
+                  }
+                >
+                  {hasValues(hoursPoints, ['workedMinutes']) ? (
+                    <WorkedHoursChart points={hoursPoints} animate={monthIntro} />
+                  ) : (
+                    <p className="text-muted-foreground py-6 text-center text-xs">
+                      No hours recorded this month.
+                    </p>
+                  )}
+                </ChartPanel>
+
+                <ChartPanel
+                  caption="Minutes lost at each end of the day"
+                  note={
+                    timekeepingTotal > 0 ? `${String(timekeepingTotal)} minutes in total` : undefined
+                  }
+                >
+                  {hasValues(timekeepingPoints, ['lateMinutes', 'earlyExitMinutes']) ? (
+                    <TimekeepingChart points={timekeepingPoints} animate={monthIntro} />
+                  ) : (
+                    <p className="text-muted-foreground py-6 text-center text-xs">
+                      Nothing late and nothing cut short this month.
+                    </p>
+                  )}
+                </ChartPanel>
+              </>
+            ) : null}
+
             {days.length === 0 ? (
               <Empty className="border">
                 <EmptyHeader>
@@ -327,7 +422,7 @@ export function MyAttendancePage() {
               </Empty>
             ) : (
               <RecordTable
-                columns={COLUMNS}
+                columns={columns}
                 rows={days}
                 rowKey={(row) => row.date}
                 mobilePrimary={(row) => formatDate(row.date)}

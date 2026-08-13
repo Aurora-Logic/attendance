@@ -219,6 +219,7 @@ interface DerivedDay {
   workedMinutes: number;
   otMinutes: number;
   lateMinutes: number;
+  earlyExitMinutes: number;
   flags: string[];
 }
 
@@ -238,6 +239,7 @@ function deriveDay(employee: SampleEmployee, date: Date, shift: Shift): DerivedD
     workedMinutes: 0,
     otMinutes: 0,
     lateMinutes: 0,
+    earlyExitMinutes: 0,
     flags: [],
   };
 
@@ -290,6 +292,7 @@ function deriveDay(employee: SampleEmployee, date: Date, shift: Shift): DerivedD
     workedMinutes: Math.max(0, workedMinutes),
     otMinutes: overtime > shift.policy.otAfterMinutes ? overtime : 0,
     lateMinutes,
+    earlyExitMinutes: earlyExit,
     flags,
   };
 }
@@ -311,6 +314,7 @@ function dayFor(employee: SampleEmployee, date: Date): AttendanceDay {
     workedMinutes: derived.workedMinutes,
     otMinutes: derived.otMinutes,
     lateMinutes: derived.lateMinutes,
+    earlyExitMinutes: derived.earlyExitMinutes,
     status: derived.status,
     flags: derived.flags,
   };

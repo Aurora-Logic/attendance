@@ -11,6 +11,7 @@ import {
   LockIcon,
   PlugIcon,
   BuildingsIcon,
+  ChartLineUpIcon,
   ScrollIcon,
   TrashIcon,
   ShieldCheckIcon,
@@ -155,6 +156,18 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Reports',
     items: [
+      {
+        to: '/analytics',
+        label: 'Analytics',
+        icon: ChartLineUpIcon,
+        // The team key, not view.all: a manager should see the shape of their
+        // own team. The server's scope predicate decides what the numbers are
+        // built from, so the same screen answers for a team or the whole
+        // organisation without knowing which it is looking at.
+        permission: PERMISSIONS.ATTENDANCE_VIEW_TEAM,
+        phase: 4,
+        reqs: 'REQ-K-01, REQ-J-01',
+      },
       {
         to: '/reports',
         label: 'Reports',

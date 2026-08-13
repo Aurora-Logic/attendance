@@ -12,6 +12,7 @@ import { LeaveTypesPage, MyLeavePage } from '@/features/leave';
 import { PatternsPage } from '@/features/patterns/patterns-page';
 import { PunchPage } from '@/features/punch';
 import { ShiftsPage } from '@/features/shifts';
+import { AnalyticsPage } from '@/features/analytics';
 import { AuditLogPage } from '@/features/audit';
 import { DownloadsPage } from '@/features/downloads';
 import { IntegrationsPage } from '@/features/integrations';
@@ -53,6 +54,7 @@ const BUILT_ROUTES = new Set([
   '/downloads',
   '/recycle-bin',
   '/organisation',
+  '/analytics',
 ]);
 
 const queryClient = new QueryClient({
@@ -98,6 +100,7 @@ export default function App() {
               <Route path="downloads" element={<DownloadsPage />} />
               <Route path="recycle-bin" element={<RecycleBinPage />} />
               <Route path="organisation" element={<OrgMastersPage />} />
+              <Route path="analytics" element={<AnalyticsPage />} />
 
               {/* Off the sidebar on purpose: reached from the user menu, not
                   from the navigation groups the PRD fixes (§6.1). */}

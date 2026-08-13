@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CaretLeftIcon, CaretRightIcon, UsersThreeIcon } from '@phosphor-icons/react';
+import { CaretLeftIcon, CaretRightIcon, InfoIcon, UsersThreeIcon } from '@phosphor-icons/react';
 import { addDays, isToday, startOfDay } from 'date-fns';
 import { useSearchParams } from 'react-router';
 
@@ -9,6 +9,7 @@ import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
 import {
@@ -38,6 +39,8 @@ import {
   type AttendanceStatus,
 } from '@vyuha/shared';
 
+import { ChartPanel, ChartSkeleton, StatusBandsChart } from './charts';
+import { dateRange, statusBands } from './chart-series';
 import { DayDetailSheet } from './day-detail-sheet';
 import { formatClock, formatDuration, fromDateParam, toDateParam } from './format';
 import { DateField } from './pickers';
@@ -47,6 +50,9 @@ import { AttendanceFlags, AttendanceStatusBadge } from './status-badge';
 import { statusClasses, statusLabel } from './status';
 import type { AttendanceDay } from './types';
 import { useAttendanceDays, useDepartments } from './use-attendance-days';
+import { useCanViewOvertime } from './visibility';
+import { useAttendancePeriod } from './use-attendance-period';
+import { useChartIntro } from './use-chart-motion';
 
 /**
  * PRD §5 screen 7 / REQ-J-01 "Daily Muster": one row per employee for a date.
@@ -115,6 +121,16 @@ const COLUMNS: RecordColumn<AttendanceDay>[] = [
 ];
 
 /**
+ * Reaching this screen needs `attendance.view.team`, which is also the key that
+ * grants overtime -- so in practice the column always survives. It is filtered
+ * on the same predicate anyway: the muster must not be the one screen that
+ * would print a column of dashes if the two rules ever came apart.
+ */
+function columnsFor(canSeeOvertime: boolean): RecordColumn<AttendanceDay>[] {
+  return canSeeOvertime ? COLUMNS : COLUMNS.filter((column) => column.key !== 'ot');
+}
+
+/**
  * How the day went, above the rows that say it person by person.
  *
  * My Attendance answers "how was the month" with a coloured grid before it
@@ -163,6 +179,16 @@ function StatusStrip({ rows, total }: { rows: AttendanceDay[]; total: number }) 
     </ul>
   );
 }
+
+/**
+ * How many days of context sit behind the muster.
+ *
+ * A fortnight rather than a week: a week cannot show a weekly pattern, because
+ * every weekday appears once and there is nothing to compare it against. Two
+ * weeks gives each weekday a pair, which is the smallest window in which
+ * "Mondays are bad" is visible at all.
+ */
+const CONTEXT_DAYS = 14;
 
 function MusterSkeleton() {
   return (
@@ -279,10 +305,29 @@ export function TeamAttendancePage() {
   });
   const departments = useDepartments();
 
+  // The fortnight behind the muster. Department-scoped like the table, but
+  // deliberately not narrowed by the status filter or the search box: this is
+  // the context the day is read against, and a context filtered to "Absent" or
+  // to one surname would answer a different question from the one it asks.
+  const contextFrom = toDateParam(addDays(date, -(CONTEXT_DAYS - 1)));
+  const context = useAttendancePeriod({ from: contextFrom, to: dateParam, departmentId });
+
   const rows = query.data?.value.data ?? [];
   const total = query.data?.value.meta.total ?? 0;
   const filtered = q.length > 0 || status !== null || departmentId !== null;
   const departmentOptions = departments.data?.value.data ?? [];
+  const canSeeOvertime = useCanViewOvertime();
+  const columns = useMemo(() => columnsFor(canSeeOvertime), [canSeeOvertime]);
+
+  const contextDates = useMemo(() => dateRange(contextFrom, dateParam), [contextFrom, dateParam]);
+  const contextDays = useMemo(() => context.data?.value.days ?? [], [context.data]);
+  const bandPoints = useMemo(
+    () => statusBands(contextDays, contextDates),
+    [contextDays, contextDates],
+  );
+  const contextComplete = context.data?.value.complete ?? true;
+  const contextIntro = useChartIntro(context.isSuccess);
+  const departmentName = departmentOptions.find((option) => option.id === departmentId)?.name;
 
   return (
     <>
@@ -461,12 +506,59 @@ export function TeamAttendancePage() {
           </Empty>
         ) : null}
 
+        {rows.length > 0 ? <StatusStrip rows={rows} total={total} /> : null}
+
+        {/* The fortnight the day sits in. The muster answers "what happened
+            today"; this answers "is today normal", which is the question a
+            manager actually opens the screen with and which no table of one
+            date can answer. It renders whether or not the day itself has rows,
+            because a day with nothing recorded is exactly when the run-up
+            matters most. */}
+        {context.isPending ? (
+          <ChartPanel caption={`The fortnight to ${formatDate(dateParam)}`}>
+            <ChartSkeleton label="Loading the fortnight" className="h-48 sm:h-56" />
+          </ChartPanel>
+        ) : null}
+
+        {context.isError ? (
+          <QueryErrorAlert
+            error={context.error}
+            subject="the fortnight behind this date"
+            onRetry={() => {
+              void context.refetch();
+            }}
+          />
+        ) : null}
+
+        {context.isSuccess && !contextComplete ? (
+          <Alert>
+            <InfoIcon />
+            <AlertTitle>Too many days to chart the fortnight</AlertTitle>
+            <AlertDescription>
+              {`The list endpoint holds ${String(context.data.value.total)} days for these ${String(CONTEXT_DAYS)}, which is more than this screen reads in one go. Filter to a department to bring it back. Charting the part that arrived would show a real collapse where the data simply stopped.`}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {context.isSuccess && contextComplete ? (
+          <ChartPanel
+            caption={`The fortnight to ${formatDate(dateParam)}`}
+            note={departmentName ?? 'Everyone you may see'}
+          >
+            {contextDays.length > 0 ? (
+              <StatusBandsChart points={bandPoints} animate={contextIntro} />
+            ) : (
+              <p className="text-muted-foreground py-6 text-center text-xs">
+                Nothing recorded in the {String(CONTEXT_DAYS)} days to this date.
+              </p>
+            )}
+          </ChartPanel>
+        ) : null}
+
         {rows.length > 0 ? (
           <>
-            <StatusStrip rows={rows} total={total} />
-
             <RecordTable
-              columns={COLUMNS}
+              columns={columns}
               rows={rows}
               rowKey={(row) => `${row.employee.id}:${row.date}`}
               mobilePrimary={(row) => row.employee.name}

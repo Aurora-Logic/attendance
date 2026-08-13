@@ -14,6 +14,7 @@ import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { formatClock, formatDuration, formatWindow } from './format';
 import { AttendanceFlags, AttendanceStatusBadge } from './status-badge';
 import type { AttendanceDay } from './types';
+import { useCanViewOvertime } from './visibility';
 
 /**
  * One day, in full.
@@ -42,6 +43,9 @@ export function DayDetailSheet({
   onOpenChange: (open: boolean) => void;
 }) {
   const isMobile = useIsMobile();
+  // The sheet serves both My Attendance and the muster, so the row is decided
+  // by the viewer's keys rather than by which screen opened it.
+  const canSeeOvertime = useCanViewOvertime();
 
   return (
     <Sheet open={day !== null} onOpenChange={onOpenChange}>
@@ -65,7 +69,9 @@ export function DayDetailSheet({
                 <Row label="First in">{formatClock(day.firstIn)}</Row>
                 <Row label="Last out">{formatClock(day.lastOut)}</Row>
                 <Row label="Worked">{formatDuration(day.workedMinutes)}</Row>
-                <Row label="Overtime">{formatDuration(day.otMinutes)}</Row>
+                {canSeeOvertime ? (
+                  <Row label="Overtime">{formatDuration(day.otMinutes)}</Row>
+                ) : null}
                 <Row label="Late by">
                   {day.lateMinutes > 0 ? `${String(day.lateMinutes)}m` : EMPTY_VALUE}
                 </Row>

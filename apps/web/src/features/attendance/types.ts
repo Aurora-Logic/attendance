@@ -47,8 +47,31 @@ export interface AttendanceDay {
   firstIn: string | null;
   lastOut: string | null;
   workedMinutes: number;
+  /**
+   * Zero when the server withheld it, which it does for every viewer holding
+   * only `attendance.view.self` (see `canViewOvertime` in `@vyuha/shared`).
+   *
+   * Zero rather than null so the rest of this client keeps reading a plain
+   * number, and safe only because every surface that draws this field asks
+   * `useCanViewOvertime()` first, so the placeholder is never rendered. A new
+   * screen that plots it without asking would draw a flat zero line for an
+   * employee -- ask first.
+   */
   otMinutes: number;
   lateMinutes: number;
+  /**
+   * REQ-J-01 lists Late Arrivals and Early Exits as a mirrored pair of reports,
+   * and the wire row has carried this since the contract was written. It was
+   * dropped in the mapping while nothing plotted it; the timekeeping chart on
+   * My Attendance is the first screen that reads the other half of the pair.
+   *
+   * Optional for a build reason rather than a contract one, and unlike
+   * `otMinutes` above: the server always sends it, and `toAttendanceDay` always
+   * sets it. It is declared optional only so day factories written before the
+   * field existed still satisfy this type. Make it required once those are
+   * updated; until then every reader must default it rather than assume it.
+   */
+  earlyExitMinutes?: number;
   status: AttendanceStatus;
   /**
    * REQ-E-04. Deliberately `string[]` rather than the shared enum: flags are
@@ -86,7 +109,11 @@ const dayWireSchema: z.ZodType<DayWire> = z.object({
   lastOutAt: clockField,
   workedMinutes: z.number(),
   breakMinutes: z.number(),
-  otMinutes: z.number(),
+  // Optional, and that is the permission check landing here rather than a
+  // loosening: the server omits the key entirely for a viewer who may not see
+  // overtime, so a required field would fail the parse and take the whole
+  // screen down with the error state for every employee.
+  otMinutes: z.number().optional(),
   lateMinutes: z.number(),
   earlyExitMinutes: z.number(),
   flags: z.array(z.string()),
@@ -108,8 +135,9 @@ function toAttendanceDay(row: DayWire): AttendanceDay {
     firstIn: row.firstInAt,
     lastOut: row.lastOutAt,
     workedMinutes: row.workedMinutes,
-    otMinutes: row.otMinutes,
+    otMinutes: row.otMinutes ?? 0,
     lateMinutes: row.lateMinutes,
+    earlyExitMinutes: row.earlyExitMinutes,
     status: row.status,
     flags: row.flags,
   };
