@@ -74,8 +74,13 @@ interface HolidayMonthCalendarProps {
   /** Any date inside the month to show. */
   month: Date;
   onMonthChange: (month: Date) => void;
-  /** Every holiday in the loaded year; the grid shows the month's. */
-  holidays: Holiday[];
+  /**
+   * Every holiday in the loaded year; the grid shows the month's. Readonly
+   * because it is the parsed API response, and this component only reads it --
+   * a mutable parameter would invite a sort in place that reorders the list
+   * the table above is rendering from.
+   */
+  holidays: readonly Holiday[];
 }
 
 export function HolidayMonthCalendar({

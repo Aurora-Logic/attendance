@@ -1,5 +1,13 @@
 import { Module } from '@nestjs/common';
 
+import { DayEngineService } from '../day-engine/day-engine.service.js';
+import {
+  HolidayCalendarController,
+  HolidayController,
+  RestrictedHolidayController,
+} from './holiday.controller.js';
+import { HolidayService } from './holiday.service.js';
+
 /**
  * Holiday calendars and restricted holidays (REQ-H-01 to REQ-H-04).
  *
@@ -8,8 +16,17 @@ import { Module } from '@nestjs/common';
  * its own file so that one slice can be built without touching the file every
  * other slice also needs.
  *
- * Empty until the slice lands. Registered from the start so the slice can be
- * exercised end to end without editing a shared file to do it.
+ * `DayEngineService` is listed as a provider rather than imported.
+ * `AttendanceModule` imports this module and exports the engine, so importing
+ * it back would close a cycle that only `forwardRef` on both sides could open
+ * -- and the other side is a file five slices share. Providing it here gives
+ * this module's injector its own instance, which costs nothing: the service
+ * holds no state, and everything it needs (`DbModule`, `AuditModule`) is
+ * `@Global()`. REQ-H-04's recompute is the only reason it is needed at all.
  */
-@Module({})
+@Module({
+  controllers: [HolidayCalendarController, HolidayController, RestrictedHolidayController],
+  providers: [HolidayService, DayEngineService],
+  exports: [HolidayService],
+})
 export class HolidayModule {}

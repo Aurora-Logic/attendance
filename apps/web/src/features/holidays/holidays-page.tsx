@@ -3,6 +3,9 @@ import {
   CalendarDotsIcon,
   CaretLeftIcon,
   CaretRightIcon,
+  PencilSimpleIcon,
+  PlusIcon,
+  UploadSimpleIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
 import { addMonths, format, isSameMonth, parseISO, startOfMonth } from 'date-fns';
@@ -18,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -38,9 +42,22 @@ import { SampleDataNotice } from '@/features/leave/sample-data-notice';
 import { ApiError } from '@/lib/api/client';
 import { formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
+import { PERMISSIONS } from '@vyuha/shared';
+import { usePermission } from '@/lib/session/permissions';
 
-import type { Holiday, HolidayCalendar } from './types';
+import { CalendarSheet } from './calendar-sheet';
+import {
+  draftFromCalendar,
+  draftFromHoliday,
+  newCalendarDraft,
+  newHolidayDraft,
+  type CalendarDraft,
+  type HolidayDraft,
+} from './drafts';
 import { HolidayMonthCalendar } from './holiday-month-calendar';
+import { HolidaySheet } from './holiday-sheet';
+import { ImportSheet } from './import-sheet';
+import { allowanceOf, type Holiday, type HolidayCalendar } from './types';
 import { useHolidayCalendars } from './use-holidays';
 
 /**
@@ -148,12 +165,21 @@ function CalendarSection({
   calendar,
   month,
   onMonthChange,
+  canManage,
+  onEditCalendar,
+  onAddHoliday,
+  onEditHoliday,
 }: {
   calendar: HolidayCalendar;
   month: Date;
   onMonthChange: (month: Date) => void;
+  canManage: boolean;
+  onEditCalendar: () => void;
+  onAddHoliday: () => void;
+  onEditHoliday: (holiday: Holiday) => void;
 }) {
   const restricted = calendar.holidays.filter((holiday) => holiday.restricted).length;
+  const allowance = allowanceOf(calendar);
   const monthKey = format(month, 'yyyy-MM');
   const inMonth = calendar.holidays.filter((holiday) => holiday.date.startsWith(monthKey));
 
@@ -163,8 +189,23 @@ function CalendarSection({
         title={calendar.name}
         note={
           `${String(calendar.holidays.length)} holidays` +
-          (restricted > 0 ? `, ${String(restricted)} of them restricted` : '') +
+          (restricted > 0
+            ? `, ${String(restricted)} restricted · ${String(allowance)} allowed each`
+            : '') +
           (calendar.locations.length > 0 ? ` · ${calendar.locations.join(', ')}` : '')
+        }
+        action={
+          canManage ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="pointer-coarse:h-11"
+              onClick={onEditCalendar}
+            >
+              <PencilSimpleIcon data-icon="inline-start" />
+              Edit calendar
+            </Button>
+          ) : null
         }
       />
 
@@ -187,6 +228,14 @@ function CalendarSection({
                 : 'Step to another month, or use the grid above to see where this year’s holidays fall.'}
             </EmptyDescription>
           </EmptyHeader>
+          {canManage ? (
+            <EmptyContent>
+              <Button className="pointer-coarse:h-11" onClick={onAddHoliday}>
+                <PlusIcon data-icon="inline-start" />
+                Add a holiday
+              </Button>
+            </EmptyContent>
+          ) : null}
         </Empty>
       ) : (
         <RecordTable
@@ -198,6 +247,7 @@ function CalendarSection({
             row.restricted ? <Badge variant="outline">Restricted</Badge> : null
           }
           mobileSupporting={(row) => `${formatDate(row.date)} · ${format(parseISO(row.date), 'EEEE')}`}
+          {...(canManage ? { onRowActivate: onEditHoliday } : {})}
         />
       )}
     </section>
@@ -207,6 +257,12 @@ function CalendarSection({
 export function HolidaysPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+  // Technical design §10: the UI reflects the server's rule, it does not
+  // replace it. Every write below is refused by `@RequirePermission` too.
+  const canManage = usePermission(PERMISSIONS.HOLIDAY_MANAGE);
+  const [calendarDraft, setCalendarDraft] = useState<CalendarDraft | null>(null);
+  const [holidayDraft, setHolidayDraft] = useState<HolidayDraft | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   // The month lives in the URL rather than in state: a month somebody is
   // looking at is a link worth pasting, and it survives a reload. The year the
@@ -268,7 +324,22 @@ export function HolidaysPage() {
     <>
       {sample ? <SampleDataNotice endpoint="/api/v1/holiday-calendars" /> : null}
 
-      <PageHeader description="Each calendar is a named list of dated holidays. Employees inherit one from their location." />
+      <PageHeader
+        description="Each calendar is a named list of dated holidays. Employees inherit one from their location."
+        action={
+          canManage ? (
+            <Button
+              className="pointer-coarse:h-11"
+              onClick={() => {
+                setCalendarDraft(newCalendarDraft(year));
+              }}
+            >
+              <PlusIcon data-icon="inline-start" />
+              New calendar
+            </Button>
+          ) : null
+        }
+      />
 
       {/* Toolbar row (PRD §6.2), the same shape My Attendance uses: a stepper
           either side of the period, and a reset that appears only when there
@@ -353,6 +424,35 @@ export function HolidaysPage() {
             This month
           </Button>
         )}
+
+        {/* The two write actions belong to the calendar on screen, so they sit
+            at the far end of the same row rather than in the page header,
+            which names the screen and not the calendar. Both disappear
+            entirely without holiday.manage: there is no calendar to act on and
+            a disabled pair would be two dead controls on a phone. */}
+        {canManage && active ? (
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="pointer-coarse:h-11"
+              onClick={() => {
+                setImportOpen(true);
+              }}
+            >
+              <UploadSimpleIcon data-icon="inline-start" />
+              Import
+            </Button>
+            <Button
+              className="pointer-coarse:h-11"
+              onClick={() => {
+                setHolidayDraft(newHolidayDraft(active.id, active.year, month));
+              }}
+            >
+              <PlusIcon data-icon="inline-start" />
+              Add holiday
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       {query.isPending ? <CalendarSkeleton /> : null}
@@ -394,6 +494,19 @@ export function HolidaysPage() {
               Create a calendar per location or state, then enter or import that year&apos;s dates.
             </EmptyDescription>
           </EmptyHeader>
+          {canManage ? (
+            <EmptyContent>
+              <Button
+                className="pointer-coarse:h-11"
+                onClick={() => {
+                  setCalendarDraft(newCalendarDraft(year));
+                }}
+              >
+                <PlusIcon data-icon="inline-start" />
+                New calendar for {year}
+              </Button>
+            </EmptyContent>
+          ) : null}
         </Empty>
       ) : null}
 
@@ -401,8 +514,41 @@ export function HolidaysPage() {
           calendar as a grid would put three month views on one screen and
           leave the reader comparing three things nobody asked to compare. */}
       {active ? (
-        <CalendarSection calendar={active} month={month} onMonthChange={setMonth} />
+        <CalendarSection
+          calendar={active}
+          month={month}
+          onMonthChange={setMonth}
+          canManage={canManage}
+          onEditCalendar={() => {
+            setCalendarDraft(draftFromCalendar(active));
+          }}
+          onAddHoliday={() => {
+            setHolidayDraft(newHolidayDraft(active.id, active.year, month));
+          }}
+          onEditHoliday={(holiday) => {
+            setHolidayDraft(draftFromHoliday(holiday, active.id, active.year));
+          }}
+        />
       ) : null}
+
+      <CalendarSheet
+        draft={calendarDraft}
+        onOpenChange={(open) => {
+          if (!open) setCalendarDraft(null);
+        }}
+      />
+      <HolidaySheet
+        draft={holidayDraft}
+        onOpenChange={(open) => {
+          if (!open) setHolidayDraft(null);
+        }}
+      />
+      <ImportSheet
+        calendarId={importOpen && active ? active.id : null}
+        calendarName={active?.name ?? ''}
+        year={active?.year ?? year}
+        onOpenChange={setImportOpen}
+      />
     </>
   );
 }
