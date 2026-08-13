@@ -11,6 +11,7 @@ import { endOfMonth, isSameMonth, startOfMonth } from 'date-fns';
 import { Link, useParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
+import { RowActions } from '@/components/shared/row-actions';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -38,6 +39,9 @@ import {
   flagLabel,
 } from '@/features/attendance/status';
 import { AttendanceFlags, AttendanceStatusBadge } from '@/features/attendance/status-badge';
+import { employeeActions } from './employee-actions';
+import { EmployeeSheet } from './employee-sheet';
+import { EmployeeLifecycleDialog, type LifecycleTarget } from './lifecycle-dialog';
 import type { AttendanceDay } from '@/features/attendance/types';
 import { ApiError } from '@/lib/api/client';
 import { EMPTY_VALUE, formatDate, humaniseEnum } from '@/lib/format';
@@ -45,7 +49,7 @@ import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermissions } from '@/lib/session/permissions';
 import { useMe } from '@/lib/session/use-session';
 import { cn } from '@/lib/utils';
-import { employeeDisplayName, type EmployeeDetail } from '@vyuha/shared';
+import { employeeDisplayName, PERMISSIONS, type EmployeeDetail } from '@vyuha/shared';
 
 import {
   attendanceVisibility,
@@ -443,6 +447,10 @@ export function EmployeeDetailPage() {
   const lateSeries = useMemo(() => toLateSeries(days), [days]);
   const flags = useMemo(() => toFlagTally(days), [days]);
 
+  const [sheet, setSheet] = useState<EmployeeDetail | 'new' | null>(null);
+  const [lifecycle, setLifecycle] = useState<LifecycleTarget | null>(null);
+  const canManage = permissions.has(PERMISSIONS.EMPLOYEE_MANAGE);
+
   const punches = punchesQuery.data?.punches ?? [];
   const atCurrentMonth = isSameMonth(month, new Date());
 
@@ -450,11 +458,34 @@ export function EmployeeDetailPage() {
     setMonth((current) => new Date(current.getFullYear(), current.getMonth() + delta, 1));
   }
 
+  // The same actions the register offers, from the same rules, so the two
+  // cannot come to different conclusions about what an on-notice employee may
+  // have done to them. Somebody who has drilled into a person is the most
+  // likely to want to act on them, and until now this was the one screen where
+  // they could not.
+  const record = employee.data ?? null;
+  const actions =
+    record === null
+      ? []
+      : employeeActions({
+          employee: record,
+          canManage,
+          onEdit: () => {
+            setSheet(record);
+          },
+          onLifecycle: setLifecycle,
+        });
+
   const backToRegister = (
-    <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/employees" />}>
-      <ArrowLeftIcon data-icon="inline-start" />
-      Employee register
-    </Button>
+    <div className="flex items-center gap-2">
+      {actions.length > 0 ? (
+        <RowActions label={`Actions for ${record?.firstName ?? 'this employee'}`} actions={actions} />
+      ) : null}
+      <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/employees" />}>
+        <ArrowLeftIcon data-icon="inline-start" />
+        Employee register
+      </Button>
+    </div>
   );
 
   // Two failures on this route are answers rather than faults, and both deserve
@@ -786,6 +817,21 @@ export function EmployeeDetailPage() {
         day={selectedDay}
         onOpenChange={(open) => {
           if (!open) setSelectedDay(null);
+        }}
+      />
+
+      {/* The same two surfaces the register uses, so an edit made here and an
+          edit made there are the same form with the same validation. */}
+      <EmployeeSheet
+        target={sheet}
+        onOpenChange={(open) => {
+          if (!open) setSheet(null);
+        }}
+      />
+      <EmployeeLifecycleDialog
+        target={lifecycle}
+        onOpenChange={(open) => {
+          if (!open) setLifecycle(null);
         }}
       />
     </>

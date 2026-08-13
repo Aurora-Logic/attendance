@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  ArrowCounterClockwiseIcon,
   PlusIcon,
-  UserMinusIcon,
   UsersThreeIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
@@ -12,7 +10,7 @@ import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
-import { RowActions, type RowAction } from '@/components/shared/row-actions';
+import { RowActions } from '@/components/shared/row-actions';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -48,6 +46,7 @@ import {
   type EmployeeStatus,
 } from '@vyuha/shared';
 
+import { employeeActions } from './employee-actions';
 import { EmployeeSheet } from './employee-sheet';
 import { EmployeeLifecycleDialog, type LifecycleTarget } from './lifecycle-dialog';
 import { STATUS_LABELS, STATUS_VARIANT } from './status';
@@ -319,57 +318,20 @@ export function EmployeesPage() {
    * person is offered reactivation rather than a second retirement.
    */
   function actionsFor(row: EmployeeListItem) {
-    const blocked = canManage
-      ? undefined
-      : 'Needs the employee.manage permission, which your account does not hold.';
-
-    const actions: RowAction[] = [
-      {
-        key: 'edit',
-        label: 'Edit employee',
-        icon: ACTION_ICONS.edit,
-        onSelect: () => {
-          setSheet(row);
-        },
-        ...(blocked === undefined ? {} : { unavailableReason: blocked }),
+    const actions = employeeActions({
+      employee: row,
+      canManage,
+      onEdit: () => {
+        setSheet(row);
       },
-    ];
-
-    if (row.status === 'INACTIVE') {
-      actions.push({
-        key: 'reactivate',
-        label: 'Reactivate employee',
-        icon: ArrowCounterClockwiseIcon,
-        onSelect: () => {
-          setLifecycle({ mode: 'reactivate', employee: row });
-        },
-        ...(blocked === undefined ? {} : { unavailableReason: blocked }),
-      });
-    } else {
-      if (row.status === 'ACTIVE') {
-        actions.push({
-          key: 'notice',
-          label: 'Put on notice',
-          icon: UserMinusIcon,
-          onSelect: () => {
-            setLifecycle({ mode: 'notice', employee: row });
-          },
-          ...(blocked === undefined ? {} : { unavailableReason: blocked }),
-        });
-      }
-      actions.push({
-        key: 'retire',
-        label: 'Retire employee',
-        icon: UserMinusIcon,
-        destructive: true,
-        onSelect: () => {
-          setLifecycle({ mode: 'retire', employee: row });
-        },
-        ...(blocked === undefined ? {} : { unavailableReason: blocked }),
-      });
-    }
-
-    return <RowActions label={`Actions for ${employeeDisplayName(row.firstName, row.lastName)}`} actions={actions} />;
+      onLifecycle: setLifecycle,
+    });
+    return (
+      <RowActions
+        label={`Actions for ${employeeDisplayName(row.firstName, row.lastName)}`}
+        actions={actions}
+      />
+    );
   }
 
   const columns: RecordColumn<EmployeeListItem>[] = [
