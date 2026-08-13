@@ -223,7 +223,6 @@ function PeriodLockBody() {
             hint={<ShortcutHint keys="alt+f2" className="ml-1 hidden md:inline-flex" />}
           />
           <Button
-            className="pointer-coarse:h-11"
             disabled={already !== undefined}
             onClick={() => {
               lock.reset();

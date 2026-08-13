@@ -70,7 +70,7 @@ export function ColumnChooser({
   }
 
   const trigger = (
-    <Button variant="outline" className="pointer-coarse:h-11 gap-2">
+    <Button variant="outline" className="gap-2">
       <SlidersHorizontalIcon data-icon="inline-start" />
       <span className="hidden sm:inline">Columns</span>
       <span className="text-muted-foreground tabular-nums">

@@ -507,7 +507,7 @@ export function ReportsPage() {
           <>
             <Button
               variant="outline"
-              className="pointer-coarse:h-11 gap-2"
+              className="gap-2"
               onClick={() => {
                 setSwitcherOpen(true);
               }}
@@ -518,7 +518,7 @@ export function ReportsPage() {
             </Button>
 
             <Button
-              className="pointer-coarse:h-11 gap-2"
+              className="gap-2"
               disabled={!canExport || requestExport.isPending}
               onClick={startExport}
             >
@@ -607,7 +607,7 @@ export function ReportsPage() {
                     key={field}
                     variant={isActive ? 'secondary' : 'ghost'}
                     size="sm"
-                    className="pointer-coarse:h-11 gap-1"
+                    className="gap-1"
                     onClick={() => {
                       toggleSort(field);
                     }}

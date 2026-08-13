@@ -81,7 +81,7 @@ export function SavedViews({
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button variant="outline" className="pointer-coarse:h-11 gap-2">
+            <Button variant="outline" className="gap-2">
               <BookmarkSimpleIcon data-icon="inline-start" />
               <span className="hidden sm:inline">Views</span>
               {views.length > 0 ? (

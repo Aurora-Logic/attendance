@@ -122,7 +122,7 @@ function ExportRow({ job }: { job: ExportJobSummary }) {
         <Button
           variant="outline"
           size="sm"
-          className="pointer-coarse:h-11 w-full gap-2 sm:w-auto"
+          className="w-full gap-2 sm:w-auto"
           disabled={!job.downloadable || download.isPending}
           onClick={start}
         >

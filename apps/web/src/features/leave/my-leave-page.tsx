@@ -169,7 +169,7 @@ function CancelLeaveAction({ request }: { request: LeaveRequest }) {
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger
         render={
-          <Button variant="ghost" size="sm" className="pointer-coarse:min-h-11">
+          <Button variant="ghost" size="sm">
             <XCircleIcon data-icon="inline-start" />
             Cancel
           </Button>

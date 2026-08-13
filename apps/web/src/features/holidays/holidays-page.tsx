@@ -199,7 +199,6 @@ function CalendarSection({
             <Button
               variant="outline"
               size="sm"
-              className="pointer-coarse:h-11"
               onClick={onEditCalendar}
             >
               <PencilSimpleIcon data-icon="inline-start" />
@@ -230,7 +229,7 @@ function CalendarSection({
           </EmptyHeader>
           {canManage ? (
             <EmptyContent>
-              <Button className="pointer-coarse:h-11" onClick={onAddHoliday}>
+              <Button onClick={onAddHoliday}>
                 <PlusIcon data-icon="inline-start" />
                 Add a holiday
               </Button>
@@ -329,7 +328,6 @@ export function HolidaysPage() {
         action={
           canManage ? (
             <Button
-              className="pointer-coarse:h-11"
               onClick={() => {
                 setCalendarDraft(newCalendarDraft(year));
               }}
@@ -434,7 +432,6 @@ export function HolidaysPage() {
           <div className="ml-auto flex items-center gap-2">
             <Button
               variant="outline"
-              className="pointer-coarse:h-11"
               onClick={() => {
                 setImportOpen(true);
               }}
@@ -443,7 +440,6 @@ export function HolidaysPage() {
               Import
             </Button>
             <Button
-              className="pointer-coarse:h-11"
               onClick={() => {
                 setHolidayDraft(newHolidayDraft(active.id, active.year, month));
               }}
@@ -497,7 +493,6 @@ export function HolidaysPage() {
           {canManage ? (
             <EmptyContent>
               <Button
-                className="pointer-coarse:h-11"
                 onClick={() => {
                   setCalendarDraft(newCalendarDraft(year));
                 }}

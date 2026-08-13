@@ -279,16 +279,16 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
 
       <Tabs defaultValue="organisation" className="gap-4">
         <TabsList>
-          <TabsTrigger value="organisation" className="pointer-coarse:min-h-11 px-3">
+          <TabsTrigger value="organisation" className="px-3">
             Organisation
           </TabsTrigger>
-          <TabsTrigger value="attendance" className="pointer-coarse:min-h-11 px-3">
+          <TabsTrigger value="attendance" className="px-3">
             Attendance
           </TabsTrigger>
-          <TabsTrigger value="photos" className="pointer-coarse:min-h-11 px-3">
+          <TabsTrigger value="photos" className="px-3">
             Photos
           </TabsTrigger>
-          <TabsTrigger value="email" className="pointer-coarse:min-h-11 px-3">
+          <TabsTrigger value="email" className="px-3">
             Email
           </TabsTrigger>
         </TabsList>

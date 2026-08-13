@@ -197,7 +197,7 @@ function Confirmation({
         </dl>
       </div>
 
-      <Button variant="outline" className="pointer-coarse:h-11 self-start" onClick={onAgain}>
+      <Button variant="outline" className="self-start" onClick={onAgain}>
         <ArrowClockwiseIcon data-icon="inline-start" />
         Back to the punch screen
       </Button>
@@ -550,7 +550,7 @@ export function PunchPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="pointer-coarse:h-11 ml-auto shrink-0"
+                        className="ml-auto shrink-0"
                         onClick={location.retry}
                       >
                         Retry

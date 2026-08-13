@@ -69,7 +69,7 @@ export function EmployeePicker({
     <Button
       variant="outline"
       aria-label={label}
-      className={cn('pointer-coarse:h-11 w-full justify-between gap-2 font-normal', className)}
+      className={cn('w-full justify-between gap-2 font-normal', className)}
     >
       <span className="flex min-w-0 items-center gap-2">
         <UserIcon data-icon="inline-start" />

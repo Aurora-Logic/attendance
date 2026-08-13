@@ -236,7 +236,6 @@ function ShiftsTab() {
         <ManageAction label="You need the shift.manage permission to create a shift.">
           <Button
             size="sm"
-            className="pointer-coarse:h-11"
             disabled={!canManage}
             onClick={() => {
               setOpen('new');
@@ -334,7 +333,6 @@ function WeeklyOffsTab() {
         <ManageAction label="You need the shift.manage permission to create a pattern.">
           <Button
             size="sm"
-            className="pointer-coarse:h-11"
             disabled={!canManage}
             onClick={() => {
               setOpen('new');
@@ -568,7 +566,7 @@ function RosterTab() {
             <Button
               variant="outline"
               size="sm"
-              className="pointer-coarse:h-11 flex-1 sm:flex-none"
+              className="flex-1 sm:flex-none"
               disabled={!canManage}
               onClick={() => {
                 setBulkOpen(true);
@@ -581,7 +579,7 @@ function RosterTab() {
           <ManageAction label="You need the shift.manage permission to change a roster.">
             <Button
               size="sm"
-              className="pointer-coarse:h-11 flex-1 sm:flex-none"
+              className="flex-1 sm:flex-none"
               disabled={!canManage}
               onClick={() => {
                 setAssignOpen(true);
@@ -673,13 +671,13 @@ export function ShiftsPage() {
         <TabsToolbar
           list={
             <TabsList>
-              <TabsTrigger value="shifts" className="pointer-coarse:min-h-11 px-3">
+              <TabsTrigger value="shifts" className="px-3">
                 Shifts
               </TabsTrigger>
-              <TabsTrigger value="roster" className="pointer-coarse:min-h-11 px-3">
+              <TabsTrigger value="roster" className="px-3">
                 Roster
               </TabsTrigger>
-              <TabsTrigger value="weekly-offs" className="pointer-coarse:min-h-11 px-3">
+              <TabsTrigger value="weekly-offs" className="px-3">
                 Weekly offs
               </TabsTrigger>
             </TabsList>

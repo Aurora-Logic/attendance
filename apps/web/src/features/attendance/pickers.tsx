@@ -185,7 +185,7 @@ export function DateField({
         <Button
           variant="outline"
           aria-label={label}
-          className={cn('pointer-coarse:h-11 justify-start gap-2 tabular-nums', className)}
+          className={cn('justify-start gap-2 tabular-nums', className)}
         >
           <CalendarBlankIcon data-icon="inline-start" />
           {formatDate(toDateParam(value))}
@@ -243,7 +243,7 @@ export function DateRangeField({
         <Button
           variant="outline"
           aria-label={label}
-          className={cn('pointer-coarse:h-11 justify-start gap-2 tabular-nums', className)}
+          className={cn('justify-start gap-2 tabular-nums', className)}
         >
           <CalendarBlankIcon data-icon="inline-start" />
           {printed}
@@ -336,7 +336,7 @@ export function MonthField({
         <Button
           variant="outline"
           aria-label={label}
-          className={cn('pointer-coarse:h-11 min-w-40 justify-start gap-2', className)}
+          className={cn('min-w-40 justify-start gap-2', className)}
         >
           <CalendarBlankIcon data-icon="inline-start" />
           <span className="tabular-nums">
@@ -442,7 +442,7 @@ export function TimeField({
           variant="outline"
           aria-label={label}
           disabled={disabled}
-          className={cn('pointer-coarse:h-11 w-full justify-start gap-2 tabular-nums', className)}
+          className={cn('w-full justify-start gap-2 tabular-nums', className)}
         >
           <ClockIcon data-icon="inline-start" />
           {formatClock(value)}

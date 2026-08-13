@@ -105,7 +105,7 @@ export function CameraPanel({ camera, className }: { camera: Camera; className?:
             <Button
               variant="outline"
               size="sm"
-              className="pointer-coarse:h-11 mt-2"
+              className="mt-2"
               onClick={retry}
             >
               <ArrowClockwiseIcon data-icon="inline-start" />

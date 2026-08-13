@@ -141,7 +141,7 @@ export function PunchPhotoSheet({ punch, onOpenChange }: PunchPhotoSheetProps) {
               {showFull ? null : (
                 <Button
                   variant="outline"
-                  className="pointer-coarse:h-11 w-full gap-2"
+                  className="w-full gap-2"
                   onClick={() => {
                     setShowFull(true);
                   }}
