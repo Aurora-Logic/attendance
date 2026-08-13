@@ -16,6 +16,7 @@ import { AuditLogPage } from '@/features/audit';
 import { DownloadsPage } from '@/features/downloads';
 import { IntegrationsPage } from '@/features/integrations';
 import { PeriodLockPage } from '@/features/period-lock';
+import { RecycleBinPage } from '@/features/recycle-bin';
 import { ReportsPage } from '@/features/reports';
 import { RolesPage } from '@/features/roles';
 import { SettingsPage } from '@/features/settings';
@@ -49,6 +50,7 @@ const BUILT_ROUTES = new Set([
   '/period-lock',
   '/reports',
   '/downloads',
+  '/recycle-bin',
 ]);
 
 const queryClient = new QueryClient({
@@ -92,6 +94,7 @@ export default function App() {
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />
               <Route path="downloads" element={<DownloadsPage />} />
+              <Route path="recycle-bin" element={<RecycleBinPage />} />
 
               {/* Off the sidebar on purpose: reached from the user menu, not
                   from the navigation groups the PRD fixes (§6.1). */}

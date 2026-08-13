@@ -11,6 +11,7 @@ import {
   LockIcon,
   PlugIcon,
   ScrollIcon,
+  TrashIcon,
   ShieldCheckIcon,
   SquaresFourIcon,
   TreePalmIcon,
@@ -201,6 +202,19 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: PERMISSIONS.AUDIT_VIEW,
         phase: 4,
         reqs: 'REQ-M-02',
+      },
+      {
+        to: '/recycle-bin',
+        label: 'Recycle bin',
+        shortLabel: 'Recycle',
+        icon: TrashIcon,
+        // REQ-M-04 forbids a hard delete, so everything removed anywhere in the
+        // product is recoverable from here. Gated on employee.manage because
+        // that is the broadest of the master-management keys; the screen itself
+        // filters to the kinds the viewer may actually restore.
+        permission: PERMISSIONS.EMPLOYEE_MANAGE,
+        phase: 4,
+        reqs: 'REQ-M-04, REQ-B-09a',
       },
     ],
   },
