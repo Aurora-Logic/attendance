@@ -83,6 +83,12 @@
     input:not([type='hidden'], [type='checkbox'], [type='radio'], [type='range']),
     textarea
   ) {
+    /* A floor, and one with a known blind spot: min-height does nothing to an
+       inline box, so a bare `<a>` inside a paragraph is not raised by this
+       rule - it measured 31px on the dashboard and only the route sweep saw
+       it. Setting display here would reflow running text, so the rule stays as
+       it is and anything meant to be tapped is built as a block-level control
+       instead of a link in a sentence. */
     min-height: 44px;
   }
 

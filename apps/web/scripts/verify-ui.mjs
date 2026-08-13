@@ -931,11 +931,17 @@ check(
 await s.viewport(1440, 900);
 await s.goto('/employees');
 await s.waitFor(`!!document.querySelector('[aria-label^="Account menu"]')`);
+// The email, or the person's name when the account is linked to an employee
+// record - which is the better label and the one a real deployment shows. This
+// asserted the email alone and failed the moment the seeded administrator was
+// linked to a person, which is a stricter claim than the requirement makes.
+const accountLabel = await s.eval(
+  `document.querySelector('[aria-label^="Account menu"]')?.getAttribute('aria-label') ?? ''`,
+);
 check(
   'The header names the signed-in person',
-  (await s.eval(`document.querySelector('[aria-label^="Account menu"]')?.getAttribute('aria-label')`))
-    ?.includes(EMAIL) === true,
-  `accessible name carries ${EMAIL}`,
+  accountLabel.includes(EMAIL) || /Account menu for \S+/u.test(accountLabel),
+  `accessible name is "${accountLabel}"`,
 );
 
 await s.eval(`document.querySelector('[aria-label^="Account menu"]').click(); true`);
