@@ -1,0 +1,80 @@
+import { z } from 'zod';
+
+import { createZodDto } from '../common/zod-validation.pipe.js';
+import { attendancePolicySchema, photoPolicyObject } from './settings.catalogue.js';
+
+/**
+ * The `PUT /settings` body (REQ-L-01, REQ-L-02, REQ-L-03).
+ *
+ * Every group is optional and every field inside it is optional, because the
+ * Settings screen is four tabs and saving one of them must not blank the other
+ * three. The consequence is that "absent" and "null" mean different things
+ * here: absent leaves the stored value alone, null clears a nullable column.
+ */
+
+/**
+ * The date formats the web client can actually render.
+ *
+ * Not a free date-fns pattern. An administrator who types `DD-MM-YYYY` -- the
+ * Moment spelling, which date-fns reads as day-of-year and era -- would change
+ * every date on every screen and every export into nonsense, and nothing would
+ * report an error.
+ */
+export const DATE_FORMATS = ['dd-MM-yyyy', 'dd/MM/yyyy', 'yyyy-MM-dd', 'MM/dd/yyyy'] as const;
+export type DateFormat = (typeof DATE_FORMATS)[number];
+
+/**
+ * An IANA zone name, checked by asking the platform rather than by matching a
+ * pattern -- the same test `createLocationSchema` applies, and for the same
+ * reason: a wrong timezone silently shifts every attendance date rather than
+ * failing.
+ */
+const timezoneField = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine((value) => {
+    try {
+      new Intl.DateTimeFormat('en-GB', { timeZone: value });
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'must be an IANA timezone name, for example Asia/Kolkata');
+
+export const orgProfilePatchSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    legalName: z.string().trim().min(1).max(200).nullable(),
+    timezone: timezoneField,
+    dateFormat: z.enum(DATE_FORMATS),
+    /** ISO-8601 weekday, 1 = Monday. */
+    weekStart: z.number().int().min(1).max(7),
+    /** REQ-G-04. April by default, confirmed in 05-decisions. */
+    leaveYearStartMonth: z.number().int().min(1).max(12),
+  })
+  .partial();
+
+export type OrgProfilePatchInput = z.infer<typeof orgProfilePatchSchema>;
+
+export const updateSettingsSchema = z
+  .object({
+    organisation: orgProfilePatchSchema,
+    attendance: attendancePolicySchema.partial(),
+    photo: photoPolicyObject.partial(),
+  })
+  .partial()
+  .refine(
+    (value) =>
+      value.organisation !== undefined ||
+      value.attendance !== undefined ||
+      value.photo !== undefined,
+    // An empty body would otherwise succeed, write nothing, and leave an audit
+    // row claiming a settings change with an empty diff.
+    { message: 'Send at least one settings group to change.' },
+  );
+
+export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+
+export class UpdateSettingsDto extends createZodDto(updateSettingsSchema) {}
