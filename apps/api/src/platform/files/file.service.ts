@@ -97,6 +97,29 @@ export interface StoreImageInput {
   readonly maxBytes?: number;
 }
 
+/**
+ * A file this server generated, rather than one a client uploaded.
+ *
+ * Separate from `StoreImageInput` because the guarantee is different in both
+ * directions. An upload is untrusted and is decoded and re-encoded before it
+ * is stored; a generated file is bytes this process just produced and must be
+ * stored verbatim -- a CSV put through the image sanitiser is not a CSV. The
+ * purpose is narrowed to the two server-authored kinds so no upload path can
+ * reach this method and skip the sanitiser by naming a different purpose.
+ */
+export interface StoreDocumentInput {
+  readonly orgId: string;
+  /** The user the file was produced for; null for a system-wide artefact. */
+  readonly createdBy: string | null;
+  readonly purpose: Extract<FilePurpose, 'EXPORT' | 'IMPORT'>;
+  readonly bytes: Buffer;
+  readonly mime: string;
+  /** Key suffix only; the browser filename is the caller's business. */
+  readonly extension: string;
+  /** REQ-L-03 and REQ-J-03: when the retention job may remove this. */
+  readonly expiresAt?: Date | null;
+}
+
 export interface StoredFile {
   readonly id: string;
   readonly storageKey: string;
@@ -230,7 +253,85 @@ export class FileService {
     };
   }
 
-  private buildKey(input: StoreImageInput, fileId: string, extension: string): string {
+  /**
+   * Stores bytes this server produced, unaltered.
+   *
+   * The three invariants at the top of this file still hold, with one
+   * substitution: the type is fixed by the caller rather than sniffed from the
+   * bytes, because the caller is this process and the alternative is asking
+   * `magic-bytes` to recognise CSV, which has no magic bytes and never will.
+   * Provenance, checksum and signed-URL-only access are unchanged, and so is
+   * the retention column that REQ-J-03's seven days rides on.
+   */
+  async storeDocument(input: StoreDocumentInput): Promise<StoredFile> {
+    if (input.bytes.length === 0) {
+      throw new Error('Refusing to store an empty document.');
+    }
+
+    const fileId = uuidv7();
+    const digest = createHash('sha256').update(input.bytes).digest();
+    const storageKey = this.buildKey(
+      { orgId: input.orgId, purpose: input.purpose },
+      fileId,
+      input.extension,
+    );
+
+    await this.objects.put(
+      BUCKET_BY_PURPOSE[input.purpose],
+      storageKey,
+      input.bytes,
+      input.mime,
+      digest.toString('base64'),
+    );
+
+    const inserted = await this.db
+      .insert(files)
+      .values({
+        id: fileId,
+        orgId: input.orgId,
+        storageKey,
+        mime: input.mime,
+        bytes: input.bytes.length,
+        checksum: digest.toString('hex'),
+        purpose: input.purpose,
+        // The requester, so `mayReadFile`'s uploader rule lets them read back
+        // the file they asked for even if their permissions narrow afterwards.
+        uploadedBy: input.createdBy,
+        expiresAt: input.expiresAt ?? null,
+        createdBy: input.createdBy,
+        updatedBy: input.createdBy,
+      })
+      .returning({ id: files.id });
+
+    if (inserted[0] === undefined) {
+      throw new Error(`File row insert returned nothing for object ${storageKey}.`);
+    }
+
+    // No `auditContext.record` here: this runs in a job, where there is no
+    // request to enrich. The job writes its own audit row (REQ-J-06).
+    this.logger.log({
+      msg: 'Document stored',
+      fileId,
+      purpose: input.purpose,
+      bytes: input.bytes.length,
+      expiresAt: input.expiresAt?.toISOString() ?? null,
+    });
+
+    return {
+      id: fileId,
+      storageKey,
+      mime: input.mime,
+      bytes: input.bytes.length,
+      checksum: digest.toString('hex'),
+      purpose: input.purpose,
+    };
+  }
+
+  private buildKey(
+    input: Pick<StoreImageInput, 'orgId' | 'purpose' | 'pathSegments'>,
+    fileId: string,
+    extension: string,
+  ): string {
     for (const segment of input.pathSegments ?? []) {
       if (!isUuid(segment)) {
         throw new Error(`Storage key segment "${segment}" is not an id; refusing to build a key.`);

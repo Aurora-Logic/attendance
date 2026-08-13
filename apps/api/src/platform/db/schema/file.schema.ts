@@ -1,15 +1,4 @@
-import {
-  bigint,
-  boolean,
-  index,
-  integer,
-  jsonb,
-  pgEnum,
-  pgTable,
-  text,
-  timestamp,
-  uuid,
-} from 'drizzle-orm/pg-core';
+import { bigint, index, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 import { primaryId, standardColumns } from '../columns.js';
 import { users } from './identity.schema.js';
@@ -22,13 +11,6 @@ export const filePurposeEnum = pgEnum('file_purpose', [
   'ATTACHMENT',
   'ORG_LOGO',
   'IMPORT',
-]);
-
-export const exportJobStatusEnum = pgEnum('export_job_status', [
-  'QUEUED',
-  'RUNNING',
-  'DONE',
-  'FAILED',
 ]);
 
 /**
@@ -65,51 +47,9 @@ export const files = pgTable(
   ],
 );
 
-/** REQ-J-03: exports run as background jobs and land in a Downloads tray. */
-export const exportJobs = pgTable(
-  'export_jobs',
-  {
-    id: primaryId(),
-    orgId: uuid('org_id')
-      .notNull()
-      .references(() => organizations.id, { onDelete: 'restrict' }),
-    requestedBy: uuid('requested_by')
-      .notNull()
-      .references(() => users.id, { onDelete: 'restrict' }),
-
-    reportKey: text('report_key').notNull(),
-    /** Recorded so REQ-J-06 can audit exactly what was exported, not just that something was. */
-    filters: jsonb('filters').notNull(),
-
-    status: exportJobStatusEnum('status').notNull().default('QUEUED'),
-    fileId: uuid('file_id').references(() => files.id, { onDelete: 'set null' }),
-    rowCount: integer('row_count'),
-    error: text('error'),
-
-    startedAt: timestamp('started_at', { withTimezone: true }),
-    finishedAt: timestamp('finished_at', { withTimezone: true }),
-
-    ...standardColumns(),
-  },
-  (t) => [index('export_jobs_requester_idx').on(t.orgId, t.requestedBy, t.createdAt.desc())],
-);
-
-/** REQ-J-01: saved views on the shared report shell. */
-export const savedViews = pgTable(
-  'saved_views',
-  {
-    id: primaryId(),
-    orgId: uuid('org_id')
-      .notNull()
-      .references(() => organizations.id, { onDelete: 'restrict' }),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    reportKey: text('report_key').notNull(),
-    name: text('name').notNull(),
-    config: jsonb('config').notNull(),
-    isShared: boolean('is_shared').notNull().default(false),
-    ...standardColumns(),
-  },
-  (t) => [index('saved_views_lookup_idx').on(t.orgId, t.reportKey, t.userId)],
-);
+/*
+ * `export_jobs` and `saved_views` used to live here and now live in
+ * `report.schema.ts`. They reference `files` but are not about object storage,
+ * and the report slice needed to extend them; keeping three tables in a file
+ * named for one of them was the only reason they were together.
+ */
