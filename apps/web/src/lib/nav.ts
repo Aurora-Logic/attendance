@@ -241,6 +241,11 @@ export interface Crumb {
  */
 const OFF_NAV_LABELS: Record<string, string> = {
   '/profile': 'Profile',
+  /* Same reasoning as /profile: PRD §6.1 fixes the sidebar to Work, Records,
+     Reports and Setup, and a changelog belongs to none of them. Reached from
+     the account menu; named here so the breadcrumb does not call it
+     "Not found". */
+  '/updates': 'Updates',
   ...(import.meta.env.DEV ? { '/patterns': 'Shell patterns' } : {}),
 };
 
@@ -249,9 +254,37 @@ const OFF_NAV_LABELS: Record<string, string> = {
  * The header renders it, so a screen cannot forget to declare who it is, and
  * two screens cannot describe the same route differently.
  */
+/**
+ * Routes that are reached from a nav item rather than being one.
+ *
+ * Kept as a table beside the nav rather than inside the breadcrumb function, so
+ * adding a detail screen is one row here instead of a branch somebody has to
+ * find.
+ */
+const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }[] = [
+  { pattern: /^\/employees\/[^/]+$/u, parent: '/employees', label: 'Employee' },
+];
+
 export function findBreadcrumbs(pathname: string): [Crumb, ...Crumb[]] {
   const offNav = OFF_NAV_LABELS[pathname];
   if (offNav) return [{ label: offNav }];
+
+  // A detail route hangs off a nav item without being one. Matching only exact
+  // paths made every one of them render "Not found" in the header while the
+  // screen below it worked perfectly.
+  //
+  // The last crumb cannot be the person's name: this function is pure over the
+  // pathname and has never seen the record. The screen states the name itself.
+  const detail = DETAIL_ROUTES.find((route) => route.pattern.test(pathname));
+  if (detail) {
+    const parent = findNavItem(detail.parent);
+    const group = findNavGroup(detail.parent);
+    const crumbs: Crumb[] = [];
+    if (group && group !== parent?.label) crumbs.push({ label: group });
+    if (parent) crumbs.push({ label: parent.label, to: detail.parent });
+    crumbs.push({ label: detail.label });
+    return crumbs as [Crumb, ...Crumb[]];
+  }
 
   const item = findNavItem(pathname);
   if (!item) return [{ label: 'Not found' }];

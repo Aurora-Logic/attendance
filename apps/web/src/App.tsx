@@ -4,7 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 import { AppShell } from '@/app/layout/app-shell';
 import { SessionGate } from '@/app/session-gate';
 import { DashboardPage } from '@/features/dashboard/dashboard-page';
-import { EmployeesPage } from '@/features/employees/employees-page';
+import { EmployeeDetailPage, EmployeesPage } from '@/features/employees';
 import { ApprovalsPage } from '@/features/approvals';
 import { MyAttendancePage, TeamAttendancePage } from '@/features/attendance';
 import { HolidaysPage } from '@/features/holidays';
@@ -21,6 +21,7 @@ import { RolesPage } from '@/features/roles';
 import { SettingsPage } from '@/features/settings';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { ProfilePage } from '@/features/profile/profile-page';
+import { UpdatesPage } from '@/features/updates';
 import { ShortcutProvider } from '@/lib/keyboard/registry';
 import { ALL_NAV_ITEMS } from '@/lib/nav';
 
@@ -73,6 +74,7 @@ export default function App() {
               <Route index element={<DashboardPage />} />
 
               <Route path="employees" element={<EmployeesPage />} />
+              <Route path="employees/:id" element={<EmployeeDetailPage />} />
 
               <Route path="punch" element={<PunchPage />} />
               <Route path="my-leave" element={<MyLeavePage />} />
@@ -94,6 +96,9 @@ export default function App() {
               {/* Off the sidebar on purpose: reached from the user menu, not
                   from the navigation groups the PRD fixes (§6.1). */}
               <Route path="profile" element={<ProfilePage />} />
+
+              {/* Also off the sidebar, and for the same reason. */}
+              <Route path="updates" element={<UpdatesPage />} />
 
               {/* Sample data lives on this route, so it is never built into
                   a production bundle (CLAUDE.md §6). */}
