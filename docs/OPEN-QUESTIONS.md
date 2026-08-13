@@ -55,6 +55,42 @@ default being used until answered.
 | P2-6 | **REQ-C-03 names four levels for a weekly-off pattern and only two are modelled.** Employee level (`employees.weekly_off_pattern_id`) and organisation level (a settings key) exist. Location and department levels have no storage anywhere — not on the writing side, and the day engine's repository reached the same conclusion from the reading side. | REQ-C-03 | Two levels, and no storage invented for the other two. `/weekly-off-patterns` is master CRUD; a pattern is attached per employee or per organisation. If a location or a department needs its own pattern — a plant that works alternate Saturdays while head office does not — that is a nullable column on each of those two tables plus a resolution order in the day engine. Straightforward, but it changes how the engine decides, so it waits for you. |
 | P2-5 | **`PATCH /settings` where technical design 6 says `PUT`.** Absent groups mean unchanged, which is PATCH semantics, and every other update endpoint in this API is PATCH. | REQ-L-01 | PATCH. Flagged rather than silently diverging from the design document. |
 
+## The leave / approvals join, still unwired
+
+Not a question for you — a note for whoever does it next, written after an
+attempt that was reverted.
+
+Leave and the approval framework both landed, and they are not connected.
+`leave_requests.approval_request_id` has existed since migration 0004 and is
+always null: nothing calls `ApprovalService.raise`, so a leave application never
+reaches the approvals inbox and the escalation job never sees it. Leave decides
+on its own endpoint, where the append-only ledger write lives.
+
+**The shape it has to take.** The framework must not import leave — leave
+already imports the framework, and the arrow cannot point both ways. So a
+subject-handler registry, exactly like `JobRegistry`: the framework holds a map
+from subject type to a handler, each slice registers itself on init, and the
+framework calls the handler when a request reaches a terminal status. Leave's
+handler applies the decision without re-checking the approver, because the
+framework has already done that.
+
+**Raise and handle must land in the same change.** This was tried the other way
+round — the seam plus a guard refusing to decide any subject with no registered
+handler — and it broke ten approvals tests, correctly. No subject type has a
+handler, so the guard made the whole framework inert. The lesson is that the
+guard is only safe once at least one handler exists, and that raising a leave
+approval before the handler exists would be worse still: the inbox would mark a
+request approved while the ledger and the balance recorded nothing, with no
+error anywhere.
+
+**Why it was not finished unattended.** It moves who writes an append-only
+ledger. A wrong row cannot be taken back, and CLAUDE.md 7 puts leave rules on
+the list not to guess at. It wants doing with someone watching.
+
+There is a second join: cancelling on or after the start date currently needs an
+approver key rather than raising an approval request, which is what REQ-G-10
+asks for.
+
 ## Carried from `05-decisions.md` — still open
 
 | # | Question | Needed by | Recommended default in use |
