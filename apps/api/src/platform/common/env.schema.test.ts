@@ -68,6 +68,26 @@ describe('parseEnv', () => {
     expect(env.SENTRY_DSN).toBeUndefined();
   });
 
+  it('defaults TRUST_PROXY_HOPS to 0 so the no-proxy dev topology is unchanged', () => {
+    // Unset and empty must both mean "no proxy": a .env that predates the
+    // variable boots with Express untouched (OPEN-QUESTIONS P0-11).
+    expect(parseEnv(VALID_ENV).TRUST_PROXY_HOPS).toBe(0);
+    expect(parseEnv({ ...VALID_ENV, TRUST_PROXY_HOPS: '' }).TRUST_PROXY_HOPS).toBe(0);
+    expect(parseEnv({ ...VALID_ENV, TRUST_PROXY_HOPS: '1' }).TRUST_PROXY_HOPS).toBe(1);
+  });
+
+  it('rejects a TRUST_PROXY_HOPS that is not a small whole number', () => {
+    // 'true' is the likely mistake: Express itself accepts booleans, and a
+    // boolean-shaped value here would mean "trust every hop", which is the
+    // spoofable configuration this variable exists to prevent.
+    expect(issuesOf({ ...VALID_ENV, TRUST_PROXY_HOPS: 'true' }).TRUST_PROXY_HOPS).toContain(
+      'whole number',
+    );
+    expect(issuesOf({ ...VALID_ENV, TRUST_PROXY_HOPS: '11' }).TRUST_PROXY_HOPS).toContain(
+      'at most 10',
+    );
+  });
+
   it('freezes the result so nothing can rewrite configuration at runtime', () => {
     const env = parseEnv(VALID_ENV);
     expect(Object.isFrozen(env)).toBe(true);
