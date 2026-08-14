@@ -4,6 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 
 import { describeError } from '../common/errors.js';
+import { LuaScript } from '../redis/lua-script.js';
 import { InjectRedis } from '../redis/redis.provider.js';
 
 /**
@@ -30,6 +31,19 @@ import { InjectRedis } from '../redis/redis.provider.js';
  * limiter's reason: a dead cache must not stop a genuine "I forgot my
  * password" from working, and every occurrence is logged at error level so
  * "the cap is not currently in force" is visible rather than assumed.
+ *
+ * The decision and the record it is based on are **one Lua script**, and that
+ * is the whole control rather than a detail of it. The first version probed
+ * with ZREMRANGEBYSCORE + ZCARD, decided in Node, and only then ZADDed on a
+ * second round trip -- so every request in flight during that gap read a count
+ * of zero and passed. Measured against the booted production API: a sequential
+ * burst of twenty-five to one address gave three emails, and a *concurrent*
+ * burst of twenty-five gave eight, a hundred gave fifty-nine, with the sorted
+ * set left holding fifty-nine members -- it recorded them all after letting
+ * them through. Adding `&` to the attacker's loop reopened the exact
+ * mailbox-bombing primitive this class was added to close. Redis evaluates a
+ * script to completion before serving another command, which is also the only
+ * version whose cap holds across more than one API instance.
  */
 
 const WINDOW_MS = 60 * 60 * 1000;
@@ -50,6 +64,43 @@ export function passwordResetIpKey(ip: string): string {
   return `${IP_PREFIX}${ip}`;
 }
 
+/** What the script returns, so the caller can still name the spent subject. */
+const OVER_EMAIL_BUDGET = 0;
+const OVER_IP_BUDGET = -1;
+const ACQUIRED = 1;
+
+/**
+ * KEYS: the address window, then the IP window when there is one.
+ * ARGV: window cutoff score, now, the member to record, the key TTL in ms,
+ *       the per-address cap, the per-IP cap.
+ *
+ * Both windows are pruned and read before either is written, so a request that
+ * is refused on the IP budget leaves no mark on the address budget -- the two
+ * caps stay independent instead of one spending the other.
+ */
+const TRY_ACQUIRE = new LuaScript(`
+local cutoff = ARGV[1]
+local now = ARGV[2]
+local member = ARGV[3]
+local ttl = ARGV[4]
+
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', cutoff)
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[5]) then return 0 end
+
+if KEYS[2] then
+  redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', cutoff)
+  if redis.call('ZCARD', KEYS[2]) >= tonumber(ARGV[6]) then return -1 end
+end
+
+redis.call('ZADD', KEYS[1], now, member)
+redis.call('PEXPIRE', KEYS[1], ttl)
+if KEYS[2] then
+  redis.call('ZADD', KEYS[2], now, member)
+  redis.call('PEXPIRE', KEYS[2], ttl)
+end
+return 1
+`);
+
 @Injectable()
 export class PasswordResetRateLimiter {
   private readonly logger = new Logger(PasswordResetRateLimiter.name);
@@ -66,40 +117,24 @@ export class PasswordResetRateLimiter {
     const emailKey = passwordResetEmailKey(email);
     const ipKey = ip === null ? null : passwordResetIpKey(ip);
 
+    // Unique per attempt: a sorted set deduplicates by member, so a burst
+    // within one millisecond would otherwise count once.
+    const member = `${String(now)}-${randomBytes(6).toString('hex')}`;
+
+    let outcome: unknown;
     try {
-      const probe = this.redis
-        .multi()
-        .zremrangebyscore(emailKey, '-inf', String(now - WINDOW_MS))
-        .zcard(emailKey);
-      if (ipKey !== null) {
-        probe.zremrangebyscore(ipKey, '-inf', String(now - WINDOW_MS)).zcard(ipKey);
-      }
-      const results = await probe.exec();
-
-      const emailCount = readCount(results, 1);
-      const ipCount = ipKey === null ? 0 : readCount(results, 3);
-      if (emailCount >= MAX_PER_EMAIL || ipCount >= MAX_PER_IP) {
-        // The address itself stays out of the log, as everywhere on this path.
-        this.logger.warn({
-          msg: 'Password reset request over budget; answering 202 and sending nothing.',
-          subject: emailCount >= MAX_PER_EMAIL ? 'email' : 'ip',
-          ip,
-        });
-        return false;
-      }
-
-      // Unique per attempt: a sorted set deduplicates by member, so a burst
-      // within one millisecond would otherwise count once.
-      const member = `${String(now)}-${randomBytes(6).toString('hex')}`;
-      const record = this.redis
-        .multi()
-        .zadd(emailKey, String(now), member)
-        .pexpire(emailKey, WINDOW_MS);
-      if (ipKey !== null) {
-        record.zadd(ipKey, String(now), member).pexpire(ipKey, WINDOW_MS);
-      }
-      await record.exec();
-      return true;
+      outcome = await TRY_ACQUIRE.run(
+        this.redis,
+        ipKey === null ? [emailKey] : [emailKey, ipKey],
+        [
+          String(now - WINDOW_MS),
+          String(now),
+          member,
+          String(WINDOW_MS),
+          String(MAX_PER_EMAIL),
+          String(MAX_PER_IP),
+        ],
+      );
     } catch (error: unknown) {
       this.logger.error({
         msg: 'Redis is unavailable for the password-reset limit; the cap is NOT in force.',
@@ -107,15 +142,27 @@ export class PasswordResetRateLimiter {
       });
       return true;
     }
+
+    if (outcome === ACQUIRED) return true;
+
+    if (outcome === OVER_EMAIL_BUDGET || outcome === OVER_IP_BUDGET) {
+      // The address itself stays out of the log, as everywhere on this path.
+      this.logger.warn({
+        msg: 'Password reset request over budget; answering 202 and sending nothing.',
+        subject: outcome === OVER_EMAIL_BUDGET ? 'email' : 'ip',
+        ip,
+      });
+      return false;
+    }
+
+    // Unreachable unless the script above is edited into something that
+    // returns another value. Failing open matches the outage posture rather
+    // than turning an always-202 endpoint into a 500, but it is a defect in
+    // this file rather than a fact about the world, so it says so.
+    this.logger.error({
+      msg: 'Password reset limiter script returned an unrecognised reply; the cap is NOT in force.',
+      reply: String(outcome),
+    });
+    return true;
   }
-}
-
-type MultiResult = [Error | null, unknown][] | null;
-
-function readCount(results: MultiResult, index: number): number {
-  const entry = results?.[index];
-  if (entry === undefined) throw new Error('Redis pipeline returned no result for ZCARD.');
-  const [error, value] = entry;
-  if (error !== null) throw error;
-  return typeof value === 'number' ? value : 0;
 }

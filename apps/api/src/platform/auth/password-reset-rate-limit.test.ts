@@ -15,6 +15,11 @@ import {
  * refused acquire is invisible to the caller (the 202 is asserted in
  * `auth.endpoints.test.ts`), so this file proves the window arithmetic and
  * the fail-open direction on the limiter itself.
+ *
+ * Every sequential test below passed while the limiter was defeated by adding
+ * `&` to the attacker's loop, which is why the concurrent ones exist: a
+ * check-then-act limiter gives its whole budget to every request already in
+ * flight, so `Promise.all` is the only shape that can see the defect.
  */
 
 const MAX_PER_EMAIL = 3;
@@ -72,6 +77,71 @@ describe('per-address and per-IP password reset budget', () => {
     for (let i = 0; i < MAX_PER_EMAIL - 1; i += 1) {
       expect(await limiter.tryAcquire(email, ip)).toBe(true);
     }
+  });
+
+  it('holds the per-address cap when the whole burst is in flight together', async () => {
+    // The regression for the mailbox-bombing defect. Measured against the
+    // booted production API before the fix: a sequential burst of twenty-five
+    // to one address sent three emails, a concurrent burst of twenty-five sent
+    // eight, and a hundred sent fifty-nine -- against a cap of three.
+    const burst = 100;
+    const granted = await Promise.all(
+      Array.from({ length: burst }, () => limiter.tryAcquire(email, ip)),
+    );
+
+    expect(granted.filter(Boolean).length).toBe(MAX_PER_EMAIL);
+
+    // The set records what it allowed, rather than recording everything after
+    // letting it through -- which is what the two-round-trip version did.
+    const inspector = new Redis(clientOptions);
+    const members = await inspector.zcard(passwordResetEmailKey(email));
+    await inspector.quit();
+    expect(members).toBe(MAX_PER_EMAIL);
+  });
+
+  it('holds the per-IP cap when the whole burst is in flight together', async () => {
+    // One address per request, so only the IP window can refuse any of them.
+    const burst = 60;
+    const granted = await Promise.all(
+      Array.from({ length: burst }, (_unused, i) =>
+        limiter.tryAcquire(`burst-${String(i)}-${email}`, ip),
+      ),
+    );
+
+    expect(granted.filter(Boolean).length).toBe(MAX_PER_IP);
+  });
+
+  it('holds the cap when the burst is spread across instances', async () => {
+    // Two limiters over two connections: what two API processes behind a load
+    // balancer look like from Redis's side.
+    const instanceA = newLimiter();
+    const instanceB = newLimiter();
+
+    const granted = await Promise.all(
+      Array.from({ length: 40 }, (_unused, i) =>
+        (i % 2 === 0 ? instanceA : instanceB).tryAcquire(email, ip),
+      ),
+    );
+
+    expect(granted.filter(Boolean).length).toBe(MAX_PER_EMAIL);
+  });
+
+  it('does not spend the address budget on a request the IP budget refused', async () => {
+    // The two caps are independent, and a burst that exhausts one must not
+    // quietly consume the other -- otherwise one noisy office would use up
+    // every mailbox's budget without a single email being sent.
+    const spender = `spender-${email}`;
+    for (let i = 0; i < MAX_PER_IP; i += 1) {
+      expect(await limiter.tryAcquire(`${String(i)}-${spender}`, ip)).toBe(true);
+    }
+
+    const victim = `victim-${email}`;
+    expect(await limiter.tryAcquire(victim, ip)).toBe(false);
+
+    const inspector = new Redis(clientOptions);
+    const members = await inspector.zcard(passwordResetEmailKey(victim));
+    await inspector.quit();
+    expect(members).toBe(0);
   });
 
   it('keys the address case-insensitively, matching the account lookup', async () => {
