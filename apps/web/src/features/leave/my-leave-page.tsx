@@ -40,6 +40,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
+import { RestrictedHolidayPicker } from '@/features/holidays';
 import { ApiError } from '@/lib/api/client';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -441,6 +442,14 @@ export function MyLeavePage() {
           });
         }}
       />
+
+      <Separator />
+
+      {/* REQ-H-03. On this screen rather than on Holidays, which is gated on
+          holiday.manage: the employee is the actor here, and choosing a day
+          off is what this screen is for. Holidays remains the administrator's
+          screen for the calendar itself. */}
+      <RestrictedHolidayPicker employeeId={employeeId} />
 
       <Separator />
 
