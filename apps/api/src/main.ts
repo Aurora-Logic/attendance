@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
+import type { Express } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
@@ -28,6 +29,19 @@ async function bootstrap(): Promise<void> {
   // emitted in Nest's format and then everything else in JSON.
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
+
+  // OPEN-QUESTIONS P0-11. Behind a reverse proxy, `req.ip` is the proxy's
+  // socket address until Express is told how many hops to trust -- and then
+  // it believes exactly that many X-Forwarded-For entries, counted from the
+  // right, no more. The count must match the real topology (Caddy in
+  // production is 1): with 0 behind a proxy the per-IP login limit throttles
+  // the whole company as one address; with too many, any client spoofs its
+  // way past it by writing the header itself. 0 -- the dev default -- leaves
+  // Express untouched, so the no-proxy topology behaves exactly as before.
+  if (env.TRUST_PROXY_HOPS > 0) {
+    const express = app.getHttpAdapter().getInstance() as Express;
+    express.set('trust proxy', env.TRUST_PROXY_HOPS);
+  }
 
   app.setGlobalPrefix(API_PREFIX);
 

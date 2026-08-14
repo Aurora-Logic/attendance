@@ -60,6 +60,13 @@ const optionalFlag = (fallback: boolean) =>
     (value) => value === 'true',
   );
 
+const optionalWholeNumber = (min: number, max: number, fallback: number) =>
+  z
+    .string()
+    .optional()
+    .transform((value) => (value !== undefined && value.length > 0 ? value : String(fallback)))
+    .pipe(wholeNumber(min, max));
+
 function parseUrl(value: string): URL | null {
   try {
     return new URL(value);
@@ -178,6 +185,17 @@ export const envSchema = z
       .string()
       .optional()
       .transform((value) => (value !== undefined && value.length > 0 ? value : 'bull')),
+
+    /**
+     * How many reverse-proxy hops sit in front of this process. 0 -- the
+     * default, and correct for development -- leaves Express alone: `req.ip`
+     * is the socket address and X-Forwarded-For is ignored. Behind Caddy it
+     * must be exactly 1 (OPEN-QUESTIONS P0-11): unset, every request appears
+     * to come from the proxy and the per-IP login limit throttles the whole
+     * company as one client; set too high, the client controls which
+     * X-Forwarded-For entry is believed and can spoof past the same limit.
+     */
+    TRUST_PROXY_HOPS: optionalWholeNumber(0, 10, 0),
 
     DEFAULT_TIMEZONE: z.string().refine(isValidTimeZone, 'must be a valid IANA time zone'),
 
