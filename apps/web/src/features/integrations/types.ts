@@ -25,12 +25,18 @@ export type IntegrationConnection = z.infer<typeof integrationConnectionSchema>;
 
 export const integrationsResponseSchema = z.object({
   data: z.array(integrationConnectionSchema),
+  /**
+   * The window the *server* judged staleness by. Read rather than assumed, so
+   * the sentence on screen cannot quote a different number from the one the
+   * status was decided with.
+   */
+  staleAfterMinutes: z.number().int(),
 });
 
 export type IntegrationsResponse = z.infer<typeof integrationsResponseSchema>;
 
 export const STATUS_LABELS: Record<IntegrationStatus, string> = {
-  DISCONNECTED: 'Not connected',
+  DISCONNECTED: 'Never connected',
   CONNECTED: 'Connected',
   STALE: 'Heartbeat overdue',
   ERROR: 'Error',
@@ -49,3 +55,29 @@ export const STATUS_VARIANT: Record<IntegrationStatus, 'secondary' | 'default' |
     ERROR: 'destructive',
     DISCONNECTED: 'outline',
   };
+
+/**
+ * What the status means, in a sentence, for the one column where the label
+ * alone is not enough.
+ *
+ * The server reports `DISCONNECTED` for any connection it has never heard from,
+ * whatever the stored column says — so on this screen "Never connected" is a
+ * statement about the heartbeat and not about a setting somebody can flip.
+ */
+export function statusExplanation(
+  connection: IntegrationConnection,
+  staleAfterMinutes: number,
+): string {
+  switch (connection.status) {
+    case 'DISCONNECTED':
+      return connection.tokenIssued
+        ? 'A token has been issued but no agent has ever reported in on it.'
+        : 'No agent has ever reported in, and no token has been issued for one to use.';
+    case 'CONNECTED':
+      return 'The agent reported in within the last few minutes.';
+    case 'STALE':
+      return `Nothing has been heard for over ${String(staleAfterMinutes)} minutes. The agent may be stopped, or the machine running Tally may be off.`;
+    case 'ERROR':
+      return 'The agent reported a failure on its last exchange. That is kept even after it goes quiet, because it says more than a missing heartbeat does.';
+  }
+}
