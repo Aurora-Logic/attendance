@@ -1,0 +1,85 @@
+# Production Caddyfile (technical design §17). Every deployment-specific value
+# arrives as an environment variable from docker-compose.prod.yml, which reads
+# .env.production -- nothing in this file names a real host.
+#
+#   DOMAIN          the site host, e.g. attendance.example.com. TLS is
+#                   automatic: a public domain gets a Let's Encrypt
+#                   certificate, `localhost` gets Caddy's internal CA.
+#   STORAGE_ORIGIN  the origin browsers fetch punch photos from (signed URLs,
+#                   NFR-09), allowed by the CSP below. The R2 endpoint origin,
+#                   or https://STORAGE_DOMAIN when MinIO is used. May be empty
+#                   only if photos are proxied same-origin, which they are not.
+#   STORAGE_DOMAIN  MinIO deployments only: a public hostname Caddy serves
+#                   MinIO under, e.g. storage.example.com (DNS pointed at this
+#                   box). Left empty, compose substitutes :9444 and the block
+#                   below idles on that unpublished port.
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		# TLS is unconditional here, so pinning it costs nothing and stops a
+		# downgraded first request (no includeSubDomains: mail or storage
+		# subdomains are not this app's to promise for).
+		Strict-Transport-Security "max-age=31536000"
+		# The API sets its own headers via helmet; these cover the static app.
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# The punch screen needs the camera and the geofence needs location --
+		# for this origin only. Everything else is switched off outright.
+		Permissions-Policy "camera=(self), geolocation=(self), microphone=(), payment=(), usb=()"
+		# script-src has no unsafe-inline: index.html carries no inline script,
+		# and that is worth keeping true. style-src allows inline because
+		# Recharts and Radix set style attributes at runtime. img-src carries
+		# blob: for the camera capture preview and the storage origin for
+		# signed photo URLs; frame-ancestors 'none' is the modern half of the
+		# X-Frame-Options above.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: {$STORAGE_ORIGIN}; connect-src 'self' {$STORAGE_ORIGIN}; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self'"
+		-Server
+	}
+
+	# The API owns everything under its prefix. No path rewriting: the API's
+	# global prefix is /api/v1, so the proxied path is already the right one.
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv
+
+		# route, not bare directives: Caddy re-sorts same-named directives by
+		# matcher specificity, which would run the bare default LAST and let
+		# it clobber the two specific rules below (verified live before this
+		# comment was written). Inside route, written order is executed order.
+		route {
+			# Default is revalidate. It covers the SPA document however it
+			# was reached -- header matchers see the pre-rewrite path, so
+			# matching /index.html would miss every route try_files rewrites
+			# -- and a cached stale document would point the browser at chunk
+			# names a deploy has deleted.
+			header Cache-Control "no-cache"
+			# Vite content-hashes everything under /assets, so a year is
+			# safe; a deploy changes the file name, never the file.
+			header /assets/* Cache-Control "public, max-age=31536000, immutable"
+			# The service worker script must never be served stale: its
+			# freshness is the one thing that decides whether an update can
+			# ever arrive (mirrors the no-store the dev server sets).
+			header /sw.js Cache-Control "no-store"
+
+			# The SPA fallback: real files as themselves, every route to the
+			# document.
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}
+
+# MinIO's public face, used only when object storage is on this box rather
+# than R2 (OPEN-QUESTIONS P0-4). Signed URLs carry the Host they were signed
+# for; reverse_proxy preserves Host, so signatures verify. With STORAGE_DOMAIN
+# unset the compose file substitutes :9444 -- a site on a port nothing
+# publishes -- because an empty key here is a syntax error that stops Caddy.
+{$STORAGE_DOMAIN} {
+	reverse_proxy minio:9000
+}

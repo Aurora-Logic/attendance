@@ -1,0 +1,162 @@
+name: vyuha-prod
+
+# The production stack (technical design §17): Caddy terminating TLS and
+# serving the static web build, the API as a built image, Postgres and Redis
+# on named volumes. No Mailpit -- mail goes to the real SMTP server named in
+# .env.production. MinIO exists behind the `minio` profile and starts only
+# when object storage is this box rather than R2 (OPEN-QUESTIONS P0-4):
+#
+#   docker compose --env-file .env.production -f docker/docker-compose.prod.yml up -d
+#   docker compose --env-file .env.production -f docker/docker-compose.prod.yml --profile minio up -d
+#
+# Interpolation (${...}) reads the file given to --env-file; the api service
+# additionally loads the same file wholesale via env_file. One file, two
+# roles. `docs/RUNBOOK.md` has the operational commands.
+#
+# Nothing here publishes Postgres, Redis or MinIO to the host: the database
+# and the queue are reachable only on the compose network, and MinIO is
+# reached through Caddy's STORAGE_DOMAIN site. The only listening ports on
+# the box are Caddy's.
+
+services:
+  caddy:
+    build:
+      context: ..
+      dockerfile: docker/web.Dockerfile
+      args:
+        # Same-origin: Caddy serves the app and proxies /api/* to the api.
+        VITE_API_BASE_URL: /api/v1
+    image: vyuha-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env.production}
+      STORAGE_ORIGIN: ${STORAGE_ORIGIN:-}
+      # An empty site key is a Caddyfile syntax error, and Caddy's own
+      # {$VAR:default} form only covers unset, not set-and-empty (which is
+      # what an env file's STORAGE_DOMAIN= produces). The fallback therefore
+      # lives here: no storage domain collapses the site to port 9444, which
+      # nothing publishes.
+      STORAGE_DOMAIN: ${STORAGE_DOMAIN:-:9444}
+    ports:
+      # Overridable so a rehearsal stack can boot beside a dev stack; in
+      # production they stay 80/443. The udp mapping is HTTP/3.
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
+      - '${HTTPS_PORT:-443}:443/udp'
+    volumes:
+      # Certificates and ACME account state. Losing this volume means
+      # re-issuing certificates, which Let's Encrypt rate-limits.
+      - caddy-data:/data
+      - caddy-config:/config
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api.Dockerfile
+    image: vyuha-api
+    restart: unless-stopped
+    env_file:
+      - ${VYUHA_ENV_FILE:-../.env.production}
+    environment:
+      # Topology the compose file owns. These override env_file, so a stale
+      # host in .env.production cannot point production at the wrong database.
+      NODE_ENV: production
+      PORT: '3000'
+      API_BASE_URL: https://${DOMAIN:?set DOMAIN in .env.production}
+      WEB_BASE_URL: https://${DOMAIN}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vyuha}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}@postgres:5432/${POSTGRES_DB:-vyuha}
+      REDIS_URL: redis://redis:6379
+      # Exactly one proxy hop -- Caddy -- sits in front of the API here, and
+      # req.ip is only honest if Express knows that (OPEN-QUESTIONS P0-11).
+      TRUST_PROXY_HOPS: '1'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vyuha}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:-vyuha}
+    # NFR-05 stores every timestamp in UTC; the server timezone is pinned so
+    # nothing on the box can drift attendance arithmetic.
+    command: ['postgres', '-c', 'timezone=UTC']
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Append-only persistence: the queues and the per-IP login window survive
+    # a restart (the login limit deliberately fails open if Redis is gone --
+    # P0-11 -- so losing this state quietly would weaken REQ-B-10).
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # --- MinIO: only when R2 is not configured (profile `minio`) --------------
+  # The API is storage-agnostic (S3 API only); these two services exist so the
+  # no-R2 deployment is one --profile flag, not a second compose file. Not
+  # published to the host: browsers reach it through Caddy's STORAGE_DOMAIN.
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    profiles: ['minio']
+    restart: unless-stopped
+    command: ['server', '/data']
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: buckets exist before the first punch upload needs them.
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    profiles: ['minio']
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_BUCKET_PHOTOS: ${S3_BUCKET_PHOTOS:-vyuha-photos}
+      S3_BUCKET_EXPORTS: ${S3_BUCKET_EXPORTS:-vyuha-exports}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$$S3_ACCESS_KEY_ID" "$$S3_SECRET_ACCESS_KEY"
+        mc mb --ignore-existing "local/$$S3_BUCKET_PHOTOS"
+        mc mb --ignore-existing "local/$$S3_BUCKET_EXPORTS"
+        mc anonymous set none "local/$$S3_BUCKET_PHOTOS"
+        mc anonymous set none "local/$$S3_BUCKET_EXPORTS"
+        echo "buckets ready"
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:
+  minio-data:
