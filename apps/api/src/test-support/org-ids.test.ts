@@ -1,6 +1,5 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -26,9 +25,14 @@ import { describe, expect, it } from 'vitest';
  * not be able to join them.
  */
 
-// `fileURLToPath`, not `.pathname`: this repository lives under a directory
-// with a space in its name, and a percent-encoded path is not a path.
-const API_SRC = fileURLToPath(new URL('..', import.meta.url));
+/**
+ * `process.cwd()`, not `import.meta.url`: this package compiles to CommonJS and
+ * `tsc` refuses the meta-property under that module setting, so a path derived
+ * from it typechecks nowhere. Vitest runs with the package root as its working
+ * directory, and the assertion below fails loudly if that ever stops being true
+ * rather than scanning an empty directory and passing.
+ */
+const API_SRC = join(process.cwd(), 'src');
 
 /**
  * Pairs that already shared an id before this check existed. Each entry is the
@@ -66,9 +70,10 @@ function claimsByOrgId(): Map<string, string[]> {
   for (const file of testFilesUnder(API_SRC)) {
     const source = readFileSync(file, 'utf8');
     for (const match of source.matchAll(DECLARATION)) {
-      const id = match[1].toLowerCase();
+      const id = match[1]?.toLowerCase();
+      if (id === undefined) continue;
       const holders = claims.get(id) ?? [];
-      holders.push(file.slice(API_SRC.length));
+      holders.push(file.slice(API_SRC.length + 1));
       claims.set(id, holders);
     }
   }
@@ -80,8 +85,10 @@ describe('test fixture organisations', () => {
   const claims = claimsByOrgId();
 
   it('finds the declarations at all, so a green run is not an empty scan', () => {
-    // The guard against the regex quietly matching nothing after a rename: a
-    // check that cannot see anything cannot report a collision either.
+    // Two ways this check can go blind and pass: the working directory moves,
+    // or the pattern stops matching after a rename. Neither can report a
+    // collision, so both fail here instead.
+    expect(existsSync(API_SRC), `${API_SRC} is not a directory`).toBe(true);
     expect(claims.size).toBeGreaterThan(20);
   });
 
