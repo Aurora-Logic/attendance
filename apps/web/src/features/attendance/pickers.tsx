@@ -365,7 +365,11 @@ export function MonthField({
           }}
         >
           <SelectTrigger aria-label="Month" className="pointer-coarse:h-11 w-full sm:w-36">
-            <SelectValue />
+            {/* The value is the 0-based month index; bare SelectValue would
+                render it raw - "7" for August. */}
+            <SelectValue>
+              {(current: string | null) => (current === null ? null : MONTH_NAMES[Number(current)])}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
