@@ -16,7 +16,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
-import { employees, files } from '../../../platform/db/schema/index.js';
+import { consentAcceptances, employees, files } from '../../../platform/db/schema/index.js';
 import { localDateIn } from '../day-engine/calendar-date.js';
 import { attendanceDays, punches, shiftAssignments, shifts } from '../schema/index.js';
 import { DEFAULT_PUNCH_SETTINGS, photoExpiry } from './punch-settings.js';
@@ -52,10 +52,16 @@ let today: string;
 
 let employeeAId: string;
 let employeeBId: string;
+let consentEmployeeId: string;
+let syncEmployeeId: string;
 let tokenA: string;
 let tokenB: string;
 let hrToken: string;
 let noPunchToken: string;
+let consentToken: string;
+let syncToken: string;
+let consentUserId: string;
+let syncUserId: string;
 
 let photoWithExifBytes: Buffer;
 let firstPunchId = '';
@@ -120,8 +126,25 @@ function punchIn(
   return multipart('/punches', token, {
     idempotencyKey: key,
     photos: [{ field: 'photo', bytes: photoWithExifBytes }],
-    payload: { type: 'IN', clientTime: new Date().toISOString(), source: 'MOBILE', ...overrides },
+    // `consentAccepted: true`, as the shipped client sends on every punch
+    // (REQ-M-03): the tick when the notice is showing, the server's own
+    // record otherwise. The no-row-no-tick refusal has its own describe.
+    payload: {
+      type: 'IN',
+      clientTime: new Date().toISOString(),
+      source: 'MOBILE',
+      consentAccepted: true,
+      ...overrides,
+    },
   });
+}
+
+async function countAcceptances(userId: string): Promise<number> {
+  const rows = await harness.db
+    .select({ id: consentAcceptances.id })
+    .from(consentAcceptances)
+    .where(and(eq(consentAcceptances.orgId, ORG_ID), eq(consentAcceptances.userId, userId)));
+  return rows.length;
 }
 
 async function countPunches(employeeId: string): Promise<number> {
@@ -170,6 +193,10 @@ beforeAll(async () => {
 
   employeeAId = await harness.createEmployee({ code: `PT-A-${runId}`, firstName: 'Punya' });
   employeeBId = await harness.createEmployee({ code: `PT-B-${runId}`, firstName: 'Bala' });
+  // Fresh people for the consent gate: their users must start with no
+  // acceptance row, which A and B stop being true for after their first punch.
+  consentEmployeeId = await harness.createEmployee({ code: `PT-C-${runId}`, firstName: 'Chetan' });
+  syncEmployeeId = await harness.createEmployee({ code: `PT-D-${runId}`, firstName: 'Divya' });
 
   // The shift window has to contain the wall clock: opened two minutes ago so
   // an IN right now is inside grace, closing hours away so an OUT right now is
@@ -205,7 +232,7 @@ beforeAll(async () => {
   if (shiftId === undefined) throw new Error('shift fixture insert returned no row');
 
   await harness.db.insert(shiftAssignments).values(
-    [employeeAId, employeeBId].map((employeeId) => ({
+    [employeeAId, employeeBId, consentEmployeeId, syncEmployeeId].map((employeeId) => ({
       orgId: ORG_ID,
       employeeId,
       shiftId,
@@ -234,12 +261,30 @@ beforeAll(async () => {
     email: scopedEmail('punch-viewer'),
     roleIds: [viewerRoleId],
   });
+  const consentUser = await harness.createUser({
+    email: scopedEmail('punch-consent'),
+    roleIds: [employeeRoleId],
+    employeeId: consentEmployeeId,
+  });
+  const syncUser = await harness.createUser({
+    email: scopedEmail('punch-consent-sync'),
+    roleIds: [employeeRoleId],
+    employeeId: syncEmployeeId,
+  });
+  consentUserId = consentUser.id;
+  syncUserId = syncUser.id;
 
   tokenA = (await harness.login(userA.email, userA.password)).token;
   tokenB = (await harness.login(userB.email, userB.password)).token;
   hrToken = (await harness.login(hrUser.email, hrUser.password)).token;
   noPunchToken = (await harness.login(viewerUser.email, viewerUser.password)).token;
-  expect([tokenA, tokenB, hrToken, noPunchToken].every((token) => token !== '')).toBe(true);
+  consentToken = (await harness.login(consentUser.email, consentUser.password)).token;
+  syncToken = (await harness.login(syncUser.email, syncUser.password)).token;
+  expect(
+    [tokenA, tokenB, hrToken, noPunchToken, consentToken, syncToken].every(
+      (token) => token !== '',
+    ),
+  ).toBe(true);
 }, 60_000);
 
 afterAll(async () => {
@@ -269,7 +314,12 @@ describe('access control', () => {
   it('refuses a punch with no Idempotency-Key header (REQ-D-11)', async () => {
     const result = await multipart<ErrorBody>('/punches', tokenA, {
       photos: [{ field: 'photo', bytes: photoWithExifBytes }],
-      payload: { type: 'IN', clientTime: new Date().toISOString(), source: 'MOBILE' },
+      payload: {
+        type: 'IN',
+        clientTime: new Date().toISOString(),
+        source: 'MOBILE',
+        consentAccepted: true,
+      },
     });
     expect(result.status).toBe(400);
     expect(result.body.error.message).toContain('Idempotency-Key');
@@ -281,7 +331,12 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
     const before = await countPunches(employeeAId);
     const result = await multipart<ErrorBody>('/punches', tokenA, {
       idempotencyKey: `pt-nophoto-${runId}`,
-      payload: { type: 'IN', clientTime: new Date().toISOString(), source: 'MOBILE' },
+      payload: {
+        type: 'IN',
+        clientTime: new Date().toISOString(),
+        source: 'MOBILE',
+        consentAccepted: true,
+      },
     });
 
     expect(result.status).toBe(422);
@@ -416,7 +471,12 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
     const refused = await multipart<ErrorBody>('/punches', tokenA, {
       idempotencyKey: `pt-out-${runId}`,
       photos: [{ field: 'photo', bytes: photoWithExifBytes }],
-      payload: { type: 'OUT', clientTime: new Date().toISOString(), source: 'MOBILE' },
+      payload: {
+        type: 'OUT',
+        clientTime: new Date().toISOString(),
+        source: 'MOBILE',
+        consentAccepted: true,
+      },
     });
     expect(refused.status).toBe(422);
     expect(refused.body.error.code).toBe('PUNCH_REASON_REQUIRED');
@@ -428,6 +488,7 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         type: 'OUT',
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
+        consentAccepted: true,
         reason: 'Leaving early for a medical appointment.',
       },
     });
@@ -447,6 +508,7 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         type: 'OUT',
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
+        consentAccepted: true,
         reason: 'Trying to punch out before ever punching in.',
       },
     });
@@ -462,6 +524,7 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         type: 'OUT',
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
+        consentAccepted: true,
         isHalfDay: true,
         halfDayPart: 'FIRST_HALF',
       },
@@ -478,6 +541,7 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         type: 'IN',
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
+        consentAccepted: true,
         isHalfDay: true,
         halfDayPart: 'SECOND_HALF',
       },
@@ -505,6 +569,7 @@ describe('POST /punches/sync (REQ-D-10)', () => {
             photoIndex: 0,
             type: 'IN',
             clientTime: isoAgo(72 * 3600 * 1000),
+            consentAccepted: true,
             reason: 'Queued while the site had no signal.',
           },
           {
@@ -512,6 +577,7 @@ describe('POST /punches/sync (REQ-D-10)', () => {
             photoIndex: 1,
             type: 'IN',
             clientTime: isoAgo(7 * 60 * 1000),
+            consentAccepted: true,
             reason: 'Queued while the site had no signal.',
           },
         ],
@@ -551,6 +617,7 @@ describe('POST /punches/sync (REQ-D-10)', () => {
             photoIndex: 0,
             type: 'IN',
             clientTime: isoAgo(72 * 3600 * 1000),
+            consentAccepted: true,
             reason: 'Queued while the site had no signal.',
           },
           {
@@ -558,6 +625,7 @@ describe('POST /punches/sync (REQ-D-10)', () => {
             photoIndex: 1,
             type: 'IN',
             clientTime: isoAgo(7 * 60 * 1000),
+            consentAccepted: true,
             reason: 'Queued while the site had no signal.',
           },
         ],
@@ -569,6 +637,111 @@ describe('POST /punches/sync (REQ-D-10)', () => {
     expect(result.body.created).toBe(0);
     expect(result.body.rejected).toBe(1);
     expect(await countPunches(employeeAId)).toBe(before);
+  });
+});
+
+describe('consent gate (REQ-M-03)', () => {
+  it('refuses a photo punch with no acceptance on record and no assertion', async () => {
+    const before = await countPunches(consentEmployeeId);
+
+    const result = await multipart<ErrorBody>('/punches', consentToken, {
+      idempotencyKey: `pt-consent-none-${runId}`,
+      photos: [{ field: 'photo', bytes: photoWithExifBytes }],
+      payload: {
+        type: 'IN',
+        clientTime: new Date().toISOString(),
+        source: 'MOBILE',
+        consentAccepted: false,
+      },
+    });
+
+    expect(result.status).toBe(422);
+    expect(result.body.error.code).toBe('CONSENT_REQUIRED');
+    // Refused before anything was written: no punch, and no acceptance the
+    // person never gave.
+    expect(await countPunches(consentEmployeeId)).toBe(before);
+    expect(await countAcceptances(consentUserId)).toBe(0);
+  });
+
+  it('records the acceptance with the punch when the body carries the tick', async () => {
+    const result = await punchIn(consentToken, `pt-consent-tick-${runId}`);
+
+    expect(result.status, JSON.stringify(result.body)).toBe(201);
+    expect(result.body.replayed).toBe(false);
+
+    // The same transaction outcome: the punch landed, so the acceptance row
+    // exists -- stamped with what the notice promised (migration 0013).
+    const rows = await harness.db
+      .select({
+        consentKey: consentAcceptances.consentKey,
+        noticeVersion: consentAcceptances.noticeVersion,
+        retentionMonthsQuoted: consentAcceptances.retentionMonthsQuoted,
+      })
+      .from(consentAcceptances)
+      .where(
+        and(eq(consentAcceptances.orgId, ORG_ID), eq(consentAcceptances.userId, consentUserId)),
+      );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.consentKey).toBe('attendance.punch_capture');
+    expect(rows[0]?.noticeVersion).toBe(1);
+    // No org setting installed, so the notice quoted the default 12 months.
+    expect(rows[0]?.retentionMonthsQuoted).toBe(12);
+  });
+
+  it('replays the key without a second punch or a second acceptance (REQ-D-11)', async () => {
+    const before = await countPunches(consentEmployeeId);
+    const replay = await punchIn(consentToken, `pt-consent-tick-${runId}`);
+
+    expect(replay.status).toBe(200);
+    expect(replay.body.replayed).toBe(true);
+    expect(await countPunches(consentEmployeeId)).toBe(before);
+    expect(await countAcceptances(consentUserId)).toBe(1);
+  });
+
+  it('gates the offline queue at sync time, entry by entry', async () => {
+    // A queued punch from a build (or a session) that never ticked: refused
+    // per entry with the code the client maps to re-showing the notice, and
+    // nothing about the batch as a whole fails.
+    const refused = await multipart<PunchSyncReport>('/punches/sync', syncToken, {
+      photos: [{ field: 'photos', bytes: photoWithExifBytes }],
+      payload: {
+        punches: [
+          {
+            idempotencyKey: `pt-consent-sync-no-${runId}`,
+            photoIndex: 0,
+            type: 'IN',
+            clientTime: isoAgo(5 * 60 * 1000),
+          },
+        ],
+      },
+    });
+
+    expect(refused.status).toBe(200);
+    expect(refused.body.rejected).toBe(1);
+    expect(refused.body.results[0]?.error?.code).toBe('CONSENT_REQUIRED');
+    expect(await countAcceptances(syncUserId)).toBe(0);
+
+    // The tick travelled with the queued punch: the sync records the punch
+    // and the acceptance together, which is what makes the offline first
+    // punch correct rather than fire-and-forget.
+    const synced = await multipart<PunchSyncReport>('/punches/sync', syncToken, {
+      photos: [{ field: 'photos', bytes: photoWithExifBytes }],
+      payload: {
+        punches: [
+          {
+            idempotencyKey: `pt-consent-sync-yes-${runId}`,
+            photoIndex: 0,
+            type: 'IN',
+            clientTime: isoAgo(5 * 60 * 1000),
+            consentAccepted: true,
+          },
+        ],
+      },
+    });
+
+    expect(synced.status).toBe(200);
+    expect(synced.body.created, JSON.stringify(synced.body.results)).toBe(1);
+    expect(await countAcceptances(syncUserId)).toBe(1);
   });
 });
 

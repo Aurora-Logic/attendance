@@ -288,6 +288,13 @@ export interface PunchDraft {
   halfDay: HalfDayPart | null;
   /** REQ-D-06, REQ-D-08a: mandatory out of window, or with no location. */
   reason: string | null;
+  /**
+   * REQ-M-03: the notice has been accepted -- either the tick on this screen
+   * or the server's own record said so. Travels with the punch (and with a
+   * queued punch) because the server refuses a photo punch without it, and an
+   * offline first punch has no other way to carry its acceptance to sync time.
+   */
+  consentAccepted: boolean;
 }
 
 export type { HalfDayPart, PunchType };

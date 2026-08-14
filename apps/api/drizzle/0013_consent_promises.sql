@@ -1,0 +1,25 @@
+-- REQ-M-03: an acceptance row must be able to say what was actually promised.
+-- The pre-deploy gate found that it could not: the notice quotes a retention
+-- period read from a live setting, so if an administrator later changes
+-- `attendance.photo_retention_months`, every existing row silently comes to
+-- mean "accepted whatever the setting says today" -- which is not what anyone
+-- accepted.
+--
+-- Two columns, both written at acceptance time and never updated:
+--
+--   `notice_version`          which revision of the notice wording was shown
+--                             (`CONSENT_NOTICE_VERSIONS` in @vyuha/shared).
+--                             Existing rows backfill to 1 honestly: only one
+--                             revision of the notice has ever existed.
+--   `retention_months_quoted` the number of months the notice stated when it
+--                             was accepted. Nullable, in both directions that
+--                             matter: rows recorded before this migration
+--                             cannot know what was on screen, and a future
+--                             notice may quote no number at all.
+--
+-- Reverse with:
+--   ALTER TABLE "consent_acceptances" DROP COLUMN "retention_months_quoted";
+--   ALTER TABLE "consent_acceptances" DROP COLUMN "notice_version";
+ALTER TABLE "consent_acceptances" ADD COLUMN "notice_version" integer DEFAULT 1 NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "consent_acceptances" ADD COLUMN "retention_months_quoted" integer;

@@ -56,7 +56,7 @@ import {
   type PunchWindow,
 } from './punch-policy.js';
 import { DEFAULT_PUNCH_SETTINGS, photoExpiry, type PunchSettings } from './punch-settings.js';
-import { PunchRepository, type PunchEmployee } from './punch.repository.js';
+import { PunchRepository, type NewPunch, type PunchEmployee } from './punch.repository.js';
 
 /**
  * REQ-D-01 … REQ-D-13. The heart of the product, and the file where the order
@@ -521,10 +521,25 @@ export class PunchService {
     const blocked = employeeBlockedReason(employee, now);
     if (blocked !== null) throw new AppError(blocked.code, blocked.message);
 
+    // 4. REQ-M-03: no recorded consent means no photo punch. The client's
+    //    checkbox is not the control -- this is. The tick travels in the body
+    //    (`consentAccepted`) so an offline first punch carries its acceptance
+    //    to sync time; the acceptance itself is recorded transactionally with
+    //    the punch insert below. With neither a living row nor the tick, the
+    //    refusal happens here, before the photo touches storage.
+    const consentOnRecord = await this.consent.hasAccepted(principal, PUNCH_CONSENT_KEY);
+    if (!consentOnRecord && !facts.consentAccepted) {
+      throw new AppError(
+        ERROR_CODES.CONSENT_REQUIRED,
+        'The photo-and-location notice has not been accepted, so this punch cannot be recorded.',
+        { details: { consentKey: PUNCH_CONSENT_KEY } },
+      );
+    }
+
     const settings = await repository.readSettings();
     const candidates = await this.candidatesFor(repository, ctx, employee, now);
 
-    // 4. REQ-C-02. Which day this punch belongs to, decided once, here.
+    // 5. REQ-C-02. Which day this punch belongs to, decided once, here.
     const attendanceDate = chooseAttendanceDate(
       candidates.map((entry) => entry.candidate),
       facts.type,
@@ -535,7 +550,7 @@ export class PunchService {
       throw new Error(`chooseAttendanceDate returned ${attendanceDate}, which is not a candidate.`);
     }
 
-    // 5. REQ-E-09: a locked period accepts nothing, punches included.
+    // 6. REQ-E-09: a locked period accepts nothing, punches included.
     const dayEngineRepository = new DayEngineRepository(this.db, ctx);
     if (await dayEngineRepository.isPeriodLocked(employeeContextOf(employee), attendanceDate)) {
       throw new AppError(
@@ -545,7 +560,7 @@ export class PunchService {
       );
     }
 
-    // 6. REQ-D-01: alternating, strictly ordered. A second IN is refused.
+    // 7. REQ-D-01: alternating, strictly ordered. A second IN is refused.
     assertOrdering(facts.type, chosen.candidate.hasOpenIn, attendanceDate);
 
     const verdict = await this.evaluate(
@@ -559,7 +574,7 @@ export class PunchService {
       principal,
     );
 
-    // 7. REQ-D-06 / REQ-D-08a. The reason is demanded before the photo is
+    // 8. REQ-D-06 / REQ-D-08a. The reason is demanded before the photo is
     //    processed, so a punch that will be refused never reaches storage.
     const reason = facts.reason ?? null;
     if (verdict.reasonRequired && reason === null) {
@@ -570,10 +585,10 @@ export class PunchService {
       );
     }
 
-    // 8. REQ-D-03 / REQ-D-03a. Decode, strip EXIF, stamp, compress, thumbnail.
+    // 9. REQ-D-03 / REQ-D-03a. Decode, strip EXIF, stamp, compress, thumbnail.
     const stored = await this.storePhoto(principal, employee, facts.type, photoBytes, now, settings);
 
-    const inserted = await repository.insert({
+    const punchValues: NewPunch = {
       employeeId: employee.id,
       attendanceDate,
       punchType: facts.type,
@@ -602,6 +617,20 @@ export class PunchService {
       reason,
       flags: [...verdict.flags],
       idempotencyKey,
+    };
+
+    // 10. One transaction for the punch and, on a first punch that carried
+    //     the tick, the acceptance it asserted (REQ-M-03). Both rows commit
+    //     or neither does: a stored photo punch can never exist for a user
+    //     with no consent row, and a failed insert leaves no acceptance
+    //     claiming a punch that was never made. `ConsentService.record` is
+    //     idempotent through the partial unique index, so a concurrent first
+    //     punch racing this one settles there rather than erroring.
+    const inserted = await this.db.transaction(async (tx) => {
+      if (!consentOnRecord) {
+        await this.consent.record(principal, PUNCH_CONSENT_KEY, tx);
+      }
+      return new PunchRepository(tx, ctx).insert(punchValues);
     });
 
     // A null insert means the unique index refused it: another request carrying
@@ -637,8 +666,8 @@ export class PunchService {
       },
     });
 
-    // 9. Technical design §5: the engine runs inline on punch creation, "so the
-    //    employee sees immediate status".
+    // 11. Technical design §5: the engine runs inline on punch creation, "so
+    //     the employee sees immediate status".
     const day = await this.computeDayInline(principal, employee.id, attendanceDate, now);
     await this.raiseFlagAlerts(repository, principal.orgId, employee, inserted, attendanceDate);
 

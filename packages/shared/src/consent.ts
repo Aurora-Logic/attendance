@@ -17,6 +17,16 @@ export const CONSENT_KEYS = ['attendance.punch_capture'] as const;
 
 export type ConsentKey = (typeof CONSENT_KEYS)[number];
 
+/**
+ * Which revision of each notice's wording is currently shown. Stamped onto the
+ * acceptance row (`consent_acceptances.notice_version`), because a row that
+ * says only "accepted" cannot answer "accepted *what*" once the wording
+ * changes. Bump the number when the notice text changes materially.
+ */
+export const CONSENT_NOTICE_VERSIONS: Record<ConsentKey, number> = {
+  'attendance.punch_capture': 1,
+};
+
 export const consentAcceptanceInputSchema = z
   .object({
     consentKey: z.enum(CONSENT_KEYS),

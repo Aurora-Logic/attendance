@@ -24,6 +24,7 @@ function entry(overrides: Partial<QueuedPunch> = {}): QueuedPunch {
     isHalfDay: false,
     halfDayPart: null,
     reason: null,
+    consentAccepted: true,
     attempts: 0,
     lastAttemptAt: null,
     refusal: null,
@@ -185,6 +186,17 @@ describe('buildSyncBody', () => {
     // second punch, which is the exact failure the key exists to prevent.
     const form = buildSyncBody([entry({ idempotencyKey: 'generated-once-at-capture' })]);
     expect(payloadOf(form).punches[0]?.idempotencyKey).toBe('generated-once-at-capture');
+  });
+
+  it('carries the consent tick recorded at capture (REQ-M-03)', () => {
+    // The server refuses a first punch without it, so a tick given offline
+    // must survive the queue and reach the sync body unchanged.
+    const ticked = payloadOf(buildSyncBody([entry({ consentAccepted: true })])).punches[0] ?? {};
+    expect(ticked.consentAccepted).toBe(true);
+
+    const unticked =
+      payloadOf(buildSyncBody([entry({ consentAccepted: false })])).punches[0] ?? {};
+    expect(unticked.consentAccepted).toBe(false);
   });
 
   it('omits location entirely when there is none', () => {

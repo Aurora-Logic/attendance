@@ -131,6 +131,9 @@ export function buildSyncBody(batch: readonly QueuedPunch[]): FormData {
     // Meaningful only alongside isHalfDay, and rejected otherwise.
     ...(entry.isHalfDay && entry.halfDayPart !== null ? { halfDayPart: entry.halfDayPart } : {}),
     ...(entry.reason === null || entry.reason === '' ? {} : { reason: entry.reason }),
+    // REQ-M-03: the tick recorded when the punch was taken, so the server can
+    // record the acceptance with the synced punch.
+    consentAccepted: entry.consentAccepted,
     idempotencyKey: entry.idempotencyKey,
     photoIndex: index,
   }));

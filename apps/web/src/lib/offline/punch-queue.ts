@@ -63,6 +63,14 @@ export const queuedPunchSchema = z.object({
   isHalfDay: z.boolean(),
   halfDayPart: z.enum(HALF_DAY_PARTS).nullable(),
   reason: z.string().nullable(),
+  /**
+   * REQ-M-03: the tick on the consent notice, carried with the punch so a
+   * first punch taken offline records its acceptance at sync time. Defaulted
+   * so a queue written by an older build still parses -- those entries simply
+   * carry no assertion, and the server says CONSENT_REQUIRED if none is on
+   * record, which lands in `refusal` like any other server answer.
+   */
+  consentAccepted: z.boolean().default(false),
   attempts: z.number().int().nonnegative(),
   lastAttemptAt: z.string().nullable(),
   /** Set when the server looked at this entry and said no. Never retried after. */
@@ -79,6 +87,8 @@ export interface NewQueuedPunch {
   coords: { latitude: number; longitude: number; accuracyM: number } | null;
   halfDay: HalfDayPart | null;
   reason: string | null;
+  /** REQ-M-03: see `queuedPunchSchema`. */
+  consentAccepted: boolean;
 }
 
 let database: Promise<IDBDatabase> | null = null;
@@ -180,6 +190,7 @@ export async function enqueuePunch(draft: NewQueuedPunch): Promise<QueuedPunch> 
     isHalfDay: draft.halfDay !== null,
     halfDayPart: draft.halfDay,
     reason: draft.reason,
+    consentAccepted: draft.consentAccepted,
     attempts: 0,
     lastAttemptAt: null,
     refusal: null,

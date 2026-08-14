@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { integer, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { ALIVE, primaryId, standardColumns } from '../columns.js';
 import { users } from './identity.schema.js';
@@ -33,6 +33,15 @@ export const consentAcceptances = pgTable(
       .references(() => users.id, { onDelete: 'restrict' }),
     consentKey: text('consent_key').notNull(),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Migration 0013: what was actually promised, frozen at acceptance time.
+     * The notice quotes a retention period read from a live setting, so
+     * without these two columns a row comes to mean "accepted whatever the
+     * setting says today". `retention_months_quoted` is nullable because rows
+     * recorded before 0013 cannot know what was on screen.
+     */
+    noticeVersion: integer('notice_version').notNull().default(1),
+    retentionMonthsQuoted: integer('retention_months_quoted'),
     ...standardColumns(),
   },
   (t) => [

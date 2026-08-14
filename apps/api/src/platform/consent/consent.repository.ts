@@ -40,14 +40,24 @@ export class ConsentRepository extends ScopedRepository<typeof consentAcceptance
    * because another request carrying the same acceptance committed first. The
    * caller re-reads and answers with the winner, exactly as the punch replay
    * path does -- the index is the authority, not a pre-check.
+   *
+   * `promised` is what was on screen at the moment of acceptance (migration
+   * 0013): the notice revision and the retention period it quoted. Written
+   * once, here, and never updated -- the row is evidence.
    */
-  async insertAcceptance(userId: string, consentKey: string): Promise<AcceptanceRow | null> {
+  async insertAcceptance(
+    userId: string,
+    consentKey: string,
+    promised: { noticeVersion: number; retentionMonthsQuoted: number | null },
+  ): Promise<AcceptanceRow | null> {
     const rows = await this.db
       .insert(consentAcceptances)
       .values({
         orgId: this.ctx.orgId,
         userId,
         consentKey,
+        noticeVersion: promised.noticeVersion,
+        retentionMonthsQuoted: promised.retentionMonthsQuoted,
         createdBy: this.ctx.actorUserId,
         updatedBy: this.ctx.actorUserId,
       })
