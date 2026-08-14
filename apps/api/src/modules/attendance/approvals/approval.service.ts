@@ -26,6 +26,8 @@ import { AuditService } from '../../../platform/audit/audit.service.js';
 import { AppError, describeError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
+import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notification-events.js';
+import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { users } from '../../../platform/db/schema/index.js';
@@ -148,6 +150,7 @@ export class ApprovalService {
     private readonly auditContext: AuditContext,
     private readonly audit: AuditService,
     private readonly routing: ApprovalRoutingService,
+    private readonly notifications: NotificationDispatcher,
   ) {}
 
   // ------------------------------------------------------- the in-process seam
@@ -783,6 +786,32 @@ export class ApprovalService {
         approverUserId: next.approverUserId,
         afterDays: request.escalateAfterDays,
       },
+    });
+
+    // REQ-K-03's "approval pending for over N days", to the approver it has
+    // just landed on. Emitted here rather than from the sweep handler because
+    // this is the only place that knows *who* it moved to; the handler sees
+    // three counters.
+    //
+    // Nothing about the requester travels in the payload - not their name, not
+    // the subject sentence. The new approver may be two levels above somebody
+    // they cannot see the attendance of, and a notification is not a route
+    // around `ScopeService`. The inbox behind `actionUrl` shows exactly what
+    // that approver is entitled to.
+    //
+    // The idempotency key is the request plus the step it arrived at, so a
+    // sweep that runs twice in a day sends one notification, while a genuine
+    // second escalation to the next level up sends its own.
+    await this.notifications.emit({
+      orgId: ctx.orgId,
+      type: NOTIFICATION_EVENTS.APPROVAL_OVERDUE,
+      audience: { kind: 'users', userIds: [next.approverUserId] },
+      payload: {
+        approvalType: request.type.toLowerCase().replace(/_/gu, ' '),
+        days: request.escalateAfterDays,
+        approvalRequestId: id,
+      },
+      idempotencyKey: `approval-overdue.${id}.${String(next.stepNo)}`,
     });
 
     return true;

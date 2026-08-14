@@ -48,6 +48,7 @@ import { DayEngineService } from '../day-engine/day-engine.service.js';
 import { matchesWeeklyOff } from '../day-engine/weekly-off.js';
 import { leaveRequests as leaveRequestsTable } from '../schema/index.js';
 import { negativeLimitShortfall, projectLedger, type ProjectedBalance } from './leave-balance.js';
+import { balanceBeforeApproval, crossedLowBalance } from './leave-balance-warning.js';
 import { expandLeaveDays, type LeaveDayExpansion } from './leave-days.js';
 import {
   LEAVE_SETTING_KEYS,
@@ -558,6 +559,11 @@ export class LeaveService {
 
     const leaveYear = await this.leaveYearFor(repository, request.fromDate);
 
+    // Captured from inside the transaction so REQ-K-03's low-balance warning
+    // reads the figure the ledger actually landed on rather than one this
+    // method derived a second time.
+    let closingAfter: number | null = null;
+
     // One transaction, because `leave_ledger` is append-only: a deduction
     // written by a step whose status update then failed cannot be taken back,
     // and the retry would deduct the days a second time.
@@ -577,7 +583,9 @@ export class LeaveService {
           note: reason,
         },
       ]);
-      await this.recomputeBalance(tx, request.employeeId, request.leaveTypeId, leaveYear);
+      closingAfter = (
+        await this.recomputeBalance(tx, request.employeeId, request.leaveTypeId, leaveYear)
+      ).closing;
 
       const updated = await tx.updateRequest(id, {
         status: 'APPROVED',
@@ -614,7 +622,39 @@ export class LeaveService {
       },
     });
 
+    await this.warnIfBalanceLow(principal, request, closingAfter);
+
     return this.getRequest(principal, id);
+  }
+
+  /**
+   * REQ-K-03's "low leave balance", fired on the approval that causes it.
+   *
+   * **Only on the crossing.** `before` is derived rather than read back: the
+   * AVAILED row deducts exactly `totalDays`, so the balance a moment ago was
+   * the closing figure plus that. Firing whenever the balance is merely low
+   * would send the same warning on every subsequent approval of the same type,
+   * which is how a bell becomes something people stop looking at.
+   *
+   * The rule and the threshold are in `leave-balance-warning.ts`, where they
+   * can be exercised without a database; this method is only the wiring.
+   */
+  private async warnIfBalanceLow(
+    principal: Principal,
+    request: { employeeId: string; leaveTypeName: string; totalDays: number },
+    closingAfter: number | null,
+  ): Promise<void> {
+    if (closingAfter === null) return;
+
+    const before = balanceBeforeApproval(closingAfter, request.totalDays);
+    if (!crossedLowBalance(before, closingAfter)) return;
+
+    await this.notifications.emit({
+      orgId: principal.orgId,
+      type: NOTIFICATION_EVENTS.LEAVE_BALANCE_LOW,
+      audience: { kind: 'employees', employeeIds: [request.employeeId] },
+      payload: { leaveType: request.leaveTypeName, remainingDays: closingAfter },
+    });
   }
 
   /** REQ-F-05: "rejection requires a reason. The employee is notified with it." */

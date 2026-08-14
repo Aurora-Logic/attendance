@@ -1,14 +1,36 @@
 import { Injectable } from '@nestjs/common';
-import { ERROR_CODES } from '@vyuha/shared';
+import { ERROR_CODES, PERMISSIONS } from '@vyuha/shared';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
 import { ScopedRepository } from '../../../platform/db/scoped-repository.js';
 import { locations } from '../../../platform/db/schema/index.js';
+import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notification-events.js';
+import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import type { LockPeriodInput, PeriodLockQuery } from './period-lock.dto.js';
 import { PeriodLockRepository, type PeriodLockRow } from './period-lock.repository.js';
+
+/** "8/2026" is a key, not a sentence. The notification says August 2026. */
+const MONTH_NAMES: readonly string[] = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+function periodLabel(year: number, month: number): string {
+  return `${MONTH_NAMES[month - 1] ?? String(month)} ${String(year)}`;
+}
 
 /**
  * REQ-E-09: "HR locks a month. After locking: no punches, leave,
@@ -33,6 +55,7 @@ export class PeriodLockService {
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly auditContext: AuditContext,
+    private readonly notifications: NotificationDispatcher,
   ) {}
 
   async list(principal: Principal, query: PeriodLockQuery): Promise<{ data: PeriodLockRow[] }> {
@@ -95,6 +118,18 @@ export class PeriodLockService {
       },
     });
 
+    // REQ-K-03. Everyone who can close or reopen a month, which is the set
+    // whose exports and corrections the lock has just changed. Named by
+    // permission rather than by role (PRD §2), and it deliberately includes
+    // whoever pressed the button: a second administrator watching the same
+    // month must not learn about it later than the first.
+    await this.notifications.emit({
+      orgId: principal.orgId,
+      type: NOTIFICATION_EVENTS.PERIOD_LOCKED,
+      audience: { kind: 'permission', key: PERMISSIONS.ATTENDANCE_LOCK },
+      payload: { period: periodLabel(input.year, input.month), actorName: principal.email },
+    });
+
     return row;
   }
 
@@ -139,6 +174,21 @@ export class PeriodLockService {
         locked: false,
         reason,
         attendanceDaysMarked: daysMarked,
+      },
+    });
+
+    // The reason travels with it. Reopening a closed month is the action most
+    // likely to surprise somebody who has already exported it, and "unlocked"
+    // with no explanation is the version of this notification that generates a
+    // phone call rather than saving one.
+    await this.notifications.emit({
+      orgId: principal.orgId,
+      type: NOTIFICATION_EVENTS.PERIOD_UNLOCKED,
+      audience: { kind: 'permission', key: PERMISSIONS.ATTENDANCE_LOCK },
+      payload: {
+        period: periodLabel(existing.year, existing.month),
+        actorName: principal.email,
+        reason,
       },
     });
 
