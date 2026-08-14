@@ -487,7 +487,9 @@ export function LeaveApplicationForm({
           <div className="col-span-2 flex flex-col gap-0.5 sm:col-span-1">
             <dt className="text-muted-foreground text-xs">Range</dt>
             <dd className="text-sm font-medium tabular-nums">
-              {count ? `${String(count.calendarDays)} calendar days` : '\u2014'}
+              {count
+                ? `${String(count.calendarDays)} calendar day${count.calendarDays === 1 ? '' : 's'}`
+                : '\u2014'}
             </dd>
           </div>
 
