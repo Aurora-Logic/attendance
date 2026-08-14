@@ -206,29 +206,54 @@ export class AuthService {
    * than "five ever": a run of failures older than the window is a different
    * run, and starts the count again.
    *
+   * The count is incremented **in SQL, from the row's own value**, not read in
+   * Node and written back. The read-modify-write it replaces was a check-then-
+   * act race with a scrypt verification inside the gap: measured against the
+   * booted production build, twenty-five concurrent wrong passwords all read
+   * `failed_attempts = 0` and collapsed into a single increment, leaving the
+   * account at 2 and unlocked -- twenty-five guesses for two of a five-attempt
+   * budget. Postgres takes a row lock for an UPDATE and re-evaluates the SET
+   * expressions against the version the previous writer committed, so N
+   * concurrent failures now cost N of the budget.
+   *
+   * The notice and the trail entry are written by whichever attempt saw the
+   * count reach the cap *exactly*, not by every attempt at or past it. Each
+   * statement adds one, so exactly one attempt sees the crossing however many
+   * ran together -- otherwise a concurrent burst would send one lockout email
+   * per guess to somebody whose only involvement is owning the address.
+   *
+   * What this does not do, because it cannot: stop a burst that is already in
+   * flight. Every request in a concurrent burst reads `locked_until` before
+   * any of them has failed, so all of them get their password tested. The cap
+   * that bounds a burst is the per-IP one in `LoginRateLimiter`, which refuses
+   * past twenty; this one guarantees the account's own budget is spent
+   * honestly and that the lock is standing by the time the burst is over.
    */
   private async recordFailedAttempt(
-    user: { id: string; orgId: string; email: string; failedAttempts: number; failedAttemptsSince: Date | null },
+    user: { id: string; orgId: string; email: string },
     now: Date,
   ): Promise<void> {
-    const windowOpen =
-      user.failedAttemptsSince !== null &&
-      now.getTime() - user.failedAttemptsSince.getTime() < ATTEMPT_WINDOW_MS;
+    const windowStart = new Date(now.getTime() - ATTEMPT_WINDOW_MS);
 
-    const attempts = windowOpen ? user.failedAttempts + 1 : 1;
-    const since = windowOpen ? user.failedAttemptsSince : now;
-    const locked = attempts >= MAX_FAILED_ATTEMPTS;
+    // Every branch reads the row as it stands at the moment the update runs.
+    const windowOpen = sql`${users.failedAttemptsSince} IS NOT NULL AND ${users.failedAttemptsSince} > ${windowStart}`;
+    const nextAttempts = sql`CASE WHEN ${windowOpen} THEN ${users.failedAttempts} + 1 ELSE 1 END`;
 
-    await this.db
+    const rows = await this.db
       .update(users)
       .set({
-        failedAttempts: attempts,
-        failedAttemptsSince: since,
-        lockedUntil: locked ? new Date(now.getTime() + LOCKOUT_MS) : null,
+        failedAttempts: nextAttempts,
+        failedAttemptsSince: sql`CASE WHEN ${windowOpen} THEN ${users.failedAttemptsSince} ELSE ${now} END`,
+        lockedUntil: sql`CASE WHEN (${nextAttempts}) >= ${MAX_FAILED_ATTEMPTS} THEN ${new Date(now.getTime() + LOCKOUT_MS)}::timestamptz ELSE NULL END`,
       })
-      .where(eq(users.id, user.id));
+      .where(eq(users.id, user.id))
+      .returning({ attempts: users.failedAttempts });
 
-    if (!locked) return;
+    // The account was deleted between the lookup and here. Nothing to lock.
+    const attempts = rows[0]?.attempts;
+    if (attempts === undefined) return;
+
+    if (attempts !== MAX_FAILED_ATTEMPTS) return;
 
     this.logger.warn({ msg: 'Account locked after repeated failures', userId: user.id, attempts });
 
