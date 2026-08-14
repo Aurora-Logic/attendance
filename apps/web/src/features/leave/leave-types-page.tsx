@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CalendarBlankIcon, PlusIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { CalendarBlankIcon, PlusIcon, ScalesIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
@@ -25,6 +25,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { apiErrorCopy } from './api-error-copy';
+import { BalanceAdjustmentSheet } from './balance-adjustment-sheet';
 import { SampleDataNotice } from './sample-data-notice';
 import { LeaveTypeSheet } from './leave-type-sheet';
 import { ACCRUAL_METHOD_LABELS, type LeaveTypePolicy } from './types';
@@ -137,6 +138,7 @@ export function LeaveTypesPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<LeaveTypePolicy | null>(null);
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
+  const [adjustOpen, setAdjustOpen] = useState(false);
 
   const query = useLeaveTypes();
   const rows = query.data?.data ?? [];
@@ -224,11 +226,26 @@ export function LeaveTypesPage() {
         description="How each kind of leave accrues, carries forward and may be taken. Days only — no amounts are held in this product."
         action={
           canManage ? (
-            <Button onClick={openNew}>
-              <PlusIcon data-icon="inline-start" />
-              New leave type
-              <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
-            </Button>
+            <>
+              {/* PRD §5 screen 12 is "Leave Types & Balances", and the balance
+                  half had no surface at all. Outline rather than the primary
+                  fill: creating a type is the ordinary act on this screen,
+                  correcting somebody's balance is not. */}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setAdjustOpen(true);
+                }}
+              >
+                <ScalesIcon data-icon="inline-start" />
+                Correct a balance
+              </Button>
+              <Button onClick={openNew}>
+                <PlusIcon data-icon="inline-start" />
+                New leave type
+                <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
+              </Button>
+            </>
           ) : (
             <span className="text-muted-foreground text-xs">
               Editing needs the leave.policy.manage permission.
@@ -324,6 +341,7 @@ export function LeaveTypesPage() {
       ) : null}
 
       <LeaveTypeSheet open={sheetOpen} onOpenChange={setSheetOpen} editing={editing} />
+      <BalanceAdjustmentSheet open={adjustOpen} onOpenChange={setAdjustOpen} />
       <DeleteMasterDialog
         target={deleting}
         onOpenChange={(open) => {
