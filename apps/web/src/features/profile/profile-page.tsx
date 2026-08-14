@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/item';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { NotificationPreferences } from '@/features/notifications';
 import { EMPTY_VALUE, humaniseEnum } from '@/lib/format';
 import { useMe } from '@/lib/session/use-session';
 import { PERMISSION_DESCRIPTIONS, employeeDisplayName } from '@vyuha/shared';
@@ -116,6 +117,14 @@ export function ProfilePage() {
           <DetailRow label="Account status" value={humaniseEnum(me.user.status)} />
         </dl>
       </section>
+
+      <Separator />
+
+      {/* REQ-K-04. On this screen rather than in Settings: Settings is org
+          policy behind `settings.manage`, and these are choices about this one
+          account, which an employee with no permissions at all still gets to
+          make. */}
+      <NotificationPreferences />
 
       <Separator />
 

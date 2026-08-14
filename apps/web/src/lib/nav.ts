@@ -302,6 +302,10 @@ const OFF_NAV_LABELS: Record<string, string> = {
      the account menu; named here so the breadcrumb does not call it
      "Not found". */
   '/updates': 'Updates',
+  /* REQ-K-02's list, reached from the bell rather than from the navigation.
+     Named here for the same reason the two above are: the breadcrumb would
+     otherwise announce the page as "Not found". */
+  '/notifications': 'Notifications',
   ...(import.meta.env.DEV ? { '/patterns': 'Shell patterns' } : {}),
 };
 

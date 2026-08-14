@@ -15,6 +15,10 @@ import { AttendanceDayService } from './days/attendance-day.service.js';
 import { AttendanceOverrideService } from './days/attendance-override.service.js';
 import { PeriodLockController } from './days/period-lock.controller.js';
 import { PeriodLockService } from './days/period-lock.service.js';
+import {
+  MissingOutSweepHandler,
+  PunchReminderHandler,
+} from './punch/punch-notification-jobs.handler.js';
 import { PunchContextController, PunchController } from './punch/punch.controller.js';
 import { PunchService } from './punch/punch.service.js';
 
@@ -56,6 +60,10 @@ import { PunchService } from './punch/punch.service.js';
     AttendanceOverrideService,
     PeriodLockService,
     AttendanceSoftDeletes,
+    // REQ-K-03 / REQ-E-07. Both register themselves with the global
+    // `JobRegistry` on init, so nothing in `platform/jobs` names them.
+    PunchReminderHandler,
+    MissingOutSweepHandler,
   ],
   exports: [DayEngineService],
 })

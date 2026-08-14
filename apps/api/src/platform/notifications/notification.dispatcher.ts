@@ -82,6 +82,26 @@ export class NotificationDispatcher {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * The accounts that have explicitly switched an event **on** (REQ-K-04).
+   *
+   * Exposed here rather than by exporting `NotificationPreferencesService`,
+   * which stays internal for the reason the module comment gives: a feature
+   * that could read the preference table could also decide delivery for
+   * itself, and the whole point of this class is that it cannot.
+   *
+   * This answers one narrow question and grants nothing. It exists for the
+   * opt-in events, where the people who have asked for it are the only
+   * candidates worth building a dispatch for -- the punch reminder sweep would
+   * otherwise resolve a shift for every employee in the organisation every
+   * fifteen minutes to produce nothing. It narrows candidates; `deliver` still
+   * consults the preferences for every recipient, so nothing here can let a
+   * suppressed notification through.
+   */
+  usersOptedIn(orgId: string, type: NotificationEventType): Promise<string[]> {
+    return this.preferences.usersOptedIn(orgId, type);
+  }
+
   /** Hands the event to the `notification` queue and returns. */
   async emit(event: NotificationEvent): Promise<string> {
     return this.jobs.enqueue(

@@ -127,6 +127,31 @@ export interface JobPayloads {
   'expire-comp-off': {
     readonly requestedAt: string;
   };
+
+  /**
+   * REQ-K-03's opt-in reminder before a shift starts. Runs far more often than
+   * the other schedulers because a reminder is only useful in the half hour it
+   * names; see `PunchReminderHandler` for why the lead is twice the interval.
+   */
+  'send-punch-reminders': {
+    /** Only for the trail. The handler always works from the current clock. */
+    readonly requestedAt: string;
+  };
+
+  /**
+   * REQ-E-07's nightly closeout: recompute yesterday's days that have an IN
+   * and no OUT, then tell the employee and their manager about the ones that
+   * come back flagged.
+   *
+   * `date` is optional and exists for a backfill, exactly as `accrue-leave`'s
+   * `month` does: the scheduler never sets it, so the routine run always
+   * sweeps the day that has just ended in each organisation's own timezone.
+   */
+  'sweep-missing-out': {
+    readonly requestedAt: string;
+    /** `YYYY-MM-DD`. Omitted means yesterday, per organisation. */
+    readonly date?: string;
+  };
 }
 
 export type JobName = keyof JobPayloads;
@@ -140,6 +165,8 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'accrue-leave': QUEUES.LEAVE,
   'carry-forward-leave': QUEUES.LEAVE,
   'expire-comp-off': QUEUES.LEAVE,
+  'send-punch-reminders': QUEUES.NOTIFICATION,
+  'sweep-missing-out': QUEUES.ATTENDANCE,
 };
 
 /**
@@ -244,4 +271,15 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // REQ-G-11. Daily, because the warnings are at 7 and 2 days and a weekly
   // sweep would miss the 2-day one entirely.
   { schedulerId: 'leave:expire-comp-off', jobName: 'expire-comp-off', pattern: '30 3 * * *' },
+  // REQ-K-03. Every 15 minutes, because a reminder is only useful shortly
+  // before the shift it names and shift start times are not on the hour. The
+  // sweep costs one preference query per organisation when nobody has opted
+  // in, which is the state it ships in.
+  { schedulerId: 'notification:punch-reminders', jobName: 'send-punch-reminders', pattern: '*/15 * * * *' },
+  // REQ-E-07's nightly closeout. 01:15 rather than midnight: a shift that
+  // crosses midnight is attributed to its start date (REQ-C-02), so sweeping
+  // at 00:00 would call a night shift's missing OUT before the shift had
+  // finished. Ahead of the 02:00 escalation sweep, which reads the days this
+  // one has just recomputed.
+  { schedulerId: 'attendance:sweep-missing-out', jobName: 'sweep-missing-out', pattern: '15 1 * * *' },
 ];

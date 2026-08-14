@@ -1,8 +1,19 @@
-import type { NotificationChannel as NotificationChannelKey, PermissionKey } from '@vyuha/shared';
+import {
+  NOTIFICATION_EVENTS,
+  NOTIFICATION_EVENT_ROUTES,
+  type NotificationChannel as NotificationChannelKey,
+  type NotificationEventType,
+  type PermissionKey,
+} from '@vyuha/shared';
 
 /**
- * The event catalogue from REQ-K-03, and the templates that turn one into
- * words.
+ * The templates that turn a REQ-K-03 event into words.
+ *
+ * The catalogue itself moved to `@vyuha/shared` when the bell and the
+ * preferences screen were built: both ends need to name an event, and a second
+ * copy of thirteen strings is drift with a countdown on it. It is re-exported
+ * here so no call site changed, and so this file is still the one place a
+ * reader looks for "what events exist and what do they say".
  *
  * A call site emits an event type and a payload. It does not choose a channel,
  * does not know who receives it, and does not write any prose -- technical
@@ -14,32 +25,8 @@ import type { NotificationChannel as NotificationChannelKey, PermissionKey } fro
  * by the renderer.
  */
 
-export const NOTIFICATION_EVENTS = {
-  PUNCH_REMINDER: 'punch.reminder',
-  PUNCH_MISSING_OUT: 'punch.missing_out',
-  PUNCH_FLAGGED: 'punch.flagged',
-
-  LEAVE_APPLIED: 'leave.applied',
-  LEAVE_APPROVED: 'leave.approved',
-  LEAVE_REJECTED: 'leave.rejected',
-  LEAVE_CANCELLED: 'leave.cancelled',
-  LEAVE_BALANCE_LOW: 'leave.balance_low',
-  /**
-   * REQ-G-11 makes this one mandatory rather than a nicety: a comp-off credit
-   * expires 30 days after it is earned, which is short enough that somebody
-   * who is not told will lose it, and the requirement says so.
-   */
-  LEAVE_COMP_OFF_EXPIRING: 'leave.comp_off_expiring',
-
-  REGULARIZATION_DECIDED: 'regularization.decided',
-  APPROVAL_OVERDUE: 'approval.overdue',
-
-  PERIOD_LOCKED: 'period.locked',
-  PERIOD_UNLOCKED: 'period.unlocked',
-} as const;
-
-export type NotificationEventType =
-  (typeof NOTIFICATION_EVENTS)[keyof typeof NOTIFICATION_EVENTS];
+export { NOTIFICATION_EVENTS };
+export type { NotificationEventType };
 
 export type NotificationPayload = Readonly<Record<string, string | number | boolean | null>>;
 
@@ -75,9 +62,17 @@ function text(payload: NotificationPayload, key: string, fallback = ''): string 
   return value === undefined || value === null ? fallback : String(value);
 }
 
-function idPath(prefix: string, payload: NotificationPayload, key: string): string | null {
-  const id = payload[key];
-  return typeof id === 'string' && id.length > 0 ? `${prefix}/${id}` : null;
+/**
+ * Where opening this notification goes.
+ *
+ * `NOTIFICATION_EVENT_ROUTES` is the authority, and it lives in the shared
+ * contract because the web app is what has to render it -- see the note there
+ * about the eight paths that named no route at all. Ids were appended to some
+ * of those paths; none of the detail screens they implied exists, so the list
+ * screen is the destination until one does.
+ */
+function routeFor(type: NotificationEventType): string {
+  return NOTIFICATION_EVENT_ROUTES[type];
 }
 
 /**
@@ -89,21 +84,36 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
   'punch.reminder': {
     title: () => 'Your shift starts soon',
     body: (p) => `Your ${text(p, 'shiftName', 'shift')} starts at ${text(p, 'startsAt')}.`,
-    path: () => '/punch',
+    path: () => routeFor('punch.reminder'),
     defaultChannels: [],
   },
+  /**
+   * REQ-E-07 sends this to the employee *and* their manager, which is why it
+   * reads the payload the way `punch.flagged` does. One template, two
+   * dispatches: the employee's carries no name and renders in the second
+   * person, the manager's names the employee it is about. A single dispatch to
+   * both would have told a manager "you did not punch out" about somebody
+   * else's day -- uninterpretable, and the wrong person's fact in their bell.
+   */
   'punch.missing_out': {
-    title: () => 'You did not punch out',
+    title: (p) =>
+      text(p, 'employeeName') === ''
+        ? 'You did not punch out'
+        : `${text(p, 'employeeName')} did not punch out`,
     body: (p) =>
-      `No punch out was recorded for ${text(p, 'date')}. Raise a regularization if you were at work.`,
-    path: () => '/my-attendance',
+      text(p, 'employeeName') === ''
+        ? `No punch out was recorded for ${text(p, 'date')}. Raise a regularization if you were at work.`
+        : `No punch out was recorded for ${text(p, 'employeeName')} on ${text(p, 'date')}.`,
+    // The manager's copy opens the team screen; the employee's opens their own.
+    path: (p) =>
+      text(p, 'employeeName') === '' ? routeFor('punch.missing_out') : '/team-attendance',
     defaultChannels: IN_APP_AND_EMAIL,
   },
   'punch.flagged': {
     title: () => 'A punch needs review',
     body: (p) =>
       `${text(p, 'employeeName', 'An employee')} recorded a punch on ${text(p, 'date')} flagged as ${text(p, 'flags', 'unusual')}.`,
-    path: (p) => idPath('/punch-audit', p, 'punchId'),
+    path: () => routeFor('punch.flagged'),
     defaultChannels: IN_APP_ONLY,
   },
 
@@ -111,35 +121,35 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     title: (p) => `Leave request from ${text(p, 'employeeName', 'an employee')}`,
     body: (p) =>
       `${text(p, 'employeeName', 'An employee')} applied for ${text(p, 'leaveType', 'leave')} from ${text(p, 'fromDate')} to ${text(p, 'toDate')}.`,
-    path: (p) => idPath('/approvals', p, 'approvalRequestId'),
+    path: () => routeFor('leave.applied'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
   'leave.approved': {
     title: () => 'Your leave was approved',
     body: (p) =>
       `${text(p, 'leaveType', 'Leave')} from ${text(p, 'fromDate')} to ${text(p, 'toDate')} was approved by ${text(p, 'approverName', 'your approver')}.`,
-    path: (p) => idPath('/leave', p, 'leaveRequestId'),
+    path: () => routeFor('leave.approved'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
   'leave.rejected': {
     title: () => 'Your leave was not approved',
     body: (p) =>
       `${text(p, 'leaveType', 'Leave')} from ${text(p, 'fromDate')} to ${text(p, 'toDate')} was declined. Reason: ${text(p, 'reason', 'not given')}.`,
-    path: (p) => idPath('/leave', p, 'leaveRequestId'),
+    path: () => routeFor('leave.rejected'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
   'leave.cancelled': {
     title: () => 'A leave request was cancelled',
     body: (p) =>
       `${text(p, 'leaveType', 'Leave')} from ${text(p, 'fromDate')} to ${text(p, 'toDate')} was cancelled.`,
-    path: (p) => idPath('/leave', p, 'leaveRequestId'),
+    path: () => routeFor('leave.cancelled'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
   'leave.balance_low': {
     title: (p) => `${text(p, 'leaveType', 'Leave')} balance is running low`,
     body: (p) =>
       `You have ${text(p, 'remainingDays', '0')} day(s) of ${text(p, 'leaveType', 'leave')} left this year.`,
-    path: () => '/leave',
+    path: () => routeFor('leave.balance_low'),
     defaultChannels: IN_APP_ONLY,
   },
   'leave.comp_off_expiring': {
@@ -147,7 +157,7 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     body: (p) =>
       `${text(p, 'days', '1')} day(s) of comp-off earned for ${text(p, 'earnedForDate')} ` +
       `expire on ${text(p, 'expiresOn')}, in ${text(p, 'daysRemaining')} day(s).`,
-    path: () => '/leave',
+    path: () => routeFor('leave.comp_off_expiring'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
 
@@ -155,28 +165,28 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     title: (p) => `Regularization ${text(p, 'outcome', 'updated')}`,
     body: (p) =>
       `Your regularization for ${text(p, 'date')} was ${text(p, 'outcome', 'updated')}.`,
-    path: (p) => idPath('/regularizations', p, 'regularizationId'),
+    path: () => routeFor('regularization.decided'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
   'approval.overdue': {
     title: () => 'An approval has been waiting too long',
     body: (p) =>
       `A ${text(p, 'approvalType', 'request')} has been pending for ${text(p, 'days', 'several')} day(s).`,
-    path: (p) => idPath('/approvals', p, 'approvalRequestId'),
+    path: () => routeFor('approval.overdue'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
 
   'period.locked': {
     title: () => 'An attendance period was locked',
     body: (p) => `${text(p, 'period')} was locked by ${text(p, 'actorName', 'an administrator')}.`,
-    path: () => '/attendance/periods',
+    path: () => routeFor('period.locked'),
     defaultChannels: IN_APP_ONLY,
   },
   'period.unlocked': {
     title: () => 'An attendance period was unlocked',
     body: (p) =>
       `${text(p, 'period')} was unlocked by ${text(p, 'actorName', 'an administrator')}. Reason: ${text(p, 'reason', 'not given')}.`,
-    path: () => '/attendance/periods',
+    path: () => routeFor('period.unlocked'),
     defaultChannels: IN_APP_ONLY,
   },
 };

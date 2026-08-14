@@ -49,81 +49,47 @@ default being used until answered.
 | # | Question | Blocks | Recommended default in use |
 |---|---|---|---|
 | P2-1 | ~~**REQ-E-09 unlock has no Admin-only permission key.**~~ **CLOSED 14 Aug 2026** — verified stale by the phase audit. A separate `attendance.unlock` key exists (`packages/shared/src/permissions.ts`); `DELETE /attendance/locks/:id` requires it while `POST` requires `attendance.lock`, and tests assert Admin holds it and HR does not. The label became a control. | REQ-E-09 | — |
-| P2-2 | **Four settings are recorded and audited but nothing reads them.** REQ-L-02 lists geofence behaviour, regularization limits and escalation days; REQ-L-03 lists photo retention. The punch path hard-blocks on the geofence directly instead of consulting the setting, and `files.expires_at` is never stamped for punch photos, so retention is unenforced (this is the same gap as P1-4). | REQ-L-02, REQ-L-03 | The settings screen prints, under each field, whether anything reads it — "In force now. Read by: Day engine" or "Saved and audited, but nothing reads it yet". Four switches that silently do nothing would be worse than none at all. **The photo-retention half is resolved with P1-4 (14 Aug 2026): the punch pipeline now reads `attendance.photo_retention_months` and the screen says so.** **The regularization half is resolved 14 Aug 2026 by the REQ-F slice:** `attendance.regularization_window_days` and `attendance.regularization_max_per_month` are read on every raise and by `GET /regularizations/policy`, which is what the form bounds its own calendar and its allowance line from — so widening the window in Settings visibly widens what the picker offers, rather than only changing a number nothing consults. Both descriptors now name `Regularization` as the consumer, and `settings.catalogue.test.ts` fails if either key is renamed on one side only. Two decisions worth recording because the settings screen cannot express them: the window counts **today as one of its days** (7 reaches back six days), and the monthly cap is counted over the calendar month the request is **made** in rather than the month being corrected — counting by the corrected date would let somebody file three for March and three for April in one afternoon. **The geofence-behaviour and escalation settings remain read by nothing, and the screen still says so.** |
+| P2-2 | **Four settings are recorded and audited but nothing reads them.** REQ-L-02 lists geofence behaviour, regularization limits and escalation days; REQ-L-03 lists photo retention. The punch path hard-blocks on the geofence directly instead of consulting the setting, and `files.expires_at` is never stamped for punch photos, so retention is unenforced (this is the same gap as P1-4). | REQ-L-02, REQ-L-03 | The settings screen prints, under each field, whether anything reads it — "In force now. Read by: Day engine" or "Saved and audited, but nothing reads it yet". Four switches that silently do nothing would be worse than none at all. **The photo-retention half is resolved with P1-4 (14 Aug 2026): the punch pipeline now reads `attendance.photo_retention_months` and the screen says so.** The geofence-behaviour, regularization and escalation settings remain read by nothing, and the screen still says so. |
 | P2-3 | ~~**Roles are read-only; `PATCH /roles` does not exist.**~~ **PARTLY CLOSED 14 Aug 2026** — verified stale by the phase audit. `GET/POST/PATCH /roles` all exist behind `roles.manage`, audited, with a full web editor (`role-editor-sheet.tsx`), and the last-holder-of-`roles.manage` invariant is enforced on both strip paths inside a locking transaction. **Still open, and it matters:** a role cannot be *assigned* to a user through the product — `assignRoleToUser`/`removeRoleFromUser` exist in `RbacAdminService` but no controller or UI calls them, so REQ-B-07's acceptance ("a new role created in the UI grants and denies correctly") cannot be exercised end to end. | REQ-B-07 | Role CRUD is live. Assignment needs one endpoint plus a control on the employee screen. |
 | P2-4 | **Excel export needs a spreadsheet library and CLAUDE.md forbids adding a dependency without asking.** | REQ-J-03 | CSV, written behind an interface so XLSX drops in without touching call sites. REQ-J-03 asks for a formatted workbook — frozen header, column widths, a filter header block — and CSV carries none of that. Say the word and `exceljs` goes in. |
 | P2-6 | **REQ-C-03 names four levels for a weekly-off pattern and only two are modelled.** Employee level (`employees.weekly_off_pattern_id`) and organisation level (a settings key) exist. Location and department levels have no storage anywhere — not on the writing side, and the day engine's repository reached the same conclusion from the reading side. | REQ-C-03 | Two levels, and no storage invented for the other two. `/weekly-off-patterns` is master CRUD; a pattern is attached per employee or per organisation. If a location or a department needs its own pattern — a plant that works alternate Saturdays while head office does not — that is a nullable column on each of those two tables plus a resolution order in the day engine. Straightforward, but it changes how the engine decides, so it waits for you. |
 | P2-5 | **`PATCH /settings` where technical design 6 says `PUT`.** Absent groups mean unchanged, which is PATCH semantics, and every other update endpoint in this API is PATCH. | REQ-L-01 | PATCH. Flagged rather than silently diverging from the design document. |
 
-## The leave / approvals join — **done 14 Aug 2026**
+## The leave / approvals join, still unwired
 
-The note that stood here described an unbuilt join and the shape it had to
-take. It is built, in the shape described, and this is what came of it.
+Not a question for you — a note for whoever does it next, written after an
+attempt that was reverted.
 
-**What landed.** `ApprovalSubjectRegistry` is the `JobRegistry`-shaped map from
-subject type to handler; `LeaveApprovalHandler` puts itself into it on init;
-`ApprovalService` calls the handler when a request reaches a status the subject
-has to mirror. Applying for leave raises an approval request in the same
-transaction as the leave request, so `leave_requests.approval_request_id` is
-never null again. Nothing in `approvals/` imports leave.
+Leave and the approval framework both landed, and they are not connected.
+`leave_requests.approval_request_id` has existed since migration 0004 and is
+always null: nothing calls `ApprovalService.raise`, so a leave application never
+reaches the approvals inbox and the escalation job never sees it. Leave decides
+on its own endpoint, where the append-only ledger write lives.
 
-**The ledger is written exactly once, by four layers, not one.** The decision
-runs in a single transaction, so a rollback takes the step, the request and the
-ledger row together. Above it: `evaluateDecision` refuses a closed request
-(read-then-act, so sequential only), the step update is a compare-and-swap on
-`action IS NULL`, the request update is a compare-and-swap on
-`(current_step, status)`, and migration 0014 adds a unique index per
-(leave request, movement type) with a service check that turns
-`ON CONFLICT DO NOTHING`'s silence into a refusal. Removing any single code
-layer leaves the ledger correct; removing all of them makes the concurrency
-test report two 201s and two AVAILED rows, which is how that test was shown to
-be capable of failing at all.
+**The shape it has to take.** The framework must not import leave — leave
+already imports the framework, and the arrow cannot point both ways. So a
+subject-handler registry, exactly like `JobRegistry`: the framework holds a map
+from subject type to a handler, each slice registers itself on init, and the
+framework calls the handler when a request reaches a terminal status. Leave's
+handler applies the decision without re-checking the approver, because the
+framework has already done that.
 
-**Both surfaces are one code path.** `/leave/requests/:id/approve` resolves the
-attached approval and hands it to `ApprovalService.decide`. A leave approved in
-the inbox and one approved on the leave screen therefore run identical code —
-asserted row for row rather than each being separately plausible. The minimal
-"Leave to decide" band on the Approvals screen is deleted, as its own comment
-planned: leave arrives in the real inbox with a route, a step, delegation and
-escalation, and a second list ordered by status rather than by whose step it is
-would offer buttons on rows waiting for somebody else.
+**Raise and handle must land in the same change.** This was tried the other way
+round — the seam plus a guard refusing to decide any subject with no registered
+handler — and it broke ten approvals tests, correctly. No subject type has a
+handler, so the guard made the whole framework inert. The lesson is that the
+guard is only safe once at least one handler exists, and that raising a leave
+approval before the handler exists would be worse still: the inbox would mark a
+request approved while the ledger and the balance recorded nothing, with no
+error anywhere.
 
-**Also wired:** the `ESCALATED` status nothing used to set, so the branches
-already written for it stop being dead code; REQ-G-09's route read literally
-(nearest manager, and the org-wide approvers only when the type says two steps)
-rather than the framework's whole default route, which would have made every
-leave type two-step; the applied notification going to the approvers actually
-routed to rather than to everyone holding `leave.approve.team`, and carrying
-the approval id its template needs in order to link anywhere.
+**Why it was not finished unattended.** It moves who writes an append-only
+ledger. A wrong row cannot be taken back, and CLAUDE.md 7 puts leave rules on
+the list not to guess at. It wants doing with someone watching.
 
-### Three things this leaves for you
-
-| # | Question | Blocks | Recommended default in use |
-|---|---|---|---|
-| LA-1 | **A single-login organisation can no longer raise leave at all** — and the seeded database is one. REQ-I-05 says an approver cannot approve their own request, so an administrator who is the only account has nobody to route to, and `raise` refuses with "This request has nobody to approve it. Set a reporting manager, or give someone leave.approve.all." Before the join the application was accepted and then sat pending forever, because the same rule stopped the only approver deciding it. | REQ-G-06 on a fresh database | **Refuse, loudly, at the application.** A request nobody can ever decide is worse created than refused, and the message names both fixes. The consequence is a launch step, not a code change: **a pilot needs a second login holding `leave.approve.team` or `leave.approve.all`, or reporting managers set on the roster** before anyone applies for leave. Verified against the seeded database in a browser. Say the word if a lone administrator should instead be allowed to approve their own leave — that is a deliberate hole in REQ-I-05 and wants saying out loud. |
-| LA-2 | **Leave requests raised before this change cannot be decided.** They carry no `approval_request_id`, so there is no route, no step, and nobody the framework could name as the approver. `POST /leave/requests/:id/approve` answers 409 with "Cancel it and apply again", and cancelling still works. | Nothing on a fresh database | **Refuse rather than decide on the old terms**, because deciding them would mean keeping a second writer of the AVAILED row — the exact thing this change removed. No data migration was written: building a route for a historical request means guessing who should have approved it, and CLAUDE.md §7 puts leave on the list not to guess at. There is no production data yet, so the cost is a re-application on a development database. Say the word if a back-fill is wanted before the pilot loads real requests. |
-| LA-3 | **Nothing notifies anyone when a request escalates.** `NOTIFICATION_EVENTS.APPROVAL_OVERDUE` exists and is emitted by nothing; the escalation job moves the request, writes the audit row, and now mirrors the status onto the leave request, but the new approver learns about it only by opening the inbox. | REQ-K-03's "approval pending for over N days" | **Nothing invented.** The event, its template and its audience rules are one call away in `escalateOne`, but who should hear it is a policy question — the new approver only, or the previous one too, or the requester as well — and REQ-K-03 does not say. Left out rather than guessed. |
-
-There is still a second join, unchanged from the original note: cancelling on or
-after the start date needs an approver key rather than raising an approval
-request of its own, which is what REQ-G-10 asks for.
-
-**Regularization and on-duty are now in exactly the same position** (14 Aug
-2026, REQ-F-01…F-05). `regularizations.approval_request_id` and
-`on_duty_requests.approval_request_id` have existed since migration 0004 and
-are still always null: the slice decides on its own endpoints, the way leave
-does, so that it could land without waiting on supervised work. It follows the
-same shape and should join the framework in the same change — a subject handler
-per kind, `raise` creating the approval row, and the existing approve/reject
-methods becoming the handlers the framework calls. Two more bands on
-`/approvals` are deleted when that happens
-(`RegularizationDecisionsSection`), and nothing else references their queries.
-
-One thing the framework will need to preserve rather than re-derive: approving
-a regularization must still check the period lock **before** writing the
-adjustment, not only rely on `computeDay` refusing the recompute. An adjustment
-stored against a locked month is inert until somebody reopens the month, and
-then applies itself at a moment nobody chose.
+There is a second join: cancelling on or after the start date currently needs an
+approver key rather than raising an approval request, which is what REQ-G-10
+asks for.
 
 ## Raised during guided tour and Updates design
 
@@ -158,11 +124,14 @@ exists for either surface; neither appears in the PRD or in
 | WS-D-1 | **The seeded administrator had no employee record, so the two employee-scoped screens were dead on every fresh database.** REQ-B-02 keeps the login and the person as separate rows joined 1:1, and the seed created both and joined neither: `users.employee_id` was null on `admin@vyuha.local`. `/punch` answered "this sign-in is not linked to an employee record", and `GET /leave/balances?year=2026` answered 400 "This account has no employee record, so it has no leave of its own". Both are correct behaviour for an unlinked login, and both are the first screens a pilot administrator opens. | REQ-B-02, REQ-D-01, REQ-G-04 | **Resolved 14 Aug 2026.** The seed joins the administrator's login to VY-0001 — the root of the seeded reporting tree and head of Administration, so the login's team scope is the whole organisation. Joined to somebody the seed already created rather than given an employee row of its own: a dedicated row would put a twenty-sixth body into the headcount, the muster and every export, which is invented data on a path that runs (CLAUDE.md §6), while this writes one foreign key between two rows that already existed and invents nothing. REQ-A-03's twenty-five is unchanged. The join fills a null and never repoints one, so a re-seed cannot drag a moved link back. **Still your call:** VY-0001 is a fabricated person, so on production the pilot administrator's login must be pointed at their own roster row — that is now an explicit step in launch plan §WS-D and a box in the §WS-E checklist. Say the word if a pilot administrator should instead hold a login that is deliberately *not* an employee and never punches; the seed would then be left as it is and the launch-plan step becomes "confirm it is unlinked". |
 | WS-D-2 | **CI's browser job could not fail, so WS-D-1 above sat in `main` unreported.** Two independent defects in `.github/workflows/ci.yml`, both silent. (1) The `Drive the app` step piped `verify-ui.mjs` into `tee`; GitHub's default shell for a `run:` block is `bash -e {0}` with **no** `pipefail`, so the step reported `tee`'s exit code and the script's `process.exit(1)` was discarded — the job reported success whatever the browser found. (2) The step that reads the once-printed seed password matched `^ +[A-Za-z0-9_-]{20,}$`, and `-` is inside that class, so it also matched the 63-dash separator the seed prints *above* the password; `head -1` took the separator, meaning CI had been signing in with a row of dashes and failing nearly every check, invisibly, for as long as the job has existed. | The delivery plan's "red CI blocks merge" | **Both fixed 14 Aug 2026.** `shell: bash` on the driving step (which is `bash --noprofile --norc -eo pipefail {0}`), verified locally: `bash -e -c 'exit 1 \| tee /dev/null'` exits 0, the same under `-eo pipefail` exits 1. Pipefail is set on that one step rather than as a workflow default, because the seed step ends in a `grep` that legitimately finds nothing on a re-seeded database and pipefail would abort it before the message explaining that. The password match now requires one alphanumeric character, which rejects the separator and nothing else. **Expect the browser job to be able to go red from now on** — that is the point, and any failure it reports on the next run is real rather than new. |
 
-## Raised during the pre-pilot punch-path audit
+## Raised while making notifications visible (REQ-K-02 … K-05)
 
 | # | Question | Blocks | Recommended default in use |
 |---|---|---|---|
-| PP-1 | **A shift punched offline computed as ABSENT with 0 worked minutes, and REQ-D-05 and REQ-D-10 genuinely disagree about how to fix it.** `PunchService.sync` takes one `new Date()` for a whole drain, so every entry gets the same `server_time` — which is honest, they really did all arrive together — and `compute-day.ts` derives the day from `server_time` alone. Measured on a clean employee: an IN queued eight hours before its OUT both landed on `2026-08-14T12:17:30.591Z` and produced **ABSENT, 0 worked minutes**, while the client times the queue had faithfully recorded said 479 minutes, which is 419 worked and PRESENT. Nothing failed: the drain returned `created: 2`, both photos stored, both audit rows written. REQ-D-05 says "client time is never trusted for a policy decision"; REQ-D-10 says a queued punch "carries the original client timestamp" and makes offline punching a headline feature for shop-floor staff, and `03-scope-and-delivery-plan.md:96` names "offline punch synced 6 hours later" as a Phase 1 acceptance case. It is not a regression — sync has always taken one `now` — and it was recorded nowhere. | REQ-D-10, REQ-E-02, REQ-E-03, and the Phase 1 acceptance list | **Decided 14 Aug 2026 under launch pressure. Please confirm.** The tension is resolved for `OFFLINE_SYNC` punches and for nothing else. A queued punch is judged at the time its own device recorded, **clamped** so it can never be later than the sync instant (a fast clock cannot punch into a day that has not happened) and never earlier than the 48-hour limit the queue already enforces. The instant used is written to a new `punches.effective_time` column — NULL on every live punch, so `server_time` still means "when we received it" — the punch carries a `derived_time` flag, a punch that had to be clamped also carries `clock_skew`, and the `punch.created` audit row records the derived instant and the client time it came from. Web and mobile punches are untouched: REQ-D-05 stands exactly as written for them, and nothing a live client says about the clock is believed. **What this costs, stated plainly:** an employee whose phone clock is wrong by less than 48 hours can move their own queued punch within that window, and the flag is what makes it reviewable rather than invisible. If you would rather not accept that, the alternative is to refuse offline punching outright and route it through regularization (REQ-F-02) — that is a policy decision, not a technical one, and it would remove a headline Phase 1 feature. **Two follow-ups deliberately not taken, both needing your word:** (a) the burned-in photo stamp still shows the *sync* time rather than the derived one — burning a client-supplied time into the evidence would weaken the anti-backdating control REQ-D-03 exists for, so it was left alone; (b) `effective_time` is not on the API's `PunchRecord`, so the punch audit export shows the `derived_time` flag and the client time but not the derived instant itself. |
+| K-1 | **What counts as a "low leave balance"?** REQ-K-03 lists the event and REQ-G-08 talks about negative balances, but no number anywhere says when somebody should be told their balance is running out. | REQ-K-03 | **Two days, and only on the crossing** — the approval that takes a balance from at-or-above two days to below it. `LOW_LEAVE_BALANCE_DAYS` in `leave-balance-warning.ts`, a constant with this note against it rather than a settings row the Settings screen does not show. Firing whenever a balance is merely low would send the same warning on every subsequent approval, and the crossing test is also what keeps Leave Without Pay quiet — it opens at zero and every approval takes it further negative, so it can never have been above the line. Say the word for a different number, or for it to become a per-leave-type field, which is where it would naturally live. |
+| K-2 | ~~**REQ-K-05's white-on-red badge failed WCAG AA on the dark theme.**~~ **CLOSED 14 Aug 2026, in the same change.** Measured in the browser, not assumed: white on the dark theme's `--destructive` is **2.89:1**, under the 4.5:1 NFR-07 asks for. The cause is that `--destructive` is deliberately lifted on dark so destructive *text* stays legible against a dark surface — correct for ink, wrong for a filled shape carrying white text. A `--destructive-solid` token now holds the light red in both themes and measures **4.77:1**, so REQ-K-05's literal instruction and NFR-07 are both true. The probe asserts the ratio in both themes rather than trusting the token. | — | — |
+| K-3 | **`REGULARIZATION_DECIDED` is the one REQ-K-03 event still unfired.** A template exists and `NOTIFICATION_EVENT_ROUTES` names its destination, but nothing emits it: the regularization slice — service, endpoints, screen — is being built separately and did not exist when this was written. | REQ-K-03, REQ-F-05 | **Parked deliberately rather than fired from a seam this slice owns.** The two places it could have gone are the approvals framework's decision path and the regularization service's own. Firing it from the framework would put subject-type knowledge into the one file REQ-I-01 exists to keep generic, and would collide with the slice being built beside it — two emits for one decision, and the reader gets told twice. One line in the regularization service's decide path closes it: `emit({ type: NOTIFICATION_EVENTS.REGULARIZATION_DECIDED, audience: { kind: 'employees', employeeIds: [request.employeeId] }, payload: { date, outcome } })`. Everything else it needs — template, default channels, preference row, destination — is already in place and already appears on the preferences screen. |
+| K-4 | **Eight of the thirteen notification destinations named routes this app has never rendered**, and nothing noticed because until the bell existed there was no way to click one. `/leave/{id}`, `/attendance/periods`, `/punch-audit/{id}` and `/approvals/{id}` would all have landed on the not-found placeholder. | Nothing — **closed** | **Fixed and guarded.** Destinations moved to `NOTIFICATION_EVENT_ROUTES` in the shared contract, pointed at routes that exist, and `apps/web/src/features/notifications/notification-routes.test.ts` reads the real router and fails if any of them stops resolving. Falsified: reverting `period.locked` to `/attendance/periods` fails the test by name. Two of them are honest downgrades worth knowing about — a flagged punch opens the approvals inbox because PRD §5 screen 9 (Punch Audit) has no route yet, and a regularization decision opens the attendance timeline for the same reason. Both become detail links the day those screens ship. |
 
 ## Carried from `05-decisions.md` — still open
 

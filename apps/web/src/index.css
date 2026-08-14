@@ -171,6 +171,7 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-destructive-solid: var(--destructive-solid);
     --color-success: var(--success);
     --color-warning: var(--warning);
     --color-info: var(--info);
@@ -213,6 +214,14 @@
     --accent: oklch(0.97 0.001 106.424);
     --accent-foreground: oklch(0.216 0.006 56.043);
     --destructive: oklch(0.577 0.245 27.325);
+    /* The same red as a *fill* rather than as ink, for the one place the PRD
+       names a colour: REQ-K-05's unread badge is white text on a red dot.
+       --destructive cannot serve, because on dark it is deliberately lifted so
+       destructive *text* stays legible against a dark surface -- and white on
+       that lifted red measures 2.89:1, under WCAG AA (NFR-07). Measured in the
+       browser rather than assumed. This value holds in both themes and gives
+       4.77:1, which is what lets both requirements be true at once. */
+    --destructive-solid: oklch(0.577 0.245 27.325);
     /* Status colours the preset does not ship. A toast that reports an outcome
        has to be able to say which outcome without reaching for a raw Tailwind
        colour, which would ignore the theme and not follow a rebrand. Chroma and
@@ -259,6 +268,11 @@
     --accent: oklch(0.268 0.007 34.298);
     --accent-foreground: oklch(0.985 0.001 106.423);
     --destructive: oklch(0.704 0.191 22.216);
+    /* Deliberately *not* lifted with --destructive above: see the note in the
+       light block. A badge is a filled shape carrying white text, so lifting
+       it would trade the contrast the text needs for contrast the shape does
+       not. */
+    --destructive-solid: oklch(0.577 0.245 27.325);
     /* Lifted the same way --destructive is on dark, so they stay legible
        against the dark popover rather than going muddy. */
     --success: oklch(0.723 0.176 149.579);

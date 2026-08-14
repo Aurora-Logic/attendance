@@ -22,6 +22,7 @@ import { RecycleBinPage } from '@/features/recycle-bin';
 import { ReportsPage } from '@/features/reports';
 import { RolesPage } from '@/features/roles';
 import { SettingsPage } from '@/features/settings';
+import { NotificationsPage } from '@/features/notifications';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { OrgMastersPage } from '@/features/org-masters';
 import { ProfilePage } from '@/features/profile/profile-page';
@@ -111,6 +112,9 @@ export default function App() {
 
               {/* Also off the sidebar, and for the same reason. */}
               <Route path="updates" element={<UpdatesPage />} />
+
+              {/* And this one: reached from the bell in the header (REQ-K-05). */}
+              <Route path="notifications" element={<NotificationsPage />} />
 
               {/* Sample data lives on this route, so it is never built into
                   a production bundle (CLAUDE.md §6). */}
