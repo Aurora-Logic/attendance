@@ -10,6 +10,14 @@ export const ERROR_CODES = {
   CONFLICT: 'CONFLICT',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   RATE_LIMITED: 'RATE_LIMITED',
+  /**
+   * The request was fine and the server could not serve it right now -- a
+   * contended row lock, an exhausted connection pool. Distinct from
+   * INTERNAL_ERROR because the two call for opposite client behaviour: this
+   * one is worth retrying, and the offline outbox needs to be able to tell
+   * "send this again in a moment" from "this will never work".
+   */
+  SERVICE_BUSY: 'SERVICE_BUSY',
 
   // Auth (REQ-B-01…B-10)
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',

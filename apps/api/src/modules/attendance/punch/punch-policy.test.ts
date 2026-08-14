@@ -1,3 +1,4 @@
+import { OFFLINE_SYNC_MAX_AGE_HOURS } from '@vyuha/shared';
 import { describe, expect, it } from 'vitest';
 
 import { addDays, localDateIn } from '../day-engine/calendar-date.js';
@@ -10,6 +11,7 @@ import {
   isIpAllowed,
   isWithinWindow,
   normaliseIp,
+  queuedEffectiveTime,
   windowFor,
   type DateCandidate,
   type WindowPolicy,
@@ -298,5 +300,55 @@ describe('calendar helpers', () => {
     const instant = new Date('2026-08-12T20:00:00Z');
     expect(localDateIn(instant, 'Asia/Kolkata')).toBe('2026-08-13');
     expect(localDateIn(instant, 'UTC')).toBe('2026-08-12');
+  });
+});
+
+describe('the instant a queued punch is judged at (REQ-D-10 vs REQ-D-05)', () => {
+  const SYNCED_AT = new Date('2026-08-12T17:00:00+05:30');
+  const hoursBefore = (hours: number): Date =>
+    new Date(SYNCED_AT.getTime() - hours * 3_600_000);
+
+  it('takes the time the device recorded when it is inside the queue limits', () => {
+    const queued = hoursBefore(8);
+    const effective = queuedEffectiveTime(queued, SYNCED_AT);
+
+    // The whole point: eight hours of shift, not the instant of the drain.
+    expect(effective.at.toISOString()).toBe(queued.toISOString());
+    expect(effective.derived).toBe(true);
+    expect(effective.clamped).toBe(false);
+  });
+
+  it('never lets a device with a fast clock punch into the future', () => {
+    const effective = queuedEffectiveTime(hoursBefore(-3), SYNCED_AT);
+
+    expect(effective.at.toISOString()).toBe(SYNCED_AT.toISOString());
+    expect(effective.derived).toBe(true);
+    // Reported, because the punch endpoint turns this into a `clock_skew`
+    // flag. A phone set three hours ahead is a wrong clock, not a queue delay.
+    expect(effective.clamped).toBe(true);
+  });
+
+  it('holds the 48-hour queue limit as a floor, exactly on the boundary', () => {
+    const onTheLimit = queuedEffectiveTime(hoursBefore(OFFLINE_SYNC_MAX_AGE_HOURS), SYNCED_AT);
+    expect(onTheLimit.at.toISOString()).toBe(hoursBefore(OFFLINE_SYNC_MAX_AGE_HOURS).toISOString());
+    expect(onTheLimit.clamped).toBe(false);
+
+    // Older than the queue may carry. The endpoint refuses this outright with
+    // PUNCH_QUEUED_TOO_OLD; the clamp is the same boundary said a second time,
+    // so a rounding at the edge cannot produce a day two days back.
+    const tooOld = queuedEffectiveTime(hoursBefore(OFFLINE_SYNC_MAX_AGE_HOURS + 1), SYNCED_AT);
+    expect(tooOld.at.toISOString()).toBe(hoursBefore(OFFLINE_SYNC_MAX_AGE_HOURS).toISOString());
+    expect(tooOld.clamped).toBe(true);
+  });
+
+  it('falls back to the sync instant, and says so, for a time it cannot read', () => {
+    // Unreachable through the schema, which parses an ISO instant. If it ever
+    // happens the answer must be one the caller can log rather than a day
+    // invented from a value nobody can read.
+    const effective = queuedEffectiveTime(new Date('not a date'), SYNCED_AT);
+
+    expect(effective.at.toISOString()).toBe(SYNCED_AT.toISOString());
+    expect(effective.derived).toBe(false);
+    expect(effective.clamped).toBe(false);
   });
 });

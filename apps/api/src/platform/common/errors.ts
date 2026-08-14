@@ -18,6 +18,10 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   CONFLICT: 409,
   INTERNAL_ERROR: 500,
   RATE_LIMITED: 429,
+  // 503 rather than 500 or 429: nothing about the caller was wrong and nothing
+  // about the server is broken, so the honest answer is "not now, try again",
+  // and a proxy or an offline outbox already knows what to do with it.
+  SERVICE_BUSY: 503,
 
   INVALID_CREDENTIALS: 401,
   ACCOUNT_LOCKED: 423,

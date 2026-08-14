@@ -60,7 +60,22 @@ export interface ShiftPolicy {
 export interface PunchFact {
   readonly id: string;
   readonly punchType: PunchType;
-  readonly serverTime: Date;
+  /**
+   * The instant this punch counts at.
+   *
+   * `server_time` for every live punch, which is REQ-D-05 exactly as it has
+   * always been. For an OFFLINE_SYNC punch it is `effective_time`: the client
+   * time the queue carried, clamped by the endpoint so it can neither be in
+   * the future nor older than the queue's 48-hour limit. The endpoint decides
+   * that once, at punch time, and writes it down -- this file reads one
+   * instant per punch and has no idea which kind it is, exactly as it reads
+   * `attendance_date` rather than re-deriving REQ-C-02.
+   *
+   * The punch carrying a substituted instant also carries `derived_time`, and
+   * `OFFLINE_SYNC` puts `offline_sync` on the day below, so nothing about the
+   * substitution is invisible to a reader of the muster.
+   */
+  readonly effectiveTime: Date;
   readonly source: PunchSource;
   readonly isHalfDayMarked: boolean;
   readonly outsideWindow: boolean;
@@ -184,17 +199,21 @@ interface PunchDerived {
  * Step 5 and step 6: the punches for the day, then the approved adjustment laid
  * over them.
  *
- * Sorting by `server_time` rather than trusting insertion order, and taking the
- * first IN and the *last* OUT, is what makes a mid-day break -- IN, OUT, IN,
- * OUT -- resolve to the span of the day. REQ-C-01's `break_minutes` is the
- * agreed deduction; counting the actual gaps would make the day depend on
- * whether somebody remembered to punch for lunch.
+ * Sorting by time rather than trusting insertion order, and taking the first
+ * IN and the *last* OUT, is what makes a mid-day break -- IN, OUT, IN, OUT --
+ * resolve to the span of the day. REQ-C-01's `break_minutes` is the agreed
+ * deduction; counting the actual gaps would make the day depend on whether
+ * somebody remembered to punch for lunch.
  *
- * `serverTime` only. REQ-D-05: client time is never trusted for a policy
- * decision.
+ * `effectiveTime`, which is `server_time` for everything except a queued
+ * punch; see `PunchFact`. Sorting on the instant of *arrival* was what made a
+ * drained offline shift collapse to a single point: fourteen punches, one
+ * `server_time`, zero minutes worked.
  */
 function derivePunches(input: DayInput): PunchDerived {
-  const byTime = [...input.punches].sort((a, b) => a.serverTime.getTime() - b.serverTime.getTime());
+  const byTime = [...input.punches].sort(
+    (a, b) => a.effectiveTime.getTime() - b.effectiveTime.getTime(),
+  );
 
   const firstInPunch = byTime.find((punch) => punch.punchType === 'IN') ?? null;
   const lastOutPunch = byTime.reduce<PunchFact | null>(
@@ -209,8 +228,8 @@ function derivePunches(input: DayInput): PunchDerived {
     // report showing "punched 21:40, corrected to 18:30" needs both halves.
     firstInPunchId: firstInPunch?.id ?? null,
     lastOutPunchId: lastOutPunch?.id ?? null,
-    firstIn: adjustment?.adjustedIn ?? firstInPunch?.serverTime ?? null,
-    lastOut: adjustment?.adjustedOut ?? lastOutPunch?.serverTime ?? null,
+    firstIn: adjustment?.adjustedIn ?? firstInPunch?.effectiveTime ?? null,
+    lastOut: adjustment?.adjustedOut ?? lastOutPunch?.effectiveTime ?? null,
     // REQ-D-07: chosen by the employee at the moment of punching, and it
     // overrides duration-based derivation rather than competing with it.
     halfDayMarked: byTime.some((punch) => punch.isHalfDayMarked),
@@ -311,7 +330,11 @@ function deriveFlags(
     // the independent time check catches a punch written by an import or a
     // repair script that never went through REQ-D-06 at all.
     const window = punchWindow(input, punch.punchType);
-    if (punch.outsideWindow || punch.serverTime < window.opens || punch.serverTime > window.closes) {
+    if (
+      punch.outsideWindow ||
+      punch.effectiveTime < window.opens ||
+      punch.effectiveTime > window.closes
+    ) {
       present.add('outside_window');
     }
   }

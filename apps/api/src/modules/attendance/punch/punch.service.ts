@@ -51,8 +51,10 @@ import {
   isIpAllowed,
   isWithinWindow,
   normaliseIp,
+  queuedEffectiveTime,
   windowFor,
   type DateCandidate,
+  type EffectiveTime,
   type PunchWindow,
 } from './punch-policy.js';
 import { DEFAULT_PUNCH_SETTINGS, photoExpiry, type PunchSettings } from './punch-settings.js';
@@ -62,12 +64,22 @@ import { PunchRepository, type NewPunch, type PunchEmployee } from './punch.repo
  * REQ-D-01 … REQ-D-13. The heart of the product, and the file where the order
  * of the checks is the design.
  *
- * Every rejection happens **before** a single byte is written to object
- * storage, so a refused punch leaves nothing behind to reconcile. Every check
- * is here rather than in the controller, and none of them can be satisfied by
- * anything the client says about itself: the photo is re-encoded, the time is
- * the server's, the distance is measured from a centre the client never sees,
- * and the alternating order is read from the database.
+ * Every check is here rather than in the controller, and none of them can be
+ * satisfied by anything the client says about itself: the photo is re-encoded,
+ * the time is the server's, the distance is measured from a centre the client
+ * never sees, and the alternating order is read from the database.
+ *
+ * **A refused punch leaves nothing behind to reconcile.** Every rejection the
+ * server can reach on its own -- no photo, inactive employee, no consent,
+ * locked period, wrong order, outside the window, outside the geofence, mock
+ * location, unbound device, no reason -- happens before a single byte is
+ * written to object storage. The one refusal that cannot is a *race*: two
+ * requests both pass the pre-flight, and only the advisory lock at step 11 can
+ * say which of them is real. The loser has a photo in the bucket by then, so
+ * it deletes it (`discardStoredPhotos`) rather than leaving two objects and
+ * two `files` rows nothing will ever reference -- `purgeExpiredFiles` sweeps
+ * `files`, so an unreferenced row is a photograph of an employee kept for the
+ * full retention window for a punch that was never recorded.
  *
  * Two rules are absolute and are asserted directly rather than being properties
  * of the flow: no photo means no punch (REQ-D-02), and one idempotency key
@@ -537,13 +549,60 @@ export class PunchService {
     }
 
     const settings = await repository.readSettings();
-    const candidates = await this.candidatesFor(repository, ctx, employee, now);
+
+    // 4a. REQ-D-10 against REQ-D-05, resolved for queued punches and for
+    //     nothing else. See `queuedEffectiveTime`: a live punch is judged at
+    //     `now`, exactly as before, and a synced one at the clamped time its
+    //     queue recorded -- because a whole shift drained in one request
+    //     arrives in one instant, and every question below ("which day", "was
+    //     it inside the window") answered at that instant is answered about
+    //     the drain rather than about the shift.
+    //
+    //     The queue's own age limit is applied here, before the derived time
+    //     is used for anything. It used to sit further down, with the rest of
+    //     the plausibility checks, which was fine while nothing depended on
+    //     the client's time -- once the shift lookup does, a three-day-old
+    //     entry resolves a shift for a date the roster does not cover and is
+    //     refused as CONFLICT ("you have no shift for today") instead of
+    //     PUNCH_QUEUED_TOO_OLD, which tells the employee nothing they can act
+    //     on. Technical design §8: "reject queued punches older than 48 hours;
+    //     they must go through regularization instead."
+    if (source === 'OFFLINE_SYNC') {
+      const queuedSeconds = clockSkewSeconds(now, new Date(facts.clientTime));
+      if (queuedSeconds > OFFLINE_SYNC_MAX_AGE_HOURS * SECONDS_PER_HOUR) {
+        throw new AppError(
+          ERROR_CODES.PUNCH_QUEUED_TOO_OLD,
+          `This punch was queued more than ${String(OFFLINE_SYNC_MAX_AGE_HOURS)} hours ago. Raise a regularization for it instead.`,
+          { details: { queuedAt: facts.clientTime, delaySeconds: queuedSeconds } },
+        );
+      }
+    }
+
+    const effective =
+      source === 'OFFLINE_SYNC'
+        ? queuedEffectiveTime(new Date(facts.clientTime), now)
+        : { at: now, derived: false, clamped: false };
+
+    if (source === 'OFFLINE_SYNC' && !effective.derived) {
+      // Unreachable through the schema, which parses `clientTime` as an ISO
+      // instant. Logged rather than guessed at: the punch is then judged at
+      // the sync instant, which is the old behaviour and is wrong for a queued
+      // punch, and a silent wrong day is exactly what this change exists to
+      // stop.
+      this.logger.error({
+        msg: 'A queued punch carried an unusable client time; it will be judged at the sync instant.',
+        idempotencyKey,
+        clientTime: facts.clientTime,
+      });
+    }
+
+    const candidates = await this.candidatesFor(repository, ctx, employee, effective.at);
 
     // 5. REQ-C-02. Which day this punch belongs to, decided once, here.
     const attendanceDate = chooseAttendanceDate(
       candidates.map((entry) => entry.candidate),
       facts.type,
-      now,
+      effective.at,
     );
     const chosen = candidates.find((entry) => entry.candidate.date === attendanceDate);
     if (chosen === undefined) {
@@ -579,6 +638,7 @@ export class PunchService {
       chosen,
       { ...facts, source },
       now,
+      effective,
       meta,
       principal,
     );
@@ -602,6 +662,10 @@ export class PunchService {
       attendanceDate,
       punchType: facts.type,
       serverTime: now,
+      // Only when it differs from arrival; see migration 0014 and the column's
+      // own comment. Writing it for every punch would store the same fact
+      // twice and make "was this derived" a comparison rather than a value.
+      effectiveTime: effective.derived ? effective.at : null,
       clientTime: new Date(facts.clientTime),
       // The same subtraction, filed under the meaning it actually has for this
       // source: a wrong clock on a live punch, a queue delay on a synced one.
@@ -644,40 +708,54 @@ export class PunchService {
     //     committed, and the loser of a race is refused instead of writing a
     //     second IN. See `withPunchOrderingLock` for why a lock and not an
     //     index.
-    const outcome = await repository.withPunchOrderingLock(employee.id, async (locked, tx) => {
-      // REQ-D-11 before REQ-D-01, inside the lock exactly as at step 2 outside
-      // it. A retry that set off before its original committed -- the phone on
-      // one bar, sending twice -- arrives here holding a key that now exists,
-      // and it must get that punch back. Checking the ordering first would
-      // refuse it for an alternation it never broke: its own IN is what is
-      // standing open.
-      const sameKey = await locked.findByIdempotencyKey(employee.id, idempotencyKey);
-      if (sameKey !== null) return { punch: sameKey, replayed: true };
+    //
+    //     Whatever this decides, the photo is already in the bucket: it had to
+    //     be, because `punches.photo_file_id` is NOT NULL and points at a row
+    //     that must exist first. So every path out of here that does not write
+    //     this punch discards what it stored. See `discardStoredPhotos`.
+    let outcome: { punch: PunchRecord; replayed: boolean };
+    try {
+      outcome = await repository.withPunchOrderingLock(employee.id, async (locked, tx) => {
+        // REQ-D-11 before REQ-D-01, inside the lock exactly as at step 2 outside
+        // it. A retry that set off before its original committed -- the phone on
+        // one bar, sending twice -- arrives here holding a key that now exists,
+        // and it must get that punch back. Checking the ordering first would
+        // refuse it for an alternation it never broke: its own IN is what is
+        // standing open.
+        const sameKey = await locked.findByIdempotencyKey(employee.id, idempotencyKey);
+        if (sameKey !== null) return { punch: sameKey, replayed: true };
 
-      const states = await locked.punchStateFor(employee.id, [attendanceDate]);
-      assertOrdering(facts.type, states[0]?.hasOpenIn ?? false, attendanceDate);
+        const states = await locked.punchStateFor(employee.id, [attendanceDate]);
+        assertOrdering(facts.type, states[0]?.hasOpenIn ?? false, attendanceDate);
 
-      if (!consentOnRecord) {
-        await this.consent.record(principal, PUNCH_CONSENT_KEY, tx);
-      }
+        if (!consentOnRecord) {
+          await this.consent.record(principal, PUNCH_CONSENT_KEY, tx);
+        }
 
-      const created = await locked.insert(punchValues);
-      if (created !== null) return { punch: created, replayed: false };
+        const created = await locked.insert(punchValues);
+        if (created !== null) return { punch: created, replayed: false };
 
-      // Unreachable while the lock is held -- nothing else can be inserting
-      // for this employee, and the key was just checked in this transaction.
-      // Kept because the alternative to reading the row is a 500 on a punch
-      // that may well exist, and this endpoint has one job.
-      const winner = await locked.findByIdempotencyKey(employee.id, idempotencyKey);
-      if (winner === null) {
-        throw new Error(
-          `Punch insert for key ${idempotencyKey} was refused but no existing punch was found.`,
-        );
-      }
-      return { punch: winner, replayed: true };
-    });
+        // Unreachable while the lock is held -- nothing else can be inserting
+        // for this employee, and the key was just checked in this transaction.
+        // Kept because the alternative to reading the row is a 500 on a punch
+        // that may well exist, and this endpoint has one job.
+        const winner = await locked.findByIdempotencyKey(employee.id, idempotencyKey);
+        if (winner === null) {
+          throw new Error(
+            `Punch insert for key ${idempotencyKey} was refused but no existing punch was found.`,
+          );
+        }
+        return { punch: winner, replayed: true };
+      });
+    } catch (error: unknown) {
+      await this.discardStoredPhotos(principal, stored);
+      throw error;
+    }
 
     if (outcome.replayed) {
+      // The punch this request was carrying is the one already on record, and
+      // it has its own photograph. This one is evidence of nothing.
+      await this.discardStoredPhotos(principal, stored);
       return {
         punch: outcome.punch,
         day: await this.readDay(principal, employee.id, outcome.punch.attendanceDate),
@@ -696,6 +774,12 @@ export class PunchService {
         type: inserted.type,
         attendanceDate: inserted.attendanceDate,
         serverTime: inserted.serverTime,
+        // REQ-D-10: recorded explicitly, not left to be inferred from the
+        // flag. An auditor asking "why does this day say eight hours" gets
+        // the instant that answer was computed from, and the client time it
+        // came from, from the trail rather than from a reconstruction.
+        effectiveTime: effective.derived ? effective.at.toISOString() : null,
+        clientTime: facts.clientTime,
         source: inserted.source,
         flags: inserted.flags,
         photoFileId: inserted.photo.fileId,
@@ -722,38 +806,51 @@ export class PunchService {
     shift: ShiftForDate,
     facts: SourcedFacts,
     now: Date,
+    effective: EffectiveTime,
     meta: RequestMeta,
     principal: Principal,
   ): Promise<PunchVerdict> {
     const flags = new Set<PunchFlag>();
     let reasonRequired = false;
 
-    // -- clock (REQ-D-05). Server time already decided everything above; this
-    //    only records how far off the device was.
+    // -- clock (REQ-D-05). Measured against the arrival instant whatever the
+    //    punch is judged at: on a live punch this is how wrong the device's
+    //    clock is, and on a queued one it is REQ-D-10's delay. Deriving it
+    //    from `effective.at` instead would report every offline punch as
+    //    perfectly synchronised, which is the one number the requirement asks
+    //    to be shown in reports.
     const skew = clockSkewSeconds(now, new Date(facts.clientTime));
     if (facts.source === 'OFFLINE_SYNC') {
-      if (skew > OFFLINE_SYNC_MAX_AGE_HOURS * SECONDS_PER_HOUR) {
-        throw new AppError(
-          ERROR_CODES.PUNCH_QUEUED_TOO_OLD,
-          `This punch was queued more than ${String(OFFLINE_SYNC_MAX_AGE_HOURS)} hours ago. Raise a regularization for it instead.`,
-          { details: { queuedAt: facts.clientTime, delaySeconds: skew } },
-        );
-      }
+      // The 48-hour refusal is not here: it has to run before the derived time
+      // is used to resolve a shift, so it lives at step 4a in `record`.
+      //
       // No `offline_sync` flag is stored: `source` already says it, and
       // `PunchRepository` puts it back into the API's flag list. One fact, one
       // column.
+      //
+      // `derived_time` is stored, because nothing else says it: this punch was
+      // judged on a time the server was told rather than one it witnessed.
+      if (effective.derived) flags.add('derived_time');
+      // And the clamp is not a detail to bury. A queued time that had to be
+      // pulled back to the sync instant came from a device whose clock is in
+      // the future, which is REQ-D-05's `clock_skew` however the punch
+      // travelled -- and without it a phone set a day ahead would look like an
+      // ordinary drain.
+      if (effective.clamped) flags.add('clock_skew');
     } else if (isClockSkewed(skew)) {
       flags.add('clock_skew');
     }
 
-    // -- window (REQ-D-06)
+    // -- window (REQ-D-06), asked at the instant the punch is judged at rather
+    //    than the instant it arrived. Otherwise every punch in a drain is
+    //    measured against the moment the phone found a network.
     const window = windowFor(
       shift.candidate.policy,
       shift.candidate.scheduledIn,
       shift.candidate.scheduledOut,
       facts.type,
     );
-    const outsideWindow = !isWithinWindow(window, now);
+    const outsideWindow = !isWithinWindow(window, effective.at);
     if (outsideWindow) {
       if (settings.windowBehaviour === 'BLOCK') {
         throw new AppError(
@@ -958,6 +1055,40 @@ export class PunchService {
     });
 
     return { photoFileId: photo.id, thumbnailFileId: thumbnail.id };
+  }
+
+  /**
+   * Undoes `storePhoto` for a punch that turned out not to exist.
+   *
+   * Only ever called with the two ids this request created moments ago and
+   * never referenced -- a punch that was refused inside the lock, or one whose
+   * idempotency key was already taken. `FileService.discardUnreferenced`
+   * deletes the row before the object, so if either id had somehow been
+   * attached to a punch the RESTRICT foreign key refuses and the photograph
+   * survives.
+   *
+   * A failure here never changes the answer the caller gets. The punch is
+   * already decided; turning a leaked object into a refused punch would be the
+   * worse of the two failures, and the log line is what makes the leak
+   * findable.
+   */
+  private async discardStoredPhotos(
+    principal: Principal,
+    stored: { photoFileId: string; thumbnailFileId: string },
+  ): Promise<void> {
+    try {
+      await this.files.discardUnreferenced(principal.orgId, [
+        stored.photoFileId,
+        stored.thumbnailFileId,
+      ]);
+    } catch (error: unknown) {
+      this.logger.error({
+        msg: 'Could not discard the photo of a punch that was not recorded; it is now unreferenced.',
+        photoFileId: stored.photoFileId,
+        thumbnailFileId: stored.thumbnailFileId,
+        reason: describeError(error),
+      });
+    }
   }
 
   /**

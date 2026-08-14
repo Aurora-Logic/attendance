@@ -1,0 +1,28 @@
+-- REQ-D-10 against REQ-E-02/E-03. A shift punched offline and drained in one
+-- request computed as a zero-length day: ABSENT, 0 worked minutes.
+--
+-- `PunchService.sync` takes one `new Date()` for the whole batch, so every
+-- entry in a drain is stamped with the same `server_time` -- which is honest,
+-- they really were all received in that instant -- and the day engine derives
+-- first-in and last-out from `server_time` alone. Measured on a clean
+-- employee: an IN queued eight hours earlier and its OUT both landed on
+-- 2026-08-14T12:17:30.591Z and produced ABSENT with 0 worked minutes, while
+-- the client times the queue had faithfully recorded said 479 minutes.
+--
+-- `effective_time` is the instant a punch is *judged* at, as opposed to the
+-- instant it arrived. NULL for every live punch, where the two are the same
+-- thing and REQ-D-05 stands untouched: web and mobile punches are still
+-- decided on server time and nothing a client says about the clock is
+-- believed. It is written only for an OFFLINE_SYNC punch, from the client time
+-- the queue carried, clamped so it can never exceed the sync instant and never
+-- precede the 48-hour limit that queue already enforces. The punch also
+-- carries a `derived_time` flag, so a derivation is visible in the muster and
+-- in the audit trail rather than silent.
+--
+-- Nullable rather than backfilled to `server_time`: a column that is set only
+-- when it differs is a column that says something, and every existing row was
+-- judged at the instant it arrived, which `server_time` already records.
+--
+-- Reverse with:
+--   ALTER TABLE "punches" DROP COLUMN "effective_time";
+ALTER TABLE "punches" ADD COLUMN "effective_time" timestamp with time zone;

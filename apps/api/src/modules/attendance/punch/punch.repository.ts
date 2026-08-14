@@ -1,4 +1,5 @@
 import {
+  ERROR_CODES,
   employeeDisplayName,
   type EmployeeStatus,
   type HalfDayPart,
@@ -9,6 +10,7 @@ import {
 } from '@vyuha/shared';
 import { and, asc, desc, eq, gte, isNull, lte, sql, type SQL } from 'drizzle-orm';
 
+import { AppError, describeError } from '../../../platform/common/errors.js';
 import type { Database } from '../../../platform/db/db.provider.js';
 import { devices, employees, locations, organizations, settings } from '../../../platform/db/schema/index.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
@@ -122,6 +124,7 @@ const PUNCH_FLAG_ORDER: readonly PunchFlag[] = [
   'device_mismatch',
   'clock_skew',
   'offline_sync',
+  'derived_time',
 ];
 
 export function toPunchRecord(row: PunchRow): PunchRecord {
@@ -184,6 +187,8 @@ export interface NewPunch {
   readonly attendanceDate: string;
   readonly punchType: PunchType;
   readonly serverTime: Date;
+  /** Migration 0014: set only when the punch is judged at another instant. */
+  readonly effectiveTime: Date | null;
   readonly clientTime: Date | null;
   readonly clockSkewSeconds: number | null;
   readonly syncDelaySeconds: number | null;
@@ -239,8 +244,38 @@ export interface DayPunchState {
  */
 export const PUNCH_ORDERING_LOCK_NAMESPACE = 4001;
 
+/**
+ * How hard a punch tries for its employee's key before giving up, and how long
+ * it waits between tries.
+ *
+ * Twelve attempts twenty-five milliseconds apart is about a third of a second,
+ * which is an eternity next to the handful of indexed statements the lock
+ * actually covers, and far short of anything a person would notice. The
+ * numbers are a bound on *waiting*, not on the work: whoever holds the key is
+ * inserting one row.
+ */
+const LOCK_ATTEMPTS = 12;
+const LOCK_RETRY_MS = 25;
+
+/**
+ * What node-postgres says when the pool has no connection to give. Matched on
+ * the text because `pg-pool` throws a plain `Error` with no code, and the
+ * alternative is reporting a pool that is merely busy as a bug in the punch
+ * path.
+ */
+const POOL_TIMEOUT_TEXT = 'timeout exceeded when trying to connect';
+
+const busyError = (reason: string): AppError =>
+  new AppError(
+    ERROR_CODES.SERVICE_BUSY,
+    'That punch could not be recorded just now. It is safe to send it again.',
+    { details: { retryable: true, reason } },
+  );
+
 /** Drizzle's transaction handle; the same idiom `AuthService` uses. */
 export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+type LockOutcome<T> = { readonly acquired: false } | { readonly acquired: true; readonly value: T };
 
 export class PunchRepository {
   constructor(
@@ -553,17 +588,58 @@ export class PunchRepository {
    * Per employee, deliberately. One key for the organisation would serialise
    * the entire workforce at 09:00, which is the one minute of the day this
    * product has to survive.
+   *
+   * `pg_try_advisory_xact_lock` and a retry loop, rather than the blocking
+   * `pg_advisory_xact_lock` this started as. The blocking call waits *inside*
+   * an open transaction, which means it waits holding one of the pool's ten
+   * connections and for as long as the other side takes. One employee whose
+   * key was stuck -- an operator's forgotten psql session, a hung transaction,
+   * two employees colliding on `hashtext` while one of them was slow -- was
+   * therefore enough to park the whole pool: twelve punches for that one
+   * employee left 10/10 backends waiting, and unrelated traffic answered 503
+   * on `/ready` and 500 on `/me/today` after five seconds each. A lock that
+   * protects one employee's ordering must not be able to answer for everybody
+   * else's requests.
+   *
+   * The try-and-retry keeps the wait outside the transaction: each attempt is
+   * one instant statement, the connection goes straight back to the pool if
+   * the key is taken, and the sleep happens holding nothing. A caller that
+   * cannot get the key inside the budget is told so, retryably -- see
+   * `busyError`; REQ-D-11's idempotency key is what makes that safe to act on.
    */
   async withPunchOrderingLock<T>(
     employeeId: string,
     work: (locked: PunchRepository, tx: Transaction) => Promise<T>,
   ): Promise<T> {
-    return this.db.transaction(async (tx) => {
-      await tx.execute(
-        sql`SELECT pg_advisory_xact_lock(${PUNCH_ORDERING_LOCK_NAMESPACE}, hashtext(${employeeId}))`,
-      );
-      return work(new PunchRepository(tx, this.ctx), tx);
-    });
+    for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+      }
+
+      let outcome: LockOutcome<T>;
+      try {
+        outcome = await this.db.transaction(async (tx): Promise<LockOutcome<T>> => {
+          const rows = await tx.execute<{ taken: boolean }>(
+            sql`SELECT pg_try_advisory_xact_lock(${PUNCH_ORDERING_LOCK_NAMESPACE}, hashtext(${employeeId})) AS taken`,
+          );
+          if (rows.rows[0]?.taken !== true) return { acquired: false };
+          return { acquired: true, value: await work(new PunchRepository(tx, this.ctx), tx) };
+        });
+      } catch (error: unknown) {
+        // A pool with nothing to give is the same answer as a key that is
+        // taken, and it must not surface as an unhandled fault -- that is the
+        // 500 an outbox cannot act on. Anything else is a real failure and is
+        // rethrown untouched, including every AppError `work` raises.
+        if (describeError(error).includes(POOL_TIMEOUT_TEXT)) {
+          throw busyError('connection pool exhausted');
+        }
+        throw error;
+      }
+
+      if (outcome.acquired) return outcome.value;
+    }
+
+    throw busyError('another punch for this employee is still being recorded');
   }
 
   /**
@@ -586,6 +662,7 @@ export class PunchRepository {
         attendanceDate: values.attendanceDate,
         punchType: values.punchType,
         serverTime: values.serverTime,
+        effectiveTime: values.effectiveTime,
         clientTime: values.clientTime,
         clockSkewSeconds: values.clockSkewSeconds,
         syncDelaySeconds: values.syncDelaySeconds,

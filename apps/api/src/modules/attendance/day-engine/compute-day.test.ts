@@ -96,7 +96,11 @@ function punch(spec: PunchSpec, index: number): PunchFact {
   return {
     id: `01900000-0000-7000-8000-0000000000${String(index).padStart(2, '0')}`,
     punchType: spec.type,
-    serverTime: spec.at,
+    // `at` is the instant the punch counts at. For a live punch that is its
+    // `server_time`; for a queued one the endpoint has already substituted the
+    // clamped client time (migration 0014), and the engine cannot tell the two
+    // apart -- which is the property the OFFLINE_SYNC rows below rely on.
+    effectiveTime: spec.at,
     source: spec.source ?? 'MOBILE',
     isHalfDayMarked: spec.halfDay ?? false,
     outsideWindow: spec.outsideWindow ?? false,

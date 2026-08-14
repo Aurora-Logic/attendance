@@ -64,6 +64,24 @@ export const punches = pgTable(
     clockSkewSeconds: integer('clock_skew_seconds'),
 
     /**
+     * The instant this punch is *judged* at, as opposed to the instant it
+     * arrived (REQ-D-10, migration 0014).
+     *
+     * NULL for every live punch, and that is the point: REQ-D-05 is untouched
+     * for web and mobile, which are decided on `server_time` and believe
+     * nothing a client says about the clock. Set only on an OFFLINE_SYNC
+     * punch, from the client time the queue carried, clamped so it can never
+     * exceed the sync instant nor precede the 48-hour queue limit -- because a
+     * whole shift drained in one request arrives in one instant, and a day
+     * computed from that instant is a day of zero length.
+     *
+     * Readers coalesce to `server_time`, which is what the day engine's
+     * `PunchFact.effectiveTime` is. A punch carrying this also carries the
+     * `derived_time` flag, so the substitution is never silent.
+     */
+    effectiveTime: timestamp('effective_time', { withTimezone: true }),
+
+    /**
      * REQ-D-02: "Photo is mandatory on both IN and OUT ... there is no bypass."
      * NOT NULL is that sentence expressed where it cannot be argued with.
      * RESTRICT because the photo is the evidence that makes a punch defensible;
