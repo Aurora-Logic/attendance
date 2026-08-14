@@ -16,9 +16,10 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
-import { employees } from '../../../platform/db/schema/index.js';
+import { employees, files } from '../../../platform/db/schema/index.js';
 import { localDateIn } from '../day-engine/calendar-date.js';
 import { attendanceDays, punches, shiftAssignments, shifts } from '../schema/index.js';
+import { DEFAULT_PUNCH_SETTINGS, photoExpiry } from './punch-settings.js';
 
 /**
  * The punch endpoints (REQ-D-01 … REQ-D-13) over real HTTP against the real
@@ -358,6 +359,36 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
     let bright = 0;
     for (const value of band) if (value > 200) bright += 1;
     expect(bright).toBeGreaterThan(100);
+  });
+
+  it('stamps expires_at on the photo and its thumbnail from the retention setting (REQ-L-03)', async () => {
+    const rows = await harness.db
+      .select({
+        purpose: files.purpose,
+        expiresAt: files.expiresAt,
+        punchServerTime: punches.serverTime,
+      })
+      .from(files)
+      .innerJoin(
+        punches,
+        sql`${punches.photoFileId} = ${files.id} OR ${punches.thumbnailFileId} = ${files.id}`,
+      )
+      .where(and(eq(files.orgId, ORG_ID), eq(punches.id, firstPunchId)));
+
+    // Both objects, not just the full image: a purged photo whose thumbnail
+    // survives is not purged.
+    expect(rows.map((row) => row.purpose).sort()).toEqual(['PUNCH_PHOTO', 'PUNCH_PHOTO_THUMB']);
+
+    for (const row of rows) {
+      // No org setting is installed, so the default 12 months applies. The
+      // expected instant is derived from the punch's own server time -- the
+      // `now` the pipeline stamped from -- so the assertion is exact, not a
+      // tolerance window.
+      expect(row.expiresAt).not.toBeNull();
+      expect(row.expiresAt?.getTime()).toBe(
+        photoExpiry(row.punchServerTime, DEFAULT_PUNCH_SETTINGS.photoRetentionMonths).getTime(),
+      );
+    }
   });
 
   it('returns the same punch for a replayed Idempotency-Key (REQ-D-11)', async () => {

@@ -101,7 +101,9 @@ describe('GET /settings (REQ-L-01, REQ-L-02)', () => {
     // difference between a control and a decoration.
     expect(read.body.enforcement.attendance.maxWorkMinutes).toBe('Day engine');
     expect(read.body.enforcement.attendance.regularizationWindowDays).toBeNull();
-    expect(read.body.enforcement.photo.retentionMonths).toBeNull();
+    // In force since the punch pipeline began stamping `files.expires_at`
+    // from this row (REQ-L-03).
+    expect(read.body.enforcement.photo.retentionMonths).toBe('Punch photo pipeline');
   });
 
   it('never returns SMTP credentials', async () => {

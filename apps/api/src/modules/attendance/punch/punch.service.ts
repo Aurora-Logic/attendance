@@ -53,7 +53,7 @@ import {
   type DateCandidate,
   type PunchWindow,
 } from './punch-policy.js';
-import type { PunchSettings } from './punch-settings.js';
+import { photoExpiry, type PunchSettings } from './punch-settings.js';
 import { PunchRepository, type PunchEmployee } from './punch.repository.js';
 
 /**
@@ -846,6 +846,13 @@ export class PunchService {
       timezone: employee.timezone,
     });
 
+    // REQ-L-03: stamped at write time, so the purge job's sweep over
+    // `files.expires_at` selects punch photos without knowing they are punch
+    // photos. The retention months are read from the same settings row the
+    // Settings screen edits, which is what makes the consent notice's promise
+    // a fact rather than copy.
+    const expiresAt = photoExpiry(now, settings.photoRetentionMonths);
+
     const photo = await this.files.storeImage({
       orgId: principal.orgId,
       uploadedBy: principal.userId,
@@ -853,17 +860,20 @@ export class PunchService {
       bytes: stamped,
       pathSegments: [employee.id],
       maxBytes: settings.photoMaxBytes,
+      expiresAt,
     });
 
     // From the stamped image, not the original: REQ-D-03a's thumbnail is what
     // every list renders, and a thumbnail without the stamp would be the one
-    // view of a punch photo that carries no evidence.
+    // view of a punch photo that carries no evidence. It expires with the full
+    // image -- a purged photo whose thumbnail survives is not purged.
     const thumbnail = await this.files.storeImage({
       orgId: principal.orgId,
       uploadedBy: principal.userId,
       purpose: 'PUNCH_PHOTO_THUMB',
       bytes: stamped,
       pathSegments: [employee.id],
+      expiresAt,
     });
 
     return { photoFileId: photo.id, thumbnailFileId: thumbnail.id };

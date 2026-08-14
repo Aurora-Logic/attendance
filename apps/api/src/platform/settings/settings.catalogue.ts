@@ -104,9 +104,9 @@ export const PHOTO_SETTINGS = {
   retentionMonths: {
     key: 'attendance.photo_retention_months',
     help: 'How long a punch photo is kept before the purge job removes it (REQ-L-03).',
-    // The purge job sweeps `files.expires_at`, which is stamped when a file is
-    // written. Nothing stamps it for punch photos yet.
-    enforcedBy: null,
+    // The punch pipeline stamps `files.expires_at` on the photo and its
+    // thumbnail from this row; the purge job sweeps that column nightly.
+    enforcedBy: 'Punch photo pipeline',
   },
   minBytes: {
     key: 'attendance.photo_min_bytes',

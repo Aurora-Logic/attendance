@@ -26,6 +26,7 @@ export const PUNCH_SETTING_KEYS = {
   deviceBindingMode: 'attendance.device_binding_mode',
   photoMinBytes: 'attendance.photo_min_bytes',
   photoMaxBytes: 'attendance.photo_max_bytes',
+  photoRetentionMonths: 'attendance.photo_retention_months',
 } as const;
 
 export type PunchSettingKey = (typeof PUNCH_SETTING_KEYS)[keyof typeof PUNCH_SETTING_KEYS];
@@ -36,6 +37,8 @@ export interface PunchSettings {
   /** REQ-D-03a: the band the stored photo should land in. */
   readonly photoMinBytes: number;
   readonly photoMaxBytes: number;
+  /** REQ-L-03: how long a punch photo lives before the purge job takes it. */
+  readonly photoRetentionMonths: number;
 }
 
 const KB = 1024;
@@ -45,6 +48,8 @@ export const DEFAULT_PUNCH_SETTINGS: PunchSettings = {
   deviceBindingMode: 'WARN',
   photoMinBytes: 80 * KB,
   photoMaxBytes: 150 * KB,
+  // REQ-L-03's default, the same 12 the settings catalogue states.
+  photoRetentionMonths: 12,
 };
 
 // 20 KB is below anything a legible 1280px stamped photo can be; 2 MB is above
@@ -98,5 +103,26 @@ export function resolvePunchSettings(values: ReadonlyMap<string, unknown>): Punc
       DEFAULT_PUNCH_SETTINGS.deviceBindingMode,
     photoMinBytes,
     photoMaxBytes,
+    photoRetentionMonths:
+      // The same 1-120 band the settings catalogue accepts on the way in.
+      read(values, PUNCH_SETTING_KEYS.photoRetentionMonths, z.number().int().min(1).max(120)) ??
+      DEFAULT_PUNCH_SETTINGS.photoRetentionMonths,
   };
+}
+
+/**
+ * When a photo written now falls due for the purge (REQ-L-03).
+ *
+ * Calendar months, with the day clamped: a photo taken on 31 October plus four
+ * months lands on 28/29 February rather than rolling into 2/3 March, so a
+ * twelve-month promise is never quietly a twelve-months-and-three-days one.
+ */
+export function photoExpiry(now: Date, retentionMonths: number): Date {
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth() + retentionMonths;
+  const lastDayOfTarget = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+
+  const expiry = new Date(now);
+  expiry.setUTCFullYear(year, month, Math.min(now.getUTCDate(), lastDayOfTarget));
+  return expiry;
 }
