@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 
@@ -161,11 +162,52 @@ export function useMe() {
     },
     retry: false,
     staleTime: 5 * 60 * 1000,
-    // An offline restore must not be the final word: the moment the browser
-    // reports a connection, ask the server again even though the restored
-    // answer still looks fresh.
+    // Kept for the ordinary case - a tab that was open when the connection
+    // dropped. It is not what makes the guarantee, though; see
+    // `useRevalidateSessionOnReconnect` below for the case it cannot cover.
     refetchOnReconnect: 'always',
   });
+}
+
+/**
+ * Re-asks the server who this is the moment the connection returns.
+ *
+ * An offline restore must not be the final word. A document loaded from the
+ * service worker renders the shell from the `Me` snapshot, and until something
+ * reaches the server that shell is a memory, not a fact: the session behind it
+ * may have been revoked - a sign-out elsewhere, an administrator ending it, a
+ * password change - and a revoked session that keeps showing a working app is
+ * a security problem, not a cosmetic one.
+ *
+ * `refetchOnReconnect: 'always'` above promises exactly this and does not
+ * deliver it on the one document that needs it most. TanStack Query decides
+ * "reconnected" from `onlineManager`, whose state starts at `true` and is
+ * never seeded from `navigator.onLine` (query-core 5.101.4,
+ * `onlineManager.ts`: `#online = true`). A document that *loads* offline sees
+ * no `offline` event - there was no transition, it was already offline - so
+ * the manager still reads online, and the later `online` event moves nothing
+ * and notifies nobody. Measured on a document restored from the snapshot after
+ * an offline reload: zero requests of any kind in the ten seconds after the
+ * connection came back, while every session in the database was revoked and
+ * the tab kept the whole app shell.
+ *
+ * So the rule is bound to the browser's own event rather than to a derived
+ * one. `refetchQueries` and not `invalidateQueries`: the restored answer still
+ * looks fresh, and invalidation only marks it stale - nothing would be
+ * fetched until something happened to observe it again.
+ */
+export function useRevalidateSessionOnReconnect(): void {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const revalidate = (): void => {
+      void queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
+    };
+    window.addEventListener('online', revalidate);
+    return () => {
+      window.removeEventListener('online', revalidate);
+    };
+  }, [queryClient]);
 }
 
 export function useLogin() {
