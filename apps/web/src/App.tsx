@@ -8,7 +8,7 @@ import { EmployeeDetailPage, EmployeesPage } from '@/features/employees';
 import { ApprovalsPage } from '@/features/approvals';
 import { MyAttendancePage, TeamAttendancePage } from '@/features/attendance';
 import { HolidaysPage } from '@/features/holidays';
-import { LeaveTypesPage, MyLeavePage } from '@/features/leave';
+import { LeaveTypesPage, MyLeavePage, TeamLeavePage } from '@/features/leave';
 import { PatternsPage } from '@/features/patterns/patterns-page';
 import { PunchPage } from '@/features/punch';
 import { RegularizationsPage } from '@/features/regularization';
@@ -58,6 +58,7 @@ const BUILT_ROUTES = new Set([
   '/organisation',
   '/analytics',
   '/regularizations',
+  '/team-leave',
 ]);
 
 const queryClient = new QueryClient({
@@ -105,6 +106,7 @@ export default function App() {
               <Route path="organisation" element={<OrgMastersPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="regularizations" element={<RegularizationsPage />} />
+              <Route path="team-leave" element={<TeamLeavePage />} />
 
               {/* Off the sidebar on purpose: reached from the user menu, not
                   from the navigation groups the PRD fixes (§6.1). */}

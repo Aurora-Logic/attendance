@@ -38,12 +38,12 @@ import {
  * error rather than a value that silently never reaches the screen.
  */
 
-const namedRefSchema = z.object({
+export const namedRefSchema = z.object({
   id: z.string(),
   name: z.string(),
 }) satisfies z.ZodType<NamedRef>;
 
-const leaveTypeRefSchema = z.object({
+export const leaveTypeRefSchema = z.object({
   id: z.string(),
   name: z.string(),
   code: z.string(),
