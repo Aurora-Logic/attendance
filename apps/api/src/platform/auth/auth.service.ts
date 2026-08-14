@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ERROR_CODES } from '@vyuha/shared';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -26,6 +26,7 @@ import type {
 } from './auth.dto.js';
 import { signAccessToken } from './jwt.js';
 import { LoginRateLimiter } from './login-rate-limit.service.js';
+import { PasswordResetRateLimiter } from './password-reset-rate-limit.service.js';
 import {
   generateOpaqueToken,
   hashOpaqueToken,
@@ -82,6 +83,7 @@ export class AuthService {
     private readonly sessions: SessionService,
     private readonly principals: PrincipalService,
     private readonly rateLimiter: LoginRateLimiter,
+    private readonly resetLimiter: PasswordResetRateLimiter,
     private readonly mailer: Mailer,
     private readonly auditContext: AuditContext,
     private readonly audit: AuditService,
@@ -541,8 +543,18 @@ export class AuthService {
    * REQ-B-04. Always succeeds from the caller's point of view: answering
    * differently for an unknown address turns this endpoint into a way to
    * enumerate every account in the organisation.
+   *
+   * That same property made the endpoint a free mailbox-bombing primitive
+   * (proven live: sixty rapid requests, sixty 202s, forty-odd emails), so a
+   * sliding-window cap runs first -- per lower-cased address and per IP,
+   * before the account lookup so known and unknown addresses spend budget
+   * identically. Over budget, the insert and the send are silently skipped
+   * and the caller still gets its 202; the limiter fails open if Redis is
+   * down, and the per-account login lockout is untouched either way.
    */
   async requestPasswordReset(email: string, ip: string | null): Promise<void> {
+    if (!(await this.resetLimiter.tryAcquire(email, ip))) return;
+
     const user = await this.findByEmail(email);
 
     if (user === null || user.status !== 'ACTIVE') {
@@ -552,6 +564,19 @@ export class AuthService {
 
     const token = generateOpaqueToken();
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
+
+    // Each new request sweeps the user's spent rows -- expired, or superseded
+    // by a completed reset -- so the table cannot grow without bound under
+    // exactly the traffic the cap above exists for. The audit trail, not this
+    // table, is the record that requests happened.
+    await this.db
+      .delete(passwordResets)
+      .where(
+        and(
+          eq(passwordResets.userId, user.id),
+          or(lte(passwordResets.expiresAt, new Date()), isNotNull(passwordResets.usedAt)),
+        ),
+      );
 
     await this.db.insert(passwordResets).values({
       orgId: user.orgId,
