@@ -17,6 +17,7 @@ import {
   ShieldCheckIcon,
   SquaresFourIcon,
   TreePalmIcon,
+  UmbrellaIcon,
   UsersIcon,
   UsersThreeIcon,
 } from '@phosphor-icons/react';
@@ -97,6 +98,19 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: PERMISSIONS.LEAVE_APPROVE_TEAM,
         phase: 2,
         reqs: 'REQ-I-03',
+      },
+      {
+        to: '/team-leave',
+        label: 'Team leave',
+        shortLabel: 'Away',
+        icon: UmbrellaIcon,
+        // The same key Approvals takes: the screen exists to be read *before*
+        // a decision, so whoever can decide must be able to reach it. The
+        // server scopes what is in it (OPEN-QUESTIONS records that PRD §6.1's
+        // Work group now lists six items rather than five).
+        permission: PERMISSIONS.LEAVE_APPROVE_TEAM,
+        phase: 2,
+        reqs: 'REQ-G-12',
       },
     ],
   },
