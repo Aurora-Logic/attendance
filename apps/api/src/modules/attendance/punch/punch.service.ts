@@ -62,12 +62,22 @@ import { PunchRepository, type NewPunch, type PunchEmployee } from './punch.repo
  * REQ-D-01 … REQ-D-13. The heart of the product, and the file where the order
  * of the checks is the design.
  *
- * Every rejection happens **before** a single byte is written to object
- * storage, so a refused punch leaves nothing behind to reconcile. Every check
- * is here rather than in the controller, and none of them can be satisfied by
- * anything the client says about itself: the photo is re-encoded, the time is
- * the server's, the distance is measured from a centre the client never sees,
- * and the alternating order is read from the database.
+ * Every check is here rather than in the controller, and none of them can be
+ * satisfied by anything the client says about itself: the photo is re-encoded,
+ * the time is the server's, the distance is measured from a centre the client
+ * never sees, and the alternating order is read from the database.
+ *
+ * **A refused punch leaves nothing behind to reconcile.** Every rejection the
+ * server can reach on its own -- no photo, inactive employee, no consent,
+ * locked period, wrong order, outside the window, outside the geofence, mock
+ * location, unbound device, no reason -- happens before a single byte is
+ * written to object storage. The one refusal that cannot is a *race*: two
+ * requests both pass the pre-flight, and only the advisory lock at step 11 can
+ * say which of them is real. The loser has a photo in the bucket by then, so
+ * it deletes it (`discardStoredPhotos`) rather than leaving two objects and
+ * two `files` rows nothing will ever reference -- `purgeExpiredFiles` sweeps
+ * `files`, so an unreferenced row is a photograph of an employee kept for the
+ * full retention window for a punch that was never recorded.
  *
  * Two rules are absolute and are asserted directly rather than being properties
  * of the flow: no photo means no punch (REQ-D-02), and one idempotency key
@@ -644,40 +654,54 @@ export class PunchService {
     //     committed, and the loser of a race is refused instead of writing a
     //     second IN. See `withPunchOrderingLock` for why a lock and not an
     //     index.
-    const outcome = await repository.withPunchOrderingLock(employee.id, async (locked, tx) => {
-      // REQ-D-11 before REQ-D-01, inside the lock exactly as at step 2 outside
-      // it. A retry that set off before its original committed -- the phone on
-      // one bar, sending twice -- arrives here holding a key that now exists,
-      // and it must get that punch back. Checking the ordering first would
-      // refuse it for an alternation it never broke: its own IN is what is
-      // standing open.
-      const sameKey = await locked.findByIdempotencyKey(employee.id, idempotencyKey);
-      if (sameKey !== null) return { punch: sameKey, replayed: true };
+    //
+    //     Whatever this decides, the photo is already in the bucket: it had to
+    //     be, because `punches.photo_file_id` is NOT NULL and points at a row
+    //     that must exist first. So every path out of here that does not write
+    //     this punch discards what it stored. See `discardStoredPhotos`.
+    let outcome: { punch: PunchRecord; replayed: boolean };
+    try {
+      outcome = await repository.withPunchOrderingLock(employee.id, async (locked, tx) => {
+        // REQ-D-11 before REQ-D-01, inside the lock exactly as at step 2 outside
+        // it. A retry that set off before its original committed -- the phone on
+        // one bar, sending twice -- arrives here holding a key that now exists,
+        // and it must get that punch back. Checking the ordering first would
+        // refuse it for an alternation it never broke: its own IN is what is
+        // standing open.
+        const sameKey = await locked.findByIdempotencyKey(employee.id, idempotencyKey);
+        if (sameKey !== null) return { punch: sameKey, replayed: true };
 
-      const states = await locked.punchStateFor(employee.id, [attendanceDate]);
-      assertOrdering(facts.type, states[0]?.hasOpenIn ?? false, attendanceDate);
+        const states = await locked.punchStateFor(employee.id, [attendanceDate]);
+        assertOrdering(facts.type, states[0]?.hasOpenIn ?? false, attendanceDate);
 
-      if (!consentOnRecord) {
-        await this.consent.record(principal, PUNCH_CONSENT_KEY, tx);
-      }
+        if (!consentOnRecord) {
+          await this.consent.record(principal, PUNCH_CONSENT_KEY, tx);
+        }
 
-      const created = await locked.insert(punchValues);
-      if (created !== null) return { punch: created, replayed: false };
+        const created = await locked.insert(punchValues);
+        if (created !== null) return { punch: created, replayed: false };
 
-      // Unreachable while the lock is held -- nothing else can be inserting
-      // for this employee, and the key was just checked in this transaction.
-      // Kept because the alternative to reading the row is a 500 on a punch
-      // that may well exist, and this endpoint has one job.
-      const winner = await locked.findByIdempotencyKey(employee.id, idempotencyKey);
-      if (winner === null) {
-        throw new Error(
-          `Punch insert for key ${idempotencyKey} was refused but no existing punch was found.`,
-        );
-      }
-      return { punch: winner, replayed: true };
-    });
+        // Unreachable while the lock is held -- nothing else can be inserting
+        // for this employee, and the key was just checked in this transaction.
+        // Kept because the alternative to reading the row is a 500 on a punch
+        // that may well exist, and this endpoint has one job.
+        const winner = await locked.findByIdempotencyKey(employee.id, idempotencyKey);
+        if (winner === null) {
+          throw new Error(
+            `Punch insert for key ${idempotencyKey} was refused but no existing punch was found.`,
+          );
+        }
+        return { punch: winner, replayed: true };
+      });
+    } catch (error: unknown) {
+      await this.discardStoredPhotos(principal, stored);
+      throw error;
+    }
 
     if (outcome.replayed) {
+      // The punch this request was carrying is the one already on record, and
+      // it has its own photograph. This one is evidence of nothing.
+      await this.discardStoredPhotos(principal, stored);
       return {
         punch: outcome.punch,
         day: await this.readDay(principal, employee.id, outcome.punch.attendanceDate),
@@ -958,6 +982,40 @@ export class PunchService {
     });
 
     return { photoFileId: photo.id, thumbnailFileId: thumbnail.id };
+  }
+
+  /**
+   * Undoes `storePhoto` for a punch that turned out not to exist.
+   *
+   * Only ever called with the two ids this request created moments ago and
+   * never referenced -- a punch that was refused inside the lock, or one whose
+   * idempotency key was already taken. `FileService.discardUnreferenced`
+   * deletes the row before the object, so if either id had somehow been
+   * attached to a punch the RESTRICT foreign key refuses and the photograph
+   * survives.
+   *
+   * A failure here never changes the answer the caller gets. The punch is
+   * already decided; turning a leaked object into a refused punch would be the
+   * worse of the two failures, and the log line is what makes the leak
+   * findable.
+   */
+  private async discardStoredPhotos(
+    principal: Principal,
+    stored: { photoFileId: string; thumbnailFileId: string },
+  ): Promise<void> {
+    try {
+      await this.files.discardUnreferenced(principal.orgId, [
+        stored.photoFileId,
+        stored.thumbnailFileId,
+      ]);
+    } catch (error: unknown) {
+      this.logger.error({
+        msg: 'Could not discard the photo of a punch that was not recorded; it is now unreferenced.',
+        photoFileId: stored.photoFileId,
+        thumbnailFileId: stored.thumbnailFileId,
+        reason: describeError(error),
+      });
+    }
   }
 
   /**

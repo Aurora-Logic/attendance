@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ERROR_CODES, isUuid, uuidv7, type FilePurpose } from '@vyuha/shared';
-import { and, asc, eq, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -491,6 +491,62 @@ export class FileService {
     }
 
     return { scanned: due.length, purged, alreadyAbsent };
+  }
+
+  /**
+   * Removes files that were stored for something that then did not happen.
+   *
+   * The punch path is why this exists. A punch stores its photo and thumbnail
+   * before it can know whether it will win the ordering lock, so the loser of
+   * a race -- and the losing half of a concurrent retry of one idempotency key
+   * -- ends up holding two objects and two rows that no punch will ever
+   * reference. Leaving them is not merely untidy: `purgeExpiredFiles` sweeps
+   * `files`, so an object whose row is gone is unreachable forever, and a row
+   * that survives is an employee's photograph kept for the whole retention
+   * window for a punch that was never recorded, which is the opposite of what
+   * REQ-M-03's notice promises.
+   *
+   * The row goes first and the object second, deliberately. `punches` points
+   * at `files` with RESTRICT, so a caller that passes an id something *does*
+   * reference gets a foreign-key error here with the object still in place,
+   * rather than a punch whose evidence has been deleted underneath it.
+   */
+  async discardUnreferenced(orgId: string, fileIds: readonly string[]): Promise<number> {
+    if (fileIds.length === 0) return 0;
+
+    const removed = await this.db
+      .delete(files)
+      .where(and(eq(files.orgId, orgId), inArray(files.id, [...fileIds])))
+      .returning({ id: files.id, storageKey: files.storageKey, purpose: files.purpose });
+
+    for (const file of removed) {
+      try {
+        await this.objects.delete(BUCKET_BY_PURPOSE[file.purpose], file.storageKey);
+      } catch (error: unknown) {
+        // The row is already gone, so nothing will ever sweep this object
+        // again. Logged rather than thrown: the caller is on a path that has
+        // already failed or replayed, and turning a leaked object into a
+        // failed punch would be the worse trade.
+        this.logger.error({
+          msg: 'Discarded a file row but could not remove its object; it is now orphaned in the bucket.',
+          fileId: file.id,
+          storageKey: file.storageKey,
+          reason: describeError(error),
+        });
+      }
+    }
+
+    if (removed.length > 0) {
+      this.auditContext.record({
+        orgId,
+        action: 'file.discarded',
+        entityType: 'file',
+        entityId: removed[0]?.id ?? null,
+        before: { fileIds: removed.map((file) => file.id) },
+      });
+    }
+
+    return removed.length;
   }
 
   /** How many rows a purge run would take. Used by the job monitor and tests. */
