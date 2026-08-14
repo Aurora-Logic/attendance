@@ -23,6 +23,14 @@ export const ERROR_CODES = {
   INVITATION_EXPIRED: 'INVITATION_EXPIRED',
   INVITATION_ALREADY_ACCEPTED: 'INVITATION_ALREADY_ACCEPTED',
   PASSWORD_TOO_WEAK: 'PASSWORD_TOO_WEAK',
+  /**
+   * REQ-B-02: one living login per employee (`users_employee_uq`). Its own
+   * code rather than a bare CONFLICT because the caller can act on it -- the
+   * employee already has an account, so the answer is to reset or reactivate
+   * that one, not to invite a second. The email collisions on the same
+   * endpoint stay generic on purpose; those would confirm an address.
+   */
+  EMPLOYEE_ALREADY_LINKED: 'EMPLOYEE_ALREADY_LINKED',
 
   // Authorisation
   FORBIDDEN: 'FORBIDDEN',

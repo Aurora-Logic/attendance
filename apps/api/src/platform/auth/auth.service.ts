@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { env } from '../common/env.js';
 import { AppError, describeError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { uniqueViolationConstraint } from '../db/pg-error.js';
 import { JobRunner } from '../jobs/job-runner.service.js';
 import {
   employees,
@@ -416,6 +417,41 @@ export class AuthService {
   }
 
   private async upsertInvitedUser(
+    tx: Transaction,
+    principal: Principal,
+    input: CreateInvitationDto,
+    existing: { id: string } | null,
+  ): Promise<string> {
+    try {
+      return await this.writeInvitedUser(tx, principal, input, existing);
+    } catch (error: unknown) {
+      // REQ-B-02 allows one living login per employee, and `users_employee_uq`
+      // is what enforces it. The index held; nothing read what it said, so an
+      // ordinary HR mistake -- inviting somebody who already has an account --
+      // arrived as a 500 INTERNAL_ERROR with the failing INSERT and its
+      // parameter values in the error log. Every other collision this endpoint
+      // can hit is already a clean 409, so this one reads like one too.
+      //
+      // Matched by constraint name rather than by "some unique index refused
+      // it": `users` also has the unique index on lower(email), and reporting
+      // that as a duplicate employee would send an administrator to the wrong
+      // field. Anything else keeps the generic conflict the email checks use,
+      // which deliberately says nothing about what already exists.
+      if (uniqueViolationConstraint(error) === 'users_employee_uq') {
+        throw new AppError(
+          ERROR_CODES.EMPLOYEE_ALREADY_LINKED,
+          'That employee already has a login. Reset or reactivate it instead of inviting a second one.',
+          {
+            details: { employeeId: input.employeeId ?? null },
+            cause: error,
+          },
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async writeInvitedUser(
     tx: Transaction,
     principal: Principal,
     input: CreateInvitationDto,

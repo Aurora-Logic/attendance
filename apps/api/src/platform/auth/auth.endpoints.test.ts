@@ -26,6 +26,10 @@ let adminRoleId: string;
 let employeeRoleId: string;
 let admin: { email: string; password: string; id: string };
 let employee: { email: string; password: string; id: string };
+/** The employee record `employee`'s login already occupies (`users_employee_uq`). */
+let linkedEmployeeRecordId: string;
+/** An employee record with no login, so an invitation naming it must succeed. */
+let unlinkedEmployeeRecordId: string;
 let adminToken: string;
 let employeeToken: string;
 
@@ -111,6 +115,8 @@ beforeAll(async () => {
   employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
 
   const employeeRecordId = await harness.createEmployee({ code: 'AE-001', firstName: 'Asha' });
+  linkedEmployeeRecordId = employeeRecordId;
+  unlinkedEmployeeRecordId = await harness.createEmployee({ code: 'AE-002', firstName: 'Bhavna' });
 
   const adminUser = await harness.createUser({
     email: scopedEmail('endpoints-admin'),
@@ -488,6 +494,43 @@ describe('POST /auth/invitations (REQ-B-03)', () => {
       body: { email: employee.email },
     });
     expect(result.status).toBe(409);
+  });
+
+  it('refuses to invite a second login for an employee who already has one', async () => {
+    // `users_employee_uq` allows one living login per employee, and it held --
+    // but nothing caught the violation, so an ordinary HR mistake came back as
+    // a 500 INTERNAL_ERROR and put the failing statement, parameter values and
+    // all, in the error log. Every other collision this endpoint can hit --
+    // the address belongs to another organisation, the account is already
+    // active, the account is suspended -- was already a clean 409.
+    const result = await harness.post<ErrorBody>('/auth/invitations', {
+      token: adminToken,
+      body: { email: scopedEmail('second-login'), employeeId: linkedEmployeeRecordId },
+    });
+
+    expect(result.status).toBe(409);
+    expect(result.body.error.code).toBe('EMPLOYEE_ALREADY_LINKED');
+    expect(result.body.error.details?.employeeId).toBe(linkedEmployeeRecordId);
+    // The refusal must not carry the SQL or the row it collided with.
+    expect(result.text).not.toContain('users_employee_uq');
+    expect(result.text).not.toContain('insert into');
+  });
+
+  it('still invites an employee who has no login yet', async () => {
+    // The guard above must refuse the collision and nothing else: an employee
+    // record with no account is the ordinary case this endpoint exists for.
+    const result = await harness.post<{ userId: string }>('/auth/invitations', {
+      token: adminToken,
+      body: { email: scopedEmail('first-login'), employeeId: unlinkedEmployeeRecordId },
+    });
+
+    expect(result.status).toBe(201);
+
+    const rows = await harness.db
+      .select({ employeeId: users.employeeId })
+      .from(users)
+      .where(eq(users.id, result.body.userId));
+    expect(rows[0]?.employeeId).toBe(unlinkedEmployeeRecordId);
   });
 
   it('refuses an unknown or forged invitation token', async () => {
