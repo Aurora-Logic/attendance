@@ -12,9 +12,34 @@ and the entire deployment column.
 
 ## Progress — 14 Aug 2026, evening
 
-Five branches merged to main. Gates on the merged result: typecheck 0 errors,
-lint 0 warnings, **1,369 tests passing** (25 shared, 133 web, 1,211 api),
+Seven branches merged to main. Gates on the merged result: typecheck 0 errors,
+lint 0 warnings (plus two drift guards — guide anchors and service-worker
+precache), **1,402 tests passing** (25 shared, 163 web, 1,214 api),
 production build clean.
+
+**Read this first if you read nothing else.** Two things found today were
+invisible to every test suite and to the vite dev server, and only appeared
+when the *production build* was driven in a real browser:
+
+1. **Reconnecting after an offline reload revoked the entire session family.**
+   On an offline-loaded page there is no access token in memory, so when
+   signal returned the session refetch and the queue drain each presented the
+   same single-use rotating refresh cookie. The server did exactly what
+   REQ-B-05 specifies — called the second one theft and revoked everything —
+   so the employee was thrown to the sign-in form and the queued punch was
+   stranded. 3/3 in the production build, 0/3 on the dev server: the faster
+   build loses the race every time. Fixed client-side (refresh is now
+   single-flight; both senders acquire a token before sending). **No server
+   control was softened** — see §2 row 10, still open.
+2. **CI's browser gate could never fail.** The driving step piped through
+   `tee` under `bash -e` without `pipefail`, so the step reported `tee`'s
+   exit code; and the seed-password grep matched the seed's dash separator,
+   so CI had been signing in with `-------`. Both fixed. Expect that job to
+   be able to go red now — that is the point.
+
+The lesson worth carrying: `pnpm dev` is not what the pilot runs. Rehearse
+the offline path against a production build or you are rehearsing a
+different application.
 
 | Workstream | State |
 |---|---|
@@ -23,9 +48,22 @@ production build clean.
 | WS-C security gate | **Ran, said DO NOT DEPLOY, two blockers fixed.** (1) Consent was client-side only — the API stored photo punches with no acceptance row, proven live; now enforced inside the punch transaction (422 `CONSENT_REQUIRED` without it), including the offline sync path, with notice version and quoted retention recorded (migration 0013). (2) `POST /auth/password-resets` had no rate limit at any layer — 60 requests delivered 43 real emails; now capped 3/address/hour, still answering 202 so enumeration stays blind. Four further findings closed: `STORAGE_ORIGIN` made required (empty shipped a CSP that silently blocked **every** punch photo), root `.dockerignore`, Redis `--requirepass`, photo-retention floor raised to 3 months (a 1-month floor could purge a photo while its punch was still disputable). 71 controls verified working. |
 | Smoothness pass (unplanned) | **Done**, under `emil-design-eng` + `thumb-reach`. Zero layout shift on punch / My Attendance / My Leave (skeletons rebuilt to measured content metrics), 44px password reveal, camera preview eases in, bottom-nav tabs uniform, PWA metadata warning gone. Every change measured at 360px and 1440px in both themes. |
 | Bug hunt + fixes (unplanned) | **Done.** A CDP hunt over the day-one flows found one launch-blocker crash (two hooks cached different shapes under one query key, reliably killing Team Attendance after Employees) plus five bugs; all fixed, and a new scan test now fails the build on any duplicate query key — it caught a second latent collision on the way in. Also fixed: an offline reload hid the queued punch behind an unusable sign-in form; one wrong password burned two of five lockout attempts. |
+| Merge re-verification (unplanned) | **Ran, said MERGE PROBLEMS, all fixed.** Three agents drove merged main in production builds because three separate agents had edited the punch flow and a clean textual merge can still break semantically. It found the session-revocation blocker above, a first-ever install that booted to a **blank page** offline (the entry bundle was never precached — and an immutable HTTP cache had been hiding it), a dev-server offline reload showing *invented* attendance (network failure was misread as "endpoint not built"), and a punch button pressable while the camera held no frame. All fixed; 20 other claims held, including the whole consent gate under adversarial attempts. |
+| Seed and CI (unplanned) | **Done.** The administrator's login is now linked to employee VY-0001 — chosen over a dedicated employee row, which would have put a 26th body into headcount, muster and every export. verify-ui 72/73 → **73/73**. |
 | WS-D data load and onboarding | **Blocked on §2 inputs.** Nothing loaded yet. |
 | WS-E final verify | Pending WS-D. |
 | WS-F charts and insights | Not started (launch-week, not go/no-go). |
+
+**§2 row 10 is now urgent and evidenced.** The single-flight fix closes the
+within-one-document race, which is the one the offline punch path hits. It
+does **not** close two separate documents: two tabs opened together, a
+restored window, or a quick double-reload still present the same cookie twice
+and still revoke the family. That is P1-6, and softening reuse detection is
+the owner's call, not a session's. Recommended: a ~10-second server-side
+rotation tolerance (accept the just-rotated token briefly and return the same
+replacement — genuine theft replays are separated by minutes, not seconds).
+A client-side Web Lock would also close the two-tab case but does nothing for
+a browser restart.
 
 **The critical path is now entirely §2** — DNS pointed at the VPS, SMTP, R2-or-MinIO, geofence coordinates, shift timings, roster, leave types with opening balances, holidays. No code work blocks the pilot.
 
