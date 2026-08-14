@@ -33,7 +33,14 @@ services:
         condition: service_healthy
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN in .env.production}
-      STORAGE_ORIGIN: ${STORAGE_ORIGIN:-}
+      # Required, not defaulted, and deliberately so: this origin is what the
+      # CSP allows punch photos to load from, and photos are never served
+      # same-origin in this topology (see the Caddyfile). An empty value
+      # would ship a CSP that silently blocks every photo -- a deploy that
+      # looks fine until the first punch renders a broken image. Deriving a
+      # default from DOMAIN was rejected because it only guesses right for
+      # the MinIO profile and would mask the same mistake on an R2 deploy.
+      STORAGE_ORIGIN: ${STORAGE_ORIGIN:?set STORAGE_ORIGIN in .env.production (the origin browsers fetch punch photos from; the CSP allows it)}
       # An empty site key is a Caddyfile syntax error, and Caddy's own
       # {$VAR:default} form only covers unset, not set-and-empty (which is
       # what an env file's STORAGE_DOMAIN= produces). The fallback therefore
