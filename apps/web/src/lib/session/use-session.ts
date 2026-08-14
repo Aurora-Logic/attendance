@@ -74,6 +74,11 @@ export function useLogin() {
       const result = await apiRequest<LoginResponse>('/auth/login', {
         method: 'POST',
         body: input,
+        // A 401 from this endpoint is the verdict on the typed password, not a
+        // stale token. Without this, the client's refresh-and-retry replayed
+        // the same wrong password - observed as login 401, refresh 200, login
+        // 401 - burning two of REQ-B-10's five lockout attempts per typo.
+        skipRefresh: true,
       });
       setAccessToken(result.accessToken);
       return result;

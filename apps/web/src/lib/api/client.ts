@@ -93,7 +93,13 @@ interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
-  /** Internal: suppresses the refresh-and-retry, so refreshing cannot recurse. */
+  /**
+   * Suppresses the refresh-and-retry. Set on the refresh call itself so it
+   * cannot recurse, and on public auth endpoints - login, and any future
+   * password-reset or invitation-accept call - where a 401 is the endpoint's
+   * verdict rather than an expired token, and a retry would replay the very
+   * request being refused.
+   */
   skipRefresh?: boolean;
 }
 
