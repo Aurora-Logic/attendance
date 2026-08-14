@@ -9,6 +9,7 @@ import { Job, Queue, Worker, type JobsOptions } from 'bullmq';
 
 import { env } from '../common/env.js';
 import { AppError, describeError } from '../common/errors.js';
+import { StartupError } from '../common/startup-error.js';
 import { bullConnectionOptions } from './bull-connection.js';
 import { JobRegistry, type JobResult } from './job-handler.js';
 import {
@@ -16,6 +17,9 @@ import {
   ENQUEUE_TIMEOUT_MS,
   JOB_QUEUE,
   SCHEDULED_JOBS,
+  SHUTDOWN_BUDGET_MS,
+  SHUTDOWN_STAGE_MS,
+  WORKER_SHUTDOWN_BUDGET_MS,
   type JobName,
   type JobPayloads,
   type QueueName,
@@ -85,6 +89,19 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
       prefix: env.JOBS_QUEUE_PREFIX,
       defaultJobOptions: DEFAULT_JOB_OPTIONS,
     });
+
+    // Same reason the worker has one: without a listener BullMQ's EventEmitter
+    // turns a connection error into an unhandled error event, and a boot with
+    // Redis down printed bare `connect ECONNREFUSED` stack traces -- 160 of
+    // them in 25 seconds -- with nothing naming the queue they came from.
+    queue.on('error', (error: Error) => {
+      this.logger.error({
+        msg: 'Job queue connection error.',
+        queue: name,
+        reason: describeError(error),
+      });
+    });
+
     this.queues.set(name, queue);
     return queue;
   }
@@ -166,6 +183,14 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
    * Registers the recurring work from `SCHEDULED_JOBS`. Upsert by id, so
    * restarting does not stack duplicates and editing the pattern updates the
    * existing scheduler instead of leaving the old one firing too.
+   *
+   * Bounded for the reason `enqueue` is, and it matters more here: this runs
+   * inside `onApplicationBootstrap`, which `app.listen()` awaits. Booting with
+   * Redis unreachable used to stop on the first upsert and stay there -- a
+   * process alive for ever, holding no port, never reaching `app.listen`, with
+   * nothing in its output but repeated connection stack traces. Failing the
+   * boot is right (a process that cannot queue must not take traffic); failing
+   * it silently and for ever is not.
    */
   private async installSchedules(): Promise<void> {
     for (const scheduled of SCHEDULED_JOBS) {
@@ -178,10 +203,18 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
         continue;
       }
 
-      await this.queueFor(JOB_QUEUE[scheduled.jobName]).upsertJobScheduler(
-        scheduled.schedulerId,
-        { pattern: scheduled.pattern },
-        { name: scheduled.jobName, data: { requestedAt: new Date().toISOString() } },
+      await this.withinDeadline(
+        this.queueFor(JOB_QUEUE[scheduled.jobName]).upsertJobScheduler(
+          scheduled.schedulerId,
+          { pattern: scheduled.pattern },
+          { name: scheduled.jobName, data: { requestedAt: new Date().toISOString() } },
+        ),
+        ENQUEUE_TIMEOUT_MS,
+        () =>
+          new StartupError(
+            `Redis did not accept the job scheduler "${scheduled.schedulerId}" within ${String(ENQUEUE_TIMEOUT_MS)}ms.`,
+            `REDIS_URL points at a server this process cannot reach. The API refuses to serve traffic it cannot queue background work from; fix Redis, or start this process with JOBS_WORKER_ENABLED=false only once Redis is reachable.`,
+          ),
       );
     }
   }
@@ -287,13 +320,82 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
 
   // -------------------------------------------------------------- shutdown
 
+  /**
+   * Shutdown that always finishes.
+   *
+   * `Worker.close()` waits for the current jobs and for its own connections,
+   * and a connection configured to retry for ever (BullMQ's requirement) never
+   * reports that it has given up. A process that had lived through a Redis
+   * outage therefore never completed this hook: measured still alive 90s after
+   * SIGTERM, holding no port, with Redis already back and `/ready` answering
+   * `redis ok` in 38ms. An instance that never lost Redis exited in 2s.
+   *
+   * So each stage is bounded and the next one is harsher than the last -- ask
+   * politely, then force, then drop the sockets -- and the whole teardown
+   * shares one budget, because per-stage bounds multiply into a total that
+   * outlasts the orchestrator's patience. Nothing here rethrows: the only
+   * outcome that matters is that this method returns, because a shutdown hook
+   * that does not is a deploy that does not.
+   */
   async onApplicationShutdown(): Promise<void> {
+    const started = Date.now();
+
     // Workers first: a worker closed after its queue would keep trying to read
-    // from a connection that is already going away.
-    await Promise.all([...this.workers.values()].map((worker) => worker.close()));
+    // from a connection that is already going away. They get a share of the
+    // budget rather than all of it -- see `WORKER_SHUTDOWN_BUDGET_MS`.
+    await Promise.all(
+      [...this.workers.values()].map((worker) =>
+        this.stopWorker(worker, started + WORKER_SHUTDOWN_BUDGET_MS),
+      ),
+    );
     this.workers.clear();
 
-    await Promise.all([...this.queues.values()].map((queue) => queue.close()));
+    const queueDeadline = started + SHUTDOWN_BUDGET_MS;
+    await Promise.all(
+      [...this.queues.values()].map(async (queue) => {
+        if (await this.attempt(queue.close(), 'queue close', queueDeadline)) return;
+        await this.attempt(queue.disconnect(), 'queue disconnect', queueDeadline);
+      }),
+    );
     this.queues.clear();
+  }
+
+  private async stopWorker(worker: Worker, deadline: number): Promise<void> {
+    // `close()` drains in-flight jobs, which is what we want when it works.
+    // `close(true)` abandons them, which is the right answer for a worker held
+    // up by one long job -- an abandoned job is picked up again by BullMQ's
+    // stalled-job recovery. Neither helps when the connection itself is wedged,
+    // which is what `disconnect` is for.
+    if (await this.attempt(worker.close(), 'worker close', deadline)) return;
+    if (await this.attempt(worker.close(true), 'forced worker close', deadline)) return;
+    await this.attempt(worker.disconnect(), 'worker disconnect', deadline);
+  }
+
+  /**
+   * True when the work finished inside the bound; false on timeout or error.
+   *
+   * The wait is the shorter of one stage and whatever is left of the shared
+   * budget, so a stage that starts late gets less rather than extending the
+   * total. Once the budget is spent every remaining stage is skipped outright.
+   */
+  private async attempt(work: Promise<unknown>, what: string, deadline: number): Promise<boolean> {
+    const remaining = Math.min(SHUTDOWN_STAGE_MS, deadline - Date.now());
+
+    if (remaining <= 0) {
+      this.logger.warn({ msg: `Shutdown: no budget left for ${what}; skipping it.` });
+      return false;
+    }
+
+    try {
+      await this.withinDeadline(
+        work,
+        remaining,
+        () => new Error(`${what} did not finish within ${String(remaining)}ms.`),
+      );
+      return true;
+    } catch (error: unknown) {
+      this.logger.warn({ msg: `Shutdown: ${what} gave up.`, reason: describeError(error) });
+      return false;
+    }
   }
 }

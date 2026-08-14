@@ -179,6 +179,40 @@ export const DEFAULT_JOB_OPTIONS: JobsOptions = {
 export const ENQUEUE_TIMEOUT_MS = 2_000;
 
 /**
+ * What the whole queue teardown gets, and what any single stage of it gets.
+ *
+ * `Worker.close()` waits on connections that retry forever, so a process that
+ * has lived through a Redis outage never finished its Nest shutdown hook and
+ * therefore ignored SIGTERM. Measured: an instance that survived a 20s outage
+ * was still alive 90s after SIGTERM holding no port -- with Redis provably
+ * back, `/ready` reporting `redis ok` at 38ms -- while an instance that never
+ * lost Redis exited in 2s. On the production compose that is a deploy that
+ * hangs until Docker sends SIGKILL.
+ *
+ * A budget for the whole teardown rather than one per stage, because per-stage
+ * bounds multiply: three stages across workers and then two across queues is
+ * five times the number, and the first version of this fix took 15s to exit --
+ * past Docker's ten-second default grace, so the deploy was still killed.
+ * `docker-compose.prod.yml` states a `stop_grace_period` with room for this
+ * plus the Redis and Postgres hooks that follow it.
+ */
+export const SHUTDOWN_BUDGET_MS = 6_000;
+export const SHUTDOWN_STAGE_MS = 2_000;
+
+/**
+ * The share of the budget the workers may spend, so the queues always get a
+ * turn at the end of it.
+ *
+ * Workers are the half that wedges -- a worker holds a blocking read open, and
+ * that is the connection that stops answering. A queue's connection closes in
+ * milliseconds. Letting the workers spend everything meant the queues were
+ * skipped entirely ("no budget left for queue close", three times) and their
+ * sockets were still open when the hook returned, which is one more thing
+ * holding the event loop after a shutdown that was supposed to end it.
+ */
+export const WORKER_SHUTDOWN_BUDGET_MS = 4_000;
+
+/**
  * Recurring work, as job schedulers. §11 puts the maintenance sweep on a
  * weekly cron; 03:00 on Sunday is chosen so a large purge runs when nobody is
  * punching.

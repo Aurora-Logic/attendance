@@ -1,10 +1,16 @@
 import { ERROR_CODES } from '@vyuha/shared';
+import { Worker } from 'bullmq';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { AppError } from '../common/errors.js';
 import { JobRunner } from './job-runner.service.js';
-import { ENQUEUE_TIMEOUT_MS, QUEUES } from './queue.registry.js';
+import {
+  ENQUEUE_TIMEOUT_MS,
+  QUEUES,
+  SHUTDOWN_BUDGET_MS,
+  SHUTDOWN_STAGE_MS,
+} from './queue.registry.js';
 
 /**
  * What the API does when Redis stops answering.
@@ -131,6 +137,52 @@ describe('enqueueing while Redis does not answer', () => {
       add.mockRestore();
     }
   }, 30_000);
+});
+
+describe('shutdown', () => {
+  /**
+   * Two API processes that had lived through a Redis outage were still alive
+   * 10m36s and 4m45s after SIGTERM, holding no port, while three that never
+   * lost Redis exited cleanly on the same signal. Reproduced at 90s with Redis
+   * already back and `/ready` answering `redis ok` in 38ms, which is what rules
+   * out "it is still waiting for Redis": `Worker.close()` waits on a connection
+   * that has no concept of giving up.
+   *
+   * On the production compose that is a deploy that hangs until Docker sends
+   * SIGKILL, so the property under test is not "closes cleanly" but "returns".
+   */
+  it('finishes even when every worker close never settles', async () => {
+    runner.startWorkers();
+
+    // Both the polite close and the forced one, for every worker. `disconnect`
+    // is deliberately left real: it is the last resort the shutdown falls back
+    // to, so letting it run proves the fallback works *and* leaves no worker
+    // consuming jobs that belong to the next test file.
+    const stalled: Worker[] = [];
+    const close = vi
+      .spyOn(Worker.prototype, 'close')
+      .mockImplementation(function stall(this: Worker): Promise<void> {
+        stalled.push(this);
+        return neverSettles();
+      });
+
+    try {
+      const started = Date.now();
+      await runner.onApplicationShutdown();
+      const elapsed = Date.now() - started;
+
+      expect(stalled.length).toBeGreaterThan(0);
+      // The lower bound says the shutdown genuinely waited and then stopped
+      // waiting, rather than skipping the close altogether. The upper bound is
+      // the whole point, and it is the shared budget rather than a sum of
+      // stages: before either existed this call never returned, and the test
+      // could only end by timing out.
+      expect(elapsed).toBeGreaterThanOrEqual(SHUTDOWN_STAGE_MS);
+      expect(elapsed).toBeLessThan(SHUTDOWN_BUDGET_MS * 2);
+    } finally {
+      close.mockRestore();
+    }
+  }, 120_000);
 });
 
 describe('a queue that answers normally', () => {
