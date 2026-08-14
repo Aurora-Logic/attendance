@@ -37,19 +37,50 @@ const SHELL_CACHE = CACHE_PREFIX + VERSION;
 const SHELL_URL = new URL('/', self.location.href).href;
 
 /**
- * What must be present for the app to start with no network at all.
+ * The build's own output, stamped in by the `serviceWorker()` plugin in
+ * vite.config.ts. Empty in development, where there are no chunk names at all
+ * and every module is fetched individually.
  *
- * Deliberately short. The application chunks are not listed because their names
- * change every build and a stale list is worse than none - they are cached as
- * they are fetched instead, which is also what makes this work against the dev
- * server, where there are no chunk names at all.
+ * Derived rather than written down. The names carry a content hash, so a
+ * hand-kept list would be wrong after the first component edit - and wrong
+ * silently, which is how this failed before: the chunks were left out
+ * altogether "because their names change every build", and cached only as they
+ * were fetched. That works from the second controlled load onwards. On the
+ * first, every module is fetched before a worker exists to see it, so nothing
+ * held the entry bundle, and an offline reload served the shell and then
+ * ERR_FAILED on the script - a blank page, no sign-in, no sight of the punch
+ * waiting in the queue. That is the walk from a desk to a gate with no signal.
  */
-const PRECACHE = [
-  '/',
+const BUILD_CRITICAL = __SW_BUILD_CRITICAL__;
+const BUILD_OPTIONAL = __SW_BUILD_OPTIONAL__;
+
+/**
+ * What must be present for the app to start with no network at all. If any of
+ * these is missing the install fails, and that is the right trade: a worker
+ * that cannot serve the app offline is worse than no worker, because it looks
+ * like one that can.
+ */
+const PRECACHE_CRITICAL = ['/', ...BUILD_CRITICAL];
+
+/**
+ * Wanted, but not worth failing an install over. A missing icon costs an icon;
+ * a missing font subset costs a fallback typeface. Each is fetched on its own
+ * so one bad entry cannot take the rest down with it.
+ *
+ * Everything `index.html` and the manifest reference is here, and
+ * `scripts/check-precache.mjs` fails the lint if that ever stops being true.
+ * The favicon was the one that was missed, and it cost a `net::ERR_FAILED` on
+ * every single offline load - noise in the one console where a real error has
+ * to be spotted.
+ */
+const PRECACHE_OPTIONAL = [
   '/manifest.webmanifest',
+  '/icons/favicon.svg',
+  '/icons/apple-touch-icon-180.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/maskable-512.png',
+  ...BUILD_OPTIONAL,
 ];
 
 /**
@@ -138,7 +169,17 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await openShell();
-      await cache.addAll(PRECACHE);
+      await cache.addAll(PRECACHE_CRITICAL);
+      await Promise.all(
+        PRECACHE_OPTIONAL.map((url) =>
+          cache.add(url).catch((cause) => {
+            // Reported rather than swallowed: the app still works, but a
+            // permanently missing entry is a build problem somebody has to
+            // see, and a silent one never gets fixed.
+            console.warn('Service worker could not precache', url, cause);
+          }),
+        ),
+      );
       // Do not wait for every tab to close. A worker that sits in `waiting`
       // for days is how a broken deploy becomes unfixable, and this app is
       // opened at a gate and left open.

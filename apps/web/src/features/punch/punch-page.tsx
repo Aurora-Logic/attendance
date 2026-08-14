@@ -338,9 +338,18 @@ export function PunchPage() {
   const consentNeeded = today ? !today.consentAccepted : false;
   const consentOk = !consentNeeded || consented;
 
+  // `camera.hasFrame` and not just `camera.state`, because the two disagree
+  // for a moment and the gap is a button that cannot do what it says. The
+  // confirmation panel unmounts the `<video>` while the stream stays live, so
+  // on "Back to the punch screen" the state is still 'ready' and the rebuilt
+  // element has nothing in it. Measured: enabled at +8ms, first frame at +9ms,
+  // and a press inside that window reached submit(), captured null and queued
+  // nothing. One millisecond in a headless browser on a canvas stream; a real
+  // phone camera takes very much longer to hand over its first frame.
   const canPunch =
     today !== undefined &&
     camera.state === 'ready' &&
+    camera.hasFrame &&
     !blockedByWindow &&
     reasonOk &&
     consentOk &&
@@ -876,11 +885,18 @@ export function PunchPage() {
                   <FingerprintIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
                   {camera.state !== 'ready'
                     ? 'The camera has to be working before you can punch.'
-                    : blockedByWindow
-                      ? 'The window for this shift has closed.'
-                      : !consentOk
-                        ? 'Accept the photo and location notice to continue.'
-                        : `Type a reason of at least ${String(MIN_REASON_LENGTH)} characters.`}
+                    : !camera.hasFrame
+                      ? // Its own line, not folded into the one above. "The
+                        // camera has to be working" reads as a fault to fix;
+                        // this is a second-long wait for the first frame, and
+                        // saying so is the difference between waiting and
+                        // going looking for a permission setting.
+                        'Waiting for the camera preview.'
+                      : blockedByWindow
+                        ? 'The window for this shift has closed.'
+                        : !consentOk
+                          ? 'Accept the photo and location notice to continue.'
+                          : `Type a reason of at least ${String(MIN_REASON_LENGTH)} characters.`}
                 </p>
               ) : null}
             </div>

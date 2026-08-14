@@ -33,9 +33,20 @@ export interface Sampled<T> {
  * "the endpoint refused". A 403, a 401 or a 500 are real answers from a real
  * server and must reach the screen's error state untouched — falling back on
  * those would paper over a permission bug with plausible-looking rows.
+ *
+ * A 404 and nothing else. `NETWORK_ERROR` used to count, and it is the one
+ * code that must not: it means no server was reached at all, which is the
+ * ordinary state of this app on a phone with no signal. On a development
+ * offline reload the punch screen therefore showed invented attendance -
+ * measured against a database holding an OUT at 14:30, the strip read "Status
+ * Present, Last punch Out 18:00" - and the sample's `consentAccepted: false`
+ * put the photo-and-location notice back in front of somebody whose
+ * acceptance was already recorded. A production build folds the branch away,
+ * so the one build where the offline path can be rehearsed was the one build
+ * that lied about it.
  */
 export function isUnbuiltEndpoint(error: unknown): boolean {
-  return error instanceof ApiError && (error.code === 'NETWORK_ERROR' || error.status === 404);
+  return error instanceof ApiError && error.status === 404;
 }
 
 type SampleModule = typeof import('@/lib/fixtures/attendance');
