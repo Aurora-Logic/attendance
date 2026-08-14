@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ERROR_CODES } from '@vyuha/shared';
+import { ERROR_CODES, isUuid, type OrgBranding } from '@vyuha/shared';
 import { z } from 'zod';
 
 import { AuditContext } from '../audit/audit-context.js';
 import { AppError, describeError } from '../common/errors.js';
 import { env } from '../common/env.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { FileService } from '../files/file.service.js';
 import { Mailer } from '../mail/mailer.js';
 import { orgContextOf, type Principal } from '../rbac/principal.js';
 import {
@@ -78,6 +79,7 @@ export class SettingsService {
     @InjectDatabase() private readonly db: Database,
     private readonly auditContext: AuditContext,
     private readonly mailer: Mailer,
+    private readonly files: FileService,
   ) {}
 
   async read(principal: Principal): Promise<OrgSettingsView> {
@@ -107,6 +109,130 @@ export class SettingsService {
     });
 
     return after;
+  }
+
+  // --------------------------------------------------------------- branding
+
+  /**
+   * REQ-L-01's logo and the organisation's name, for anybody who is signed in.
+   *
+   * Deliberately not gated on `settings.manage` like the rest of this service:
+   * the logo is rendered in the sidebar of every screen, and a permission here
+   * would mean every employee saw the monogram while the administrator who
+   * uploaded it saw the mark. `FILE_READ_RULES` already says the same thing --
+   * `ORG_LOGO` is readable by any authenticated principal and nothing else in
+   * `files` is.
+   */
+  async branding(principal: Principal): Promise<OrgBranding> {
+    const profile = await this.requireProfile(this.repository(principal));
+    const link = await this.signLogo(principal, profile.logoKey);
+
+    return {
+      name: profile.name,
+      logoUrl: link?.url ?? null,
+      logoUrlExpiresInSeconds: link?.expiresInSeconds ?? null,
+    };
+  }
+
+  /**
+   * Stores an uploaded logo and points the organisation at it (REQ-L-01,
+   * OPEN-QUESTIONS P0-7).
+   *
+   * Nothing here inspects the bytes. `FileService.storeImage` sniffs the type
+   * by magic bytes -- never the declared content type, which the same party
+   * that supplied the bytes chose -- and re-encodes through sharp, so what is
+   * stored is written from decoded pixels and not from anything the client
+   * sent. That is the identical pipeline a punch photo goes through, and using
+   * it rather than a second one is the point.
+   */
+  async replaceLogo(principal: Principal, bytes: Buffer): Promise<OrgBranding> {
+    const repository = this.repository(principal);
+    const before = await this.requireProfile(repository);
+
+    const stored = await this.files.storeImage({
+      orgId: principal.orgId,
+      uploadedBy: principal.userId,
+      purpose: 'ORG_LOGO',
+      bytes,
+    });
+
+    await repository.write({ profile: { logoKey: stored.id }, values: new Map() });
+
+    // The object the organisation has just stopped pointing at. Handed to the
+    // retention sweep rather than deleted inline: an unreferenced object in a
+    // bucket forever is a slow leak, and deleting it here would risk removing
+    // the file that the row above still names if that write had failed.
+    await this.retireLogo(principal.orgId, before.logoKey);
+
+    this.auditContext.record({
+      action: 'settings.logo_updated',
+      entityType: 'settings',
+      entityId: before.id,
+      before: { logoKey: before.logoKey },
+      after: { logoKey: stored.id, mime: stored.mime, bytes: stored.bytes },
+    });
+
+    return this.branding(principal);
+  }
+
+  /** REQ-L-01: back to the monogram, everywhere, for everybody. */
+  async removeLogo(principal: Principal): Promise<OrgBranding> {
+    const repository = this.repository(principal);
+    const before = await this.requireProfile(repository);
+
+    if (before.logoKey === null) {
+      // Idempotent rather than a 404. "There is no logo" is the state the
+      // caller asked for, and refusing would make a double press an error.
+      return this.branding(principal);
+    }
+
+    await repository.write({ profile: { logoKey: null }, values: new Map() });
+    await this.retireLogo(principal.orgId, before.logoKey);
+
+    this.auditContext.record({
+      action: 'settings.logo_removed',
+      entityType: 'settings',
+      entityId: before.id,
+      before: { logoKey: before.logoKey },
+      after: { logoKey: null },
+    });
+
+    return this.branding(principal);
+  }
+
+  /**
+   * A signed URL for the stored logo, or null.
+   *
+   * Every failure here is null rather than a throw, and that is the whole
+   * reason this is a method. A purged object, a row from a restored database
+   * that no longer has its file, or a `logo_key` that is not an id at all,
+   * would each otherwise take down the one endpoint that every screen calls on
+   * every load. The monogram is a perfectly good answer; a 500 is not.
+   */
+  private async signLogo(
+    principal: Principal,
+    logoKey: string | null,
+  ): Promise<{ url: string; expiresInSeconds: number } | null> {
+    if (logoKey === null || !isUuid(logoKey)) return null;
+
+    try {
+      return await this.files.signedUrlFor(principal, logoKey);
+    } catch (error: unknown) {
+      // Not swallowed: the log carries it, and the caller gets the honest
+      // "there is no logo to show" rather than a broken image.
+      this.logger.warn({
+        msg: 'Organisation logo could not be signed; falling back to the monogram.',
+        orgId: principal.orgId,
+        logoKey,
+        reason: describeError(error),
+      });
+      return null;
+    }
+  }
+
+  private async retireLogo(orgId: string, logoKey: string | null): Promise<void> {
+    if (logoKey === null) return;
+    await this.files.expireFile(orgId, logoKey);
   }
 
   /**

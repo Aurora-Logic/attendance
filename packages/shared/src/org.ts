@@ -247,6 +247,27 @@ export interface RecycleBinEntry {
   readonly reason: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// REQ-L-01: the organisation logo (OPEN-QUESTIONS P0-7)
+//
+// It lived in localStorage while there was no file service to put it in, which
+// meant a second person signing in saw the monogram. Its permanent home is
+// `organizations.logo_key` pointing at a row in `files`, and it is read back
+// through a short-lived signed URL like every other object (NFR-09).
+// ---------------------------------------------------------------------------
+
+export interface OrgBranding {
+  readonly name: string;
+  /**
+   * A signed URL, or null when no logo is set -- and also null when one is set
+   * but its object has gone. A broken image in the sidebar of every screen
+   * would be a worse answer than the monogram.
+   */
+  readonly logoUrl: string | null;
+  /** How long the URL above is good for, so a client can decide when to refetch. */
+  readonly logoUrlExpiresInSeconds: number | null;
+}
+
 export const recycleBinQuerySchema = pageQuerySchema.extend({
   entityType: softDeletableEntitySchema.optional(),
   q: z.string().trim().min(1).max(80).optional(),

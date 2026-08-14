@@ -352,6 +352,40 @@ export class FileService {
     ].join('/');
   }
 
+  /**
+   * Marks a file as due for the retention sweep.
+   *
+   * For the case where a record stops pointing at an object -- REQ-L-01's logo
+   * being replaced or removed -- and the object would otherwise sit in the
+   * bucket forever with nothing referencing it. Deleting it here instead would
+   * mean a failed transaction on the caller's side left a live row pointing at
+   * a key that no longer exists; handing it to `purgeExpiredFiles` keeps
+   * deletion in the one place that is idempotent and audited.
+   *
+   * Returns false when the id is not this organisation's, which the caller may
+   * ignore: a logo key that names nothing is already the state being aimed at.
+   */
+  async expireFile(orgId: string, fileId: string, at: Date = new Date()): Promise<boolean> {
+    if (!isUuid(fileId)) return false;
+
+    const repository = new ScopedRepository(this.db, files, { orgId, actorUserId: null });
+    const file = await repository.findById(fileId);
+    if (file === null || file.purgedAt !== null) return false;
+
+    // Never pushes an expiry further out. A file already due is left due --
+    // the point is to bring an unreferenced object into the sweep, not to
+    // renegotiate a retention window somebody else set (REQ-L-03).
+    if (file.expiresAt !== null && file.expiresAt.getTime() <= at.getTime()) return true;
+
+    await this.db
+      .update(files)
+      .set({ expiresAt: at, updatedAt: at })
+      .where(and(eq(files.id, fileId), eq(files.orgId, orgId), isNull(files.purgedAt)));
+
+    this.logger.log({ msg: 'File marked for purge', fileId, orgId, purpose: file.purpose });
+    return true;
+  }
+
   // ----------------------------------------------------------------- read
 
   /**

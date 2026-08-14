@@ -50,10 +50,6 @@ export const employeeAccessSchema = z.object({
 
 export type EmployeeAccess = z.infer<typeof employeeAccessSchema>;
 
-function accessKey(employeeId: string): readonly unknown[] {
-  return ['employees', employeeId, 'access'];
-}
-
 export function useEmployeeAccess(
   employeeId: string | undefined,
   options: { enabled?: boolean } = {},
@@ -61,7 +57,12 @@ export function useEmployeeAccess(
   const id = employeeId ?? '';
   return useQuery({
     enabled: (options.enabled ?? true) && id.length > 0,
-    queryKey: accessKey(id),
+    // Written as a literal, in the shape the rest of this feature uses
+    // (`['employees', 'detail', id]`). The scan in `lib/api/query-keys.test.ts`
+    // resolves a literal and a declared factory; a bare helper function it
+    // cannot read fails that test rather than being silently skipped, which is
+    // the whole point of it.
+    queryKey: ['employees', 'access', id],
     queryFn: async ({ signal }) => {
       const body = await apiRequest<unknown>(`/employees/${id}/access`, { signal });
       return parseOrThrow(employeeAccessSchema, body, 'access and roles');
@@ -121,7 +122,7 @@ function useAccessMutation<TInput extends { employeeId: string }>(
   return useMutation({
     mutationFn,
     onSuccess: (data, variables) => {
-      queryClient.setQueryData(accessKey(variables.employeeId), data);
+      queryClient.setQueryData(['employees', 'access', variables.employeeId], data);
       void queryClient.invalidateQueries({ queryKey: ['roles'] });
       void queryClient.invalidateQueries({ queryKey: ['session'] });
       void queryClient.invalidateQueries({ queryKey: ['audit-logs'] });
