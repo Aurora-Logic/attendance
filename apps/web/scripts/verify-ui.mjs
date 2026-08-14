@@ -13,6 +13,14 @@
  *   pnpm dev                       # in one shell
  *   chrome --remote-debugging-port=9222 --headless=new --user-data-dir=/tmp/x
  *   node scripts/verify-ui.mjs
+ *
+ * Environment: VERIFY_BASE (default http://localhost:5173),
+ *              VERIFY_CDP (default http://127.0.0.1:9222),
+ *              VERIFY_API_BASE (default http://localhost:3000/api/v1) - the
+ *              API is asked directly for the session it issued, so the shell
+ *              can be checked against the server's own answer rather than
+ *              against a name written down here,
+ *              VERIFY_EMAIL, VERIFY_PASSWORD.
  */
 
 import { readFileSync } from 'node:fs';
@@ -179,6 +187,55 @@ class Session {
 
 const EMAIL = process.env.VERIFY_EMAIL ?? 'admin@vyuha.local';
 const PASSWORD = process.env.VERIFY_PASSWORD ?? '';
+const API = process.env.VERIFY_API_BASE ?? 'http://localhost:3000/api/v1';
+
+/**
+ * What the server says this session is, asked from node rather than from the
+ * page.
+ *
+ * Needed because the header check below has to compare against something. It
+ * cannot be read out of the browser: the access token lives in a module
+ * closure by design, and fetching `/auth/me` from the page origin gets
+ * index.html, because that origin serves the single-page app. And it must not
+ * be a literal - a name written down here is the same mistake as the `=== 16`
+ * route count and the `=== 22` permission count that this file has already
+ * been burnt by twice.
+ *
+ * Returns null rather than throwing when the API is unreachable or refuses.
+ * The check then fails with the reason, which is the right outcome; a throw
+ * here would take the summary down with it.
+ */
+async function fetchMe() {
+  try {
+    const login = await fetch(`${API}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    });
+    if (!login.ok) return null;
+    const { accessToken } = await login.json();
+    if (typeof accessToken !== 'string') return null;
+
+    const me = await fetch(`${API}/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+    });
+    return me.ok ? await me.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The name the shell is expected to show, derived the same way `SessionGate`
+ * derives it: the linked person when there is one, the email when there is not.
+ */
+function displayNameOf(me) {
+  if (!me) return null;
+  if (me.employee) {
+    return [me.employee.firstName, me.employee.lastName].filter(Boolean).join(' ');
+  }
+  return me.user.email;
+}
 
 /**
  * The app requires a real session now, so the harness has to sign in the way a
@@ -214,6 +271,45 @@ function check(name, pass, detail = '') {
   results.push({ name, pass, detail });
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
+
+/**
+ * The totals and the FAILURES list, printed however this run ends.
+ *
+ * A top-level `await` that rejects takes the whole module down, and Node prints
+ * a stack trace instead of the summary - so the uploaded artifact carried a
+ * stack and no list of what failed, at exactly the moment somebody needed the
+ * list. Observed for real: sign-in failed, `/patterns` never rendered, and
+ * check 15 threw a TypeError on `document.getElementById('demo-name').focus()`.
+ *
+ * The individual probes below are null-safe now so they FAIL rather than throw,
+ * but this stays as the backstop: a harness that cannot report is worse than a
+ * harness that reports a failure.
+ */
+function summarise(crash) {
+  const failed = results.filter((r) => !r.pass);
+  console.log(`\n${String(results.length - failed.length)}/${String(results.length)} checks passed`);
+  if (crash) {
+    console.log(`\nThe harness itself stopped early: ${String(crash)}`);
+    console.log('Everything after this point was not run, so it is neither passed nor failed.');
+  }
+  if (failed.length) {
+    console.log('FAILURES:');
+    for (const f of failed) console.log(`  - ${f.name}: ${f.detail}`);
+  }
+  return failed.length;
+}
+
+// Both, because Node routes them differently and the one that matters here is
+// the less obvious one: a rejected top-level `await` in an ES module arrives as
+// `uncaughtException`, not as `unhandledRejection`. Registering only the
+// latter looks right, runs clean, and still prints a bare stack trace on the
+// day it is needed - measured, by making a probe throw on purpose.
+function reportCrash(cause) {
+  summarise(cause instanceof Error ? (cause.stack ?? cause.message) : cause);
+  process.exit(1);
+}
+process.on('uncaughtException', reportCrash);
+process.on('unhandledRejection', reportCrash);
 
 const target = await getTarget();
 const ws = new WebSocket(target.webSocketDebuggerUrl);
@@ -374,16 +470,23 @@ check(
   '4 rows',
 );
 
-await s.eval(`document.getElementById('demo-name').focus(); true`);
+// Optional chaining on every one of these, and on the two below.
+//
+// When sign-in fails, /patterns never renders and `getElementById` answers
+// null - and a bare `.focus()` on null threw a TypeError out of the top-level
+// await, so the run ended in a stack trace with no FAILURES list at all. A
+// probe that cannot find its subject has failed; it has not crashed.
+await s.eval(`document.getElementById('demo-name')?.focus(); true`);
 await s.eval(
   `(() => { const el = document.getElementById('demo-name');
+     if (!el) return;
      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
      set.call(el, 'Test Person');
      el.dispatchEvent(new Event('input', { bubbles: true })); })()`,
 );
 check(
   'Form field accepts input',
-  (await s.eval(`document.getElementById('demo-name').value`)) === 'Test Person',
+  (await s.eval(`document.getElementById('demo-name')?.value ?? null`)) === 'Test Person',
 );
 
 // Technical design 9: Ctrl+A must still fire while a text field has focus.
@@ -395,7 +498,7 @@ check(
 );
 check(
   'Save clears the form',
-  (await s.eval(`document.getElementById('demo-name').value === ''`)) === true,
+  (await s.eval(`document.getElementById('demo-name')?.value === ''`)) === true,
 );
 
 // --------------------------------------------------------------- 360px
@@ -538,6 +641,7 @@ await sleep(400);
 await s.goto('/patterns');
 await s.eval(
   `(() => { const el = document.getElementById('demo-name');
+     if (!el) return;
      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
      set.call(el, 'dirty'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`,
 );
@@ -1001,16 +1105,24 @@ await s.viewport(1440, 900);
 await s.goto('/employees');
 await s.waitFor(`!!document.querySelector('[aria-label^="Account menu"]')`);
 // The email, or the person's name when the account is linked to an employee
-// record - which is the better label and the one a real deployment shows. This
-// asserted the email alone and failed the moment the seeded administrator was
-// linked to a person, which is a stricter claim than the requirement makes.
+// record - which is the better label and the one a real deployment shows.
+//
+// This asserted the email alone, failed the moment the seeded administrator was
+// linked to a person, and was then loosened to `/Account menu for \S+/` - which
+// passes for any name at all, including the wrong one. So it was a check that
+// could not fail. The seed makes the linked person deterministic, so the honest
+// comparison is against the name `/auth/me` returns, derived the same way
+// SessionGate derives it.
+const expectedName = displayNameOf(await fetchMe());
 const accountLabel = await s.eval(
   `document.querySelector('[aria-label^="Account menu"]')?.getAttribute('aria-label') ?? ''`,
 );
 check(
-  'The header names the signed-in person',
-  accountLabel.includes(EMAIL) || /Account menu for \S+/u.test(accountLabel),
-  `accessible name is "${accountLabel}"`,
+  'The header names the person /auth/me returns',
+  expectedName !== null && accountLabel.startsWith(`Account menu for ${expectedName}`),
+  expectedName === null
+    ? `could not read /auth/me from ${API}; the label was "${accountLabel}"`
+    : `"${accountLabel}" against "${expectedName}" from /auth/me`,
 );
 
 await s.eval(`document.querySelector('[aria-label^="Account menu"]').click(); true`);
@@ -1294,10 +1406,4 @@ check(
 
 check('Signing back in works', await signIn(s), `as ${EMAIL}`);
 
-const failed = results.filter((r) => !r.pass);
-console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
-if (failed.length) {
-  console.log('FAILURES:');
-  for (const f of failed) console.log(`  - ${f.name}: ${f.detail}`);
-}
-process.exit(failed.length ? 1 : 0);
+process.exit(summarise(null) ? 1 : 0);
