@@ -161,6 +161,24 @@ export const DEFAULT_JOB_OPTIONS: JobsOptions = {
 };
 
 /**
+ * How long a request may wait for Redis to accept a job.
+ *
+ * BullMQ requires `maxRetriesPerRequest: null` on its connection
+ * (`bull-connection.ts`), which means a command issued while Redis is
+ * unreachable never settles -- not "fails after a while", never. Measured on
+ * the production build with Redis behind a killed TCP proxy: `POST
+ * /auth/password-resets` answered nothing after 40s, and the `try/catch` around
+ * the enqueue that documents an always-202 contract never ran, because there
+ * was no rejection for it to catch.
+ *
+ * Two seconds is far longer than a healthy enqueue (32ms end to end for that
+ * endpoint against a live Redis) and far shorter than any caller's patience.
+ * The bound turns "hangs forever" into "fails, and the caller decides", which
+ * is the only thing that lets a caller keep its own promise.
+ */
+export const ENQUEUE_TIMEOUT_MS = 2_000;
+
+/**
  * Recurring work, as job schedulers. §11 puts the maintenance sweep on a
  * weekly cron; 03:00 on Sunday is chosen so a large purge runs when nobody is
  * punching.

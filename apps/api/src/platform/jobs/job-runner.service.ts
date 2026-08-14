@@ -4,14 +4,16 @@ import {
   type OnApplicationBootstrap,
   type OnApplicationShutdown,
 } from '@nestjs/common';
+import { ERROR_CODES } from '@vyuha/shared';
 import { Job, Queue, Worker, type JobsOptions } from 'bullmq';
 
 import { env } from '../common/env.js';
-import { describeError } from '../common/errors.js';
+import { AppError, describeError } from '../common/errors.js';
 import { bullConnectionOptions } from './bull-connection.js';
 import { JobRegistry, type JobResult } from './job-handler.js';
 import {
   DEFAULT_JOB_OPTIONS,
+  ENQUEUE_TIMEOUT_MS,
   JOB_QUEUE,
   SCHEDULED_JOBS,
   type JobName,
@@ -31,6 +33,13 @@ import {
  * be five idle Redis connections in every test process and every web instance,
  * for queues whose first job arrives in Phase 3.
  */
+
+/**
+ * What a client is told to wait before retrying a refused enqueue. Short: the
+ * failure this reports is a cache blip, not a maintenance window, and the
+ * offline punch queue drains on its own triggers anyway.
+ */
+const RETRY_AFTER_SECONDS = 5;
 
 export interface EnqueueOptions {
   /**
@@ -80,21 +89,77 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
     return queue;
   }
 
+  /**
+   * Hands a job to Redis, or gives up.
+   *
+   * The bound is the point. Every caller of this method is on a request path,
+   * and BullMQ's connection retries a command forever by contract
+   * (`bull-connection.ts`), so without it a Redis outage does not make an
+   * enqueue fail -- it makes the request that asked for it never answer, while
+   * holding its connection open. `SERVICE_UNAVAILABLE` rather than a bare
+   * `Error` because that is a decision the caller can act on: absorb it and
+   * keep an unconditional promise the way `requestPasswordReset` does, or let
+   * it reach the client as a retryable 503.
+   *
+   * The abandoned `add` is not cancellable -- Redis may still accept the job
+   * when it comes back -- so the message says the request was not accepted
+   * rather than that nothing will happen.
+   */
   async enqueue<TName extends JobName>(
     jobName: TName,
     payload: JobPayloads[TName],
     options: EnqueueOptions = {},
   ): Promise<string> {
-    const job = await this.queueFor(JOB_QUEUE[jobName]).add(jobName, payload, {
-      ...(options.jobId === undefined ? {} : { jobId: options.jobId }),
-      ...(options.delayMs === undefined ? {} : { delay: options.delayMs }),
-      ...(options.attempts === undefined ? {} : { attempts: options.attempts }),
-      ...(options.backoff === undefined ? {} : { backoff: options.backoff }),
-    });
+    const job = await this.withinDeadline(
+      this.queueFor(JOB_QUEUE[jobName]).add(jobName, payload, {
+        ...(options.jobId === undefined ? {} : { jobId: options.jobId }),
+        ...(options.delayMs === undefined ? {} : { delay: options.delayMs }),
+        ...(options.attempts === undefined ? {} : { attempts: options.attempts }),
+        ...(options.backoff === undefined ? {} : { backoff: options.backoff }),
+      }),
+      ENQUEUE_TIMEOUT_MS,
+      () =>
+        new AppError(
+          ERROR_CODES.SERVICE_UNAVAILABLE,
+          'Background work could not be queued just now. Try again shortly.',
+          {
+            details: { retryAfterSeconds: RETRY_AFTER_SECONDS, jobName },
+          },
+        ),
+    );
 
     // BullMQ types `id` as optional because a job added to a flow may not have
     // one yet. A plain `add` always does.
     return job.id ?? '';
+  }
+
+  /**
+   * Rejects with `onTimeout()` if `work` has not settled in `timeoutMs`.
+   *
+   * The timer is cleared either way, and the losing promise's rejection is
+   * swallowed rather than left to become an unhandled rejection -- an
+   * abandoned BullMQ command does eventually reject, minutes later, long after
+   * anybody cared.
+   */
+  private async withinDeadline<T>(
+    work: Promise<T>,
+    timeoutMs: number,
+    onTimeout: () => Error,
+  ): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const expiry = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(onTimeout());
+      }, timeoutMs);
+    });
+
+    work.catch(() => undefined);
+
+    try {
+      return await Promise.race([work, expiry]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   /**
