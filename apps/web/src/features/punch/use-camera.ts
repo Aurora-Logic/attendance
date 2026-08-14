@@ -57,6 +57,36 @@ function stopTracks(stream: MediaStream | null): void {
 }
 
 /**
+ * A stream from the sole camera on the device, or null when more than one
+ * exists (or none can be opened).
+ *
+ * Only reached after `facingMode: { exact: 'user' }` has already been refused.
+ * The device list is enumerated from the granted stream rather than before it,
+ * because a browser reports a placeholder list until a camera permission has
+ * been given - counting first would read one entry on a phone and hand the
+ * fallback to exactly the device it must never reach.
+ *
+ * The returned stream is the caller's to keep or stop.
+ */
+async function onlyOneCameraExists(): Promise<MediaStream | null> {
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+  } catch {
+    return null;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter((device) => device.kind === 'videoinput');
+    if (cameras.length === 1) return stream;
+  } catch {
+    // An unreadable device list is not evidence of a single camera.
+  }
+  stopTracks(stream);
+  return null;
+}
+
+/**
  * HAVE_CURRENT_DATA and a decoded size. Below either of these the canvas would
  * draw a black rectangle that looks exactly like a successful capture.
  *
@@ -144,23 +174,39 @@ export function useCamera(): Camera {
       } catch (error) {
         if (cancelled) return;
         const name = error instanceof DOMException ? error.name : '';
-        if (name === 'NotAllowedError' || name === 'SecurityError') {
+        if (name === 'OverconstrainedError') {
+          // No camera identified itself as front-facing. That is the normal
+          // answer from a laptop webcam, which reports no facing mode at all,
+          // and `exact` refuses it outright (REQ-D-02, P1-5).
+          //
+          // The control this protects is anti-spoofing: on a phone, the rear
+          // camera is the one somebody points at a photograph of a colleague.
+          // So the fallback is allowed on exactly the devices where that
+          // camera does not exist - one video input and there is nothing to
+          // point anywhere. A phone always enumerates two or more and keeps
+          // the hard refusal. Counting is done after a permissioned stream
+          // exists, because a browser withholds the device list until then.
+          const single = await onlyOneCameraExists();
+          if (cancelled) return;
+          if (!single) {
+            setState('unavailable');
+            setDetail('This device has no front camera.');
+            return;
+          }
+          stream = single;
+        } else if (name === 'NotAllowedError' || name === 'SecurityError') {
           setState('denied');
           setDetail('Camera access was refused.');
-        } else if (name === 'OverconstrainedError') {
-          // The device has cameras but none of them reports itself as
-          // front-facing. Reported as its own case: "allow the camera" is
-          // useless advice to somebody on a desktop with a rear-only webcam.
-          setState('unavailable');
-          setDetail('This device has no front camera.');
+          return;
         } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
           setState('unavailable');
           setDetail('No camera was found on this device.');
+          return;
         } else {
           setState('unavailable');
           setDetail(error instanceof Error ? error.message : 'The camera could not be started.');
+          return;
         }
-        return;
       }
 
       if (cancelled) {
