@@ -33,6 +33,7 @@ import { apiErrorCopy, actionErrorCopy } from '@/features/leave/api-error-copy';
 import { CheckboxRow } from '@/features/leave/control-row';
 import { LeaveDecisionsSection } from '@/features/leave/leave-decisions';
 import { SampleDataNotice } from '@/features/leave/sample-data-notice';
+import { RegularizationDecisionsSection } from '@/features/regularization';
 import { ApiError } from '@/lib/api/client';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -128,6 +129,7 @@ export function ApprovalsPage() {
   const canApproveTeam = usePermission(PERMISSIONS.LEAVE_APPROVE_TEAM);
   const canApproveAll = usePermission(PERMISSIONS.LEAVE_APPROVE_ALL);
   const canApprove = canApproveTeam || canApproveAll;
+  const canDecideRegularizations = usePermission(PERMISSIONS.REGULARIZATION_APPROVE);
 
   const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
   const pageSize = readPositiveInt(searchParams.get('pageSize'), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
@@ -383,6 +385,17 @@ export function ApprovalsPage() {
       {canApprove && permissionsKnown ? (
         <>
           <LeaveDecisionsSection />
+          <Separator />
+        </>
+      ) : null}
+
+      {/* The same arrangement, and deleted at the same time: regularization
+          and on-duty decide on their own endpoints until the framework join
+          lands (REQ-F-03, REQ-F-05). Gated on its own key -- an approver may
+          hold `leave.approve.team` and not `regularization.approve`. */}
+      {canDecideRegularizations && permissionsKnown ? (
+        <>
+          <RegularizationDecisionsSection />
           <Separator />
         </>
       ) : null}
