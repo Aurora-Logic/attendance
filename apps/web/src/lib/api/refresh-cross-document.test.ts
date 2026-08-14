@@ -72,8 +72,10 @@ const buses = new Map<string, Set<FakeBroadcastChannel>>();
 /** Delivers to every *other* channel of the same name, asynchronously. */
 class FakeBroadcastChannel {
   private readonly listeners = new Set<MessageListener>();
+  readonly name: string;
 
-  constructor(readonly name: string) {
+  constructor(name: string) {
+    this.name = name;
     const bus = buses.get(name) ?? new Set<FakeBroadcastChannel>();
     bus.add(this);
     buses.set(name, bus);

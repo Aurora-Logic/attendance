@@ -21,6 +21,13 @@ env:
   # .env.example, with the two JWT secrets deliberately different - the schema
   # rejects them being equal, because a shared secret would let a refresh token
   # be presented as an access token.
+  #
+  # NODE_ENV belongs to the API: `env.schema.ts` has no default for it, so the
+  # migrate, seed, test and API-boot steps all fail outright without it. It is
+  # also read by `vite build`, which derives `isProduction` from NODE_ENV and
+  # not from the build command - so any step that compiles the web bundle must
+  # override it, and every such step below does. Do not add another one
+  # without it: `check-production-bundle.mjs` is what stops that being silent.
   NODE_ENV: test
   PORT: '3000'
   API_BASE_URL: http://localhost:3000
@@ -102,8 +109,29 @@ jobs:
       - name: Test
         run: pnpm --filter '@vyuha/*' test
 
+      # NODE_ENV is scoped to this step rather than left to the workflow default.
+      # Vite reads NODE_ENV to decide `isProduction`; `vite build` alone does not
+      # imply it, and neither does `--mode production`. With the inherited
+      # NODE_ENV=test this step emitted a development bundle - 2,491,639 bytes
+      # against 1,972,430, 4,133 jsxDEV references, 132 absolute paths of the
+      # runner's own checkout, and the dev-only /patterns route with its sample
+      # employees - so the gate was compiling something nobody ships. The Docker
+      # image was never affected (docker/web.Dockerfile sets no NODE_ENV); what
+      # was affected is everything this gate could see.
       - name: Build
+        env:
+          NODE_ENV: production
         run: pnpm --filter '@vyuha/*' build
+
+      # A real step, because a comment above the previous one would not have
+      # stopped this coming back. Derives what it looks for from the source -
+      # the dev-only route out of App.tsx, the sample identifiers out of the
+      # page behind it - so a rename cannot quietly retire a claim. Also asserts
+      # the service worker precached this build's own output, which is the one
+      # property no source-reading check can see: the list is computed in
+      # `generateBundle` and exists only in a build.
+      - name: Assert the build is a production bundle
+        run: node apps/web/scripts/check-production-bundle.mjs
 
       - name: Service logs on failure
         if: failure()
