@@ -23,7 +23,8 @@ import { files, organizations } from '../db/schema/index.js';
  * browser actually sends.
  */
 
-const ORG_ID = '01900000-0000-7000-8000-0000000000f1';
+/** Unique across the suite; see `org-ids.test.ts` for why that is checked. */
+const ORG_ID = '01900000-0000-7000-8000-0000000000b8';
 
 interface ErrorBody {
   error: { code: string; message: string };

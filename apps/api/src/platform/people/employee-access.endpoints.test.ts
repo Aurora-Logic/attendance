@@ -20,7 +20,16 @@ import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
  * than merely report.
  */
 
-const ORG_ID = '01900000-0000-7000-8000-0000000000e7';
+/**
+ * Unique across the suite. `ApiHarness.start` truncates the organisation it is
+ * given, so two files sharing an id delete each other's fixtures -- and this
+ * one shared `…e7` with the reports suite, whose employees have punched.
+ * `punches.employee_id` is RESTRICT and `punches` is append-only, so the
+ * employee delete failed and took the whole file down with it. Isolated, it
+ * passed; in the suite, it did not. `org-ids.test.ts` now makes the collision
+ * a failing test rather than a mystery.
+ */
+const ORG_ID = '01900000-0000-7000-8000-0000000000b7';
 
 interface ErrorBody {
   error: { code: string; message: string; details?: Record<string, unknown> };
