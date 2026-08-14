@@ -38,27 +38,31 @@ function scheduleUpdates(registration: ServiceWorkerRegistration): void {
 export function registerServiceWorker(): void {
   if (!('serviceWorker' in navigator)) return;
 
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/sw.js', {
-        scope: '/',
-        // Never let the HTTP cache answer for the worker script. If it does,
-        // a deploy can be invisible for as long as the cached copy lives, and
-        // the app becomes unfixable without clearing site data by hand.
-        updateViaCache: 'none',
-      })
-      .then(scheduleUpdates)
-      .catch((cause: unknown) => {
-        // Warn rather than throw. Everything except offline punching works
-        // without a worker, and taking the app down because the PWA layer
-        // failed would be the wrong trade — but it must not pass in silence
-        // either, because offline punching is what it is here for.
-        console.warn(
-          'Service worker registration failed; offline punching will not survive a reload.',
-          cause,
-        );
-      });
-  });
+  // Registered as soon as this module runs, not on `load`. `load` waits for
+  // every image, font and stylesheet in the document, and the whole of that
+  // wait is time in which somebody who has just installed the app can walk out
+  // of signal with no worker installed at all. Registration does not compete
+  // with the page for bandwidth in any way that matters — the precache is one
+  // extra request for files the browser has already been asked for.
+  navigator.serviceWorker
+    .register('/sw.js', {
+      scope: '/',
+      // Never let the HTTP cache answer for the worker script. If it does,
+      // a deploy can be invisible for as long as the cached copy lives, and
+      // the app becomes unfixable without clearing site data by hand.
+      updateViaCache: 'none',
+    })
+    .then(scheduleUpdates)
+    .catch((cause: unknown) => {
+      // Warn rather than throw. Everything except offline punching works
+      // without a worker, and taking the app down because the PWA layer
+      // failed would be the wrong trade — but it must not pass in silence
+      // either, because offline punching is what it is here for.
+      console.warn(
+        'Service worker registration failed; offline punching will not survive a reload.',
+        cause,
+      );
+    });
 }
 
 registerServiceWorker();

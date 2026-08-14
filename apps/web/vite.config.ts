@@ -7,6 +7,8 @@ import { defineConfig, type Plugin } from "vite"
 
 const SW_SOURCE = path.resolve(__dirname, "./src/lib/offline/service-worker.js")
 const SW_VERSION_TOKEN = "__SW_VERSION__"
+const SW_CRITICAL_TOKEN = "__SW_BUILD_CRITICAL__"
+const SW_OPTIONAL_TOKEN = "__SW_BUILD_OPTIONAL__"
 
 /**
  * Serves `src/lib/offline/service-worker.js` at `/sw.js`, with its version
@@ -22,10 +24,48 @@ const SW_VERSION_TOKEN = "__SW_VERSION__"
  * The worker is not part of the application bundle. If it were, a build that
  * failed to compile would take the update mechanism down with it.
  */
+/**
+ * What the worker must hold for the app to start with nothing but a cache.
+ *
+ * Derived from the emitted bundle rather than written down, because the names
+ * carry a content hash and change on every build - a hand-maintained list
+ * would be wrong the first time anybody edited a component, and wrong
+ * silently.
+ *
+ * Critical is code and stylesheet: without them the document paints an empty
+ * `<div id="root">` and nothing else, which is exactly the blank screen a
+ * first install used to give at a gate. Everything else the build emits -
+ * font subsets - is optional: missing one costs a fallback typeface, and
+ * failing the whole install over it would cost offline punching.
+ */
+function buildPrecache(bundle: Record<string, { type: string }>): {
+  critical: string[]
+  optional: string[]
+} {
+  const critical: string[] = []
+  const optional: string[] = []
+
+  for (const fileName of Object.keys(bundle).sort()) {
+    if (fileName === "index.html" || fileName === "sw.js") continue
+    const url = `/${fileName}`
+    if (fileName.endsWith(".js") || fileName.endsWith(".css")) critical.push(url)
+    else optional.push(url)
+  }
+
+  return { critical, optional }
+}
+
 function serviceWorker(): Plugin {
   const read = (): string => readFileSync(SW_SOURCE, "utf8")
 
-  const render = (version: string): string => read().replaceAll(SW_VERSION_TOKEN, version)
+  const render = (
+    version: string,
+    precache: { critical: string[]; optional: string[] } = { critical: [], optional: [] },
+  ): string =>
+    read()
+      .replaceAll(SW_VERSION_TOKEN, version)
+      .replaceAll(SW_CRITICAL_TOKEN, JSON.stringify(precache.critical))
+      .replaceAll(SW_OPTIONAL_TOKEN, JSON.stringify(precache.optional))
 
   // In development the version is a hash of the worker's own source. Stable
   // across reloads and across dev-server restarts, so nothing is reinstalled
@@ -65,7 +105,11 @@ function serviceWorker(): Plugin {
         .digest("hex")
         .slice(0, 12)
 
-      this.emitFile({ type: "asset", fileName: "sw.js", source: render(version) })
+      this.emitFile({
+        type: "asset",
+        fileName: "sw.js",
+        source: render(version, buildPrecache(bundle)),
+      })
     },
   }
 }
