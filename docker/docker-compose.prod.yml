@@ -75,7 +75,7 @@ services:
       API_BASE_URL: https://${DOMAIN:?set DOMAIN in .env.production}
       WEB_BASE_URL: https://${DOMAIN}
       DATABASE_URL: postgresql://${POSTGRES_USER:-vyuha}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}@postgres:5432/${POSTGRES_DB:-vyuha}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.production}@redis:6379
       # Exactly one proxy hop -- Caddy -- sits in front of the API here, and
       # req.ip is only honest if Express knows that (OPEN-QUESTIONS P0-11).
       TRUST_PROXY_HOPS: '1'
@@ -109,11 +109,28 @@ services:
     # Append-only persistence: the queues and the per-IP login window survive
     # a restart (the login limit deliberately fails open if Redis is gone --
     # P0-11 -- so losing this state quietly would weaken REQ-B-10).
-    command: ['redis-server', '--appendonly', 'yes']
+    #
+    # --requirepass, required like the Postgres password: the compose network
+    # is shared by every service on this box, and an unauthenticated Redis on
+    # it means anything that reaches the network -- a compromised container, a
+    # future service added carelessly -- can read sessions-adjacent state and
+    # flush the rate-limit windows. The dev stack stays open; it binds a
+    # loopback-only high port on a developer machine.
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--requirepass',
+        '${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.production}',
+      ]
+    environment:
+      # For the healthcheck below; the server itself takes it on the command line.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.production}
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test: ['CMD-SHELL', 'redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping | grep -q PONG']
       interval: 5s
       timeout: 3s
       retries: 20
