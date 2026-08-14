@@ -20,6 +20,17 @@ export type CameraState = 'starting' | 'ready' | 'denied' | 'unavailable' | 'ins
 export interface Camera {
   state: CameraState;
   /**
+   * Whether the preview element is holding a frame this instant.
+   *
+   * Separate from `state`, and it has to be. `state` describes the stream -
+   * permission granted, tracks live - and stays 'ready' while the `<video>`
+   * itself is unmounted and rebuilt, which is exactly what happens when the
+   * confirmation panel replaces the camera and the person presses "Back to the
+   * punch screen". For the moment after that the stream is ready and there is
+   * no frame, so a punch would capture nothing.
+   */
+  hasFrame: boolean;
+  /**
    * A callback ref for the preview element.
    *
    * A callback rather than a RefObject because the panel that renders the
@@ -45,22 +56,65 @@ function stopTracks(stream: MediaStream | null): void {
   for (const track of stream.getTracks()) track.stop();
 }
 
+/**
+ * HAVE_CURRENT_DATA and a decoded size. Below either of these the canvas would
+ * draw a black rectangle that looks exactly like a successful capture.
+ *
+ * One predicate, used both to gate the button and to refuse the capture, so
+ * the two can never disagree about what "ready to photograph" means.
+ */
+function frameReady(video: HTMLVideoElement | null): video is HTMLVideoElement {
+  return video !== null && video.readyState >= 2 && video.videoWidth > 0;
+}
+
+/**
+ * The events after which the answer can have changed. `resize` is the one that
+ * is easy to leave out and matters: it is what fires when `videoWidth` first
+ * becomes non-zero, which on some streams is after `loadeddata`.
+ */
+const FRAME_EVENTS = ['loadedmetadata', 'loadeddata', 'canplay', 'playing', 'resize', 'emptied'];
+
 export function useCamera(): Camera {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const detachFrameEvents = useRef<(() => void) | null>(null);
   const [state, setState] = useState<CameraState>('starting');
+  const [hasFrame, setHasFrame] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   const attachVideo = useCallback((element: HTMLVideoElement | null) => {
+    detachFrameEvents.current?.();
+    detachFrameEvents.current = null;
     videoRef.current = element;
-    if (element && streamRef.current) {
+
+    if (!element) {
+      // The element has gone - the confirmation panel is showing, or the
+      // screen is unmounting. There is nothing to photograph until a new one
+      // has a frame, whatever the stream is doing.
+      setHasFrame(false);
+      return;
+    }
+
+    const report = (): void => {
+      setHasFrame(frameReady(element));
+    };
+    for (const name of FRAME_EVENTS) element.addEventListener(name, report);
+    detachFrameEvents.current = () => {
+      for (const name of FRAME_EVENTS) element.removeEventListener(name, report);
+    };
+
+    if (streamRef.current) {
       element.srcObject = streamRef.current;
       // Autoplay refusal is not fatal - the stream is attached and the first
       // interaction starts it - so the rejection is dropped rather than
       // blocking the screen.
       void element.play().catch(() => undefined);
     }
+
+    // An element remounted onto a live stream can already have a frame, and
+    // then no event ever fires. Asking once here is what covers that.
+    report();
   }, []);
 
   useEffect(() => {
@@ -147,9 +201,7 @@ export function useCamera(): Camera {
 
   const capture = useCallback(async (): Promise<Blob | null> => {
     const video = videoRef.current;
-    // HAVE_CURRENT_DATA. Below this there is no frame yet and the canvas would
-    // be a black rectangle that looks like a successful capture.
-    if (!video || video.readyState < 2 || video.videoWidth === 0) return null;
+    if (!frameReady(video)) return null;
 
     const scale = Math.min(1, MAX_EDGE / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement('canvas');
@@ -173,5 +225,5 @@ export function useCamera(): Camera {
     setAttempt((current) => current + 1);
   }, []);
 
-  return { state, attachVideo, capture, retry, detail };
+  return { state, hasFrame, attachVideo, capture, retry, detail };
 }
