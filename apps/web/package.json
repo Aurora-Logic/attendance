@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint . && pnpm check:guide",
+    "lint": "eslint . && pnpm check:guide && pnpm check:precache",
     "test": "vitest run",
     "check:guide": "node scripts/check-guide-anchors.mjs",
+    "check:precache": "node scripts/check-precache.mjs",
     "typecheck": "tsc -b --noEmit",
     "preview": "vite preview"
   },

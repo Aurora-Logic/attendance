@@ -66,9 +66,17 @@ const PRECACHE_CRITICAL = ['/', ...BUILD_CRITICAL];
  * Wanted, but not worth failing an install over. A missing icon costs an icon;
  * a missing font subset costs a fallback typeface. Each is fetched on its own
  * so one bad entry cannot take the rest down with it.
+ *
+ * Everything `index.html` and the manifest reference is here, and
+ * `scripts/check-precache.mjs` fails the lint if that ever stops being true.
+ * The favicon was the one that was missed, and it cost a `net::ERR_FAILED` on
+ * every single offline load - noise in the one console where a real error has
+ * to be spotted.
  */
 const PRECACHE_OPTIONAL = [
   '/manifest.webmanifest',
+  '/icons/favicon.svg',
+  '/icons/apple-touch-icon-180.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/maskable-512.png',
