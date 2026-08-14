@@ -3,7 +3,7 @@ import { useEffect, type ReactNode } from 'react';
 import { Spinner } from '@/components/ui/spinner';
 import { LoginPage } from '@/features/auth/login-page';
 import { useSessionStore } from '@/lib/session/session-store';
-import { useMe } from '@/lib/session/use-session';
+import { useMe, useRevalidateSessionOnReconnect } from '@/lib/session/use-session';
 
 /**
  * Decides whether the visitor sees the application or the sign-in screen.
@@ -17,6 +17,10 @@ export function SessionGate({ children }: { children: ReactNode }) {
   const { data: me, isPending } = useMe();
   const setFromMe = useSessionStore((s) => s.setFromMe);
   const clear = useSessionStore((s) => s.clear);
+
+  // Mounted here because this is the component that decides between the app
+  // and the sign-in screen, so it is where a revoked session has to land.
+  useRevalidateSessionOnReconnect();
 
   useEffect(() => {
     if (isPending) return;
