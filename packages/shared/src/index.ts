@@ -12,3 +12,4 @@ export * from './people.js';
 export * from './permissions.js';
 export * from './reports.js';
 export * from './shifts.js';
+export * from './notifications.js';

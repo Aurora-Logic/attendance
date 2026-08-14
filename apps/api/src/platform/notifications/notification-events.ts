@@ -1,8 +1,18 @@
-import type { NotificationChannel as NotificationChannelKey, PermissionKey } from '@vyuha/shared';
+import {
+  NOTIFICATION_EVENTS,
+  type NotificationChannel as NotificationChannelKey,
+  type NotificationEventType,
+  type PermissionKey,
+} from '@vyuha/shared';
 
 /**
- * The event catalogue from REQ-K-03, and the templates that turn one into
- * words.
+ * The templates that turn a REQ-K-03 event into words.
+ *
+ * The catalogue itself moved to `@vyuha/shared` when the bell and the
+ * preferences screen were built: both ends need to name an event, and a second
+ * copy of thirteen strings is drift with a countdown on it. It is re-exported
+ * here so no call site changed, and so this file is still the one place a
+ * reader looks for "what events exist and what do they say".
  *
  * A call site emits an event type and a payload. It does not choose a channel,
  * does not know who receives it, and does not write any prose -- technical
@@ -14,32 +24,8 @@ import type { NotificationChannel as NotificationChannelKey, PermissionKey } fro
  * by the renderer.
  */
 
-export const NOTIFICATION_EVENTS = {
-  PUNCH_REMINDER: 'punch.reminder',
-  PUNCH_MISSING_OUT: 'punch.missing_out',
-  PUNCH_FLAGGED: 'punch.flagged',
-
-  LEAVE_APPLIED: 'leave.applied',
-  LEAVE_APPROVED: 'leave.approved',
-  LEAVE_REJECTED: 'leave.rejected',
-  LEAVE_CANCELLED: 'leave.cancelled',
-  LEAVE_BALANCE_LOW: 'leave.balance_low',
-  /**
-   * REQ-G-11 makes this one mandatory rather than a nicety: a comp-off credit
-   * expires 30 days after it is earned, which is short enough that somebody
-   * who is not told will lose it, and the requirement says so.
-   */
-  LEAVE_COMP_OFF_EXPIRING: 'leave.comp_off_expiring',
-
-  REGULARIZATION_DECIDED: 'regularization.decided',
-  APPROVAL_OVERDUE: 'approval.overdue',
-
-  PERIOD_LOCKED: 'period.locked',
-  PERIOD_UNLOCKED: 'period.unlocked',
-} as const;
-
-export type NotificationEventType =
-  (typeof NOTIFICATION_EVENTS)[keyof typeof NOTIFICATION_EVENTS];
+export { NOTIFICATION_EVENTS };
+export type { NotificationEventType };
 
 export type NotificationPayload = Readonly<Record<string, string | number | boolean | null>>;
 
@@ -92,11 +78,24 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     path: () => '/punch',
     defaultChannels: [],
   },
+  /**
+   * REQ-E-07 sends this to the employee *and* their manager, which is why it
+   * reads the payload the way `punch.flagged` does. One template, two
+   * dispatches: the employee's carries no name and renders in the second
+   * person, the manager's names the employee it is about. A single dispatch to
+   * both would have told a manager "you did not punch out" about somebody
+   * else's day -- uninterpretable, and the wrong person's fact in their bell.
+   */
   'punch.missing_out': {
-    title: () => 'You did not punch out',
+    title: (p) =>
+      text(p, 'employeeName') === ''
+        ? 'You did not punch out'
+        : `${text(p, 'employeeName')} did not punch out`,
     body: (p) =>
-      `No punch out was recorded for ${text(p, 'date')}. Raise a regularization if you were at work.`,
-    path: () => '/my-attendance',
+      text(p, 'employeeName') === ''
+        ? `No punch out was recorded for ${text(p, 'date')}. Raise a regularization if you were at work.`
+        : `No punch out was recorded for ${text(p, 'employeeName')} on ${text(p, 'date')}.`,
+    path: (p) => (text(p, 'employeeName') === '' ? '/my-attendance' : '/team-attendance'),
     defaultChannels: IN_APP_AND_EMAIL,
   },
   'punch.flagged': {
