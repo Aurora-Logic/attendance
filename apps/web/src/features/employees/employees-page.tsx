@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   PlusIcon,
+  UploadSimpleIcon,
   UsersThreeIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
@@ -48,6 +49,7 @@ import {
 
 import { employeeActions } from './employee-actions';
 import { EmployeeSheet } from './employee-sheet';
+import { EmployeeImportSheet } from './import-sheet';
 import { EmployeeLifecycleDialog, type LifecycleTarget } from './lifecycle-dialog';
 import { STATUS_LABELS, STATUS_VARIANT } from './status';
 import { useDepartments } from './use-departments';
@@ -206,6 +208,7 @@ export function EmployeesPage() {
   const canManage = usePermission(PERMISSIONS.EMPLOYEE_MANAGE);
   const [sheet, setSheet] = useState<EmployeeListItem | 'new' | null>(null);
   const [lifecycle, setLifecycle] = useState<LifecycleTarget | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   // PRD §6.4: Alt+C creates a master on the fly. An employee is a master.
   useShortcut({
@@ -216,6 +219,18 @@ export function EmployeesPage() {
     when: () => canManage,
     run: () => {
       setSheet('new');
+    },
+  });
+
+  // PRD §6.4: Alt+O is Import. REQ-A-06 is the only import on this screen.
+  useShortcut({
+    id: 'employees.import',
+    keys: 'alt+o',
+    label: 'Import employees',
+    scope: 'screen',
+    when: () => canManage,
+    run: () => {
+      setImportOpen(true);
     },
   });
 
@@ -345,15 +360,30 @@ export function EmployeesPage() {
         description="Every employee on record, with their department, location and status."
         action={
           canManage ? (
-            <Button
-              onClick={() => {
-                setSheet('new');
-              }}
-            >
-              <PlusIcon data-icon="inline-start" />
-              New employee
-              <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
-            </Button>
+            <>
+              {/* REQ-A-06. Outline rather than the primary fill: creating one
+                  record is the ordinary act here, loading a file is not. The
+                  empty state below has promised this since it was written. */}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setImportOpen(true);
+                }}
+              >
+                <UploadSimpleIcon data-icon="inline-start" />
+                Import
+                <ShortcutHint keys="alt+o" className="ml-1 hidden md:inline-flex" />
+              </Button>
+              <Button
+                onClick={() => {
+                  setSheet('new');
+                }}
+              >
+                <PlusIcon data-icon="inline-start" />
+                New employee
+                <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
+              </Button>
+            </>
           ) : (
             <span className="text-muted-foreground text-xs">
               Adding and editing needs the employee.manage permission.
@@ -500,6 +530,19 @@ export function EmployeesPage() {
                   <PlusIcon data-icon="inline-start" />
                   New employee
                 </Button>
+                {/* The sentence above says records can be "imported from
+                    Excel". Until now there was no way to do it, which made
+                    the empty state a promise the product could not keep. */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setImportOpen(true);
+                  }}
+                >
+                  <UploadSimpleIcon data-icon="inline-start" />
+                  Import from a spreadsheet
+                </Button>
               </EmptyContent>
             ) : null}
           </Empty>
@@ -549,6 +592,7 @@ export function EmployeesPage() {
           if (!open) setLifecycle(null);
         }}
       />
+      <EmployeeImportSheet open={importOpen} onOpenChange={setImportOpen} />
     </>
   );
 }
