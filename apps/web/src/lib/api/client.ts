@@ -125,8 +125,7 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
  */
 export type RefreshOutcome = 'refreshed' | 'unauthenticated' | 'network-error';
 
-/** Exchanges the refresh cookie for a new access token. */
-export async function refreshAccessToken(): Promise<RefreshOutcome> {
+async function performRefresh(): Promise<RefreshOutcome> {
   let response: Response;
   try {
     response = await send('/auth/refresh', { method: 'POST', skipRefresh: true });
@@ -145,7 +144,67 @@ export async function refreshAccessToken(): Promise<RefreshOutcome> {
   return 'refreshed';
 }
 
+/**
+ * The one refresh this document has in the air, shared by everyone who wants
+ * one.
+ *
+ * The refresh cookie is single-use and rotating, and the server treats a
+ * replay as theft (REQ-B-05). Two refreshes started before either has landed
+ * therefore present the *same* cookie, and the second is read as a stolen
+ * token: the whole session family is revoked and the person is signed out.
+ * Nothing on the server is wrong when that happens - the client has forged its
+ * own theft signal.
+ *
+ * The window is easy to hit and does not need a slow network. On a document
+ * loaded from the service worker there is no access token in memory at all, so
+ * the moment the connection returns, `useMe` refetches and the punch queue
+ * drains, and both discover they need a token within the same few
+ * milliseconds. Measured before this guard: refresh 200 at +11ms, sync 401 at
+ * +16ms, refresh 401 at +24ms, family revoked, the queued punch stranded.
+ */
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
+
+/**
+ * Exchanges the refresh cookie for a new access token, once.
+ *
+ * Concurrent callers all receive the outcome of the single request that is
+ * already in flight rather than starting one of their own. The slot is cleared
+ * as that request settles, so a later 401 - a token that has since expired, or
+ * a cookie the server has rotated in the meantime - still gets a fresh
+ * exchange rather than a cached verdict.
+ */
+export function refreshAccessToken(): Promise<RefreshOutcome> {
+  refreshInFlight ??= performRefresh().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+/**
+ * Makes sure there is something to authenticate with before a request goes out.
+ *
+ * A cold document holds no access token - it deliberately does not survive the
+ * tab - so a request sent before the refresh cookie has been exchanged cannot
+ * succeed. Sending it anyway costs a guaranteed 401, and, worse, moves the
+ * refresh to a moment nobody controls: the 401 comes back after some other
+ * refresh has already rotated the cookie, and the retry is what races. Asking
+ * first funnels every caller into the one in-flight exchange above.
+ *
+ * `useMe` has always done this; the two senders now do it too, for the same
+ * reason and through the same promise.
+ */
+export async function ensureAccessToken(): Promise<boolean> {
+  if (accessToken !== null) return true;
+  return (await refreshAccessToken()) === 'refreshed';
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  // Every path through this function except the public auth endpoints needs a
+  // bearer token, so a cold document exchanges the cookie before it asks
+  // rather than after it has been refused.
+  const refreshedBeforeSending =
+    !options.skipRefresh && accessToken === null ? await ensureAccessToken() : false;
+
   let response: Response;
   try {
     response = await send(path, options);
@@ -161,7 +220,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     });
   }
 
-  if (response.status === 401 && !options.skipRefresh) {
+  // Not after a refresh this call already made: the token is seconds old, so a
+  // 401 is the server's verdict on the request rather than an expired token,
+  // and exchanging the cookie again would only rotate it for nothing.
+  if (response.status === 401 && !options.skipRefresh && !refreshedBeforeSending) {
     if ((await refreshAccessToken()) === 'refreshed') {
       return apiRequest<T>(path, { ...options, skipRefresh: true });
     }

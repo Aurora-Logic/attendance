@@ -1,7 +1,7 @@
 import { ERROR_CODES } from '@vyuha/shared';
 import { z } from 'zod';
 
-import { ApiError, getAccessToken, refreshAccessToken } from '@/lib/api/client';
+import { ApiError, ensureAccessToken, getAccessToken, refreshAccessToken } from '@/lib/api/client';
 
 /**
  * `POST` of a `multipart/form-data` body.
@@ -102,9 +102,21 @@ export async function postMultipart<T>(
   parse: (body: unknown) => T,
   extraHeaders: Readonly<Record<string, string>> = {},
 ): Promise<T> {
+  // A drain on a document restored by the service worker starts with no token
+  // in memory, so this asks for one before sending rather than sending a
+  // request that cannot succeed. It goes through `ensureAccessToken`, and so
+  // through the single in-flight refresh in `client.ts`, which is what stops
+  // this drain and the session refetch on the same reconnect presenting the
+  // same rotating cookie twice and revoking the family (REQ-B-05).
+  const refreshedBeforeSending = getAccessToken() === null ? await ensureAccessToken() : false;
+
   let response = await send(path, form, extraHeaders);
 
-  if (response.status === 401 && (await refreshAccessToken()) === 'refreshed') {
+  if (
+    response.status === 401 &&
+    !refreshedBeforeSending &&
+    (await refreshAccessToken()) === 'refreshed'
+  ) {
     // Once, not in a loop: the server rotates refresh tokens and treats a
     // replayed one as theft (REQ-B-05). The FormData is re-readable, so the
     // same body — and the same idempotency key — goes out again.
