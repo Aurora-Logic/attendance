@@ -104,8 +104,11 @@ export function resolvePunchSettings(values: ReadonlyMap<string, unknown>): Punc
     photoMinBytes,
     photoMaxBytes,
     photoRetentionMonths:
-      // The same 1-120 band the settings catalogue accepts on the way in.
-      read(values, PUNCH_SETTING_KEYS.photoRetentionMonths, z.number().int().min(1).max(120)) ??
+      // The same 3-120 band the settings catalogue accepts on the way in.
+      // The floor is 3 because a regularization window can reach 90 days
+      // (REQ-F-02), and a shorter retention would purge a photo while the
+      // punch it evidences is still disputable.
+      read(values, PUNCH_SETTING_KEYS.photoRetentionMonths, z.number().int().min(3).max(120)) ??
       DEFAULT_PUNCH_SETTINGS.photoRetentionMonths,
   };
 }
