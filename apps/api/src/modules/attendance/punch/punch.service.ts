@@ -5,6 +5,7 @@ import {
   PERMISSIONS,
   employeeDisplayName,
   type AttendanceDaySummary,
+  type ConsentKey,
   type CursorPaginated,
   type PunchContext,
   type PunchFeedQuery,
@@ -25,6 +26,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AuditService } from '../../../platform/audit/audit.service.js';
 import { env } from '../../../platform/common/env.js';
+import { ConsentService } from '../../../platform/consent/consent.service.js';
 import { AppError, describeError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
@@ -53,7 +55,7 @@ import {
   type DateCandidate,
   type PunchWindow,
 } from './punch-policy.js';
-import { photoExpiry, type PunchSettings } from './punch-settings.js';
+import { DEFAULT_PUNCH_SETTINGS, photoExpiry, type PunchSettings } from './punch-settings.js';
 import { PunchRepository, type PunchEmployee } from './punch.repository.js';
 
 /**
@@ -107,6 +109,12 @@ const SECONDS_PER_HOUR = 3600;
 /** NFR-09 and technical design §7: "signed URLs valid for 5 minutes". */
 const PHOTO_URL_TTL_SECONDS = 300;
 
+/**
+ * REQ-M-03: the notice the punch screen shows. Typed against the shared
+ * catalogue so a renamed key is a compile error on both ends.
+ */
+const PUNCH_CONSENT_KEY: ConsentKey = 'attendance.punch_capture';
+
 export interface RequestMeta {
   readonly ip: string | null;
   readonly userAgent: string | null;
@@ -156,6 +164,7 @@ export class PunchService {
     private readonly auditContext: AuditContext,
     private readonly audit: AuditService,
     private readonly notifications: NotificationDispatcher,
+    private readonly consent: ConsentService,
   ) {}
 
   // -------------------------------------------------------------- commands
@@ -318,12 +327,16 @@ export class PunchService {
     const ctx = orgContextOf(principal);
     const repository = new PunchRepository(this.db, ctx);
 
+    // REQ-M-03: whether the notice still gates. Per user, not per employee,
+    // so it is answered before the employee-record check below.
+    const consentAccepted = await this.consent.hasAccepted(principal, PUNCH_CONSENT_KEY);
+
     const employeeId = principal.employeeId;
     if (employeeId === null) {
       // Not a 403: an administrator with no employee record (REQ-B-02) still
       // holds `punch.self` through the role hierarchy, and the screen they
       // land on should say why the button is dead rather than fail to load.
-      return emptyContext(now, env.DEFAULT_TIMEZONE, {
+      return emptyContext(now, env.DEFAULT_TIMEZONE, consentAccepted, {
         code: ERROR_CODES.FORBIDDEN,
         message: 'This account is not linked to an employee record, so it cannot punch.',
       });
@@ -438,6 +451,8 @@ export class PunchService {
       },
       lastPunch,
       day,
+      consentAccepted,
+      photoRetentionMonths: settings.photoRetentionMonths,
       blockedReason: blocked ?? shiftError,
     };
   }
@@ -1119,6 +1134,7 @@ function windowView(window: PunchWindow, now: Date): {
 function emptyContext(
   now: Date,
   timezone: string,
+  consentAccepted: boolean,
   blockedReason: NonNullable<PunchContext['blockedReason']>,
 ): PunchContext {
   return {
@@ -1136,6 +1152,11 @@ function emptyContext(
     ipAllowlist: { enforced: false, allowed: false },
     lastPunch: null,
     day: null,
+    consentAccepted,
+    // The default, not the organisation's row: this context exists for an
+    // account that cannot punch, so no settings were read for it, and the
+    // notice this number feeds never renders behind a dead button.
+    photoRetentionMonths: DEFAULT_PUNCH_SETTINGS.photoRetentionMonths,
     blockedReason,
   };
 }

@@ -426,6 +426,7 @@ export function sampleTodayStatus(): TodayStatus {
     windowBehaviour: 'ALLOW_WITH_REASON',
     halfDayAllowed: !punchedIn,
     consentAccepted: false,
+    photoRetentionMonths: 12,
     // Mirrors the real context: the sample must not be easier to satisfy than
     // the server, or the screen gets developed against a shape that does not
     // exist.

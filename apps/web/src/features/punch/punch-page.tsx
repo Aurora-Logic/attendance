@@ -41,7 +41,7 @@ import { HALF_DAY_PARTS, type HalfDayPart, type PunchDraft, type PunchResult } f
 import { useCamera } from './use-camera';
 import { POOR_ACCURACY_M, useGeolocation } from './use-geolocation';
 import { useOnline } from './use-online';
-import { usePunch, useToday } from './use-punch';
+import { useAcceptConsent, usePunch, useToday } from './use-punch';
 import { usePunchQueue } from './use-punch-queue';
 import { CLOCK_SKEW_LIMIT_MS, useServerClock } from './use-server-clock';
 
@@ -277,6 +277,7 @@ export function PunchPage() {
   const [halfDay, setHalfDay] = useState<HalfDayPart | null>(null);
   const [reason, setReason] = useState('');
   const [consented, setConsented] = useState(false);
+  const acceptConsent = useAcceptConsent();
   const [result, setResult] = useState<PunchResult | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [recorded, setRecorded] = useState(true);
@@ -721,8 +722,14 @@ export function PunchPage() {
                     </Field>
                   ) : null}
 
-                  {/* REQ-M-03. Acceptance belongs on the server; until the
-                      endpoint exists it gates the button and nothing more. */}
+                  {/* REQ-M-03. Ticking is the acceptance and is recorded
+                      against the account (POST /me/consent), so the notice
+                      appears once per person rather than once per visit. If
+                      the recording fails -- an offline first punch -- the tick
+                      still gates this session and the notice simply reappears
+                      next time, which is the safe direction for a required
+                      notice to fail in. Unticking is not a withdrawal
+                      mechanism, so nothing is sent for it. */}
                   {consentNeeded ? (
                     <Field orientation="horizontal">
                       <Checkbox
@@ -733,18 +740,17 @@ export function PunchPage() {
                         checked={consented}
                         onCheckedChange={(next: boolean) => {
                           setConsented(next);
+                          if (next && !acceptConsent.isPending) acceptConsent.mutate();
                         }}
                       />
-                      {/* No retention period is stated here on purpose. The
-                          screen used to promise a number that came from a
-                          field the server never sent, and punch photos are
-                          currently stored with no expiry at all, so the
-                          promise had nothing behind it. REQ-L-03 and REQ-M-03
-                          are open (OPEN-QUESTIONS P1-4); until a period is
-                          configured and enforced, saying nothing is the only
-                          honest option. */}
+                      {/* The retention period is stated because the server now
+                          enforces it: `photoRetentionMonths` is the same row
+                          the pipeline stamps `files.expires_at` from, so this
+                          sentence can no longer promise a number nothing keeps
+                          (the pre-P1-4 failure). */}
                       <FieldLabel htmlFor="punch-consent" className="font-normal">
-                        I understand that each punch stores a photo of me and my location.
+                        I understand that each punch stores a photo of me and my location, kept
+                        for {today.photoRetentionMonths} months and then deleted.
                       </FieldLabel>
                     </Field>
                   ) : null}

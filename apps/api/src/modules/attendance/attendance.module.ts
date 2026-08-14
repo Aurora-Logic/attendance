@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { ConsentModule } from '../../platform/consent/consent.module.js';
 import { ApprovalModule } from './approvals/approvals.module.js';
 import { HolidayModule } from './holidays/holidays.module.js';
 import { LeaveModule } from './leave/leave.module.js';
@@ -29,8 +30,10 @@ import { PunchService } from './punch/punch.service.js';
  */
 @Module({
   // One import line per slice, added up front so five parallel builds
-  // never contend for this file.
-  imports: [ShiftModule, HolidayModule, ApprovalModule, LeaveModule, ReportModule],
+  // never contend for this file. ConsentModule is the exception to "nothing
+  // is imported here": it is platform but not @Global(), and the punch
+  // context needs its service to say whether the REQ-M-03 notice still gates.
+  imports: [ConsentModule, ShiftModule, HolidayModule, ApprovalModule, LeaveModule, ReportModule],
   controllers: [
     PunchController,
     PunchContextController,

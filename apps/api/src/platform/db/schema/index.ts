@@ -13,5 +13,6 @@ export * from './audit.schema.js';
 export * from './deletion.schema.js';
 export * from './notification.schema.js';
 export * from './file.schema.js';
+export * from './consent.schema.js';
 export * from './report.schema.js';
 export * from './integration.schema.js';
