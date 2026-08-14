@@ -149,6 +149,11 @@ jobs:
     # It runs against the dev server, not a production build: the shell
     # deliberately has no session without an API, and the pattern gallery the
     # checks drive is mounted in development only.
+    #
+    # That choice has a cost, and the `offline` job below is what pays it. The
+    # dev server renders /sw.js with an empty precache - the list is computed in
+    # `generateBundle`, so it exists only in a build - so nothing this job does
+    # can see the service worker's precache behaviour at all.
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -245,4 +250,75 @@ jobs:
         with:
           name: verify-ui-output
           path: /tmp/verify-ui.log
+          if-no-files-found: warn
+
+  offline:
+    name: Offline boot from a production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Separate from `browser`, not folded into it, for two reasons.
+    #
+    # The first is that `browser` runs against the dev server on purpose, and
+    # the dev server cannot express what this job checks: /sw.js is rendered
+    # there with an empty precache, because the list is derived from the emitted
+    # bundle in `generateBundle`. The commit that precaches the build's own
+    # output was therefore invisible to every browser check in CI, and the way
+    # that shipped once already is a first install that cached the shell but not
+    # the script that fills it - a blank screen at a gate with no signal.
+    #
+    # The second is cost. This needs no API, no Postgres and no seed: the app
+    # offline with no session renders the sign-in form, which is all the proof
+    # required that the bundle ran. So it is a fast job rather than a slow one,
+    # and a failure here reads as "the offline boot broke" rather than hiding
+    # inside a suite that also drives twenty screens.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared contract
+        run: pnpm --filter @vyuha/shared build
+
+      # NODE_ENV, again scoped to the step. A development bundle has no
+      # precache worth the name, which would make this whole job meaningless.
+      - name: Build the web app for production
+        env:
+          NODE_ENV: production
+        run: pnpm --filter @vyuha/web build
+
+      - name: Assert the build is a production bundle
+        run: node apps/web/scripts/check-production-bundle.mjs
+
+      - name: Start headless Chrome
+        run: |
+          google-chrome --remote-debugging-port=9222 --headless=new --disable-gpu \
+            --no-sandbox --user-data-dir=/tmp/ci-chrome-offline about:blank &
+          for _ in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:9222/json/version && break
+            sleep 1
+          done
+          curl -sf -o /dev/null http://localhost:9222/json/version
+
+      - name: Boot the app with no network
+        # `pipefail`, for the same reason the browser job sets it: without it
+        # `tee` decides the exit status and the job passes whatever the script
+        # found.
+        shell: bash
+        run: |
+          set -o pipefail
+          node apps/web/scripts/verify-offline.mjs 2>&1 | tee /tmp/verify-offline.log
+
+      - name: Upload the offline check output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-offline-output
+          path: /tmp/verify-offline.log
           if-no-files-found: warn
