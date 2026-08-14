@@ -226,9 +226,25 @@ export interface DayPunchState {
   readonly lastType: PunchType | null;
 }
 
+/**
+ * The `classid` half of the punch-ordering advisory lock.
+ *
+ * Two-argument `pg_advisory_xact_lock` splits one 64-bit lock space into a
+ * namespace and a key, so the employee hash below can only ever collide with
+ * another punch-ordering lock -- never with a lock some future feature takes
+ * on the same database. The number itself is arbitrary and only has to stay
+ * stable: changing it while a deployment is half upgraded would put the two
+ * versions in different lock spaces, which is the one way this could silently
+ * stop working.
+ */
+export const PUNCH_ORDERING_LOCK_NAMESPACE = 4001;
+
+/** Drizzle's transaction handle; the same idiom `AuthService` uses. */
+export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+
 export class PunchRepository {
   constructor(
-    private readonly db: Database,
+    private readonly db: Database | Transaction,
     private readonly ctx: OrgContext,
   ) {}
 
@@ -504,6 +520,51 @@ export class PunchRepository {
   }
 
   // ------------------------------------------------------------------ write
+
+  /**
+   * Runs `work` in a transaction holding this employee's punch-ordering lock.
+   *
+   * REQ-D-01 says punches alternate per attendance day, and "does an IN stand
+   * open?" is a question about the *latest* row for a day. Reading it, deciding
+   * on it, and then inserting is a read-modify-write, and it was neither atomic
+   * nor guarded: two requests arriving together both read "nothing open" and
+   * both wrote an IN. The idempotency index cannot catch that -- the keys
+   * genuinely differ -- and the append-only trigger will not either, because
+   * both statements are inserts and both are legal on their own.
+   *
+   * A partial unique index was the first thing considered and does not work:
+   * an index predicate can only see the columns of the row being written, and
+   * "an IN is open" is a property of the ordering of every row for that day.
+   * There is no expression over one `punches` row that evaluates to it, and
+   * `punches` has no state column to maintain because REQ-D-12 forbids the
+   * UPDATE that would maintain it. An EXCLUDE constraint founders on the same
+   * point. `SELECT ... FOR UPDATE` on the employee row would work, but it puts
+   * a lock on master data in the hottest path in the product, so an HR edit
+   * and a punch would start blocking each other for no reason either of them
+   * could see.
+   *
+   * So: an advisory lock, keyed on the employee, held for the transaction
+   * rather than the session -- `_xact_` means a rollback or a dropped
+   * connection releases it, which is the failure mode that turns a lock into an
+   * outage. `hashtext` narrows the uuid to 32 bits, so two employees can share
+   * a key; the cost of that collision is that two people occasionally take each
+   * other's turn for the length of one insert, and never a wrong answer.
+   *
+   * Per employee, deliberately. One key for the organisation would serialise
+   * the entire workforce at 09:00, which is the one minute of the day this
+   * product has to survive.
+   */
+  async withPunchOrderingLock<T>(
+    employeeId: string,
+    work: (locked: PunchRepository, tx: Transaction) => Promise<T>,
+  ): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(${PUNCH_ORDERING_LOCK_NAMESPACE}, hashtext(${employeeId}))`,
+      );
+      return work(new PunchRepository(tx, this.ctx), tx);
+    });
+  }
 
   /**
    * The only write in the punch path, and the only one there will ever be:

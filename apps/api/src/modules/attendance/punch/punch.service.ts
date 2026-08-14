@@ -561,6 +561,15 @@ export class PunchService {
     }
 
     // 7. REQ-D-01: alternating, strictly ordered. A second IN is refused.
+    //
+    //    This is the fast path, not the guarantee. It answers for the instant
+    //    it ran, and it is here so that the ordinary refusal -- a person
+    //    tapping IN twice, seconds apart -- costs one query and leaves nothing
+    //    in object storage. The check that actually decides runs under the
+    //    employee's advisory lock at step 11, because two requests arriving
+    //    together both pass this one. Exactly the split `insert` already
+    //    describes for the idempotency key: the pre-flight is a courtesy, the
+    //    lock is the rule.
     assertOrdering(facts.type, chosen.candidate.hasOpenIn, attendanceDate);
 
     const verdict = await this.evaluate(
@@ -619,36 +628,64 @@ export class PunchService {
       idempotencyKey,
     };
 
-    // 10. One transaction for the punch and, on a first punch that carried
-    //     the tick, the acceptance it asserted (REQ-M-03). Both rows commit
-    //     or neither does: a stored photo punch can never exist for a user
-    //     with no consent row, and a failed insert leaves no acceptance
-    //     claiming a punch that was never made. `ConsentService.record` is
-    //     idempotent through the partial unique index, so a concurrent first
-    //     punch racing this one settles there rather than erroring.
-    const inserted = await this.db.transaction(async (tx) => {
+    // 11. One transaction, holding this employee's punch-ordering lock, for
+    //     three things that have to agree: REQ-D-01's ordering, the punch, and
+    //     -- on a first punch that carried the tick -- the acceptance it
+    //     asserted (REQ-M-03). All of it commits or none of it does: a stored
+    //     photo punch can never exist for a user with no consent row, and a
+    //     failed insert leaves no acceptance claiming a punch that was never
+    //     made. `ConsentService.record` is idempotent through the partial
+    //     unique index, so a concurrent first punch racing this one settles
+    //     there rather than erroring.
+    //
+    //     The ordering state is read again inside the lock rather than reused
+    //     from step 7. That re-read is the whole fix: the lock serialises this
+    //     employee's inserts, so whatever it sees is what has actually
+    //     committed, and the loser of a race is refused instead of writing a
+    //     second IN. See `withPunchOrderingLock` for why a lock and not an
+    //     index.
+    const outcome = await repository.withPunchOrderingLock(employee.id, async (locked, tx) => {
+      // REQ-D-11 before REQ-D-01, inside the lock exactly as at step 2 outside
+      // it. A retry that set off before its original committed -- the phone on
+      // one bar, sending twice -- arrives here holding a key that now exists,
+      // and it must get that punch back. Checking the ordering first would
+      // refuse it for an alternation it never broke: its own IN is what is
+      // standing open.
+      const sameKey = await locked.findByIdempotencyKey(employee.id, idempotencyKey);
+      if (sameKey !== null) return { punch: sameKey, replayed: true };
+
+      const states = await locked.punchStateFor(employee.id, [attendanceDate]);
+      assertOrdering(facts.type, states[0]?.hasOpenIn ?? false, attendanceDate);
+
       if (!consentOnRecord) {
         await this.consent.record(principal, PUNCH_CONSENT_KEY, tx);
       }
-      return new PunchRepository(tx, ctx).insert(punchValues);
-    });
 
-    // A null insert means the unique index refused it: another request carrying
-    // the same key committed while this one was re-encoding a photograph. That
-    // request's punch is the punch, and this one returns it (REQ-D-11).
-    if (inserted === null) {
-      const winner = await repository.findByIdempotencyKey(employee.id, idempotencyKey);
+      const created = await locked.insert(punchValues);
+      if (created !== null) return { punch: created, replayed: false };
+
+      // Unreachable while the lock is held -- nothing else can be inserting
+      // for this employee, and the key was just checked in this transaction.
+      // Kept because the alternative to reading the row is a 500 on a punch
+      // that may well exist, and this endpoint has one job.
+      const winner = await locked.findByIdempotencyKey(employee.id, idempotencyKey);
       if (winner === null) {
         throw new Error(
           `Punch insert for key ${idempotencyKey} was refused but no existing punch was found.`,
         );
       }
+      return { punch: winner, replayed: true };
+    });
+
+    if (outcome.replayed) {
       return {
-        punch: winner,
-        day: await this.readDay(principal, employee.id, winner.attendanceDate),
+        punch: outcome.punch,
+        day: await this.readDay(principal, employee.id, outcome.punch.attendanceDate),
         replayed: true,
       };
     }
+
+    const inserted = outcome.punch;
 
     this.auditContext.record({
       action: 'punch.created',
