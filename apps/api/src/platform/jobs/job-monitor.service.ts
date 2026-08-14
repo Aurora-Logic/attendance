@@ -4,7 +4,7 @@ import type { Job } from 'bullmq';
 import { env } from '../common/env.js';
 import { JobRegistry } from './job-handler.js';
 import { JobRunner } from './job-runner.service.js';
-import { ALL_QUEUES, JOB_QUEUE, type QueueName } from './queue.registry.js';
+import { ALL_QUEUES, type QueueName } from './queue.registry.js';
 
 /**
  * Technical design §17: "a job monitor page for BullMQ", and §11: failures
@@ -18,6 +18,11 @@ import { ALL_QUEUES, JOB_QUEUE, type QueueName } from './queue.registry.js';
 
 export interface QueueSummary {
   readonly name: QueueName;
+  /**
+   * Whether *this* process has a worker on the queue. The question an operator
+   * opens the page to answer is "why has no reset mail gone out", and the only
+   * honest answer to it is whether anything is draining the queue.
+   */
   readonly consumedHere: boolean;
   readonly counts: Readonly<Record<string, number>>;
 }
@@ -48,9 +53,10 @@ export class JobMonitorService {
   ) {}
 
   async summary(): Promise<JobMonitorSummary> {
-    const consumed = new Set(
-      this.registry.registeredJobNames().map((jobName) => JOB_QUEUE[jobName]),
-    );
+    // From the runner's workers, not the registry: a handler is registered on
+    // every instance so that every instance understands the job names it
+    // enqueues, and only a worker consumes. See `JobRunner.consumedQueues`.
+    const consumed = this.runner.consumedQueues();
 
     const queues: QueueSummary[] = [];
     const failures: JobFailure[] = [];

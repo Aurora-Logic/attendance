@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { AppError } from '../common/errors.js';
+import { JobMonitorService, type JobMonitorSummary } from './job-monitor.service.js';
 import { JobRunner } from './job-runner.service.js';
 import {
   ENQUEUE_TIMEOUT_MS,
@@ -33,6 +34,7 @@ const ORG_ID = '01900000-0000-7000-8000-0000000000f5';
 
 let harness: ApiHarness;
 let runner: JobRunner;
+let monitor: JobMonitorService;
 
 /** A promise with the one property that matters here: it never settles. */
 function neverSettles<T>(): Promise<T> {
@@ -42,6 +44,7 @@ function neverSettles<T>(): Promise<T> {
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'Vyuha Job Resilience');
   runner = harness.resolve(JobRunner);
+  monitor = harness.resolve(JobMonitorService);
 }, 60_000);
 
 afterAll(async () => {
@@ -139,6 +142,52 @@ describe('enqueueing while Redis does not answer', () => {
   }, 30_000);
 });
 
+describe('the job monitor', () => {
+  /**
+   * The one screen an operator opens to answer "why has no reset mail gone
+   * out". `consumedHere` was derived from `JobRegistry.registeredJobNames()`,
+   * and handlers register in `onModuleInit` whatever `JOBS_WORKER_ENABLED`
+   * says -- so a process booted with the worker off reported
+   * `workerEnabled: false` alongside `notification { consumedHere: true }`.
+   * Observed live with `waiting: 631` on that same queue.
+   */
+  it('reports nothing consumed here when this process runs no workers', async () => {
+    const summary = await monitor.summary();
+
+    // The premise: handlers *are* registered, which is why the old derivation
+    // looked plausible. Without this the test could pass for the wrong reason.
+    expect(summary.registeredJobs).toContain('deliver-password-reset');
+    expect(summary.queues.length).toBeGreaterThan(0);
+
+    for (const queue of summary.queues) {
+      expect({ queue: queue.name, consumedHere: queue.consumedHere }).toEqual({
+        queue: queue.name,
+        consumedHere: false,
+      });
+    }
+  }, 30_000);
+
+  it('reports the queues consumed here once workers are running', async () => {
+    runner.startWorkers();
+
+    try {
+      const summary: JobMonitorSummary = await monitor.summary();
+      const consumed = summary.queues
+        .filter((queue) => queue.consumedHere)
+        .map((queue) => queue.name);
+
+      expect(consumed).toContain(QUEUES.NOTIFICATION);
+      expect(consumed).toContain(QUEUES.MAINTENANCE);
+      // `attendance` has no handler in any phase yet, so nothing consumes it
+      // even with the workers on. A summary that claimed otherwise would be
+      // the same lie in the other direction.
+      expect(consumed).not.toContain(QUEUES.ATTENDANCE);
+    } finally {
+      await runner.onApplicationShutdown();
+    }
+  }, 60_000);
+});
+
 describe('shutdown', () => {
   /**
    * Two API processes that had lived through a Redis outage were still alive
@@ -153,6 +202,7 @@ describe('shutdown', () => {
    */
   it('finishes even when every worker close never settles', async () => {
     runner.startWorkers();
+    expect(runner.consumedQueues().size).toBeGreaterThan(0);
 
     // Both the polite close and the forced one, for every worker. `disconnect`
     // is deliberately left real: it is the last resort the shutdown falls back
@@ -179,6 +229,7 @@ describe('shutdown', () => {
       // could only end by timing out.
       expect(elapsed).toBeGreaterThanOrEqual(SHUTDOWN_STAGE_MS);
       expect(elapsed).toBeLessThan(SHUTDOWN_BUDGET_MS * 2);
+      expect(runner.consumedQueues().size).toBe(0);
     } finally {
       close.mockRestore();
     }

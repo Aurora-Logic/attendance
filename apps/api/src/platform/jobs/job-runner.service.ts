@@ -279,6 +279,22 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
   }
 
   /**
+   * The queues this process is actually draining.
+   *
+   * Read from the running workers rather than from the registry, because the
+   * two disagree in the deployment that matters. Handlers register during
+   * `onModuleInit` whatever `JOBS_WORKER_ENABLED` says -- registration is what
+   * makes a job name understood, and a web instance must still understand the
+   * names it enqueues. Only `startWorkers` puts a consumer on a queue, and it
+   * runs only when the flag is on. Deriving this from the registry made the
+   * admin job monitor report `consumedHere: true` for four queues on a process
+   * that had created no workers at all.
+   */
+  consumedQueues(): ReadonlySet<QueueName> {
+    return new Set(this.workers.keys());
+  }
+
+  /**
    * The dispatch a worker performs. Separated so the failure modes are visible
    * in one place: an unknown job name is a deployment mismatch and must not be
    * retried into oblivion, and a handler's own error is rethrown untouched so
