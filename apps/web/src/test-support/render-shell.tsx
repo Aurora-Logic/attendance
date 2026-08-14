@@ -48,6 +48,9 @@ export function renderWithProviders(
   useSessionStore.getState().setFromMe({
     displayName: 'Test User',
     roleLabel: role,
+    // The same record `me` above names, for the reason given in the doc
+    // comment: the two seeds must describe one person.
+    employeeId: 'e1',
     permissions,
   });
 

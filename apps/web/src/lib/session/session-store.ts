@@ -13,12 +13,19 @@ interface SessionState {
   status: 'loading' | 'authenticated' | 'anonymous';
   displayName: string | null;
   roleLabel: string | null;
+  /**
+   * The signed-in account's own employee record, or null for an account with
+   * none (REQ-B-02). Screens use it to say "this row is yours" — the server
+   * re-checks every such rule regardless (REQ-I-05).
+   */
+  employeeId: string | null;
   permissions: ReadonlySet<PermissionKey>;
   /** True when the set came from the dev preview rather than from `/me`. */
   isPreview: boolean;
   setFromMe: (input: {
     displayName: string;
     roleLabel: string;
+    employeeId: string | null;
     permissions: PermissionKey[];
   }) => void;
   applyPreviewRole: (role: SystemRoleName) => void;
@@ -29,14 +36,16 @@ export const useSessionStore = create<SessionState>((set) => ({
   status: 'loading',
   displayName: null,
   roleLabel: null,
+  employeeId: null,
   permissions: new Set<PermissionKey>(),
   isPreview: false,
 
-  setFromMe: ({ displayName, roleLabel, permissions }) =>
+  setFromMe: ({ displayName, roleLabel, employeeId, permissions }) =>
     set({
       status: 'authenticated',
       displayName,
       roleLabel,
+      employeeId,
       permissions: new Set(permissions),
       isPreview: false,
     }),
@@ -52,6 +61,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       status: 'authenticated',
       displayName: 'Preview user',
       roleLabel: role,
+      employeeId: null,
       permissions: new Set(ROLE_PERMISSION_MATRIX[role]),
       isPreview: true,
     }),
@@ -61,6 +71,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       status: 'anonymous',
       displayName: null,
       roleLabel: null,
+      employeeId: null,
       permissions: new Set<PermissionKey>(),
       isPreview: false,
     }),
