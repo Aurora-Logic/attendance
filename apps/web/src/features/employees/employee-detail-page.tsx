@@ -40,6 +40,7 @@ import {
 } from '@/features/attendance/status';
 import { AttendanceFlags, AttendanceStatusBadge } from '@/features/attendance/status-badge';
 import { employeeActions } from './employee-actions';
+import { EmployeeAccessSection } from './employee-access-section';
 import { EmployeeSheet } from './employee-sheet';
 import { EmployeeLifecycleDialog, type LifecycleTarget } from './lifecycle-dialog';
 import type { AttendanceDay } from '@/features/attendance/types';
@@ -450,6 +451,9 @@ export function EmployeeDetailPage() {
   const [sheet, setSheet] = useState<EmployeeDetail | 'new' | null>(null);
   const [lifecycle, setLifecycle] = useState<LifecycleTarget | null>(null);
   const canManage = permissions.has(PERMISSIONS.EMPLOYEE_MANAGE);
+  // REQ-B-07. Deliberately not `employee.manage`: HR editing a person's
+  // department must not be able to make them an administrator.
+  const canManageRoles = permissions.has(PERMISSIONS.ROLES_MANAGE);
 
   const punches = punchesQuery.data?.punches ?? [];
   const atCurrentMonth = isSameMonth(month, new Date());
@@ -574,6 +578,23 @@ export function EmployeeDetailPage() {
           <EmployeeFacts employee={employee.data} />
 
           <Separator />
+
+          {/* REQ-B-07's assignment control. Above the month analysis rather
+              than below it: "what can this person do" is a question about the
+              record, and burying it under three charts would put it past the
+              point anyone scrolls.
+
+              Hidden rather than disabled for a reader without roles.manage,
+              which CLAUDE.md §4 allows. The sidebar already filters the Roles
+              screen out of their navigation entirely, so a permanent refusal
+              panel on every employee they open would be the only place in the
+              product that told them about a screen they cannot reach. */}
+          {canManageRoles ? (
+            <>
+              <EmployeeAccessSection employee={employee.data} />
+              <Separator />
+            </>
+          ) : null}
 
           <div className="flex flex-col gap-6">
             {/* Toolbar row (PRD §6.2). Wraps rather than scrolling sideways at
