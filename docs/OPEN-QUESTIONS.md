@@ -55,41 +55,58 @@ default being used until answered.
 | P2-6 | **REQ-C-03 names four levels for a weekly-off pattern and only two are modelled.** Employee level (`employees.weekly_off_pattern_id`) and organisation level (a settings key) exist. Location and department levels have no storage anywhere — not on the writing side, and the day engine's repository reached the same conclusion from the reading side. | REQ-C-03 | Two levels, and no storage invented for the other two. `/weekly-off-patterns` is master CRUD; a pattern is attached per employee or per organisation. If a location or a department needs its own pattern — a plant that works alternate Saturdays while head office does not — that is a nullable column on each of those two tables plus a resolution order in the day engine. Straightforward, but it changes how the engine decides, so it waits for you. |
 | P2-5 | **`PATCH /settings` where technical design 6 says `PUT`.** Absent groups mean unchanged, which is PATCH semantics, and every other update endpoint in this API is PATCH. | REQ-L-01 | PATCH. Flagged rather than silently diverging from the design document. |
 
-## The leave / approvals join, still unwired
+## The leave / approvals join — **done 14 Aug 2026**
 
-Not a question for you — a note for whoever does it next, written after an
-attempt that was reverted.
+The note that stood here described an unbuilt join and the shape it had to
+take. It is built, in the shape described, and this is what came of it.
 
-Leave and the approval framework both landed, and they are not connected.
-`leave_requests.approval_request_id` has existed since migration 0004 and is
-always null: nothing calls `ApprovalService.raise`, so a leave application never
-reaches the approvals inbox and the escalation job never sees it. Leave decides
-on its own endpoint, where the append-only ledger write lives.
+**What landed.** `ApprovalSubjectRegistry` is the `JobRegistry`-shaped map from
+subject type to handler; `LeaveApprovalHandler` puts itself into it on init;
+`ApprovalService` calls the handler when a request reaches a status the subject
+has to mirror. Applying for leave raises an approval request in the same
+transaction as the leave request, so `leave_requests.approval_request_id` is
+never null again. Nothing in `approvals/` imports leave.
 
-**The shape it has to take.** The framework must not import leave — leave
-already imports the framework, and the arrow cannot point both ways. So a
-subject-handler registry, exactly like `JobRegistry`: the framework holds a map
-from subject type to a handler, each slice registers itself on init, and the
-framework calls the handler when a request reaches a terminal status. Leave's
-handler applies the decision without re-checking the approver, because the
-framework has already done that.
+**The ledger is written exactly once, by four layers, not one.** The decision
+runs in a single transaction, so a rollback takes the step, the request and the
+ledger row together. Above it: `evaluateDecision` refuses a closed request
+(read-then-act, so sequential only), the step update is a compare-and-swap on
+`action IS NULL`, the request update is a compare-and-swap on
+`(current_step, status)`, and migration 0014 adds a unique index per
+(leave request, movement type) with a service check that turns
+`ON CONFLICT DO NOTHING`'s silence into a refusal. Removing any single code
+layer leaves the ledger correct; removing all of them makes the concurrency
+test report two 201s and two AVAILED rows, which is how that test was shown to
+be capable of failing at all.
 
-**Raise and handle must land in the same change.** This was tried the other way
-round — the seam plus a guard refusing to decide any subject with no registered
-handler — and it broke ten approvals tests, correctly. No subject type has a
-handler, so the guard made the whole framework inert. The lesson is that the
-guard is only safe once at least one handler exists, and that raising a leave
-approval before the handler exists would be worse still: the inbox would mark a
-request approved while the ledger and the balance recorded nothing, with no
-error anywhere.
+**Both surfaces are one code path.** `/leave/requests/:id/approve` resolves the
+attached approval and hands it to `ApprovalService.decide`. A leave approved in
+the inbox and one approved on the leave screen therefore run identical code —
+asserted row for row rather than each being separately plausible. The minimal
+"Leave to decide" band on the Approvals screen is deleted, as its own comment
+planned: leave arrives in the real inbox with a route, a step, delegation and
+escalation, and a second list ordered by status rather than by whose step it is
+would offer buttons on rows waiting for somebody else.
 
-**Why it was not finished unattended.** It moves who writes an append-only
-ledger. A wrong row cannot be taken back, and CLAUDE.md 7 puts leave rules on
-the list not to guess at. It wants doing with someone watching.
+**Also wired:** the `ESCALATED` status nothing used to set, so the branches
+already written for it stop being dead code; REQ-G-09's route read literally
+(nearest manager, and the org-wide approvers only when the type says two steps)
+rather than the framework's whole default route, which would have made every
+leave type two-step; the applied notification going to the approvers actually
+routed to rather than to everyone holding `leave.approve.team`, and carrying
+the approval id its template needs in order to link anywhere.
 
-There is a second join: cancelling on or after the start date currently needs an
-approver key rather than raising an approval request, which is what REQ-G-10
-asks for.
+### Three things this leaves for you
+
+| # | Question | Blocks | Recommended default in use |
+|---|---|---|---|
+| LA-1 | **A single-login organisation can no longer raise leave at all** — and the seeded database is one. REQ-I-05 says an approver cannot approve their own request, so an administrator who is the only account has nobody to route to, and `raise` refuses with "This request has nobody to approve it. Set a reporting manager, or give someone leave.approve.all." Before the join the application was accepted and then sat pending forever, because the same rule stopped the only approver deciding it. | REQ-G-06 on a fresh database | **Refuse, loudly, at the application.** A request nobody can ever decide is worse created than refused, and the message names both fixes. The consequence is a launch step, not a code change: **a pilot needs a second login holding `leave.approve.team` or `leave.approve.all`, or reporting managers set on the roster** before anyone applies for leave. Verified against the seeded database in a browser. Say the word if a lone administrator should instead be allowed to approve their own leave — that is a deliberate hole in REQ-I-05 and wants saying out loud. |
+| LA-2 | **Leave requests raised before this change cannot be decided.** They carry no `approval_request_id`, so there is no route, no step, and nobody the framework could name as the approver. `POST /leave/requests/:id/approve` answers 409 with "Cancel it and apply again", and cancelling still works. | Nothing on a fresh database | **Refuse rather than decide on the old terms**, because deciding them would mean keeping a second writer of the AVAILED row — the exact thing this change removed. No data migration was written: building a route for a historical request means guessing who should have approved it, and CLAUDE.md §7 puts leave on the list not to guess at. There is no production data yet, so the cost is a re-application on a development database. Say the word if a back-fill is wanted before the pilot loads real requests. |
+| LA-3 | **Nothing notifies anyone when a request escalates.** `NOTIFICATION_EVENTS.APPROVAL_OVERDUE` exists and is emitted by nothing; the escalation job moves the request, writes the audit row, and now mirrors the status onto the leave request, but the new approver learns about it only by opening the inbox. | REQ-K-03's "approval pending for over N days" | **Nothing invented.** The event, its template and its audience rules are one call away in `escalateOne`, but who should hear it is a policy question — the new approver only, or the previous one too, or the requester as well — and REQ-K-03 does not say. Left out rather than guessed. |
+
+There is still a second join, unchanged from the original note: cancelling on or
+after the start date needs an approver key rather than raising an approval
+request of its own, which is what REQ-G-10 asks for.
 
 ## Raised during guided tour and Updates design
 

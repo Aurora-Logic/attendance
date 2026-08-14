@@ -10,8 +10,6 @@ import { z } from 'zod';
 
 import {
   leaveApplicationSchema,
-  leaveDecisionSchema,
-  leaveRejectionSchema,
   leaveTypeInputSchema,
   leaveTypePatchSchema,
   type ApprovalStatus,
@@ -261,68 +259,21 @@ export function useCancelLeave(): UseMutationResult<
 }
 
 /**
- * REQ-G-09's minimal decision surface (launch plan WS-B): the pending leave
- * an approver can act on, read from the leave endpoints directly because the
- * approvals-framework join is deliberately unbuilt -- see OPEN-QUESTIONS
- * "The leave / approvals join, still unwired". When that join lands, leave
- * arrives in the generic inbox and this hook and its band are deleted.
+ * There is deliberately no hook here for deciding leave.
  *
- * Only PENDING is asked for: a leave request can only leave that status
- * through these very endpoints today, so ESCALATED cannot occur.
+ * A minimal band on the Approvals screen used to read pending leave from
+ * `/leave/requests` and decide it on `/leave/requests/:id/approve`, because
+ * nothing raised a leave request into the generic inbox. The join has landed:
+ * applying now raises an approval request, so leave arrives in the inbox with
+ * a route, a current step, delegation and escalation, and the inbox's own
+ * `useDecideApproval` is the only decision mutation the client needs
+ * (REQ-I-03: "one Approvals inbox per approver").
+ *
+ * Re-adding one would not double-write -- the leave endpoints route through
+ * the framework now, so a second decision is refused either way -- but it
+ * would list requests by status rather than by whose step they are on, and
+ * offer buttons on rows that are waiting on somebody else.
  */
-export function usePendingLeaveDecisions(
-  enabled: boolean,
-): UseQueryResult<Sampled<Paginated<LeaveRequest>>, Error> {
-  return useQuery({
-    enabled,
-    queryKey: [...LEAVE_QUERY_ROOT, 'decisions', 'pending'],
-    queryFn: ({ signal }) =>
-      withDevFixture(
-        async () =>
-          parseOrThrow(
-            requestListSchema,
-            // The working set an approver clears, not an archive: page one,
-            // largest page. The band states the total so nothing hides.
-            await apiRequest<unknown>('/leave/requests?status=PENDING&pageSize=100', { signal }),
-            'pending leave requests',
-          ),
-        (fixtures) => fixtures.leaveRequestsFixture({ page: 1, pageSize: 100, status: 'PENDING' }),
-      ),
-    placeholderData: keepPreviousData,
-  });
-}
-
-/**
- * REQ-G-09 / REQ-F-05. Both verbs parse their body with the same schema the
- * server uses, so "a rejection needs a reason of substance" fails here rather
- * than as a 400 the reader has to interpret.
- */
-export function useDecideLeave(): UseMutationResult<
-  LeaveRequestDetail,
-  Error,
-  { id: string; action: 'APPROVE' | 'REJECT'; reason: string }
-> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, action, reason }) => {
-      const body =
-        action === 'REJECT'
-          ? leaveRejectionSchema.parse({ reason })
-          : leaveDecisionSchema.parse({ reason: reason || null });
-      const response = await apiRequest<unknown>(
-        `/leave/requests/${id}/${action === 'REJECT' ? 'reject' : 'approve'}`,
-        { method: 'POST', body },
-      );
-      return parseOrThrow(leaveRequestDetailSchema, response, 'leave decision');
-    },
-    onSuccess: () => {
-      // The decision moves the balance, the history, and -- through the
-      // server's inline recompute -- the muster.
-      void queryClient.invalidateQueries({ queryKey: LEAVE_QUERY_ROOT });
-      void queryClient.invalidateQueries({ queryKey: ['attendance'] });
-    },
-  });
-}
 
 export interface LeaveTypeDraft extends LeaveTypeInput {
   /** Absent when creating (REQ-G-01 allows new types, not only edits). */

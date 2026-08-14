@@ -5,7 +5,6 @@ import { useSearchParams } from 'react-router';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
-import { SectionHeading } from '@/components/shared/section-heading';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -26,12 +25,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { apiErrorCopy, actionErrorCopy } from '@/features/leave/api-error-copy';
 import { CheckboxRow } from '@/features/leave/control-row';
-import { LeaveDecisionsSection } from '@/features/leave/leave-decisions';
 import { SampleDataNotice } from '@/features/leave/sample-data-notice';
 import { ApiError } from '@/lib/api/client';
 import { formatDate } from '@/lib/format';
@@ -375,27 +372,10 @@ export function ApprovalsPage() {
         }
       />
 
-      {/* WS-B: leave decides on its own endpoints until the approvals
-          framework join lands (OPEN-QUESTIONS, "The leave / approvals join,
-          still unwired"), so it gets its own band rather than fake inbox
-          rows. Deleted whole when the join ships. Only approvers see it --
-          the inbox below already serves everyone's "what did I raise". */}
-      {canApprove && permissionsKnown ? (
-        <>
-          <LeaveDecisionsSection />
-          <Separator />
-        </>
-      ) : null}
-
       <div className="flex flex-col gap-4">
-        {/* Only named once the page holds two bands; alone, the header above
-            already says what the list is. */}
-        {canApprove && permissionsKnown ? (
-          <SectionHeading
-            title="Approvals inbox"
-            note="Regularizations, on-duty, flagged punches and device rebinds route here."
-          />
-        ) : null}
+        {/* One list, of every kind (REQ-I-01). The leave band that used to sit
+            above this is gone: applying for leave now raises an approval
+            request, so leave arrives here with everything else. */}
         <div className="flex flex-wrap items-center gap-2">
           <Select
             value={type ?? ALL}
