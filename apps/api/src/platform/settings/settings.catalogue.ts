@@ -149,7 +149,11 @@ const photoByteBudget = z.number().int().min(1 * KB).max(2_048 * KB);
  * both, and a rule checked on the patch alone would miss it.
  */
 export const photoPolicyObject = z.object({
-  retentionMonths: z.number().int().min(1).max(120),
+  // Floor of 3, not 1: a regularization window can reach 90 days
+  // (`regularizationWindowDays` above), so a one-month retention would purge
+  // a photo while the punch it evidences is still disputable. Three months
+  // is the smallest value that cannot outrun the longest dispute window.
+  retentionMonths: z.number().int().min(3).max(120),
   minBytes: photoByteBudget,
   maxBytes: photoByteBudget,
 });

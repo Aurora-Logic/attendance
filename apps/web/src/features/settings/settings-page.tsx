@@ -541,7 +541,10 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                 label="Keep punch photos for"
                 unit="months"
                 help="The consent notice shown at the first punch quotes this number."
-                min={1}
+                // The server's floor: a regularization window can reach 90
+                // days, and a shorter retention would purge a photo while its
+                // punch is still disputable.
+                min={3}
                 max={120}
                 value={draft.photo.retentionMonths}
                 enforcedBy={saved.enforcement.photo.retentionMonths}

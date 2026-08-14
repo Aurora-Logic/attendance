@@ -377,6 +377,10 @@ export function PunchPage() {
       coords: location.coords,
       halfDay: today.nextPunchType === 'IN' ? halfDay : null,
       reason: reason.trim() || null,
+      // The tick when the notice is showing, otherwise the server's own
+      // record. Sent with the punch (REQ-M-03) so an offline first punch
+      // carries its acceptance to sync time.
+      consentAccepted: consented || today.consentAccepted,
     };
 
     if (!online) {
@@ -403,6 +407,12 @@ export function PunchPage() {
         // through to the error state below.
         if (error instanceof ApiError && error.code === 'NETWORK_ERROR') {
           void queueOffline(draft);
+        }
+        // The server holds no acceptance for this account (REQ-M-03).
+        // `usePunch` refetches /me/today, which re-shows the notice; the tick
+        // is cleared here so it has to be given again, not assumed.
+        if (error instanceof ApiError && error.code === 'CONSENT_REQUIRED') {
+          setConsented(false);
         }
       },
     });

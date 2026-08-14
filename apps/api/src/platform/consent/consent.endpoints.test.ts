@@ -92,6 +92,21 @@ describe('POST /me/consent (REQ-M-03)', () => {
     expect(accepted.body.replayed).toBe(false);
     expect(new Date(accepted.body.acceptedAt).getTime()).not.toBeNaN();
 
+    // Migration 0013: the row records what was promised, not just that
+    // something was -- the wording revision and the retention period the
+    // notice quoted (the default 12, since no org setting is installed).
+    const stamped = await harness.db
+      .select({
+        noticeVersion: consentAcceptances.noticeVersion,
+        retentionMonthsQuoted: consentAcceptances.retentionMonthsQuoted,
+      })
+      .from(consentAcceptances)
+      .where(
+        and(eq(consentAcceptances.orgId, ORG_ID), eq(consentAcceptances.userId, employeeUserId)),
+      );
+    expect(stamped[0]?.noticeVersion).toBe(1);
+    expect(stamped[0]?.retentionMonthsQuoted).toBe(12);
+
     // The context is what the screen reads on its next visit, so this is the
     // notice actually stopping, not a claim that it would.
     const after = await harness.get<PunchContext>('/me/today', { token: employeeToken });

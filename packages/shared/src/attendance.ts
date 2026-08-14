@@ -100,6 +100,17 @@ const punchFactsShape = {
   reason: reasonField.nullish(),
   deviceFingerprint: z.string().trim().min(8).max(128).nullish(),
   appVersion: z.string().trim().max(40).nullish(),
+
+  /**
+   * REQ-M-03: the tick on the photo-and-location notice, travelling with the
+   * punch so an offline first punch carries its acceptance to sync time. The
+   * server ignores it once an acceptance row exists; without one it either
+   * records the acceptance with the punch (true) or refuses the punch with
+   * CONSENT_REQUIRED (false). Defaulted rather than required so a queue
+   * written by an older build still parses -- its entries simply carry no
+   * assertion, which is the honest reading of them.
+   */
+  consentAccepted: z.boolean().default(false),
 } as const;
 
 /**

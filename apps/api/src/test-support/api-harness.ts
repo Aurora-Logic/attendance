@@ -15,6 +15,7 @@ import type { Redis } from 'ioredis';
 
 import { AppModule } from '../app.module.js';
 import { loginRateLimitKey } from '../platform/auth/login-rate-limit.service.js';
+import { passwordResetIpKey } from '../platform/auth/password-reset-rate-limit.service.js';
 import { hashPassword } from '../platform/auth/password.js';
 import { API_PREFIX_PATH } from '../platform/common/constants.js';
 import { env } from '../platform/common/env.js';
@@ -176,6 +177,7 @@ export class ApiHarness {
     const harness = new ApiHarness(app, `${url}${API_PREFIX_PATH}`, db, orgId, mail);
     await harness.resetOrganisation(orgName, options.preservePeople ?? false);
     await harness.clearLoginRateLimit();
+    await harness.clearPasswordResetRateLimit();
     return harness;
   }
 
@@ -190,6 +192,18 @@ export class ApiHarness {
     const redis = this.app.get<Redis>(REDIS_CLIENT);
     await redis.del(
       ...['::1', '127.0.0.1', '::ffff:127.0.0.1'].map((ip) => loginRateLimitKey(ip)),
+    );
+  }
+
+  /**
+   * Frees the per-IP password-reset budget for the same loopback addresses.
+   * The per-address budget needs no clearing: `scopedEmail` mints a unique
+   * address per run, so no run can inherit another's spend.
+   */
+  async clearPasswordResetRateLimit(): Promise<void> {
+    const redis = this.app.get<Redis>(REDIS_CLIENT);
+    await redis.del(
+      ...['::1', '127.0.0.1', '::ffff:127.0.0.1'].map((ip) => passwordResetIpKey(ip)),
     );
   }
 

@@ -14,7 +14,7 @@ import {
   parseOrThrow,
   type Sampled,
 } from '@/features/attendance/api';
-import { apiRequest } from '@/lib/api/client';
+import { ApiError, apiRequest } from '@/lib/api/client';
 import { postMultipart } from '@/lib/offline/multipart';
 
 import {
@@ -107,6 +107,9 @@ function submissionPayload(draft: PunchDraft): string {
     isHalfDay: draft.halfDay !== null,
     ...(draft.halfDay === null ? {} : { halfDayPart: draft.halfDay }),
     ...(draft.reason === null || draft.reason === '' ? {} : { reason: draft.reason }),
+    // REQ-M-03: the server is the gate; this is the tick travelling with the
+    // punch so a first punch records its acceptance in the same transaction.
+    consentAccepted: draft.consentAccepted,
   });
 }
 
@@ -174,6 +177,14 @@ export function usePunch(): UseMutationResult<PunchResult, Error, PunchDraft> {
       // derived day, so both are refetched rather than patched by hand.
       void queryClient.invalidateQueries({ queryKey: ['me', 'today'] });
       void queryClient.invalidateQueries({ queryKey: ['attendance'] });
+    },
+    onError: (error) => {
+      // CONSENT_REQUIRED means the server holds no acceptance for this
+      // account, whatever this session believed. Refetching /me/today makes
+      // `consentAccepted` come back false, which is what re-shows the notice.
+      if (error instanceof ApiError && error.code === 'CONSENT_REQUIRED') {
+        void queryClient.invalidateQueries({ queryKey: ['me', 'today'] });
+      }
     },
   });
 }

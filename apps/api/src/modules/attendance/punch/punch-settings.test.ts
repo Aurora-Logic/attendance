@@ -38,6 +38,19 @@ describe('resolvePunchSettings retention', () => {
       resolvePunchSettings(new Map([[PUNCH_SETTING_KEYS.photoRetentionMonths, 0]])),
     ).toThrow(/photo_retention_months/u);
   });
+
+  it('refuses a retention shorter than the longest dispute window', () => {
+    // The floor is 3 months because a regularization window can reach 90
+    // days (REQ-F-02): a 2-month retention would purge a photo while the
+    // punch it evidences is still disputable.
+    expect(() =>
+      resolvePunchSettings(new Map([[PUNCH_SETTING_KEYS.photoRetentionMonths, 2]])),
+    ).toThrow(/photo_retention_months/u);
+    expect(
+      resolvePunchSettings(new Map([[PUNCH_SETTING_KEYS.photoRetentionMonths, 3]]))
+        .photoRetentionMonths,
+    ).toBe(3);
+  });
 });
 
 describe('photoExpiry', () => {

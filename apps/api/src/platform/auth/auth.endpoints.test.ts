@@ -566,6 +566,63 @@ describe('POST /auth/password-resets (REQ-B-04)', () => {
     expect(result.status).toBe(401);
     expect(result.body.error.code).toBe('TOKEN_EXPIRED');
   });
+
+  it('caps sends per address while every response stays 202', async () => {
+    // The pre-deploy gate proved the gap live: sixty rapid requests, sixty
+    // 202s, forty-odd delivered emails. The cap is three per address per
+    // hour, and -- the half that preserves enumeration resistance -- a
+    // throttled request is indistinguishable from an allowed one.
+    const target = await harness.createUser({
+      email: scopedEmail('burst-reset'),
+      roleIds: [employeeRoleId],
+    });
+
+    const responses = [];
+    for (let i = 0; i < 6; i += 1) {
+      responses.push(await harness.post('/auth/password-resets', { body: { email: target.email } }));
+    }
+
+    expect(responses.map((response) => response.status)).toEqual([202, 202, 202, 202, 202, 202]);
+
+    const delivered = harness.mail.sent.filter(
+      (mail) => mail.to.toLowerCase() === target.email.toLowerCase(),
+    );
+    expect(delivered).toHaveLength(3);
+
+    // The throttled requests inserted nothing either: the table grows with
+    // sends, never with the burst.
+    const rows = await harness.db
+      .select({ id: passwordResets.id })
+      .from(passwordResets)
+      .where(eq(passwordResets.userId, target.id));
+    expect(rows).toHaveLength(3);
+  });
+
+  it('sweeps the user`s spent reset rows on each new request', async () => {
+    const target = await harness.createUser({
+      email: scopedEmail('swept-reset'),
+      roleIds: [employeeRoleId],
+    });
+
+    await harness.post('/auth/password-resets', { body: { email: target.email } });
+    // Age the first row past its TTL, as an abandoned link would be.
+    await harness.db
+      .update(passwordResets)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(passwordResets.userId, target.id));
+
+    await harness.post('/auth/password-resets', { body: { email: target.email } });
+
+    // Only the live link remains: the expired one was deleted by the new
+    // request rather than accumulating for ever (the audit trail, not this
+    // table, records that requests happened).
+    const rows = await harness.db
+      .select({ expiresAt: passwordResets.expiresAt })
+      .from(passwordResets)
+      .where(eq(passwordResets.userId, target.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.expiresAt.getTime()).toBeGreaterThan(Date.now());
+  });
 });
 
 /**
