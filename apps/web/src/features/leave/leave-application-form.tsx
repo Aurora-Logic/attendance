@@ -450,10 +450,13 @@ export function LeaveApplicationForm({
           aria-label="Working out how many days this consumes"
           className="grid grid-cols-2 gap-x-6 gap-y-3 border p-3 sm:grid-cols-4"
         >
+          {/* gap-0.5 with a 16px label and 20px value: the same line boxes as
+              the dl this stands in for, so the form does not shift when the
+              first preview lands. */}
           {['days', 'before', 'after', 'range'].map((key) => (
-            <div key={key} className="flex flex-col gap-1.5">
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-4 w-14" />
+            <div key={key} className="flex flex-col gap-0.5">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-5 w-14" />
             </div>
           ))}
         </div>

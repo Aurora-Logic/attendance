@@ -92,7 +92,12 @@ export function MobileBottomNav() {
                 to={item.to}
                 aria-current={location.pathname === item.to ? 'page' : undefined}
                 className={cn(
-                  'flex min-h-14 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[0.6875rem]',
+                  // h-full as well as min-h-14: the unlayered 44px touch floor
+                  // in index.css outranks min-h-* on an anchor, so the links
+                  // measured 52.5px beside the 56px More button and every icon
+                  // sat 2px higher than its neighbour. Filling the stretched
+                  // row centres all five identically.
+                  'flex h-full min-h-14 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[0.6875rem]',
                   location.pathname === item.to
                     ? 'text-primary font-medium'
                     : 'text-muted-foreground',

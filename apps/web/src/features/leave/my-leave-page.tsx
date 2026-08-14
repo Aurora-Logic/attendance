@@ -300,11 +300,14 @@ function BalanceSkeleton() {
 function HistorySkeleton() {
   return (
     <div role="status" aria-busy="true" aria-label="Loading leave history" className="border">
+      {/* min-h-14 below md, where RecordTable renders two-line cards, not
+          36px table rows -- a skeleton at table height would grow 20px per
+          row when the history arrived. */}
       {Array.from({ length: 5 }, (_, index) => (
         <div
           key={index}
           aria-hidden
-          className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0"
+          className="flex min-h-14 items-center gap-4 border-b px-3 py-2.5 last:border-b-0 md:min-h-9"
         >
           <Skeleton className="h-3 w-28 shrink-0" />
           <Skeleton className="h-3 w-20 shrink-0" />
