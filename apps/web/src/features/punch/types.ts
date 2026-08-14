@@ -73,6 +73,8 @@ export interface TodayStatus {
   halfDayAllowed: boolean;
   /** REQ-M-03: the consent notice is shown until it has been accepted once. */
   consentAccepted: boolean;
+  /** REQ-L-03: months a punch photo is kept; the notice quotes it (REQ-M-03). */
+  photoRetentionMonths: number;
   /** Set when punching is impossible right now, whatever the employee does. */
   blockedReason: { code: string; message: string } | null;
   /** REQ-D-06: true when the server will refuse this punch without a reason. */
@@ -142,6 +144,8 @@ const punchContextSchema = z.object({
     })
     .nullable(),
   day: z.object({ status: z.enum(ATTENDANCE_STATUSES) }).nullable(),
+  consentAccepted: z.boolean(),
+  photoRetentionMonths: z.number(),
   blockedReason: z.object({ code: z.string(), message: z.string() }).nullable(),
 });
 
@@ -195,11 +199,12 @@ export const todayStatusSchema = punchContextSchema.transform(
     // server-side policy switch for it (OPEN-QUESTIONS P1-3), so this states
     // the requirement rather than inventing a setting.
     halfDayAllowed: context.nextPunchType === 'IN',
-    // REQ-M-03 says acceptance is recorded. Nothing records it yet
-    // (OPEN-QUESTIONS P1-4), so the honest value is "not accepted" and the
-    // notice keeps appearing. Failing towards showing a required notice is the
-    // only safe direction for this one.
-    consentAccepted: false,
+    // REQ-M-03: the server records acceptance against the user
+    // (POST /me/consent), so this is its answer rather than a hardcoded
+    // "not accepted" -- the notice stops reappearing once accepted, and
+    // still gates the first punch until then.
+    consentAccepted: context.consentAccepted,
+    photoRetentionMonths: context.photoRetentionMonths,
     blockedReason: context.blockedReason,
     reasonRequired: context.reasonRequired,
   }),

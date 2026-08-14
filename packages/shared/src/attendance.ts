@@ -391,6 +391,18 @@ export interface PunchContext {
   };
   readonly lastPunch: PunchRecord | null;
   readonly day: AttendanceDaySummary | null;
+  /**
+   * REQ-M-03: whether this account has accepted the punch-capture consent
+   * notice ('attendance.punch_capture'). The screen shows the notice until
+   * this is true, and `POST /me/consent` is how it becomes true.
+   */
+  readonly consentAccepted: boolean;
+  /**
+   * REQ-L-03 / REQ-M-03: how many months a punch photo is kept, from the
+   * organisation's retention setting. The consent notice quotes this, and it
+   * is server-sent so the notice can never promise a number nothing enforces.
+   */
+  readonly photoRetentionMonths: number;
   /** Set when punching is impossible right now, whatever the employee does. */
   readonly blockedReason: { readonly code: ErrorCode; readonly message: string } | null;
 }

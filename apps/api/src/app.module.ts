@@ -7,6 +7,7 @@ import { AuditContextMiddleware } from './platform/audit/audit-context.middlewar
 import { AuditInterceptor } from './platform/audit/audit.interceptor.js';
 import { AuditModule } from './platform/audit/audit.module.js';
 import { AuthModule } from './platform/auth/auth.module.js';
+import { ConsentModule } from './platform/consent/consent.module.js';
 import { AppExceptionFilter } from './platform/common/app-exception.filter.js';
 import { WILDCARD_ROUTE } from './platform/common/constants.js';
 import { pinoParams } from './platform/common/logging.js';
@@ -60,6 +61,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     JobsModule,
     NotificationsModule,
     AuthModule,
+    ConsentModule,
     OrgModule,
     PeopleModule,
     SettingsModule,

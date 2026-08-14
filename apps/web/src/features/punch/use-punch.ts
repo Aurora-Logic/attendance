@@ -6,6 +6,8 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 
+import { consentAcceptanceInputSchema } from '@vyuha/shared';
+
 import {
   isUnbuiltEndpoint,
   loadSamples,
@@ -128,6 +130,34 @@ export async function postPunch(draft: PunchDraft): Promise<PunchResult> {
     // REQ-D-11: the same key on every retry of the same punch.
     { 'Idempotency-Key': draft.idempotencyKey },
   );
+}
+
+/**
+ * `POST /me/consent` (REQ-M-03): records that this account accepted the
+ * photo-and-location notice, so it stops reappearing on every visit.
+ *
+ * Errors are deliberately not surfaced as their own state on the screen. The
+ * checkbox already gates the punch locally for this session; if the recording
+ * failed -- typically because the device is offline -- the only consequence is
+ * that the notice appears once more next time, which is the safe direction for
+ * a required notice to fail in.
+ */
+export function useAcceptConsent(): UseMutationResult<void, Error, void> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      await apiRequest<unknown>('/me/consent', {
+        method: 'POST',
+        body: consentAcceptanceInputSchema.parse({ consentKey: 'attendance.punch_capture' }),
+      });
+    },
+    onSuccess: () => {
+      // The context's `consentAccepted` just changed; the next read of
+      // /me/today must say so rather than serve the stale gate.
+      void queryClient.invalidateQueries({ queryKey: ['me', 'today'] });
+    },
+  });
 }
 
 export function usePunch(): UseMutationResult<PunchResult, Error, PunchDraft> {

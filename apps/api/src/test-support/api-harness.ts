@@ -22,6 +22,7 @@ import { DRIZZLE, type Database } from '../platform/db/db.provider.js';
 import { Mailer } from '../platform/mail/mailer.js';
 import { REDIS_CLIENT } from '../platform/redis/redis.provider.js';
 import {
+  consentAcceptances,
   departments,
   designations,
   employees,
@@ -316,6 +317,10 @@ export class ApiHarness {
       await this.db.delete(sessions).where(inArray(sessions.userId, userIds));
       await this.db.delete(passwordResets).where(inArray(passwordResets.userId, userIds));
       await this.db.delete(userRoles).where(inArray(userRoles.userId, userIds));
+      // Before `users`: consent references them with RESTRICT (REQ-M-03).
+      await this.db
+        .delete(consentAcceptances)
+        .where(inArray(consentAcceptances.userId, userIds));
     }
 
     await this.db.delete(invitations).where(eq(invitations.orgId, this.orgId));

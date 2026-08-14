@@ -27,6 +27,7 @@ export function SessionGate({ children }: { children: ReactNode }) {
       setFromMe({
         displayName: name,
         roleLabel: me.roles.map((r) => r.name).join(', ') || 'No role',
+        employeeId: me.user.employeeId,
         permissions: [...me.permissions],
       });
     } else {
