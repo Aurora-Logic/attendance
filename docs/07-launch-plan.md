@@ -10,6 +10,27 @@ and the entire deployment column.
 
 ---
 
+## Progress — 14 Aug 2026, evening
+
+Five branches merged to main. Gates on the merged result: typecheck 0 errors,
+lint 0 warnings, **1,369 tests passing** (25 shared, 133 web, 1,211 api),
+production build clean.
+
+| Workstream | State |
+|---|---|
+| WS-A deployment rail | **Done.** Prod compose, Caddyfile with TLS + security headers, trust proxy (spoof rejected live), backup + **rehearsed restore** (46 tables, row counts matched), runbook, `.env.production.example`. Sentry deferred (§2 row 13 unanswered); off-site backup copy waits on R2 credentials. |
+| WS-B product blockers | **Done.** Consent recording (migration 0012), photo retention stamping, leave approve/reject UI with inline day recompute — an approved leave now reaches the muster. |
+| WS-C security gate | **Ran, said DO NOT DEPLOY, two blockers fixed.** (1) Consent was client-side only — the API stored photo punches with no acceptance row, proven live; now enforced inside the punch transaction (422 `CONSENT_REQUIRED` without it), including the offline sync path, with notice version and quoted retention recorded (migration 0013). (2) `POST /auth/password-resets` had no rate limit at any layer — 60 requests delivered 43 real emails; now capped 3/address/hour, still answering 202 so enumeration stays blind. Four further findings closed: `STORAGE_ORIGIN` made required (empty shipped a CSP that silently blocked **every** punch photo), root `.dockerignore`, Redis `--requirepass`, photo-retention floor raised to 3 months (a 1-month floor could purge a photo while its punch was still disputable). 71 controls verified working. |
+| Smoothness pass (unplanned) | **Done**, under `emil-design-eng` + `thumb-reach`. Zero layout shift on punch / My Attendance / My Leave (skeletons rebuilt to measured content metrics), 44px password reveal, camera preview eases in, bottom-nav tabs uniform, PWA metadata warning gone. Every change measured at 360px and 1440px in both themes. |
+| Bug hunt + fixes (unplanned) | **Done.** A CDP hunt over the day-one flows found one launch-blocker crash (two hooks cached different shapes under one query key, reliably killing Team Attendance after Employees) plus five bugs; all fixed, and a new scan test now fails the build on any duplicate query key — it caught a second latent collision on the way in. Also fixed: an offline reload hid the queued punch behind an unusable sign-in form; one wrong password burned two of five lockout attempts. |
+| WS-D data load and onboarding | **Blocked on §2 inputs.** Nothing loaded yet. |
+| WS-E final verify | Pending WS-D. |
+| WS-F charts and insights | Not started (launch-week, not go/no-go). |
+
+**The critical path is now entirely §2** — DNS pointed at the VPS, SMTP, R2-or-MinIO, geofence coordinates, shift timings, roster, leave types with opening balances, holidays. No code work blocks the pilot.
+
+---
+
 ## 0. The honest verdict
 
 **A full launch tomorrow is not possible.** Eleven of thirteen reports,
