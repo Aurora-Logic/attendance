@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { env } from '../common/env.js';
 import { AppError, describeError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { JobRunner } from '../jobs/job-runner.service.js';
 import {
   employees,
   invitations,
@@ -87,6 +88,7 @@ export class AuthService {
     private readonly mailer: Mailer,
     private readonly auditContext: AuditContext,
     private readonly audit: AuditService,
+    private readonly jobs: JobRunner,
   ) {}
 
   // ---------------------------------------------------------------- login
@@ -224,12 +226,17 @@ export class AuthService {
   /**
    * Sends, and absorbs a transport failure into the log.
    *
-   * Only for the two paths whose whole design is that they answer identically
-   * whether or not the address has an account. Both send mail *only* when the
-   * account exists, so letting a dead SMTP server turn one of them into a 500
-   * would say "this address is real" -- reintroducing, through the mail
-   * transport, exactly the enumeration oracle the endpoints were shaped to
-   * avoid. The message is lost and the failure is loud; the alternative leaks.
+   * Only for the lockout notice, which is sent from inside a request that is
+   * about to answer 401 and *only* when the account exists. Letting a dead SMTP
+   * server turn that into a 500 would say "this address is real" --
+   * reintroducing, through the mail transport, exactly the enumeration oracle
+   * the login path was shaped to avoid. The message is lost and the failure is
+   * loud; the alternative leaks.
+   *
+   * The password reset used to need this too. It no longer does: its send moved
+   * off the request path onto a queue, where a transport failure can fail the
+   * job and be retried instead of being swallowed. That is the better answer,
+   * and it is available to this path only once nobody is waiting on it.
    *
    * Everywhere else a failed send is a failed request. An administrator who is
    * told an invitation was sent must not have to guess.
@@ -548,18 +555,73 @@ export class AuthService {
    * (proven live: sixty rapid requests, sixty 202s, forty-odd emails), so a
    * sliding-window cap runs first -- per lower-cased address and per IP,
    * before the account lookup so known and unknown addresses spend budget
-   * identically. Over budget, the insert and the send are silently skipped
-   * and the caller still gets its 202; the limiter fails open if Redis is
-   * down, and the per-account login lockout is untouched either way.
+   * identically. Over budget, the work is silently skipped and the caller
+   * still gets its 202; the limiter fails open if Redis is down, and the
+   * per-account login lockout is untouched either way.
+   *
+   * "Answers the same" has to include *how long it takes to answer*, and for a
+   * long time it did not. This method used to do the whole reset inline, so a
+   * known address paid for a sweep, an insert, an audit write and an SMTP
+   * round trip that an unknown address did not. The pre-launch gate measured
+   * the result against the real relay: known {min 8.51ms, p50 9.84ms} against
+   * unknown {min 3.50ms, p50 3.97ms}, with every one of thirty known samples
+   * slower than every one of thirty unknown ones. The known *minimum* sat
+   * above the unknown *median*, which makes a single request enough to
+   * classify an address -- and a classified address is a targeted lockout
+   * under REQ-B-10. `auth.password-reset-timing.test.ts` is the regression.
    */
   async requestPasswordReset(email: string, ip: string | null): Promise<void> {
     if (!(await this.resetLimiter.tryAcquire(email, ip))) return;
 
+    // Nothing past this line reads the account, so nothing past this line can
+    // take longer for an address that has one. The lookup, the row, the trail
+    // and the mail all happen in `deliverPasswordReset`, on the notification
+    // queue. See `queue.registry.ts` for why the payload carries the typed
+    // address and nothing else.
+    //
+    // A failed enqueue is absorbed for `sendWithoutRevealingTheAccount`'s
+    // reason: this endpoint answers 202 whatever happens, and turning a Redis
+    // outage into a 500 would say "this address is real" only if the enqueue
+    // were conditional on the account -- it is not, but the 202 is the
+    // contract regardless, and a caller cannot act on the difference. The
+    // request is lost and the failure is loud.
+    try {
+      await this.jobs.enqueue('deliver-password-reset', {
+        email,
+        ip,
+        requestedAt: new Date().toISOString(),
+      });
+    } catch (error: unknown) {
+      this.logger.error({
+        msg: 'Could not queue a password reset; no mail will be sent for this request.',
+        reason: describeError(error),
+      });
+    }
+  }
+
+  /**
+   * The other half of REQ-B-04, off the request path.
+   *
+   * Runs as the `deliver-password-reset` job, so it may take as long as it
+   * likes and may fail: a caller is no longer waiting, and there is no response
+   * whose timing could be compared against another. That is also why the send
+   * is a plain `mailer.send` rather than
+   * `sendWithoutRevealingTheAccount` -- there is nobody left to reveal
+   * anything to, so a dead SMTP server is allowed to fail the job and be
+   * retried with backoff instead of quietly dropping the message.
+   *
+   * A retry re-runs the whole method, which mints a fresh token and writes a
+   * fresh row and trail entry. Bounded by the job's five attempts, and every
+   * token is single-use and dead in thirty minutes; the alternative -- holding
+   * a token across attempts -- would mean carrying a live reset link in the
+   * job payload.
+   */
+  async deliverPasswordReset(email: string, ip: string | null): Promise<'sent' | 'no-account'> {
     const user = await this.findByEmail(email);
 
     if (user === null || user.status !== 'ACTIVE') {
       this.logger.log({ msg: 'Password reset requested for an address with no active account' });
-      return;
+      return 'no-account';
     }
 
     const token = generateOpaqueToken();
@@ -567,7 +629,7 @@ export class AuthService {
 
     // Each new request sweeps the user's spent rows -- expired, or superseded
     // by a completed reset -- so the table cannot grow without bound under
-    // exactly the traffic the cap above exists for. The audit trail, not this
+    // exactly the traffic the request cap exists for. The audit trail, not this
     // table, is the record that requests happened.
     await this.db
       .delete(passwordResets)
@@ -586,14 +648,10 @@ export class AuthService {
       requestedIp: ip,
     });
 
-    await this.sendWithoutRevealingTheAccount({
-      to: user.email,
-      subject: 'Reset your Vyuha password',
-      body: 'Follow the link to choose a new password. It can be used once and expires in 30 minutes.',
-      actionUrl: `${env.WEB_BASE_URL}/reset-password/${token}`,
-    });
-
-    this.auditContext.record({
+    // Direct rather than through `AuditContext`, and before the send: there is
+    // no request in flight for the interceptor to flush, and the trail should
+    // record that a reset was issued even if delivery then fails and retries.
+    await this.audit.write({
       orgId: user.orgId,
       actorUserId: user.id,
       action: 'password_reset.requested',
@@ -601,6 +659,15 @@ export class AuthService {
       entityId: user.id,
       after: { expiresAt: expiresAt.toISOString() },
     });
+
+    await this.mailer.send({
+      to: user.email,
+      subject: 'Reset your Vyuha password',
+      body: 'Follow the link to choose a new password. It can be used once and expires in 30 minutes.',
+      actionUrl: `${env.WEB_BASE_URL}/reset-password/${token}`,
+    });
+
+    return 'sent';
   }
 
   /** REQ-B-04: single use, and it invalidates every other session. */

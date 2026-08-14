@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, CookieJar, scopedEmail } from '../../test-support/api-harness.js';
 import { invitations, passwordResets, users } from '../db/schema/index.js';
+import { JobRunner } from '../jobs/job-runner.service.js';
 import { hashOpaqueToken, TOKEN_PURPOSES } from './opaque-token.js';
 import { env } from '../common/env.js';
 
@@ -59,8 +60,52 @@ async function settledAuditCount(): Promise<number> {
   return previous;
 }
 
+/**
+ * REQ-B-04 delivery is a job now, so a 202 means "queued", not "sent". Waits
+ * for the message and returns its single-use token.
+ *
+ * Asserting on the wait rather than letting `tokenFor` return null keeps the
+ * failure honest: "no reset mail arrived" is a different bug from "the reset
+ * link did not work", and the two used to be reported identically.
+ */
+async function resetTokenFor(email: string): Promise<string> {
+  const mail = await harness.waitForMailTo(email);
+  expect(mail, `no password-reset mail arrived for ${email}`).not.toBeNull();
+  const token = harness.mail.tokenFor(email) ?? '';
+  expect(token).toBeTruthy();
+  return token;
+}
+
+/**
+ * The user's reset rows once the count has stopped moving -- `settledAuditCount`
+ * applied to the table the delivery job writes. A count read the instant a 202
+ * returns is a count of the jobs that happen to have run already.
+ */
+async function settledResetRows(userId: string): Promise<{ expiresAt: Date }[]> {
+  let previous = -1;
+  let rows: { expiresAt: Date }[] = [];
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    rows = await harness.db
+      .select({ expiresAt: passwordResets.expiresAt })
+      .from(passwordResets)
+      .where(eq(passwordResets.userId, userId));
+    if (rows.length === previous) return rows;
+    previous = rows.length;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return rows;
+}
+
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'Auth Endpoints Fixture Org');
+
+  // `POST /auth/password-resets` no longer does the reset on the request path:
+  // it queues `deliver-password-reset` and returns, so that a known and an
+  // unknown address cannot be told apart by how long the answer takes. Nothing
+  // here would ever receive a reset mail without a worker to drain that queue,
+  // and `vitest.config.mts` starts the suite with workers off. Same call the
+  // bootstrap hook makes, as in `notifications.test.ts`.
+  harness.resolve(JobRunner).startWorkers();
 
   adminRoleId = await harness.createSystemRole(SYSTEM_ROLES.ADMIN);
   employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
@@ -474,7 +519,12 @@ describe('POST /auth/password-resets (REQ-B-04)', () => {
     expect(known.status).toBe(202);
     expect(unknown.status).toBe(202);
     expect(known.text).toBe(unknown.text);
-    // And nothing was sent to the address that has no account.
+
+    // Waiting for the known address's mail first is what makes the negative
+    // below mean anything: it proves the queue has run past both jobs, so
+    // "nothing was sent to the unknown address" is a decision the handler made
+    // rather than a job that had not started yet.
+    await resetTokenFor(employee.email);
     expect(harness.mail.lastTo('no-such-person@vyuha.test')).toBeNull();
   });
 
@@ -486,8 +536,7 @@ describe('POST /auth/password-resets (REQ-B-04)', () => {
     const before = Date.now();
 
     await harness.post('/auth/password-resets', { body: { email: target.email } });
-    const token = harness.mail.tokenFor(target.email) ?? '';
-    expect(token).toBeTruthy();
+    const token = await resetTokenFor(target.email);
 
     const rows = await harness.db
       .select({ tokenHash: passwordResets.tokenHash, expiresAt: passwordResets.expiresAt })
@@ -533,7 +582,7 @@ describe('POST /auth/password-resets (REQ-B-04)', () => {
     expect((await harness.get('/auth/me', { token: liveToken })).status).toBe(200);
 
     await harness.post('/auth/password-resets', { body: { email: target.email } });
-    const token = harness.mail.tokenFor(target.email) ?? '';
+    const token = await resetTokenFor(target.email);
     await harness.post(`/auth/password-resets/${token}/confirm`, {
       body: { password: 'password-was-just-reset' },
     });
@@ -553,7 +602,7 @@ describe('POST /auth/password-resets (REQ-B-04)', () => {
   it('reports an expired reset link distinctly', async () => {
     const target = await harness.createUser({ email: scopedEmail('stale-reset') });
     await harness.post('/auth/password-resets', { body: { email: target.email } });
-    const token = harness.mail.tokenFor(target.email) ?? '';
+    const token = await resetTokenFor(target.email);
 
     await harness.db
       .update(passwordResets)
@@ -584,18 +633,15 @@ describe('POST /auth/password-resets (REQ-B-04)', () => {
 
     expect(responses.map((response) => response.status)).toEqual([202, 202, 202, 202, 202, 202]);
 
+    // The throttled requests queued nothing, so the count settles at three
+    // rather than climbing to six.
+    const rows = await settledResetRows(target.id);
+    expect(rows).toHaveLength(3);
+
     const delivered = harness.mail.sent.filter(
       (mail) => mail.to.toLowerCase() === target.email.toLowerCase(),
     );
     expect(delivered).toHaveLength(3);
-
-    // The throttled requests inserted nothing either: the table grows with
-    // sends, never with the burst.
-    const rows = await harness.db
-      .select({ id: passwordResets.id })
-      .from(passwordResets)
-      .where(eq(passwordResets.userId, target.id));
-    expect(rows).toHaveLength(3);
   });
 
   it('sweeps the user`s spent reset rows on each new request', async () => {
@@ -605,6 +651,8 @@ describe('POST /auth/password-resets (REQ-B-04)', () => {
     });
 
     await harness.post('/auth/password-resets', { body: { email: target.email } });
+    await resetTokenFor(target.email);
+
     // Age the first row past its TTL, as an abandoned link would be.
     await harness.db
       .update(passwordResets)
@@ -616,10 +664,7 @@ describe('POST /auth/password-resets (REQ-B-04)', () => {
     // Only the live link remains: the expired one was deleted by the new
     // request rather than accumulating for ever (the audit trail, not this
     // table, records that requests happened).
-    const rows = await harness.db
-      .select({ expiresAt: passwordResets.expiresAt })
-      .from(passwordResets)
-      .where(eq(passwordResets.userId, target.id));
+    const rows = await settledResetRows(target.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.expiresAt.getTime()).toBeGreaterThan(Date.now());
   });

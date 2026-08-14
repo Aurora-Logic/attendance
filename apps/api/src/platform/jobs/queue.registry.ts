@@ -76,6 +76,31 @@ export interface JobPayloads {
   };
 
   /**
+   * REQ-B-04. Everything `POST /auth/password-resets` does after answering
+   * 202: the account lookup, the row, the trail, and the mail.
+   *
+   * It is a job rather than request work because the endpoint's guarantee is
+   * that an address with an account and one without are indistinguishable, and
+   * that has to hold for the *clock* as well as the status and the body. Doing
+   * the work inline made the known branch await a sweep, an insert, an audit
+   * write and an SMTP round trip while the unknown branch returned straight
+   * after the lookup -- a gap a remote attacker can measure.
+   *
+   * The payload carries the address the caller typed and nothing else. No user
+   * id, because whether one exists is precisely the secret; and no token,
+   * because a job payload is retained in Redis for days after it completes and
+   * a live reset link has no business sitting there. The handler mints the
+   * token itself.
+   */
+  'deliver-password-reset': {
+    readonly email: string;
+    /** Recorded on the row as `requested_ip`; null when the socket had none. */
+    readonly ip: string | null;
+    /** Only for the trail. The handler always works from the current clock. */
+    readonly requestedAt: string;
+  };
+
+  /**
    * REQ-G-05. Posts the accrual for one calendar month across every
    * organisation.
    *
@@ -111,6 +136,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'generate-report-export': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-notification': QUEUES.NOTIFICATION,
+  'deliver-password-reset': QUEUES.NOTIFICATION,
   'accrue-leave': QUEUES.LEAVE,
   'carry-forward-leave': QUEUES.LEAVE,
   'expire-comp-off': QUEUES.LEAVE,

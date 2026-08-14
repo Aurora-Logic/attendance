@@ -20,7 +20,7 @@ import { hashPassword } from '../platform/auth/password.js';
 import { API_PREFIX_PATH } from '../platform/common/constants.js';
 import { env } from '../platform/common/env.js';
 import { DRIZZLE, type Database } from '../platform/db/db.provider.js';
-import { Mailer } from '../platform/mail/mailer.js';
+import { Mailer, type OutboundMail } from '../platform/mail/mailer.js';
 import { REDIS_CLIENT } from '../platform/redis/redis.provider.js';
 import {
   consentAcceptances,
@@ -612,6 +612,26 @@ export class ApiHarness {
       const rows = await this.db.execute(query);
       if (rows.rows.length > 0) return true;
       if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  /**
+   * Polls the recording mailer until a message to `email` appears, or gives up
+   * and returns null.
+   *
+   * For the sends that no longer happen on the request path: the password-reset
+   * mail is queued and delivered by a worker (REQ-B-04), so a request returning
+   * 202 says the job was accepted, not that the message exists yet. A caller
+   * must have started the workers -- `JobRunner.startWorkers()` -- or this can
+   * only ever time out.
+   */
+  async waitForMailTo(email: string, timeoutMs = 10_000): Promise<OutboundMail | null> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const found = this.mail.lastTo(email);
+      if (found !== null) return found;
+      if (Date.now() >= deadline) return null;
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
