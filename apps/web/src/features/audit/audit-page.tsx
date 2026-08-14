@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { LockKeyIcon, ScrollIcon } from '@phosphor-icons/react';
-import { format, parseISO } from 'date-fns';
+import { parseISO } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
-import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,32 +24,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toDateParam } from '@/features/attendance/format';
 import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { EMPTY_VALUE } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
-import {
-  EMPTY_FILTERS,
-  diffRows,
-  humaniseAction,
-  type AuditEntry,
-  type AuditFilters,
-} from './types';
+import { AuditEntrySheet } from './audit-entry-sheet';
+import { actorLabel, printInstant } from './format';
+import { EMPTY_FILTERS, humaniseAction, type AuditEntry, type AuditFilters } from './types';
 import { useAuditFacets, useAuditLog } from './use-audit-log';
 
 /**
@@ -65,19 +52,6 @@ import { useAuditFacets, useAuditLog } from './use-audit-log';
  */
 
 const ALL = '__all__';
-
-function printInstant(value: string): string {
-  const parsed = parseISO(value);
-  if (Number.isNaN(parsed.getTime())) return EMPTY_VALUE;
-  // Date in the organisation's format, time to the minute. Seconds matter for
-  // ordering, not for reading, and they are in the sheet.
-  return `${formatDate(toDateParam(parsed))} ${format(parsed, 'HH:mm')}`;
-}
-
-function actorLabel(entry: AuditEntry): string {
-  if (entry.actor === null) return 'System';
-  return entry.actor.name ?? entry.actor.email ?? entry.actor.id;
-}
 
 const COLUMNS: RecordColumn<AuditEntry>[] = [
   {
@@ -382,100 +356,5 @@ function AuditLogBody() {
         }}
       />
     </>
-  );
-}
-
-function AuditEntrySheet({
-  entry,
-  onOpenChange,
-}: {
-  entry: AuditEntry | null;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const isMobile = useIsMobile();
-  const rows = entry ? diffRows(entry.before, entry.after) : [];
-
-  return (
-    <Sheet open={entry !== null} onOpenChange={onOpenChange}>
-      <SheetContent
-        side={isMobile ? 'bottom' : 'right'}
-        className="gap-0 sm:max-w-lg max-md:max-h-[90vh]"
-      >
-        {entry ? (
-          <>
-            <SheetHeader className="shrink-0 border-b">
-              <SheetTitle>{humaniseAction(entry.action)}</SheetTitle>
-              <SheetDescription>
-                {printInstant(entry.createdAt)} by {actorLabel(entry)}
-              </SheetDescription>
-            </SheetHeader>
-
-            {/* min-h-0 is load-bearing: without it this flex child refuses to
-                shrink below its content and scrolls the page instead of
-                itself. */}
-            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-              <div className="flex flex-col gap-2">
-                <SectionHeading title="What changed" />
-                {rows.length === 0 ? (
-                  <p className="text-muted-foreground text-sm">
-                    No field-level diff was recorded. The action itself is the record.
-                  </p>
-                ) : (
-                  <dl className="flex flex-col gap-3 text-sm">
-                    {rows.map((row) => (
-                      <div key={row.field} className="flex flex-col gap-1">
-                        <dt className="font-mono text-xs font-medium">{row.field}</dt>
-                        <dd className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                          <span className="text-muted-foreground break-all line-through">
-                            {row.before}
-                          </span>
-                          <span className="break-all">{row.after}</span>
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <SectionHeading title="Where it came from" />
-                <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-                  <dt className="text-muted-foreground">Entity</dt>
-                  <dd className="break-all font-medium">
-                    {entry.entityType}
-                    {entry.entityId === null ? '' : ` ${entry.entityId}`}
-                  </dd>
-
-                  <dt className="text-muted-foreground">Actor</dt>
-                  <dd className="break-all font-medium">
-                    {entry.actor?.email ?? actorLabel(entry)}
-                  </dd>
-
-                  {entry.impersonator === null ? null : (
-                    <>
-                      <dt className="text-muted-foreground">Impersonated by</dt>
-                      <dd className="break-all font-medium">
-                        {entry.impersonator.email ?? entry.impersonator.id}
-                      </dd>
-                    </>
-                  )}
-
-                  <dt className="text-muted-foreground">Address</dt>
-                  <dd className="font-medium tabular-nums">{entry.ip ?? EMPTY_VALUE}</dd>
-
-                  <dt className="text-muted-foreground">Device</dt>
-                  <dd className="break-all font-medium">{entry.userAgent ?? EMPTY_VALUE}</dd>
-
-                  <dt className="text-muted-foreground">Request</dt>
-                  {/* The field that turns "it failed for me" into something
-                      findable in the server log. */}
-                  <dd className="font-mono text-xs break-all">{entry.requestId ?? EMPTY_VALUE}</dd>
-                </dl>
-              </div>
-            </div>
-          </>
-        ) : null}
-      </SheetContent>
-    </Sheet>
   );
 }

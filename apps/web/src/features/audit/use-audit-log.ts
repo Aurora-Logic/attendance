@@ -31,10 +31,19 @@ export interface SampledPage {
   sample: boolean;
 }
 
-function toSearch(filters: AuditFilters, cursor: string | null): string {
+/**
+ * Exported for `use-audit-log.test.ts`.
+ *
+ * It is the only piece of this module with a decision in it -- which filters
+ * travel, and the widening of a date-only filter into a whole day -- and both
+ * are silent when wrong: a dropped `entityId` returns the organisation's entire
+ * trail under a heading that says "this record", which is worse than an error.
+ */
+export function toSearch(filters: AuditFilters, cursor: string | null): string {
   const search = new URLSearchParams();
   if (filters.action) search.set('action', filters.action);
   if (filters.entityType) search.set('entityType', filters.entityType);
+  if (filters.entityId) search.set('entityId', filters.entityId);
   // The filter is a date; the endpoint takes an instant. Widening to the whole
   // day here rather than server-side keeps "from 12 August" meaning the same
   // thing as the calendar the reader clicked.
@@ -60,7 +69,11 @@ export function useAuditLog(
         });
         return { value: parseOrThrow(auditPageSchema, body, 'audit log'), sample: false };
       } catch (error) {
-        if (isUnbuiltEndpoint(error)) {
+        // The sample set is deliberately not offered to a record-scoped read.
+        // Rows invented for the viewer are recognisably a demonstration; the
+        // same rows presented as "what happened to this employee" would be a
+        // fabricated history of a named person, notice or no notice.
+        if (isUnbuiltEndpoint(error) && filters.entityId === null) {
           if (import.meta.env.DEV) {
             const module = await import('./sample');
             return { value: module.sampleAuditPage(), sample: true };

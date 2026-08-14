@@ -52,6 +52,15 @@ export type AuditFacets = z.infer<typeof auditFacetsSchema>;
 export interface AuditFilters {
   action: string | null;
   entityType: string | null;
+  /**
+   * REQ-M-02's second half: "per-record history on employee, attendance day,
+   * leave, and settings screens".
+   *
+   * `GET /audit-logs` has accepted this since the endpoint was written and no
+   * screen sent it, so the trail could be read as a whole and never as the
+   * story of one record. The viewer never sets it; `RecordHistorySheet` does.
+   */
+  entityId: string | null;
   /** Date-only `YYYY-MM-DD`; widened to whole days before it is sent. */
   from: string | null;
   to: string | null;
@@ -60,6 +69,7 @@ export interface AuditFilters {
 export const EMPTY_FILTERS: AuditFilters = {
   action: null,
   entityType: null,
+  entityId: null,
   from: null,
   to: null,
 };

@@ -1,15 +1,22 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { Separator } from '@/components/ui/separator';
 import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import {
+  RecordHistoryButton,
+  RecordHistorySheet,
+} from '@/features/audit/record-history-sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { usePermission } from '@/lib/session/permissions';
+import { PERMISSIONS } from '@vyuha/shared';
 
 import { formatClock, formatDuration, formatWindow } from './format';
 import { AttendanceFlags, AttendanceStatusBadge } from './status-badge';
@@ -46,6 +53,12 @@ export function DayDetailSheet({
   // The sheet serves both My Attendance and the muster, so the row is decided
   // by the viewer's keys rather than by which screen opened it.
   const canSeeOvertime = useCanViewOvertime();
+  // REQ-M-02. A derived day is the one record in this product that a person
+  // can find changed underneath them — an override, a lock, a nightly
+  // recompute — so "who did this to my day" is the question it most needs to
+  // be able to answer.
+  const canReadTrail = usePermission(PERMISSIONS.AUDIT_VIEW);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   return (
     <Sheet open={day !== null} onOpenChange={onOpenChange}>
@@ -85,9 +98,36 @@ export function DayDetailSheet({
                 </>
               ) : null}
             </div>
+
+            {canReadTrail ? (
+              <SheetFooter className="shrink-0 flex-row justify-end border-t">
+                <RecordHistoryButton
+                  onClick={() => {
+                    setHistoryOpen(true);
+                  }}
+                />
+              </SheetFooter>
+            ) : null}
           </>
         ) : null}
       </SheetContent>
+
+      {/* Opens over this sheet rather than replacing it, so closing it returns
+          to the day rather than to the table. It is one surface deep, not two:
+          the history sheet swaps its own body between the list and an entry
+          instead of stacking a third. */}
+      <RecordHistorySheet
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        entityType="attendance_days"
+        entityId={day?.id ?? null}
+        title={day === null ? '' : formatDate(day.date)}
+        description={
+          day === null
+            ? ''
+            : `${day.employee.name} — every override, lock and recompute recorded against this day.`
+        }
+      />
     </Sheet>
   );
 }

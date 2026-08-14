@@ -57,6 +57,7 @@ function equal(actual: unknown, expected: unknown): void {
 
 function day(overrides: Partial<AttendanceDay> = {}): AttendanceDay {
   return {
+    id: 'day-fixture',
     employee: { id: 'e1', name: 'Varun Tiwari' },
     date: '2026-08-03',
     shiftName: 'General',
