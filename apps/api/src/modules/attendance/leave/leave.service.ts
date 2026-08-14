@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   DEFAULT_LEAVE_YEAR_START_MONTH,
   ERROR_CODES,
@@ -32,17 +32,19 @@ import {
   type LeaveTypeQuery,
   type LeaveTypeRef,
   type Paginated,
+  type RecomputeSummary,
 } from '@vyuha/shared';
 import { sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
-import { AppError } from '../../../platform/common/errors.js';
+import { AppError, describeError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
 import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notification-events.js';
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { hasAnyPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { addDays, localDateIn } from '../day-engine/calendar-date.js';
+import { DayEngineService } from '../day-engine/day-engine.service.js';
 import { matchesWeeklyOff } from '../day-engine/weekly-off.js';
 import { leaveRequests as leaveRequestsTable } from '../schema/index.js';
 import { negativeLimitShortfall, projectLedger, type ProjectedBalance } from './leave-balance.js';
@@ -107,11 +109,14 @@ interface LeaveEvaluation {
 
 @Injectable()
 export class LeaveService {
+  private readonly logger = new Logger(LeaveService.name);
+
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly scopes: ScopeService,
     private readonly auditContext: AuditContext,
     private readonly notifications: NotificationDispatcher,
+    private readonly dayEngine: DayEngineService,
   ) {}
 
   // ----------------------------------------------------------- leave types
@@ -583,12 +588,17 @@ export class LeaveService {
       if (updated === null) throw AppError.notFound('Leave request', id);
     });
 
+    // After the commit, so the engine reads the APPROVED status it is
+    // recomputing from. An approved leave must reach the muster now, not at
+    // some later sweep -- see the note on `recomputeRequestDays`.
+    const recompute = await this.recomputeRequestDays(principal, repository, request.employeeId, id);
+
     this.auditContext.record({
       action: 'leave_request.approved',
       entityType: 'leave_request',
       entityId: id,
       before: { status: request.status },
-      after: { status: 'APPROVED', totalDays: request.totalDays, reason },
+      after: { status: 'APPROVED', totalDays: request.totalDays, reason, recompute },
     });
 
     await this.notifications.emit({
@@ -723,12 +733,29 @@ export class LeaveService {
       if (updated === null) throw AppError.notFound('Leave request', id);
     });
 
+    // Only when the request was APPROVED: a pending request never reached the
+    // muster, so there is nothing to put back. This deliberately reverses the
+    // decision the previous comment here recorded ("recomputed by the day
+    // engine on its next pass") -- the nightly sweep it rested on was never
+    // built, SCHEDULED_JOBS has no such job, and a cancelled leave that keeps
+    // reading ON_LEAVE until some future mechanism exists is the bug that
+    // reaches payroll. Launch plan WS-B reverses it explicitly.
+    const recompute =
+      request.status === 'APPROVED'
+        ? await this.recomputeRequestDays(principal, repository, request.employeeId, id)
+        : null;
+
     this.auditContext.record({
       action: 'leave_request.cancelled',
       entityType: 'leave_request',
       entityId: id,
       before: { status: request.status },
-      after: { status: 'CANCELLED', reason, reversedDays: request.status === 'APPROVED' ? request.totalDays : 0 },
+      after: {
+        status: 'CANCELLED',
+        reason,
+        reversedDays: request.status === 'APPROVED' ? request.totalDays : 0,
+        recompute,
+      },
     });
 
     await this.notifications.emit({
@@ -743,10 +770,6 @@ export class LeaveService {
       },
     });
 
-    // The affected days are recomputed by the day engine on its next pass.
-    // Calling it from here would make a cancellation as slow as a month of
-    // recomputation and would couple this slice to the engine's write path;
-    // `leave_request_days` is what the engine reads, and it is already right.
     return this.getRequest(principal, id);
   }
 
@@ -1131,6 +1154,53 @@ export class LeaveService {
     }
 
     return { employee, type, expansion, leaveYear, balanceBefore, balanceAfter, blockers };
+  }
+
+  /**
+   * Recomputes the attendance days a decided leave request touches, inline,
+   * following `holiday.service.ts` (REQ-H-04's pattern applied to REQ-G-09
+   * and REQ-G-10): the engine itself answers `locked` for a locked period
+   * without writing (REQ-E-09), so this method never has to know about
+   * periods -- a lock is counted and reported, never overridden.
+   *
+   * What it does have to do is survive one employee's misconfiguration:
+   * `computeDay` refuses a date with no resolvable shift, and an approval
+   * must not fail to stand because a roster has a gap. Those are counted and
+   * logged with the cause -- handled, not swallowed -- and reported back in
+   * the audit row's summary.
+   *
+   * Only the counted days run. A skipped holiday or weekly off inside the
+   * range consumed nothing and changes nothing, and recomputing it anyway
+   * would only widen the window for an unrelated failure.
+   */
+  private async recomputeRequestDays(
+    principal: Principal,
+    repository: LeaveRepository,
+    employeeId: string,
+    requestId: string,
+  ): Promise<RecomputeSummary> {
+    const summary = { considered: 0, recomputed: 0, locked: 0, failed: 0 };
+
+    const days = await repository.findRequestDays(requestId);
+    const engine = this.dayEngine.forOrg(orgContextOf(principal));
+    const now = new Date();
+
+    for (const day of days) {
+      if (!day.isCounted) continue;
+      summary.considered += 1;
+      try {
+        const outcome = await engine.computeDay(employeeId, day.date, { now });
+        if (outcome.outcome === 'locked') summary.locked += 1;
+        else summary.recomputed += 1;
+      } catch (error: unknown) {
+        summary.failed += 1;
+        this.logger.warn(
+          `Leave decision on request ${requestId} could not recompute ${day.date} for employee ${employeeId}: ${describeError(error)}`,
+        );
+      }
+    }
+
+    return summary;
   }
 
   /**

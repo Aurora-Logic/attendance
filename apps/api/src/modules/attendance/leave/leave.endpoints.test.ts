@@ -53,6 +53,7 @@ let runId: string;
 let employeeAId: string;
 let employeeBId: string;
 let managerEmployeeId: string;
+let employeeRoleId: string;
 
 let employeeToken: string;
 let otherToken: string;
@@ -209,7 +210,7 @@ beforeAll(async () => {
     sql`DELETE FROM settings WHERE org_id = ${ORG_ID} AND key LIKE 'leave.%'`,
   );
 
-  const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
+  employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
   const hrRoleId = await harness.createSystemRole(SYSTEM_ROLES.HR);
   const managerRoleId = await harness.createSystemRole(SYSTEM_ROLES.OPERATIONS);
   // Authenticated but holding no leave key at all, so a 403 here is about the
@@ -843,6 +844,156 @@ describe('cancelling (REQ-G-10)', () => {
 
   it('audits the cancellation', async () => {
     expect(await harness.waitForAuditAction('leave_request.cancelled')).toBe(true);
+  });
+});
+
+describe('decisions reach the muster inline (launch plan WS-B: REQ-G-09, REQ-G-10, REQ-E-02)', () => {
+  // A fresh employee with a resolvable shift, because the recompute needs one:
+  // the fixture people above deliberately have none, which is also what proves
+  // a roster gap cannot fail an approval (the engine's refusal is counted and
+  // logged, and the decision stands -- the same survival rule holiday
+  // recompute follows).
+  let shiftedEmployeeId = '';
+  let shiftedToken = '';
+  let musterRequestId = '';
+
+  async function dayRow(
+    date: string,
+  ): Promise<{ status: string; leaveRequestId: string | null } | null> {
+    const rows = await harness.db.execute<{ status: string; leave_request_id: string | null }>(sql`
+      SELECT status, leave_request_id FROM attendance_days
+       WHERE org_id = ${ORG_ID} AND employee_id = ${shiftedEmployeeId}::uuid AND date = ${date}
+       LIMIT 1
+    `);
+    const row = rows.rows[0];
+    if (row === undefined) return null;
+    return { status: row.status, leaveRequestId: row.leave_request_id };
+  }
+
+  it('sets up an employee whose shift the engine can resolve', async () => {
+    const shiftRows = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO shifts (org_id, code, name, start_time, end_time)
+      VALUES (${ORG_ID}, ${`LVD${runId}`}, 'Leave Decision Probe Shift', '09:00:00', '17:30:00')
+      RETURNING id
+    `);
+    const shiftId = shiftRows.rows[0]?.id;
+    if (shiftId === undefined) throw new Error('shift fixture insert returned no row');
+
+    shiftedEmployeeId = await harness.createEmployee({
+      code: `LV-D-${runId}`,
+      firstName: 'Deepa',
+      // Reports to Meera, so the manager's team scope reaches these requests.
+      reportingManagerId: managerEmployeeId,
+      dateOfJoining: '2020-01-01',
+    });
+    await harness.db.execute(sql`
+      UPDATE employees SET default_shift_id = ${shiftId}::uuid
+       WHERE org_id = ${ORG_ID} AND id = ${shiftedEmployeeId}::uuid
+    `);
+
+    const user = await harness.createUser({
+      email: scopedEmail('leave-shifted'),
+      roleIds: [employeeRoleId],
+      employeeId: shiftedEmployeeId,
+    });
+    shiftedToken = (await harness.login(user.email, user.password)).token;
+    expect(shiftedToken).not.toBe('');
+
+    await grantDays(shiftedEmployeeId, casualTypeId, 10);
+  });
+
+  it('approval computes the day to ON_LEAVE, without waiting for any sweep', async () => {
+    const raised = await harness.post<LeaveRequestDetail & ErrorBody>('/leave/requests', {
+      token: shiftedToken,
+      body: {
+        leaveTypeId: casualTypeId,
+        fromDate: MONDAY,
+        toDate: MONDAY,
+        reason: 'Muster recompute probe',
+      },
+    });
+    expect(raised.status, raised.text).toBe(201);
+    musterRequestId = raised.body.id;
+
+    // Nothing on the muster yet: a pending request holds no day.
+    expect(await dayRow(MONDAY)).toBeNull();
+
+    const approved = await harness.post<LeaveRequestDetail>(
+      `/leave/requests/${musterRequestId}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(approved.status, approved.text).toBe(201);
+
+    // The row exists the moment the approval answers -- this is the inline
+    // recompute, not a job that might run tonight.
+    const day = await dayRow(MONDAY);
+    expect(day?.status).toBe('ON_LEAVE');
+    expect(day?.leaveRequestId).toBe(musterRequestId);
+  });
+
+  it('cancellation recomputes the day back off leave', async () => {
+    const cancelled = await harness.post<LeaveRequestDetail>(
+      `/leave/requests/${musterRequestId}/cancel`,
+      { token: shiftedToken, body: { reason: 'Probe over' } },
+    );
+    expect(cancelled.status, cancelled.text).toBe(201);
+
+    const day = await dayRow(MONDAY);
+    expect(day?.status).not.toBe('ON_LEAVE');
+    expect(day?.leaveRequestId).toBeNull();
+  });
+
+  it('respects a period lock: the cancellation stands, the locked day is left alone (REQ-E-09)', async () => {
+    const TUESDAY = addDays(MONDAY, 1);
+
+    // Approved while the month is open, so the Tuesday row reads ON_LEAVE.
+    const raised = await harness.post<LeaveRequestDetail & ErrorBody>('/leave/requests', {
+      token: shiftedToken,
+      body: {
+        leaveTypeId: casualTypeId,
+        fromDate: TUESDAY,
+        toDate: TUESDAY,
+        reason: 'Locked period probe',
+      },
+    });
+    expect(raised.status, raised.text).toBe(201);
+    const approved = await harness.post<LeaveRequestDetail>(
+      `/leave/requests/${raised.body.id}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(approved.status, approved.text).toBe(201);
+    expect((await dayRow(TUESDAY))?.status).toBe('ON_LEAVE');
+
+    // Then the month closes.
+    const lock = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO attendance_period_locks (org_id, year, month, lock_reason)
+      VALUES (${ORG_ID}, ${Number(MONDAY.slice(0, 4))}, ${Number(MONDAY.slice(5, 7))},
+              'Locked for the WS-B recompute probe')
+      RETURNING id
+    `);
+    const lockId = lock.rows[0]?.id;
+    if (lockId === undefined) throw new Error('period lock fixture insert returned no row');
+
+    try {
+      // An approver cancelling inside the locked month: the cancellation and
+      // its ledger reversal stand, and the engine answers `locked` without
+      // writing -- the frozen muster row is counted in the audit summary, not
+      // rewritten. The same deliberate outcome holiday recompute has.
+      const cancelled = await harness.post<LeaveRequestDetail>(
+        `/leave/requests/${raised.body.id}/cancel`,
+        { token: managerToken, body: { reason: 'Cancelled after the month closed' } },
+      );
+      expect(cancelled.status, cancelled.text).toBe(201);
+      expect(cancelled.body.status).toBe('CANCELLED');
+
+      const day = await dayRow(TUESDAY);
+      expect(day?.status).toBe('ON_LEAVE');
+      expect(day?.leaveRequestId).toBe(raised.body.id);
+    } finally {
+      await harness.db.execute(
+        sql`DELETE FROM attendance_period_locks WHERE id = ${lockId}::uuid`,
+      );
+    }
   });
 });
 
