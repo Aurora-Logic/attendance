@@ -10,5 +10,6 @@ export * from './org.js';
 export * from './pagination.js';
 export * from './people.js';
 export * from './permissions.js';
+export * from './regularization.js';
 export * from './reports.js';
 export * from './shifts.js';
