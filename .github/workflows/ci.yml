@@ -152,7 +152,13 @@ jobs:
           # normalises a fixed administrator password into the codebase.
           seed_output=$(pnpm --filter @vyuha/api run db:seed)
           echo "$seed_output" | sed 's/[A-Za-z0-9_-]\{20,\}/<redacted>/g'
-          password=$(echo "$seed_output" | grep -oE '^ +[A-Za-z0-9_-]{20,}$' | head -1 | tr -d ' ')
+          # The second grep is not decoration. `-` is in the character class, so
+          # the rule above also matches the 63-dash separator the seed prints
+          # above the password -- and that line comes first, so `head -1` was
+          # handing the browser job a row of dashes to sign in with. Requiring
+          # one alphanumeric character rejects the separator and nothing else.
+          password=$(echo "$seed_output" | grep -oE '^ +[A-Za-z0-9_-]{20,}$' \
+            | grep -m1 -E '[A-Za-z0-9]' | tr -d ' ')
           if [ -z "$password" ]; then echo "could not read the seeded password"; exit 1; fi
           echo "::add-mask::$password"
           echo "password=$password" >> "$GITHUB_OUTPUT"
@@ -187,6 +193,16 @@ jobs:
           curl -sf -o /dev/null http://localhost:9222/json/version
 
       - name: Drive the app
+        # `shell: bash` for `pipefail`, and it is the whole point of the step.
+        # The default shell for a `run:` block is `bash -e {0}` with no
+        # pipefail, so a pipeline reports the exit code of its *last* command --
+        # `tee`, which always succeeds. verify-ui.mjs has exited 1 on a failed
+        # check since it was written, and this pipe threw that away: the browser
+        # job reported success no matter what the browser found. Set here rather
+        # than as a workflow-level default: the seed step above ends in a `grep`
+        # that legitimately finds nothing on a re-seeded database, and under
+        # pipefail that would abort the step before the message explaining it.
+        shell: bash
         env:
           VERIFY_EMAIL: admin@vyuha.local
           VERIFY_PASSWORD: ${{ steps.seed.outputs.password }}
