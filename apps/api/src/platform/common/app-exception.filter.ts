@@ -10,6 +10,7 @@ import { ERROR_CODES, type ErrorCode } from '@vyuha/shared';
 import type { Request, Response } from 'express';
 import { ZodError } from 'zod';
 
+import { isPoolConnectionTimeout } from '../db/pg-error.js';
 import { AppError, describeError, toErrorBody } from './errors.js';
 import { REQUEST_ID_HEADER, requestIdOf } from './request-id.js';
 
@@ -48,10 +49,24 @@ interface Resolved {
   details: Record<string, unknown> | undefined;
   /** False for anything the client was not meant to see. */
   expected: boolean;
+  /**
+   * A dependency refused to serve this request. Neither a caller's mistake nor
+   * a bug in this code, so the client is told precisely what happened and the
+   * driver's own words are still logged in full -- that is the difference
+   * between "the pool is saturated" and "the database is gone".
+   */
+  dependency?: boolean;
 }
 
 const GENERIC_INTERNAL_MESSAGE =
   'Something went wrong on our side. Quote the request id if you report this.';
+
+/**
+ * How long a client is told to wait after a dependency failure. Deliberately
+ * short: the pool frees up as soon as the queries holding it finish, and the
+ * punch outbox (REQ-D-10) re-sends on its own triggers regardless.
+ */
+const DEPENDENCY_RETRY_AFTER_SECONDS = 5;
 
 /** `HttpException.getStatus()` returns a plain number, not the HttpStatus enum. */
 const SERVER_ERROR_FLOOR = 500;
@@ -113,6 +128,14 @@ export class AppExceptionFilter implements ExceptionFilter {
     const body = toErrorBody(resolved.code, resolved.message, requestId, resolved.details);
 
     res.setHeader(REQUEST_ID_HEADER, requestId);
+    // Every error that carries a retry hint in its details states it as a
+    // header too, so a client that never parses the body -- a browser, a
+    // proxy, a service worker -- still learns it may try again. The details
+    // stay: they are what the screen shows a person.
+    const retryAfter = resolved.details?.retryAfterSeconds;
+    if (typeof retryAfter === 'number' && Number.isFinite(retryAfter) && retryAfter > 0) {
+      res.setHeader('Retry-After', String(Math.ceil(retryAfter)));
+    }
     res.status(resolved.status).json(body);
   }
 
@@ -124,6 +147,22 @@ export class AppExceptionFilter implements ExceptionFilter {
         message: exception.message,
         details: exception.details,
         expected: true,
+      };
+    }
+
+    // Ahead of the generic fallback and after `AppError`, which is a decision
+    // already made. A saturated connection pool is the one database failure a
+    // caller can act on, and answering it 500 tells a punching client the
+    // opposite of the truth: the offline outbox holds a punch and re-sends it
+    // when a request comes back unanswered, and abandons it on a refusal.
+    if (isPoolConnectionTimeout(exception)) {
+      return {
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        code: ERROR_CODES.SERVICE_UNAVAILABLE,
+        message: 'The service is busy right now. Try again in a moment.',
+        details: { retryAfterSeconds: DEPENDENCY_RETRY_AFTER_SECONDS },
+        expected: true,
+        dependency: true,
       };
     }
 
@@ -180,10 +219,13 @@ export class AppExceptionFilter implements ExceptionFilter {
     // logger, and repeating it emits the key twice in one JSON object.
     const base = { status: resolved.status, code: resolved.code, where };
 
-    if (!resolved.expected) {
+    if (!resolved.expected || resolved.dependency === true) {
       this.logger.error({
         ...base,
-        msg: `Unhandled error on ${where}`,
+        msg:
+          resolved.dependency === true
+            ? `Dependency failure on ${where}`
+            : `Unhandled error on ${where}`,
         // Everything withheld from the client, kept here in full. Without it
         // the generic response message would make the bug unfindable.
         //

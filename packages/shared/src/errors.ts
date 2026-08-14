@@ -10,6 +10,15 @@ export const ERROR_CODES = {
   CONFLICT: 'CONFLICT',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   RATE_LIMITED: 'RATE_LIMITED',
+  /**
+   * A dependency could not serve this request, and trying again shortly is the
+   * right response. Distinct from INTERNAL_ERROR because the two say opposite
+   * things to a client: a 500 means "this will not work, stop", and the punch
+   * outbox (REQ-D-10) is built to hold a punch and re-send it when a request
+   * comes back without an answer. Carries `retryAfterSeconds` in `details`,
+   * and the same value in a `Retry-After` header.
+   */
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
 
   // Auth (REQ-B-01…B-10)
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
