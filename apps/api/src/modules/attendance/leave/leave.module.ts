@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 
+import { ApprovalModule } from '../approvals/approvals.module.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
+import { LeaveApprovalHandler } from './leave-approval.handler.js';
 import {
   AccrueLeaveHandler,
   CarryForwardLeaveHandler,
@@ -17,11 +19,18 @@ import { LeaveService } from './leave.service.js';
  * its own file so that one slice can be built without touching the file every
  * other slice also needs.
  *
- * Nothing is imported. `DbModule`, `AuditModule`, `RbacModule`, `JobsModule`
- * and `NotificationsModule` are all `@Global()`, and the three job handlers
- * register themselves with `JobRegistry` on init rather than being imported by
- * `JobsModule` -- which is what keeps the dependency arrow pointing one way
- * (see `job-handler.ts`).
+ * `ApprovalModule` is the one import. `DbModule`, `AuditModule`, `RbacModule`,
+ * `JobsModule` and `NotificationsModule` are all `@Global()`, and the three job
+ * handlers register themselves with `JobRegistry` on init rather than being
+ * imported by `JobsModule` -- which is what keeps the dependency arrow pointing
+ * one way (see `job-handler.ts`).
+ *
+ * The approvals arrow points the same way and must keep doing so: leave
+ * imports the framework to raise a request (REQ-I-01) and to decide one, and
+ * the framework reaches back only through `ApprovalSubjectRegistry`, which
+ * `LeaveApprovalHandler` puts itself into on init. `ApprovalModule` importing
+ * this module would close a cycle and put the generic framework's compilation
+ * behind one of the five slices it serves.
  *
  * `LeaveService` is exported because the handlers in this module need it and
  * the reports slice will: a negative-balance report (REQ-G-08) and a lapsed
@@ -36,10 +45,12 @@ import { LeaveService } from './leave.service.js';
  * is the only reason it is needed at all.
  */
 @Module({
+  imports: [ApprovalModule],
   controllers: [LeaveTypeController, LeaveController],
   providers: [
     LeaveService,
     DayEngineService,
+    LeaveApprovalHandler,
     AccrueLeaveHandler,
     CarryForwardLeaveHandler,
     ExpireCompOffHandler,

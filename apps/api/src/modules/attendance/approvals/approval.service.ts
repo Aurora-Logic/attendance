@@ -32,6 +32,10 @@ import { users } from '../../../platform/db/schema/index.js';
 import { approvalDelegations, delegationLiveOn } from '../schema/approval.schema.js';
 import { ApprovalRoutingService } from './approval-routing.service.js';
 import {
+  ApprovalSubjectRegistry,
+  type ApprovalSubjectSettlement,
+} from './approval-subject.registry.js';
+import {
   evaluateDecision,
   isStale,
   nextEscalationTarget,
@@ -138,6 +142,22 @@ export interface EscalationOutcome {
   readonly exhausted: number;
 }
 
+/**
+ * Rolls the decision transaction back and carries the refusal out of it.
+ *
+ * A refusal cannot simply be returned from inside the transaction body: by the
+ * time one is known the step may already carry a decision (`recordAction`
+ * writes before `advance` is attempted), and returning would commit that write
+ * while telling the caller nothing happened. Throwing is what rolls it back;
+ * this class is what stops the throw being mistaken for a real failure.
+ */
+class DecisionRefused extends Error {
+  constructor(readonly refusal: DecisionRefusal) {
+    super(refusal.message);
+    this.name = 'DecisionRefused';
+  }
+}
+
 @Injectable()
 export class ApprovalService {
   private readonly logger = new Logger(ApprovalService.name);
@@ -148,6 +168,7 @@ export class ApprovalService {
     private readonly auditContext: AuditContext,
     private readonly audit: AuditService,
     private readonly routing: ApprovalRoutingService,
+    private readonly subjects: ApprovalSubjectRegistry,
   ) {}
 
   // ------------------------------------------------------- the in-process seam
@@ -160,8 +181,28 @@ export class ApprovalService {
    * re-derivation, which matters because the escalation job asks it hours
    * later, when the reporting line may have changed -- re-deriving would move
    * a request to somebody the requester never routed it to.
+   *
+   * `executor` lets the raising slice pass its own transaction, so the subject
+   * row and the approval that governs it are one fact. Without it, a slice
+   * whose insert committed and whose raise then failed would own a record
+   * nobody can ever see in an inbox and nobody can ever decide.
    */
-  async raise(ctx: OrgContext, input: RaiseApprovalInput): Promise<ApprovalRequestDetail> {
+  async raise(
+    ctx: OrgContext,
+    input: RaiseApprovalInput,
+    executor: Database = this.db,
+  ): Promise<ApprovalRequestDetail> {
+    // Nothing may be raised that nothing can apply. See
+    // `ApprovalSubjectRegistry` -- an approved request whose subject never
+    // moved is the failure this framework must not be able to produce, and
+    // refusing at the raise is refusing it before it can exist.
+    if (this.subjects.get(input.subjectType) === null) {
+      throw AppError.conflict(
+        `Nothing is registered to apply an approval of subject type "${input.subjectType}", so a request of it could never be carried out.`,
+        { subjectType: input.subjectType, registered: this.subjects.registeredSubjectTypes() },
+      );
+    }
+
     // Checked here rather than left to the contract's constants to be honoured
     // by convention: `raise` is called in process by other slices, so there is
     // no Zod pipe between them and this, and an exported limit nothing enforces
@@ -197,8 +238,8 @@ export class ApprovalService {
       );
     }
 
-    const requests = new ApprovalRepository(this.db, ctx);
-    const steps = new ApprovalStepRepository(this.db, ctx);
+    const requests = new ApprovalRepository(executor, ctx);
+    const steps = new ApprovalStepRepository(executor, ctx);
 
     const request = await requests.insert({
       type: input.type,
@@ -233,7 +274,9 @@ export class ApprovalService {
       },
     });
 
-    return this.buildDetail(ctx, request.id);
+    // Read back through the same executor: inside a caller's transaction the
+    // rows above are not visible to any other connection yet.
+    return this.buildDetail(ctx, request.id, executor);
   }
 
   /** The current approval for a subject, if it has one. */
@@ -328,6 +371,7 @@ export class ApprovalService {
     const ctx = orgContextOf(principal);
     const outcome = await this.applyDecision(principal, ctx, id, action, reason);
     if (!outcome.ok) throw this.toError(outcome.refusal);
+    if (outcome.settle !== null) await outcome.settle();
     return this.buildDetail(ctx, id);
   }
 
@@ -357,8 +401,15 @@ export class ApprovalService {
         input.action,
         input.reason ?? null,
       );
-      if (outcome.ok) applied.push(id);
-      else skipped.push({ id, code: outcome.refusal.code, message: outcome.refusal.message });
+      if (!outcome.ok) {
+        skipped.push({ id, code: outcome.refusal.code, message: outcome.refusal.message });
+        continue;
+      }
+      // Settled one at a time rather than gathered and run at the end: the
+      // decision is already committed, so a failure here must not stop the
+      // rows after it from being told about their own decisions.
+      if (outcome.settle !== null) await outcome.settle();
+      applied.push(id);
     }
 
     return { applied, skipped };
@@ -569,6 +620,21 @@ export class ApprovalService {
    * Shared by the single and bulk paths so there is exactly one place REQ-I-05
    * is enforced. A bulk path with its own copy of these checks is how the rule
    * ends up true for one endpoint and not the other.
+   *
+   * **Everything that must agree happens in one transaction**: the step is
+   * answered, the request is advanced, and -- when the request has reached a
+   * status the subject cares about -- the owning slice applies the decision to
+   * its own records. That last part is why the transaction exists. The leave
+   * handler writes to an append-only ledger, and a ledger row written by a step
+   * whose partner then failed cannot be taken back. Committing them separately
+   * would leave "approved, but nothing deducted" or "deducted, but still
+   * pending" as reachable states, and neither says which one it is.
+   *
+   * Exactly-once is a property of `advance`, not of a flag: it is a
+   * compare-and-swap on `(current_step, status)`, so of two callers deciding
+   * the same request at the same instant, exactly one matches a row and
+   * exactly one calls the handler. The loser writes nothing and is told the
+   * request was already decided.
    */
   private async applyDecision(
     principal: Principal,
@@ -576,9 +642,36 @@ export class ApprovalService {
     id: string,
     action: ApprovalDecision,
     reason: string | null,
-  ): Promise<{ ok: true } | { ok: false; refusal: DecisionRefusal }> {
-    const requests = new ApprovalRepository(this.db, ctx);
-    const steps = new ApprovalStepRepository(this.db, ctx);
+  ): Promise<
+    | { ok: true; settle: ApprovalSubjectSettlement | null }
+    | { ok: false; refusal: DecisionRefusal }
+  > {
+    try {
+      return await this.db.transaction(async (tx) => {
+        const outcome = await this.decideWithin(tx, principal, ctx, id, action, reason);
+        if (!outcome.ok) throw new DecisionRefused(outcome.refusal);
+        return outcome;
+      });
+    } catch (error: unknown) {
+      if (error instanceof DecisionRefused) return { ok: false, refusal: error.refusal };
+      throw error;
+    }
+  }
+
+  /** The body of one decision, against whichever executor is in play. */
+  private async decideWithin(
+    tx: Database,
+    principal: Principal,
+    ctx: OrgContext,
+    id: string,
+    action: ApprovalDecision,
+    reason: string | null,
+  ): Promise<
+    | { ok: true; settle: ApprovalSubjectSettlement | null }
+    | { ok: false; refusal: DecisionRefusal }
+  > {
+    const requests = new ApprovalRepository(tx, ctx);
+    const steps = new ApprovalStepRepository(tx, ctx);
 
     const request = await requests.findRow(id);
     if (request === null) {
@@ -586,6 +679,21 @@ export class ApprovalService {
       return {
         ok: false,
         refusal: { code: 'FORBIDDEN', message: 'That request does not exist.' },
+      };
+    }
+
+    // Defence in depth behind the same check in `raise`: a row raised before
+    // its slice registered a handler -- or after that slice was removed --
+    // must not be decidable, because deciding it would move the inbox and
+    // nothing else. See `ApprovalSubjectRegistry`.
+    const handler = this.subjects.get(request.subjectType);
+    if (handler === null) {
+      return {
+        ok: false,
+        refusal: {
+          code: 'FORBIDDEN',
+          message: `Nothing is registered to carry out a decision on a "${request.subjectType}", so this request cannot be decided.`,
+        },
       };
     }
 
@@ -652,23 +760,53 @@ export class ApprovalService {
       };
     }
 
-    this.auditContext.record({
-      action: action === 'APPROVE' ? 'approval.approved' : 'approval.rejected',
-      entityType: 'approval_request',
-      entityId: id,
-      orgId: ctx.orgId,
-      actorUserId: principal.userId,
-      before: { status: request.status, currentStep: request.currentStep },
-      after: {
-        status: updated.status,
-        currentStep: updated.currentStep,
-        reason,
-        // REQ-I-04: the trail names both identities, not just the clicker.
-        delegatedFromUserId: eligibility.delegatedFromUserId,
-      },
-    });
+    // Only a status the subject has to mirror. An approval that merely moved
+    // to the next level is nothing to the subject: it is still pending, and
+    // saying so twice would be two records agreeing loudly about nothing.
+    const settle =
+      updated.status === 'APPROVED' || updated.status === 'REJECTED'
+        ? await handler.applyDecision(
+            ctx,
+            {
+              approvalRequestId: id,
+              subjectId: request.subjectId,
+              status: updated.status,
+              reason,
+              decidedByUserId: principal.userId,
+              at: now,
+            },
+            tx,
+          )
+        : null;
 
-    return { ok: true };
+    const record = (): void => {
+      this.auditContext.record({
+        action: action === 'APPROVE' ? 'approval.approved' : 'approval.rejected',
+        entityType: 'approval_request',
+        entityId: id,
+        orgId: ctx.orgId,
+        actorUserId: principal.userId,
+        before: { status: request.status, currentStep: request.currentStep },
+        after: {
+          status: updated.status,
+          currentStep: updated.currentStep,
+          reason,
+          // REQ-I-04: the trail names both identities, not just the clicker.
+          delegatedFromUserId: eligibility.delegatedFromUserId,
+        },
+      });
+    };
+
+    // The trail is written after the commit, with everything else that must
+    // only be true once the decision is a fact. Recording inside the
+    // transaction would leave an entry saying "approved" behind a rollback.
+    return {
+      ok: true,
+      settle: async () => {
+        record();
+        if (settle !== null) await settle();
+      },
+    };
   }
 
   /** Approvers with a live delegation to this caller today (REQ-I-04). */
@@ -715,14 +853,44 @@ export class ApprovalService {
     return row === undefined ? null : { canApprove: row.can_approve };
   }
 
-  /** Moves one request up a level. False when the route above it is exhausted. */
+  /**
+   * Moves one request up a level. False when the route above it is exhausted.
+   *
+   * In a transaction with the subject's own mirror of the move, for the reason
+   * the decision path gives: a leave request reading PENDING while its
+   * approval reads ESCALATED is two rows disagreeing about the same fact, and
+   * the escalation job is exactly the caller nobody is watching when it does.
+   */
   private async escalateOne(ctx: OrgContext, id: string): Promise<boolean> {
-    const requests = new ApprovalRepository(this.db, ctx);
-    const steps = new ApprovalStepRepository(this.db, ctx);
+    const settle = await this.db.transaction(async (tx) => this.escalateWithin(tx, ctx, id));
+    if (settle === null) return false;
+    await settle();
+    return true;
+  }
+
+  private async escalateWithin(
+    tx: Database,
+    ctx: OrgContext,
+    id: string,
+  ): Promise<ApprovalSubjectSettlement | null> {
+    const requests = new ApprovalRepository(tx, ctx);
+    const steps = new ApprovalStepRepository(tx, ctx);
 
     const request = await requests.findRow(id);
     if (request === null || (request.status !== 'PENDING' && request.status !== 'ESCALATED')) {
-      return false;
+      return null;
+    }
+
+    const handler = this.subjects.get(request.subjectType);
+    if (handler === null) {
+      // The same refusal the decision path makes, for the same reason: moving
+      // a request whose subject nothing owns changes an inbox and nothing else.
+      this.logger.warn({
+        msg: 'Skipped escalating a request whose subject type has no registered handler.',
+        approvalRequestId: id,
+        subjectType: request.subjectType,
+      });
+      return null;
     }
 
     const route = await steps.forRequest(id);
@@ -739,7 +907,7 @@ export class ApprovalService {
         requesterUserId: request.requesterUserId,
         alreadyRoutedUserIds: route.map((step) => step.approverUserId),
       });
-      if (target === null) return false;
+      if (target === null) return null;
 
       const created = await steps.insert({
         approvalRequestId: id,
@@ -765,32 +933,55 @@ export class ApprovalService {
     }
 
     const updated = await requests.advance(id, request.currentStep, next.stepNo, 'ESCALATED', now);
-    if (updated === null) return false;
+    if (updated === null) return null;
 
-    // Written straight to the trail: a job has no request for the audit
-    // interceptor to hang an entry on, and `AuditContext.record` is a no-op
-    // outside one.
-    await this.audit.write({
-      orgId: ctx.orgId,
-      actorUserId: null,
-      action: 'approval.escalated',
-      entityType: 'approval_request',
-      entityId: id,
-      before: { currentStep: request.currentStep, status: request.status },
-      after: {
-        currentStep: next.stepNo,
+    const target = next;
+    const subjectSettlement = await handler.applyDecision(
+      ctx,
+      {
+        approvalRequestId: id,
+        subjectId: request.subjectId,
         status: 'ESCALATED',
-        approverUserId: next.approverUserId,
-        afterDays: request.escalateAfterDays,
+        reason: `No decision within ${String(request.escalateAfterDays)} days.`,
+        // REQ-G-09's escalation is the timer's doing, not a person's, and
+        // `columns.ts` says the trail is authoritative for who.
+        decidedByUserId: null,
+        at: now,
       },
-    });
+      tx,
+    );
 
-    return true;
+    return async () => {
+      // Written straight to the trail: a job has no request for the audit
+      // interceptor to hang an entry on, and `AuditContext.record` is a no-op
+      // outside one. After the commit, so a rolled-back escalation leaves no
+      // row claiming it happened.
+      await this.audit.write({
+        orgId: ctx.orgId,
+        actorUserId: null,
+        action: 'approval.escalated',
+        entityType: 'approval_request',
+        entityId: id,
+        before: { currentStep: request.currentStep, status: request.status },
+        after: {
+          currentStep: target.stepNo,
+          status: 'ESCALATED',
+          approverUserId: target.approverUserId,
+          afterDays: request.escalateAfterDays,
+        },
+      });
+
+      if (subjectSettlement !== null) await subjectSettlement();
+    };
   }
 
-  private async buildDetail(ctx: OrgContext, id: string): Promise<ApprovalRequestDetail> {
-    const requests = new ApprovalRepository(this.db, ctx);
-    const steps = new ApprovalStepRepository(this.db, ctx);
+  private async buildDetail(
+    ctx: OrgContext,
+    id: string,
+    executor: Database = this.db,
+  ): Promise<ApprovalRequestDetail> {
+    const requests = new ApprovalRepository(executor, ctx);
+    const steps = new ApprovalStepRepository(executor, ctx);
 
     const [summary, row, history] = await Promise.all([
       requests.summary(id),

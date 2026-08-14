@@ -14,6 +14,7 @@ import {
   locations,
   organizations,
   settings,
+  users,
 } from '../../../platform/db/schema/index.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { parseWeeklyOffConfig, type WeeklyOffConfig } from '../day-engine/weekly-off.js';
@@ -166,8 +167,22 @@ export class LeaveRepository {
    * second one. A transaction is what makes "approved and deducted" a single
    * fact rather than two that usually agree.
    */
-  async transaction<T>(fn: (repository: LeaveRepository) => Promise<T>): Promise<T> {
-    return this.db.transaction(async (tx) => fn(new LeaveRepository(tx, this.ctx)));
+  async transaction<T>(
+    fn: (repository: LeaveRepository, executor: Database) => Promise<T>,
+  ): Promise<T> {
+    return this.db.transaction(async (tx) => fn(new LeaveRepository(tx, this.ctx), tx));
+  }
+
+  /**
+   * The same repository bound to somebody else's transaction.
+   *
+   * The approval framework hands its handler the executor the decision is
+   * running in, and the leave writes that decision causes have to land in it --
+   * a ledger row committed separately from the approval that caused it is the
+   * pair of facts this whole join exists to keep together.
+   */
+  on(executor: Database): LeaveRepository {
+    return new LeaveRepository(executor, this.ctx);
   }
 
   /** Mirrors `ScopedRepository.scoped()`; see the class comment. */
@@ -245,6 +260,32 @@ export class LeaveRepository {
       .limit(1);
 
     return rows[0] ?? null;
+  }
+
+  /**
+   * The live login belonging to an employee, if they have one (REQ-B-02).
+   *
+   * REQ-I-05 is written about the *requester*, so an approval for somebody's
+   * leave has to name that somebody -- not whoever typed the application in.
+   * HR applying on behalf of an employee (REQ-G-06) would otherwise produce a
+   * request the employee themselves could approve, and one the employee's own
+   * manager could not see under the inbox's requester-scoped predicate.
+   */
+  async findUserIdForEmployee(employeeId: string): Promise<string | null> {
+    const rows = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        this.orgScoped(
+          eq(users.orgId, this.ctx.orgId),
+          eq(users.employeeId, employeeId),
+          isNull(users.deletedAt),
+          eq(users.status, 'ACTIVE'),
+        ),
+      )
+      .orderBy(asc(users.createdAt))
+      .limit(1);
+    return rows[0]?.id ?? null;
   }
 
   /**
@@ -702,6 +743,36 @@ export class LeaveRepository {
       )
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  /**
+   * The request's status, with the row locked for the rest of the transaction.
+   *
+   * Cancellation branches on the status it reads -- an approved leave needs a
+   * REVERSAL row and a pending one must not get one -- and a plain read makes
+   * that a check-then-act. An approval committing in the gap would leave the
+   * AVAILED row standing with nothing to reverse it, which the append-only
+   * ledger has no way to correct afterwards. `FOR UPDATE` is what makes the
+   * read and the write one decision.
+   *
+   * Single-table on purpose: `findRequest` joins employees and leave types,
+   * and locking those as well would have a cancellation queue behind an
+   * unrelated edit to the employee.
+   */
+  async lockRequestStatus(id: string): Promise<ApprovalStatus | null> {
+    const rows = await this.db
+      .select({ status: leaveRequests.status })
+      .from(leaveRequests)
+      .where(
+        this.orgScoped(
+          eq(leaveRequests.orgId, this.ctx.orgId),
+          eq(leaveRequests.id, id),
+          isNull(leaveRequests.deletedAt),
+        ),
+      )
+      .for('update')
+      .limit(1);
+    return rows[0]?.status ?? null;
   }
 
   async findRequestDays(

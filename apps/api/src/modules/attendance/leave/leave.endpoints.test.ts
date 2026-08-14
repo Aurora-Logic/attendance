@@ -2,6 +2,8 @@ import {
   SYSTEM_ROLES,
   isLeaveBalanceConsistent,
   uuidv7,
+  type ApprovalRequestDetail,
+  type ApprovalRequestSummary,
   type CompOffCredit,
   type LeaveBalance,
   type LeaveCalendar,
@@ -16,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { employees, settings } from '../../../platform/db/schema/index.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import { ApprovalService } from '../approvals/approval.service.js';
 import { addDays } from '../day-engine/calendar-date.js';
 import {
   holidayCalendars,
@@ -188,6 +191,10 @@ async function grantDays(employeeId: string, leaveTypeId: string, days: number):
 }
 
 beforeAll(async () => {
+  // `resetOrganisation` clears last run's approval rows before it deletes the
+  // users they reference; see the note there. The leave requests those
+  // approvals governed survive with `approval_request_id` set to null, which
+  // is exactly the "predates the join" shape one test below asserts on.
   harness = await ApiHarness.start(ORG_ID, 'Leave Endpoints Fixture Org', { preservePeople: true });
   runId = uuidv7().slice(-6).toUpperCase();
 
@@ -994,6 +1001,510 @@ describe('decisions reach the muster inline (launch plan WS-B: REQ-G-09, REQ-G-1
         sql`DELETE FROM attendance_period_locks WHERE id = ${lockId}::uuid`,
       );
     }
+  });
+});
+
+/**
+ * The leave / approvals join (REQ-G-09, REQ-I-01 … REQ-I-05).
+ *
+ * The one thing this slice cannot get wrong: `leave_ledger` is append-only, so
+ * a decision applied twice writes a deduction that can never be taken back, and
+ * the balance is then wrong for ever with no error anywhere. Every test below
+ * exists because of that sentence.
+ *
+ * The two surfaces -- the approvals inbox and this slice's own
+ * `/leave/requests/:id/approve` -- must be one code path with one writer.
+ * Asserting that they merely "both work" is the probe that lies: two paths that
+ * each produce a plausible ledger is exactly the bug. So the assertions compare
+ * their outcomes against each other, row for row.
+ */
+describe('the leave / approvals join (REQ-G-09, REQ-I-01, REQ-I-05)', () => {
+  let joinWeek = 0;
+
+  /**
+   * A fresh date per request: always a Monday, always in the future, always
+   * inside `LEAVE_YEAR`, and never one another fixture in this file uses.
+   *
+   * Walking *backwards* in whole weeks from `MONDAY` rather than forwards past
+   * the other fixtures, because the balance is per leave year (REQ-G-04) and
+   * forward dates run out of the year the grants were made in -- an
+   * application would then be refused for an empty balance in a year nothing
+   * credited, which reads as a broken feature rather than a broken fixture.
+   * Whole weeks keep every date on the same weekday, clear of the Saturday and
+   * Sunday this employee has off.
+   */
+  function nextDate(): string {
+    joinWeek += 1;
+    return addDays(MONDAY, -7 * joinWeek);
+  }
+
+  async function applyFor(
+    token: string,
+    overrides: Record<string, unknown> = {},
+  ): Promise<LeaveRequestDetail> {
+    const from = nextDate();
+    const response = await harness.post<LeaveRequestDetail & ErrorBody>('/leave/requests', {
+      token,
+      body: {
+        leaveTypeId: casualTypeId,
+        fromDate: from,
+        toDate: from,
+        reason: 'Join probe',
+        ...overrides,
+      },
+    });
+    expect(response.status, response.text).toBe(201);
+    return response.body;
+  }
+
+  /** Every ledger row the database holds for one leave request. */
+  async function ledgerRowsFor(
+    leaveRequestId: string,
+  ): Promise<{ movementType: string; days: string }[]> {
+    const rows = await harness.db.execute<{ movement_type: string; days: string }>(sql`
+      SELECT movement_type, days::text AS days
+        FROM leave_ledger
+       WHERE org_id = ${ORG_ID} AND reference_type = 'leave_request'
+         AND reference_id = ${leaveRequestId}::uuid
+       ORDER BY created_at, id
+    `);
+    return rows.rows.map((row) => ({ movementType: row.movement_type, days: row.days }));
+  }
+
+  async function statusOf(leaveRequestId: string): Promise<string> {
+    const rows = await harness.db.execute<{ status: string }>(
+      sql`SELECT status FROM leave_requests WHERE id = ${leaveRequestId}::uuid`,
+    );
+    const row = rows.rows[0];
+    if (row === undefined) throw new Error(`No leave request ${leaveRequestId}`);
+    return row.status;
+  }
+
+  async function approvalStatusOf(approvalRequestId: string): Promise<string> {
+    const rows = await harness.db.execute<{ status: string }>(
+      sql`SELECT status FROM approval_requests WHERE id = ${approvalRequestId}::uuid`,
+    );
+    const row = rows.rows[0];
+    if (row === undefined) throw new Error(`No approval request ${approvalRequestId}`);
+    return row.status;
+  }
+
+  beforeAll(async () => {
+    // Enough balance that none of the applications below is refused for a
+    // reason unrelated to what is being tested.
+    await grantDays(employeeAId, casualTypeId, 60);
+  });
+
+  it('raises an approval with the request, and puts it in the approver inbox', async () => {
+    const request = await applyFor(employeeToken);
+
+    // The column has existed since migration 0004 and was null on every row
+    // until this join; a null here means the request reaches no inbox at all.
+    expect(request.approvalRequestId).not.toBeNull();
+    expect(request.status).toBe('PENDING');
+
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>(
+      '/approvals?pageSize=200',
+      { token: managerToken },
+    );
+    expect(inbox.status, inbox.text).toBe(200);
+    const row = inbox.body.data.find((item) => item.id === request.approvalRequestId);
+    expect(row).toBeDefined();
+    expect(row?.type).toBe('LEAVE');
+    // REQ-I-03's one line, so the inbox needs no join and no branch on type.
+    expect(row?.subject).toContain('Asha');
+    expect(row?.subject).toContain('Probe Casual Leave');
+
+    // REQ-I-05 is written about the requester, and the requester is the person
+    // the leave is *about* -- so their own manager is the one being asked.
+    const detail = await harness.get<ApprovalRequestDetail>(
+      `/approvals/${String(request.approvalRequestId)}`,
+      { token: managerToken },
+    );
+    expect(detail.status, detail.text).toBe(200);
+    expect(detail.body.subjectType).toBe('leave_request');
+    expect(detail.body.subjectId).toBe(request.id);
+    expect(detail.body.awaiting?.name).toBe('Meera');
+  });
+
+  it('approving in the inbox moves the ledger and the balance, once', async () => {
+    const request = await applyFor(employeeToken);
+    const before = await balanceOf(employeeToken, casualTypeId);
+
+    const decided = await harness.post<ApprovalRequestDetail & ErrorBody>(
+      `/approvals/${String(request.approvalRequestId)}/approve`,
+      { token: managerToken, body: { reason: 'Cover arranged.' } },
+    );
+    expect(decided.status, decided.text).toBe(201);
+    expect(decided.body.status).toBe('APPROVED');
+
+    expect(await statusOf(request.id)).toBe('APPROVED');
+    expect(await ledgerRowsFor(request.id)).toEqual([
+      { movementType: 'AVAILED', days: '-1.00' },
+    ]);
+
+    const after = await balanceOf(employeeToken, casualTypeId);
+    expect(after.availed).toBe(before.availed + 1);
+    expect(after.closing).toBe(before.closing - 1);
+    expect(isLeaveBalanceConsistent(after)).toBe(true);
+  });
+
+  /**
+   * The assertion the whole join turns on. Two requests identical in every
+   * respect but the surface they were decided on; if the two surfaces are one
+   * code path, their ledgers and their balance movements are indistinguishable.
+   */
+  it('produces identical ledger and balance outcomes from the inbox and the direct endpoint', async () => {
+    const viaInbox = await applyFor(employeeToken);
+    const viaEndpoint = await applyFor(employeeToken);
+
+    const start = await balanceOf(employeeToken, casualTypeId);
+
+    const inboxDecision = await harness.post<ApprovalRequestDetail & ErrorBody>(
+      `/approvals/${String(viaInbox.approvalRequestId)}/approve`,
+      { token: managerToken, body: { reason: 'Same reason.' } },
+    );
+    expect(inboxDecision.status, inboxDecision.text).toBe(201);
+    const middle = await balanceOf(employeeToken, casualTypeId);
+
+    const endpointDecision = await harness.post<LeaveRequestDetail & ErrorBody>(
+      `/leave/requests/${viaEndpoint.id}/approve`,
+      { token: managerToken, body: { reason: 'Same reason.' } },
+    );
+    expect(endpointDecision.status, endpointDecision.text).toBe(201);
+    const end = await balanceOf(employeeToken, casualTypeId);
+
+    expect(await ledgerRowsFor(viaInbox.id)).toEqual(await ledgerRowsFor(viaEndpoint.id));
+    expect(await statusOf(viaInbox.id)).toBe(await statusOf(viaEndpoint.id));
+
+    // The same movement in the balance, both times.
+    expect(middle.closing - start.closing).toBe(end.closing - middle.closing);
+    expect(middle.availed - start.availed).toBe(end.availed - middle.availed);
+    expect(isLeaveBalanceConsistent(end)).toBe(true);
+
+    // And the direct endpoint really did route through the framework rather
+    // than deciding beside it: the approval request is closed too.
+    expect(await approvalStatusOf(String(viaEndpoint.approvalRequestId))).toBe('APPROVED');
+    expect(endpointDecision.body.decidedBy?.name).toBe('Meera');
+  });
+
+  it('writes exactly one ledger row when the same request is decided twice in a row', async () => {
+    const request = await applyFor(employeeToken);
+    const before = await balanceOf(employeeToken, casualTypeId);
+
+    const first = await harness.post<LeaveRequestDetail & ErrorBody>(
+      `/leave/requests/${request.id}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(first.status, first.text).toBe(201);
+
+    // The second attempt through each surface in turn, because a refusal on
+    // one of them proves nothing about the other.
+    const againEndpoint = await harness.post<ErrorBody>(
+      `/leave/requests/${request.id}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(againEndpoint.status).toBe(409);
+    expect(againEndpoint.body.error.code).toBe('APPROVAL_ALREADY_ACTIONED');
+
+    const againInbox = await harness.post<ErrorBody>(
+      `/approvals/${String(request.approvalRequestId)}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(againInbox.status).toBe(409);
+    expect(againInbox.body.error.code).toBe('APPROVAL_ALREADY_ACTIONED');
+
+    expect(await ledgerRowsFor(request.id)).toEqual([
+      { movementType: 'AVAILED', days: '-1.00' },
+    ]);
+
+    const after = await balanceOf(employeeToken, casualTypeId);
+    expect(after.availed).toBe(before.availed + 1);
+    expect(after.closing).toBe(before.closing - 1);
+    expect(isLeaveBalanceConsistent(after)).toBe(true);
+  });
+
+  /**
+   * The same question with the requests in flight together, which is the one
+   * the sequential test cannot answer: before this join the status check and
+   * the ledger write were separate statements, so two approvals arriving at
+   * once could both read PENDING and both deduct.
+   */
+  it('writes exactly one ledger row when two approvals arrive at the same instant', async () => {
+    const request = await applyFor(employeeToken);
+    const before = await balanceOf(employeeToken, casualTypeId);
+
+    // One through each surface, deliberately: they contend on the same
+    // approval row only if they really are the same code path.
+    const [viaEndpoint, viaInbox] = await Promise.all([
+      harness.post<ErrorBody>(`/leave/requests/${request.id}/approve`, {
+        token: managerToken,
+        body: {},
+      }),
+      harness.post<ErrorBody>(`/approvals/${String(request.approvalRequestId)}/approve`, {
+        token: hrToken,
+        body: {},
+      }),
+    ]);
+
+    const statuses = [viaEndpoint.status, viaInbox.status].sort((a, b) => a - b);
+    expect(statuses, `${viaEndpoint.text} | ${viaInbox.text}`).toEqual([201, 409]);
+
+    expect(await ledgerRowsFor(request.id)).toEqual([
+      { movementType: 'AVAILED', days: '-1.00' },
+    ]);
+    expect(await statusOf(request.id)).toBe('APPROVED');
+
+    const after = await balanceOf(employeeToken, casualTypeId);
+    expect(after.availed).toBe(before.availed + 1);
+    expect(after.closing).toBe(before.closing - 1);
+    expect(isLeaveBalanceConsistent(after)).toBe(true);
+  });
+
+  it('rejecting through the inbox closes the leave request and moves no balance', async () => {
+    const request = await applyFor(employeeToken);
+    const before = await balanceOf(employeeToken, casualTypeId);
+
+    const decided = await harness.post<ApprovalRequestDetail & ErrorBody>(
+      `/approvals/${String(request.approvalRequestId)}/reject`,
+      { token: managerToken, body: { reason: 'The team is short that week.' } },
+    );
+    expect(decided.status, decided.text).toBe(201);
+    expect(decided.body.status).toBe('REJECTED');
+
+    expect(await statusOf(request.id)).toBe('REJECTED');
+    expect(await ledgerRowsFor(request.id)).toEqual([]);
+
+    const after = await balanceOf(employeeToken, casualTypeId);
+    expect(after.closing).toBe(before.closing);
+    expect(after.availed).toBe(before.availed);
+  });
+
+  it('refuses to decide its own request through either surface (REQ-I-05)', async () => {
+    // Meera has no manager, so her own leave routes to the org-wide approver.
+    const own = await applyFor(managerToken);
+    expect(own.approvalRequestId).not.toBeNull();
+
+    const viaEndpoint = await harness.post<ErrorBody>(
+      `/leave/requests/${own.id}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(viaEndpoint.status).toBe(403);
+    expect(viaEndpoint.body.error.code).toBe('APPROVER_IS_REQUESTER');
+
+    const viaInbox = await harness.post<ErrorBody>(
+      `/approvals/${String(own.approvalRequestId)}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(viaInbox.status).toBe(403);
+    expect(viaInbox.body.error.code).toBe('APPROVER_IS_REQUESTER');
+
+    expect(await ledgerRowsFor(own.id)).toEqual([]);
+    expect(await statusOf(own.id)).toBe('PENDING');
+  });
+
+  it('routes a two-step type through both levels, and deducts only at the last', async () => {
+    // REQ-G-09: "then HR if the leave type requires two-step approval."
+    const twoStep = await createType({
+      name: 'Probe Two Step Leave',
+      code: `TS${runId}`,
+      requiresTwoStepApproval: true,
+    });
+    await grantDays(employeeAId, twoStep.id, 5);
+
+    const from = nextDate();
+    const raised = await harness.post<LeaveRequestDetail & ErrorBody>('/leave/requests', {
+      token: employeeToken,
+      body: { leaveTypeId: twoStep.id, fromDate: from, toDate: from, reason: 'Two step' },
+    });
+    expect(raised.status, raised.text).toBe(201);
+
+    const detail = await harness.get<ApprovalRequestDetail>(
+      `/approvals/${String(raised.body.approvalRequestId)}`,
+      { token: hrToken },
+    );
+    expect(detail.body.steps).toHaveLength(2);
+    expect(detail.body.steps[0]?.approver.name).toBe('Meera');
+
+    const before = await balanceOf(employeeToken, twoStep.id);
+
+    // Level one. The request is still open, so nothing may have been deducted.
+    const step = await harness.post<ApprovalRequestDetail & ErrorBody>(
+      `/approvals/${String(raised.body.approvalRequestId)}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(step.status, step.text).toBe(201);
+    expect(step.body.status).toBe('PENDING');
+    expect(step.body.currentStep).toBe(2);
+    expect(await statusOf(raised.body.id)).toBe('PENDING');
+    expect(await ledgerRowsFor(raised.body.id)).toEqual([]);
+    expect((await balanceOf(employeeToken, twoStep.id)).closing).toBe(before.closing);
+
+    const final = await harness.post<ApprovalRequestDetail & ErrorBody>(
+      `/approvals/${String(raised.body.approvalRequestId)}/approve`,
+      { token: hrToken, body: {} },
+    );
+    expect(final.status, final.text).toBe(201);
+    expect(final.body.status).toBe('APPROVED');
+    expect(await statusOf(raised.body.id)).toBe('APPROVED');
+    expect(await ledgerRowsFor(raised.body.id)).toEqual([
+      { movementType: 'AVAILED', days: '-1.00' },
+    ]);
+    expect((await balanceOf(employeeToken, twoStep.id)).closing).toBe(before.closing - 1);
+  });
+
+  /** REQ-G-09's "auto-escalate if untouched for N days", end to end. */
+  it('mirrors an escalation onto the leave request, without touching the balance', async () => {
+    const request = await applyFor(employeeToken);
+    const before = await balanceOf(employeeToken, casualTypeId);
+
+    await harness.db.execute(sql`
+      UPDATE approval_requests
+         SET current_step_started_at = now() - make_interval(days => 5)
+       WHERE id = ${String(request.approvalRequestId)}::uuid
+    `);
+
+    const outcome = await harness.resolve(ApprovalService).escalateStale(new Date());
+    expect(outcome.escalated).toBeGreaterThanOrEqual(1);
+
+    // The status nothing used to set. Before this join, `leave_requests.status`
+    // could never be ESCALATED, and every branch written for it was dead.
+    expect(await statusOf(request.id)).toBe('ESCALATED');
+    expect(await approvalStatusOf(String(request.approvalRequestId))).toBe('ESCALATED');
+    expect(await ledgerRowsFor(request.id)).toEqual([]);
+
+    const afterEscalation = await balanceOf(employeeToken, casualTypeId);
+    expect(afterEscalation.closing).toBe(before.closing);
+    expect(await harness.waitForAuditAction('leave_request.escalated')).toBe(true);
+
+    // Escalated is open, not terminal: the level it was escalated to decides it.
+    const decided = await harness.post<LeaveRequestDetail & ErrorBody>(
+      `/leave/requests/${request.id}/approve`,
+      { token: hrToken, body: {} },
+    );
+    expect(decided.status, decided.text).toBe(201);
+    expect(decided.body.status).toBe('APPROVED');
+    expect(await ledgerRowsFor(request.id)).toEqual([
+      { movementType: 'AVAILED', days: '-1.00' },
+    ]);
+    expect((await balanceOf(employeeToken, casualTypeId)).closing).toBe(before.closing - 1);
+  });
+
+  it('withdraws the approval when the leave is cancelled, so no inbox keeps it', async () => {
+    const request = await applyFor(employeeToken);
+
+    const cancelled = await harness.post<LeaveRequestDetail & ErrorBody>(
+      `/leave/requests/${request.id}/cancel`,
+      { token: employeeToken, body: { reason: 'Plans changed' } },
+    );
+    expect(cancelled.status, cancelled.text).toBe(201);
+    expect(await approvalStatusOf(String(request.approvalRequestId))).toBe('CANCELLED');
+
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>(
+      '/approvals?pageSize=200',
+      { token: managerToken },
+    );
+    const row = inbox.body.data.find((item) => item.id === request.approvalRequestId);
+    // Still visible -- REQ-I-02 keeps the history -- but no longer open.
+    expect(row?.status).toBe('CANCELLED');
+
+    const refused = await harness.post<ErrorBody>(
+      `/approvals/${String(request.approvalRequestId)}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(refused.status).toBe(409);
+    expect(await ledgerRowsFor(request.id)).toEqual([]);
+  });
+
+  it('reverses exactly once when an approved leave is cancelled', async () => {
+    const request = await applyFor(employeeToken);
+    const before = await balanceOf(employeeToken, casualTypeId);
+
+    const approved = await harness.post<LeaveRequestDetail & ErrorBody>(
+      `/approvals/${String(request.approvalRequestId)}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(approved.status, approved.text).toBe(201);
+
+    const cancelled = await harness.post<LeaveRequestDetail & ErrorBody>(
+      `/leave/requests/${request.id}/cancel`,
+      { token: employeeToken, body: { reason: 'Plans changed after approval' } },
+    );
+    expect(cancelled.status, cancelled.text).toBe(201);
+
+    expect(await ledgerRowsFor(request.id)).toEqual([
+      { movementType: 'AVAILED', days: '-1.00' },
+      { movementType: 'REVERSAL', days: '1.00' },
+    ]);
+
+    const after = await balanceOf(employeeToken, casualTypeId);
+    expect(after.closing).toBe(before.closing);
+    expect(after.availed).toBe(before.availed);
+    expect(isLeaveBalanceConsistent(after)).toBe(true);
+
+    // A second cancellation adds no second reversal.
+    const again = await harness.post<ErrorBody>(`/leave/requests/${request.id}/cancel`, {
+      token: employeeToken,
+      body: { reason: 'Again' },
+    });
+    expect(again.status).toBe(409);
+    expect(await ledgerRowsFor(request.id)).toHaveLength(2);
+  });
+
+  /**
+   * The one branch that cannot be reached through the API any more, and the
+   * reason it answers rather than deciding: a request with no approval has no
+   * route, no step and nobody the framework could name as the approver, and
+   * deciding it on the old terms would restore the second ledger writer this
+   * change removed.
+   */
+  it('refuses to decide a request that predates the join, and says what to do instead', async () => {
+    const request = await applyFor(employeeToken);
+    await harness.db.execute(
+      sql`UPDATE leave_requests SET approval_request_id = NULL WHERE id = ${request.id}::uuid`,
+    );
+
+    const refused = await harness.post<ErrorBody>(`/leave/requests/${request.id}/approve`, {
+      token: managerToken,
+      body: {},
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toMatch(/Cancel it and apply again/u);
+    expect(await ledgerRowsFor(request.id)).toEqual([]);
+
+    // And the escape hatch the message names actually works.
+    const cancelled = await harness.post<LeaveRequestDetail & ErrorBody>(
+      `/leave/requests/${request.id}/cancel`,
+      { token: employeeToken, body: { reason: 'As the refusal suggested' } },
+    );
+    expect(cancelled.status, cancelled.text).toBe(201);
+  });
+
+  it('refuses a second AVAILED row at the database, not only in the service', async () => {
+    const request = await applyFor(employeeToken);
+    const approved = await harness.post<LeaveRequestDetail & ErrorBody>(
+      `/leave/requests/${request.id}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(approved.status, approved.text).toBe(201);
+
+    // Migration 0014. The service refuses first, so this is the layer that
+    // catches a future writer that forgets to ask -- and an insert with no
+    // ON CONFLICT clause is what proves the index, rather than the check.
+    const rows = await harness.db.execute<{ employee_id: string; leave_type_id: string; leave_year: number }>(sql`
+      SELECT employee_id, leave_type_id, leave_year FROM leave_ledger
+       WHERE reference_id = ${request.id}::uuid AND movement_type = 'AVAILED' LIMIT 1
+    `);
+    const row = rows.rows[0];
+    if (row === undefined) throw new Error('The approval wrote no AVAILED row.');
+
+    const message = await refusalMessage(sql`
+      INSERT INTO leave_ledger (org_id, employee_id, leave_type_id, leave_year, movement_type, days, reference_type, reference_id)
+      VALUES (${ORG_ID}, ${row.employee_id}::uuid, ${row.leave_type_id}::uuid, ${row.leave_year},
+              'AVAILED', -1, 'leave_request', ${request.id}::uuid)
+    `);
+    expect(message).toMatch(/leave_ledger_request_movement_uq/u);
+    expect(await ledgerRowsFor(request.id)).toHaveLength(1);
   });
 });
 

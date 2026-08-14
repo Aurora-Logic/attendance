@@ -7,14 +7,16 @@ import {
   type Paginated,
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
-import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { env } from '../../../platform/common/env.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { JobRegistry } from '../../../platform/jobs/job-handler.js';
 import { JOB_QUEUE, QUEUES, SCHEDULED_JOBS } from '../../../platform/jobs/queue.registry.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import {
+  ApprovalSubjectRegistry,
+  type ApprovalSubjectHandler,
+} from './approval-subject.registry.js';
 import { ApprovalService } from './approval.service.js';
 import { EscalateStaleApprovalsHandler } from './escalate-stale-approvals.handler.js';
 
@@ -28,12 +30,46 @@ import { EscalateStaleApprovalsHandler } from './escalate-stale-approvals.handle
  * about the subject. So the fixtures call `ApprovalService.raise` on the
  * container's own instance, and everything after that is HTTP.
  *
+ * The subjects below are this file's own, registered with
+ * `ApprovalSubjectRegistry` in `beforeAll` and backed by no table at all. That
+ * is deliberate: the framework may not know what a leave request is, and a
+ * suite that reached for the real one to exercise routing, delegation and
+ * escalation would be asserting leave's behaviour through the framework's
+ * endpoints. The counter is `leave.endpoints.test.ts`, which drives the real
+ * subject end to end.
+ *
  * The refusal REQ-I-05 names lives in exactly two tests here, so removing the
  * server-side check fails exactly those two by name and not a dozen unrelated
  * ones.
  */
 
 const ORG_ID = '01900000-0000-7000-8000-0000000000a8';
+
+/**
+ * The subject types this file raises against, none of which name a real table.
+ *
+ * `ApprovalService` refuses to raise or decide a subject type nothing has
+ * registered a handler for -- an approved request whose subject never moved is
+ * the failure the registry exists to prevent -- so a framework test needs
+ * subjects of its own rather than borrowing another slice's.
+ */
+const PROBE_SUBJECT = 'framework_probe';
+const OTHER_PROBE_SUBJECT = 'comp_off_request';
+/** Registered by nothing, so the guard has something to refuse. */
+const UNHANDLED_SUBJECT = 'unregistered_probe';
+
+/** Every decision this file's subjects were told about, in order. */
+const decisionsSeen: { subjectType: string; subjectId: string; status: string }[] = [];
+
+function probeHandler(subjectType: string): ApprovalSubjectHandler {
+  return {
+    subjectType,
+    applyDecision: (_ctx, decision) => {
+      decisionsSeen.push({ subjectType, subjectId: decision.subjectId, status: decision.status });
+      return Promise.resolve(null);
+    },
+  };
+}
 
 interface ErrorBody {
   error: { code: string; message: string; details?: Record<string, unknown> };
@@ -75,7 +111,7 @@ async function raise(options: {
 }): Promise<ApprovalRequestDetail> {
   return approvals.raise(ctxOf(options.requesterUserId), {
     type: 'LEAVE',
-    subjectType: options.subjectType ?? 'leave_request',
+    subjectType: options.subjectType ?? PROBE_SUBJECT,
     subjectId: nextSubjectId(),
     subject: options.subject ?? 'Casual Leave, 24-08-2026 to 25-08-2026, 2 days',
     requesterUserId: options.requesterUserId,
@@ -88,28 +124,19 @@ async function raise(options: {
   });
 }
 
-/**
- * `resetOrganisation` deletes the organisation's users, and every approval
- * table points at `users` with RESTRICT -- so last run's rows have to go
- * before the harness starts, not after. Its own connection because the
- * application does not exist yet at this point.
- */
-async function purgeApprovals(): Promise<void> {
-  const pool = new Pool({ connectionString: env.DATABASE_URL, max: 1 });
-  try {
-    await pool.query('DELETE FROM approval_steps WHERE org_id = $1', [ORG_ID]);
-    await pool.query('DELETE FROM approval_delegations WHERE org_id = $1', [ORG_ID]);
-    await pool.query('DELETE FROM approval_requests WHERE org_id = $1', [ORG_ID]);
-  } finally {
-    await pool.end();
-  }
-}
-
 beforeAll(async () => {
-  await purgeApprovals();
-
+  // Last run's approval rows are cleared by `resetOrganisation`, which has to
+  // do it anyway now that applying for leave raises one: every approval table
+  // points at `users` with RESTRICT, and the harness deletes users.
   harness = await ApiHarness.start(ORG_ID, 'Approvals Endpoints Fixture Org');
   approvals = harness.resolve(ApprovalService);
+
+  // Registered on the container's own registry, exactly as a slice does on
+  // init. Nothing here dereferences a subject id, which is the point: the
+  // framework's contract with a subject is a (type, id) pair and a callback.
+  const subjects = harness.resolve(ApprovalSubjectRegistry);
+  subjects.register(probeHandler(PROBE_SUBJECT));
+  subjects.register(probeHandler(OTHER_PROBE_SUBJECT));
 
   const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
   const operationsRoleId = await harness.createSystemRole(SYSTEM_ROLES.OPERATIONS);
@@ -193,7 +220,7 @@ describe('raising a request (REQ-I-01, REQ-I-02)', () => {
 
     expect(detail.status).toBe('PENDING');
     expect(detail.currentStep).toBe(1);
-    expect(detail.subjectType).toBe('leave_request');
+    expect(detail.subjectType).toBe(PROBE_SUBJECT);
     // The default route is the reporting line, then org-wide approvers.
     expect(detail.steps.map((step) => step.approver.id)).toEqual([mgrUserId, hrUserId]);
     expect(detail.steps.every((step) => step.action === null)).toBe(true);
@@ -298,11 +325,11 @@ describe('the inbox (REQ-I-03)', () => {
   it('filters by subject type without knowing what a subject is', async () => {
     const detail = await raise({
       requesterUserId: empUserId,
-      subjectType: 'comp_off_request',
+      subjectType: OTHER_PROBE_SUBJECT,
     });
 
     const matching = await harness.get<Paginated<ApprovalRequestSummary>>(
-      '/approvals?subjectType=comp_off_request',
+      `/approvals?subjectType=${OTHER_PROBE_SUBJECT}`,
       { token: mgrToken },
     );
     expect(matching.body.data.some((item) => item.id === detail.id)).toBe(true);
@@ -851,6 +878,112 @@ describe('the escalation job', () => {
     expect(result.escalated).toBeGreaterThanOrEqual(1);
     expect(result).toHaveProperty('scanned');
     expect(result).toHaveProperty('exhausted');
+  });
+});
+
+/**
+ * The registry is what lets the framework act on records it must not import
+ * (REQ-I-01). These tests are the guard rail described in
+ * `ApprovalSubjectRegistry`: without them, a slice could raise a request that
+ * an approver marks approved while the record it was about never moved, and
+ * nothing anywhere would report an error.
+ */
+describe('the subject handler registry (REQ-I-01)', () => {
+  it('refuses to raise a subject type nothing can carry out', async () => {
+    await expect(
+      raise({ requesterUserId: empUserId, subjectType: UNHANDLED_SUBJECT }),
+    ).rejects.toThrow(/Nothing is registered/u);
+  });
+
+  it('refuses to decide a request whose handler has gone', async () => {
+    const created = await raise({
+      requesterUserId: empUserId,
+      approverUserIds: [mgrUserId],
+    });
+
+    // The row as it would look if it had been raised before its slice
+    // registered, or after that slice was removed: a subject type the registry
+    // has never heard of. Written directly, because `raise` now refuses it.
+    await harness.db.execute(
+      sql`UPDATE approval_requests SET subject_type = ${UNHANDLED_SUBJECT} WHERE id = ${created.id}`,
+    );
+
+    const refused = await harness.post<ErrorBody>(`/approvals/${created.id}/approve`, {
+      token: mgrToken,
+      body: {},
+    });
+    expect(refused.status).toBe(403);
+    expect(refused.body.error.message).toMatch(/Nothing is registered/u);
+
+    // And nothing moved: the step is unanswered and the request still open.
+    const after = await harness.get<ApprovalRequestDetail>(`/approvals/${created.id}`, {
+      token: hrToken,
+    });
+    expect(after.body.status).toBe('PENDING');
+    expect(after.body.steps.every((step) => step.action === null)).toBe(true);
+  });
+
+  it('tells the handler once, and only on a status the subject has to mirror', async () => {
+    const created = await raise({
+      requesterUserId: empUserId,
+      approverUserIds: [mgrUserId, hrUserId],
+    });
+    const seen = (): typeof decisionsSeen =>
+      decisionsSeen.filter((entry) => entry.subjectId === created.subjectId);
+
+    // Step one of two. The request is still pending, so the subject is not
+    // told: it has nothing to mirror yet.
+    const first = await harness.post<ApprovalRequestDetail>(`/approvals/${created.id}/approve`, {
+      token: mgrToken,
+      body: {},
+    });
+    expect(first.body.status).toBe('PENDING');
+    expect(seen()).toHaveLength(0);
+
+    const second = await harness.post<ApprovalRequestDetail>(`/approvals/${created.id}/approve`, {
+      token: hrToken,
+      body: {},
+    });
+    expect(second.body.status).toBe('APPROVED');
+    expect(seen()).toEqual([
+      { subjectType: PROBE_SUBJECT, subjectId: created.subjectId, status: 'APPROVED' },
+    ]);
+
+    // A second attempt is refused by the compare-and-swap and never reaches
+    // the handler -- which is the whole exactly-once guarantee.
+    const again = await harness.post<ErrorBody>(`/approvals/${created.id}/approve`, {
+      token: hrToken,
+      body: {},
+    });
+    expect(again.status).toBe(409);
+    expect(seen()).toHaveLength(1);
+  });
+
+  it('tells the handler when the escalation job moves a request (REQ-G-09)', async () => {
+    const created = await raise({
+      requesterUserId: empUserId,
+      approverUserIds: [mgrUserId, hrUserId],
+      escalateAfterDays: 1,
+    });
+    await harness.db.execute(
+      sql`UPDATE approval_requests
+             SET current_step_started_at = now() - make_interval(days => 3)
+           WHERE id = ${created.id}`,
+    );
+
+    await approvals.escalateStale(new Date());
+
+    expect(decisionsSeen.filter((entry) => entry.subjectId === created.subjectId)).toEqual([
+      { subjectType: PROBE_SUBJECT, subjectId: created.subjectId, status: 'ESCALATED' },
+    ]);
+  });
+
+  it('refuses a second handler for one subject type', () => {
+    const subjects = harness.resolve(ApprovalSubjectRegistry);
+    expect(() => {
+      subjects.register(probeHandler(PROBE_SUBJECT));
+    }).toThrow(/already has a handler/u);
+    expect(subjects.registeredSubjectTypes()).toContain(PROBE_SUBJECT);
   });
 });
 

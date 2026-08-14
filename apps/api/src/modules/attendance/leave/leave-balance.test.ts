@@ -184,6 +184,42 @@ describe('projectLedger holds the REQ-G-03 invariant', () => {
       expect(after.availed, `seed ${String(seed)}`).toBe(baseline.availed);
     }
   });
+
+  /**
+   * Why the approval framework has to apply a decision exactly once.
+   *
+   * The join made in REQ-I-01 moved the AVAILED write from a leave endpoint to
+   * a handler the framework calls, and the framework's compare-and-swap is what
+   * guarantees it calls it once. This states what the guarantee is worth: a
+   * second AVAILED for the same request still satisfies the invariant -- the
+   * six numbers add up perfectly -- so nothing downstream can detect it. The
+   * balance is simply wrong, on an append-only table, with no way back.
+   *
+   * That is the argument for `leave_ledger_request_movement_uq` (migration
+   * 0014) and for the `written !== 1` refusal in `LeaveService`. Neither is
+   * defence against a symptom, because there is no symptom.
+   */
+  it('cannot detect a doubled deduction from the invariant alone, which is why it must be impossible', () => {
+    for (let seed = 6_000; seed < 6_400; seed += 1) {
+      const random = prng(seed);
+      const before = randomSequence(random, 12);
+      const taken = randomDays(random);
+
+      const once = projectLedger([...before, { movementType: 'AVAILED', days: -taken }]);
+      const twice = projectLedger([
+        ...before,
+        { movementType: 'AVAILED', days: -taken },
+        { movementType: 'AVAILED', days: -taken },
+      ]);
+
+      // Both are internally consistent. Only one is true.
+      expect(isLeaveBalanceConsistent(once), `seed ${String(seed)}`).toBe(true);
+      expect(isLeaveBalanceConsistent(twice), `seed ${String(seed)}`).toBe(true);
+      expect(twice.availed, `seed ${String(seed)}`).toBe(roundLeaveDays(once.availed + taken));
+      expect(twice.closing, `seed ${String(seed)}`).toBe(roundLeaveDays(once.closing - taken));
+    }
+  });
+
 });
 
 describe('assertProjectionIsSound', () => {

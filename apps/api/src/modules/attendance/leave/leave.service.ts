@@ -8,10 +8,12 @@ import {
   pageSlice,
   paginated,
   roundLeaveDays,
+  type ApprovalDecision,
   type CompOffCredit,
   type CompOffGrant,
   type CompOffQuery,
   type EmploymentType,
+  type KnownApprovalSubjectType,
   type LeaveAdjustment,
   type LeaveApplication,
   type LeaveBalance,
@@ -37,12 +39,20 @@ import {
 import { sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
+import { AuditService } from '../../../platform/audit/audit.service.js';
 import { AppError, describeError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
+import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notification-events.js';
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { hasAnyPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
+import { ApprovalRoutingService } from '../approvals/approval-routing.service.js';
+import type {
+  ApprovalSubjectDecision,
+  ApprovalSubjectSettlement,
+} from '../approvals/approval-subject.registry.js';
+import { ApprovalService } from '../approvals/approval.service.js';
 import { addDays, localDateIn } from '../day-engine/calendar-date.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
 import { matchesWeeklyOff } from '../day-engine/weekly-off.js';
@@ -75,6 +85,16 @@ import {
  * submit. A second implementation of that arithmetic for the form is a second
  * implementation that can disagree, so `evaluate()` is called by both and the
  * only difference is that one of them writes.
+ *
+ * **There is exactly one place a decision is applied.** REQ-I-01's framework
+ * owns *who may decide*; this slice owns *what a decision means*. `apply`
+ * raises an approval request in the same transaction as the leave request, so
+ * the two are one fact; the framework then calls `applyApprovalDecision`
+ * through the subject registry, inside its own transaction, and that method is
+ * the only writer of the AVAILED ledger row. The `/approve` and `/reject`
+ * endpoints on this slice are not a second path -- they resolve the attached
+ * approval and hand it to the framework, so a leave decided in the inbox and
+ * one decided on its own screen run the same code and cannot disagree.
  */
 
 /** Who may see whose leave. `self` is the key that also grants applying. */
@@ -85,6 +105,15 @@ export const LEAVE_SCOPE_GRANTS: ScopeGrants = {
 };
 
 const APPROVER_KEYS = [PERMISSIONS.LEAVE_APPROVE_TEAM, PERMISSIONS.LEAVE_APPROVE_ALL] as const;
+
+/**
+ * REQ-I-01's polymorphic subject, for the one kind this slice owns.
+ *
+ * Typed against the shared contract's list rather than written as a bare
+ * string, so a typo here is a compile error rather than an approval request
+ * nothing will ever pick up.
+ */
+export const LEAVE_REQUEST_SUBJECT_TYPE: KnownApprovalSubjectType = 'leave_request';
 
 /** REQ-G-11's default, until OPEN-QUESTIONS item 4 answers otherwise. */
 export const DEFAULT_COMP_OFF_EXPIRY_DAYS = 30;
@@ -115,8 +144,11 @@ export class LeaveService {
     @InjectDatabase() private readonly db: Database,
     private readonly scopes: ScopeService,
     private readonly auditContext: AuditContext,
+    private readonly audit: AuditService,
     private readonly notifications: NotificationDispatcher,
     private readonly dayEngine: DayEngineService,
+    private readonly approvals: ApprovalService,
+    private readonly routing: ApprovalRoutingService,
   ) {}
 
   // ----------------------------------------------------------- leave types
@@ -451,17 +483,58 @@ export class LeaveService {
     const blocker = evaluation.blockers[0];
     if (blocker !== undefined) throw blockerToError(blocker, evaluation);
 
-    const requestId = await repository.insertRequest(
-      {
-        employeeId,
-        leaveTypeId: evaluation.type.id,
-        fromDate: input.fromDate,
-        toDate: input.toDate,
-        totalDays: evaluation.expansion.totalDays,
-        reason: input.reason,
-        attachmentFileId: input.attachmentFileId,
+    const ctx = orgContextOf(principal);
+    // The person the leave is *about*, not whoever typed it in. See
+    // `findUserIdForEmployee`; an employee with no login falls back to the
+    // applicant, which is the only user account there is to name.
+    const requesterUserId =
+      (await repository.findUserIdForEmployee(employeeId)) ?? principal.userId;
+    const route = await this.routeFor(principal.orgId, requesterUserId, evaluation.type);
+
+    // One transaction, because a leave request and the approval that governs
+    // it are one fact. Raised second and linked back rather than first,
+    // because the approval's subject is the request's id -- and committed
+    // together, because a request whose raise then failed would be a row no
+    // inbox can show and nobody can decide.
+    const { requestId, approvalRequestId } = await repository.transaction(
+      async (tx, executor) => {
+        const id = await tx.insertRequest(
+          {
+            employeeId,
+            leaveTypeId: evaluation.type.id,
+            fromDate: input.fromDate,
+            toDate: input.toDate,
+            totalDays: evaluation.expansion.totalDays,
+            reason: input.reason,
+            attachmentFileId: input.attachmentFileId,
+          },
+          evaluation.expansion.days,
+        );
+
+        const approval = await this.approvals.raise(
+          ctx,
+          {
+            type: 'LEAVE',
+            subjectType: LEAVE_REQUEST_SUBJECT_TYPE,
+            subjectId: id,
+            subject: subjectLineOf({
+              employeeName: evaluation.employee.name,
+              leaveTypeName: evaluation.type.name,
+              fromDate: input.fromDate,
+              toDate: input.toDate,
+              totalDays: evaluation.expansion.totalDays,
+            }),
+            requesterUserId,
+            approverUserIds: route,
+          },
+          executor,
+        );
+
+        const linked = await tx.updateRequest(id, { approvalRequestId: approval.id });
+        if (linked === null) throw AppError.notFound('Leave request', id);
+
+        return { requestId: id, approvalRequestId: approval.id };
       },
-      evaluation.expansion.days,
     );
 
     this.auditContext.record({
@@ -476,27 +549,61 @@ export class LeaveService {
         toDate: input.toDate,
         totalDays: evaluation.expansion.totalDays,
         balanceBefore: evaluation.balanceBefore,
+        approvalRequestId,
       },
     });
 
-    // REQ-G-09 routes this to the reporting manager. `permission` rather than
-    // a resolved manager id because the generic approval framework owns
-    // routing (REQ-I-01) and will replace this call when it lands -- see the
-    // note on `approve` about where the join is made.
+    // The people the request was actually routed to (REQ-G-09), now that there
+    // is a route to name. It used to go to everyone holding
+    // `leave.approve.team` anywhere in the organisation, which told four
+    // managers about a request none of them can act on.
     await this.notifications.emit({
       orgId: principal.orgId,
       type: NOTIFICATION_EVENTS.LEAVE_APPLIED,
-      audience: { kind: 'permission', key: PERMISSIONS.LEAVE_APPROVE_TEAM },
+      audience: { kind: 'users', userIds: route.filter((id) => id !== requesterUserId) },
       payload: {
         employeeName: evaluation.employee.name,
         leaveType: evaluation.type.name,
         fromDate: input.fromDate,
         toDate: input.toDate,
         leaveRequestId: requestId,
+        // The template links to `/approvals/:id`; before the join there was no
+        // id to send, so the one notification whose whole purpose is "go and
+        // decide this" arrived with nothing to open.
+        approvalRequestId,
       },
     });
 
     return this.getRequest(principal, requestId);
+  }
+
+  /**
+   * REQ-G-09: "Approval routes to the reporting manager, then HR if the leave
+   * type requires two-step approval. Configurable per type."
+   *
+   * Read literally. One step by default -- the nearest manager -- and the
+   * org-wide approvers appended only when the type says two steps. Using the
+   * framework's whole default route instead would silently make every leave
+   * type two-step, which is a policy change wearing a convenience.
+   *
+   * The org-wide tail is also the fallback when there is no manager at all: an
+   * employee at the top of the tree, or one whose manager has no login. Without
+   * it `raise` would refuse, and applying for leave would fail for the people
+   * least able to do anything about it.
+   */
+  private async routeFor(
+    orgId: string,
+    requesterUserId: string,
+    type: LeaveTypeRow,
+  ): Promise<string[]> {
+    const [chain, orgWide] = await Promise.all([
+      this.routing.managerChain(orgId, requesterUserId),
+      this.routing.orgWideApprovers(orgId),
+    ]);
+
+    const nearest = chain[0];
+    if (nearest === undefined) return orgWide;
+    return type.requiresTwoStepApproval ? [nearest, ...orgWide] : [nearest];
   }
 
   async listRequests(
@@ -528,101 +635,88 @@ export class LeaveService {
   }
 
   /**
-   * REQ-G-09.
+   * REQ-G-09, through the framework rather than beside it.
    *
-   * **Where the generic approval framework joins.** REQ-I-01 says one
-   * mechanism serves leave, regularization, on-duty, flagged punches and
-   * device rebinding, and that slice is being built in parallel. Until it
-   * publishes a contract, this method is the decision point: it checks the
-   * approver permission, refuses self-approval (REQ-I-05), writes the ledger
-   * and moves the status.
+   * This is not a second decision path. It resolves the approval attached to
+   * the leave request and hands it to `ApprovalService.decide`, which is the
+   * one place REQ-I-05, delegation (REQ-I-04) and the step route are enforced;
+   * the framework then calls back into `applyApprovalDecision` below. A leave
+   * approved from the approvals inbox and one approved from this endpoint
+   * therefore execute identical code and cannot produce different ledger rows
+   * -- which is the property the ledger being append-only makes non-negotiable.
    *
-   * When the framework lands, the change is that `apply` also creates an
-   * `approval_requests` row -- `leave_requests.approval_request_id` is already
-   * the foreign key for it, from migration 0004 -- and this method becomes the
-   * handler the framework calls on its final step rather than an endpoint of
-   * its own. Nothing about the ledger writing below changes, which is why it
-   * is deliberately kept out of the permission check above it.
+   * What is still checked here is visibility: an id outside the caller's scope
+   * answers 404 rather than the framework's 403, so the id cannot be probed
+   * for. That is the same answer this endpoint has always given.
    */
   async approve(principal: Principal, id: string, reason: string | null): Promise<LeaveRequestDetail> {
-    const repository = this.repository(principal);
-    const request = await this.loadForDecision(repository, principal, id);
-
-    if (request.status !== 'PENDING' && request.status !== 'ESCALATED') {
-      throw new AppError(
-        ERROR_CODES.APPROVAL_ALREADY_ACTIONED,
-        `This leave request is already ${request.status.toLowerCase()}.`,
-        { details: { status: request.status } },
-      );
-    }
-
-    const leaveYear = await this.leaveYearFor(repository, request.fromDate);
-
-    // One transaction, because `leave_ledger` is append-only: a deduction
-    // written by a step whose status update then failed cannot be taken back,
-    // and the retry would deduct the days a second time.
-    await repository.transaction(async (tx) => {
-      // REQ-G-03: the deduction happens on approval, not on application. A
-      // pending request holds no balance -- it is checked against the balance,
-      // and the check runs again here because the balance can have moved since.
-      await tx.appendLedger([
-        {
-          employeeId: request.employeeId,
-          leaveTypeId: request.leaveTypeId,
-          leaveYear,
-          movementType: 'AVAILED',
-          days: -request.totalDays,
-          referenceType: REFERENCE_LEAVE_REQUEST,
-          referenceId: request.id,
-          note: reason,
-        },
-      ]);
-      await this.recomputeBalance(tx, request.employeeId, request.leaveTypeId, leaveYear);
-
-      const updated = await tx.updateRequest(id, {
-        status: 'APPROVED',
-        decidedAt: new Date(),
-        decidedBy: principal.userId,
-        decisionReason: reason,
-      });
-      if (updated === null) throw AppError.notFound('Leave request', id);
-    });
-
-    // After the commit, so the engine reads the APPROVED status it is
-    // recomputing from. An approved leave must reach the muster now, not at
-    // some later sweep -- see the note on `recomputeRequestDays`.
-    const recompute = await this.recomputeRequestDays(principal, repository, request.employeeId, id);
-
-    this.auditContext.record({
-      action: 'leave_request.approved',
-      entityType: 'leave_request',
-      entityId: id,
-      before: { status: request.status },
-      after: { status: 'APPROVED', totalDays: request.totalDays, reason, recompute },
-    });
-
-    await this.notifications.emit({
-      orgId: principal.orgId,
-      type: NOTIFICATION_EVENTS.LEAVE_APPROVED,
-      audience: { kind: 'employees', employeeIds: [request.employeeId] },
-      payload: {
-        leaveType: request.leaveTypeName,
-        fromDate: request.fromDate,
-        toDate: request.toDate,
-        approverName: principal.email,
-        leaveRequestId: id,
-      },
-    });
-
-    return this.getRequest(principal, id);
+    return this.decideThroughFramework(principal, id, 'APPROVE', reason);
   }
 
   /** REQ-F-05: "rejection requires a reason. The employee is notified with it." */
   async reject(principal: Principal, id: string, reason: string): Promise<LeaveRequestDetail> {
+    return this.decideThroughFramework(principal, id, 'REJECT', reason);
+  }
+
+  private async decideThroughFramework(
+    principal: Principal,
+    id: string,
+    action: ApprovalDecision,
+    reason: string | null,
+  ): Promise<LeaveRequestDetail> {
     const repository = this.repository(principal);
-    const request = await this.loadForDecision(repository, principal, id);
+
+    // Out of scope and non-existent answer the same, as everywhere else.
+    const request = await repository.findRequest(id, this.scopeFor(principal));
+    if (request === null) throw AppError.notFound('Leave request', id);
+
+    if (request.approvalRequestId === null) {
+      // Only reachable for a request written before this join existed:
+      // `apply` has raised an approval in the same transaction ever since, so
+      // a null here means there is no route, no step and nobody the framework
+      // could name as the approver. Refused rather than decided on the old
+      // terms, because a second way to write the AVAILED row is exactly what
+      // this change removed. Cancelling still works, so the employee is not
+      // stuck -- they cancel and re-apply, and the new request has a route.
+      throw AppError.conflict(
+        'This leave request predates the approvals inbox and has no approval attached, so it cannot be decided. Cancel it and apply again.',
+        { leaveRequestId: id },
+      );
+    }
+
+    await this.approvals.decide(principal, request.approvalRequestId, action, reason);
+    return this.getRequest(principal, id);
+  }
+
+  /**
+   * What a decision *means* for a leave request (REQ-G-03, REQ-G-09).
+   *
+   * Called by the framework through `ApprovalSubjectRegistry`, inside the
+   * framework's transaction, and **deliberately without re-checking the
+   * approver**: by the time this runs the framework has established that this
+   * actor may act on this step under REQ-I-05 and REQ-I-04, and a second
+   * opinion here is a second place that rule can be wrong.
+   *
+   * The AVAILED row is written here and nowhere else. `appendLedger` is asked
+   * how many rows it wrote and refuses to continue on anything but one: the
+   * insert carries `ON CONFLICT DO NOTHING`, so the unique index added in
+   * migration 0014 would otherwise turn a double-apply into a silent no-op
+   * with the request still marked approved. One row or the whole decision
+   * rolls back.
+   */
+  async applyApprovalDecision(
+    ctx: OrgContext,
+    decision: ApprovalSubjectDecision,
+    executor: Database,
+  ): Promise<ApprovalSubjectSettlement | null> {
+    const repository = new LeaveRepository(executor, ctx);
+    const request = await repository.findRequest(decision.subjectId);
+    if (request === null) throw AppError.notFound('Leave request', decision.subjectId);
 
     if (request.status !== 'PENDING' && request.status !== 'ESCALATED') {
+      // The framework's compare-and-swap should have made this unreachable.
+      // Refused rather than trusted, because the cost of being wrong is a
+      // second AVAILED row on an append-only table.
       throw new AppError(
         ERROR_CODES.APPROVAL_ALREADY_ACTIONED,
         `This leave request is already ${request.status.toLowerCase()}.`,
@@ -630,39 +724,138 @@ export class LeaveService {
       );
     }
 
-    // No ledger movement: a rejected request never consumed anything, so
-    // there is nothing to reverse. This is why the deduction happens on
-    // approval rather than on application.
-    const updated = await repository.updateRequest(id, {
-      status: 'REJECTED',
-      decidedAt: new Date(),
-      decidedBy: principal.userId,
-      decisionReason: reason,
-    });
-    if (updated === null) throw AppError.notFound('Leave request', id);
+    if (decision.status === 'ESCALATED') {
+      const updated = await repository.updateRequest(decision.subjectId, { status: 'ESCALATED' });
+      if (updated === null) throw AppError.notFound('Leave request', decision.subjectId);
 
-    this.auditContext.record({
-      action: 'leave_request.rejected',
-      entityType: 'leave_request',
-      entityId: id,
-      before: { status: request.status },
-      after: { status: 'REJECTED', reason },
-    });
+      return async () => {
+        // Straight to the trail: escalation is the job's doing and there is no
+        // request for the audit interceptor to hang an entry on.
+        await this.audit.write({
+          orgId: ctx.orgId,
+          actorUserId: null,
+          action: 'leave_request.escalated',
+          entityType: 'leave_request',
+          entityId: decision.subjectId,
+          before: { status: request.status },
+          after: { status: 'ESCALATED', approvalRequestId: decision.approvalRequestId },
+        });
+      };
+    }
 
-    await this.notifications.emit({
-      orgId: principal.orgId,
-      type: NOTIFICATION_EVENTS.LEAVE_REJECTED,
-      audience: { kind: 'employees', employeeIds: [request.employeeId] },
-      payload: {
-        leaveType: request.leaveTypeName,
-        fromDate: request.fromDate,
-        toDate: request.toDate,
-        reason,
-        leaveRequestId: id,
+    if (decision.status === 'REJECTED') {
+      // No ledger movement: a rejected request never consumed anything, so
+      // there is nothing to reverse. This is why the deduction happens on
+      // approval rather than on application.
+      const updated = await repository.updateRequest(decision.subjectId, {
+        status: 'REJECTED',
+        decidedAt: decision.at,
+        decidedBy: decision.decidedByUserId,
+        decisionReason: decision.reason,
+      });
+      if (updated === null) throw AppError.notFound('Leave request', decision.subjectId);
+
+      return async () => {
+        this.auditContext.record({
+          action: 'leave_request.rejected',
+          entityType: 'leave_request',
+          entityId: decision.subjectId,
+          orgId: ctx.orgId,
+          before: { status: request.status },
+          after: { status: 'REJECTED', reason: decision.reason },
+        });
+
+        await this.notifications.emit({
+          orgId: ctx.orgId,
+          type: NOTIFICATION_EVENTS.LEAVE_REJECTED,
+          audience: { kind: 'employees', employeeIds: [request.employeeId] },
+          payload: {
+            leaveType: request.leaveTypeName,
+            fromDate: request.fromDate,
+            toDate: request.toDate,
+            reason: decision.reason,
+            leaveRequestId: decision.subjectId,
+          },
+        });
+      };
+    }
+
+    const leaveYear = await this.leaveYearFor(repository, request.fromDate);
+
+    // REQ-G-03: the deduction happens on approval, not on application. A
+    // pending request holds no balance -- it is checked against the balance,
+    // and the projection is rebuilt here from the whole year's movements.
+    const written = await repository.appendLedger([
+      {
+        employeeId: request.employeeId,
+        leaveTypeId: request.leaveTypeId,
+        leaveYear,
+        movementType: 'AVAILED',
+        days: -request.totalDays,
+        referenceType: REFERENCE_LEAVE_REQUEST,
+        referenceId: request.id,
+        note: decision.reason,
       },
-    });
+    ]);
+    if (written !== 1) {
+      throw AppError.conflict(
+        'This leave has already been deducted from the balance, so the approval was not applied a second time.',
+        { leaveRequestId: decision.subjectId },
+      );
+    }
 
-    return this.getRequest(principal, id);
+    await this.recomputeBalance(repository, request.employeeId, request.leaveTypeId, leaveYear);
+
+    const updated = await repository.updateRequest(decision.subjectId, {
+      status: 'APPROVED',
+      decidedAt: decision.at,
+      decidedBy: decision.decidedByUserId,
+      decisionReason: decision.reason,
+    });
+    if (updated === null) throw AppError.notFound('Leave request', decision.subjectId);
+
+    return async () => {
+      // After the commit, so the engine reads the APPROVED status it is
+      // recomputing from. An approved leave must reach the muster now, not at
+      // some later sweep -- see the note on `recomputeRequestDays`.
+      const recompute = await this.recomputeRequestDays(
+        ctx,
+        this.repositoryFor(ctx.orgId, ctx.actorUserId),
+        request.employeeId,
+        decision.subjectId,
+      );
+
+      this.auditContext.record({
+        action: 'leave_request.approved',
+        entityType: 'leave_request',
+        entityId: decision.subjectId,
+        orgId: ctx.orgId,
+        before: { status: request.status },
+        after: {
+          status: 'APPROVED',
+          totalDays: request.totalDays,
+          reason: decision.reason,
+          recompute,
+        },
+      });
+
+      await this.notifications.emit({
+        orgId: ctx.orgId,
+        type: NOTIFICATION_EVENTS.LEAVE_APPROVED,
+        audience: { kind: 'employees', employeeIds: [request.employeeId] },
+        payload: {
+          leaveType: request.leaveTypeName,
+          fromDate: request.fromDate,
+          toDate: request.toDate,
+          // Resolved through the approver's employee record by the repository.
+          // Null for a login with no employee row, which the template renders
+          // as "your approver" -- better than the email address this used to
+          // put in the body of a message the whole team can be copied on.
+          approverName: updated.decidedByName,
+          leaveRequestId: decision.subjectId,
+        },
+      });
+    };
   }
 
   /**
@@ -671,10 +864,17 @@ export class LeaveService {
    *
    * Read literally, and with no parallel approval mechanism invented for it:
    * before the start date the owner may cancel their own request, and from the
-   * start date onwards only somebody holding an approver key can. That is what
-   * "via approval" reduces to while REQ-I-01's framework is being built
-   * elsewhere; when it lands, the second branch becomes an approval request of
-   * type LEAVE with a cancellation subject, and this method stays the handler.
+   * start date onwards only somebody holding an approver key can.
+   *
+   * The open approval goes with it. A cancelled leave whose request is still
+   * sitting in a manager's inbox is a decision waiting to be made about
+   * something that no longer exists -- and the framework treats "already
+   * decided" as a fact rather than a failure, so withdrawing is a no-op when
+   * the decision beat the cancellation.
+   *
+   * REQ-G-10's second half -- cancelling on or after the start date routing
+   * through an approval of its own rather than an approver key -- is still
+   * open; see OPEN-QUESTIONS.
    */
   async cancel(principal: Principal, id: string, reason: string | null): Promise<LeaveRequestDetail> {
     const repository = this.repository(principal);
@@ -703,13 +903,39 @@ export class LeaveService {
     }
 
     const now = new Date();
+    const ctx = orgContextOf(principal);
     const leaveYear = await this.leaveYearFor(repository, request.fromDate);
+
+    // Withdrawn first, and inside nothing: `cancelForSubject` refuses a
+    // request that is already decided, so a decision landing between here and
+    // the commit below cannot be overwritten -- the reversal would then be
+    // reversing a leave that really was approved, which is correct.
+    await this.approvals.cancelForSubject(
+      ctx,
+      LEAVE_REQUEST_SUBJECT_TYPE,
+      id,
+      reason ?? 'The leave request was cancelled.',
+    );
 
     // REQ-G-10: "cancellation reverses the ledger entries". Reversed, never
     // deleted -- the ledger refuses a delete, and the pair of rows is the
     // record that the leave happened and then did not.
-    await repository.transaction(async (tx) => {
-      if (request.status === 'APPROVED') {
+    //
+    // The status is re-read under a row lock rather than reused from the check
+    // above: an approval deciding this request between the two would otherwise
+    // have its AVAILED row stranded with no reversal.
+    const statusAtCancellation = await repository.transaction(async (tx) => {
+      const locked = await tx.lockRequestStatus(id);
+      if (locked === null) throw AppError.notFound('Leave request', id);
+      if (locked === 'CANCELLED' || locked === 'REJECTED') {
+        throw new AppError(
+          ERROR_CODES.APPROVAL_ALREADY_ACTIONED,
+          `This leave request is already ${locked.toLowerCase()}.`,
+          { details: { status: locked } },
+        );
+      }
+
+      if (locked === 'APPROVED') {
         await tx.appendLedger([
           {
             employeeId: request.employeeId,
@@ -731,6 +957,7 @@ export class LeaveService {
         cancellationReason: reason,
       });
       if (updated === null) throw AppError.notFound('Leave request', id);
+      return locked;
     });
 
     // Only when the request was APPROVED: a pending request never reached the
@@ -741,19 +968,19 @@ export class LeaveService {
     // reading ON_LEAVE until some future mechanism exists is the bug that
     // reaches payroll. Launch plan WS-B reverses it explicitly.
     const recompute =
-      request.status === 'APPROVED'
-        ? await this.recomputeRequestDays(principal, repository, request.employeeId, id)
+      statusAtCancellation === 'APPROVED'
+        ? await this.recomputeRequestDays(ctx, repository, request.employeeId, id)
         : null;
 
     this.auditContext.record({
       action: 'leave_request.cancelled',
       entityType: 'leave_request',
       entityId: id,
-      before: { status: request.status },
+      before: { status: statusAtCancellation },
       after: {
         status: 'CANCELLED',
         reason,
-        reversedDays: request.status === 'APPROVED' ? request.totalDays : 0,
+        reversedDays: statusAtCancellation === 'APPROVED' ? request.totalDays : 0,
         recompute,
       },
     });
@@ -1015,31 +1242,6 @@ export class LeaveService {
     return requested;
   }
 
-  private async loadForDecision(
-    repository: LeaveRepository,
-    principal: Principal,
-    id: string,
-  ): Promise<LeaveRequestRow> {
-    if (!hasAnyPermission(principal, APPROVER_KEYS)) {
-      throw AppError.forbidden('You do not have permission to decide leave requests.');
-    }
-
-    const request = await repository.findRequest(id, this.scopeFor(principal));
-    if (request === null) throw AppError.notFound('Leave request', id);
-
-    // REQ-I-05: "an approver cannot approve their own request". Enforced here
-    // rather than left to the framework, because this endpoint exists now and
-    // an approver who is also an employee would otherwise self-approve today.
-    if (principal.employeeId !== null && principal.employeeId === request.employeeId) {
-      throw new AppError(
-        ERROR_CODES.APPROVER_IS_REQUESTER,
-        'You cannot decide your own leave request.',
-      );
-    }
-
-    return request;
-  }
-
   /**
    * The one place the day count, the calendar and the balance meet.
    *
@@ -1174,7 +1376,7 @@ export class LeaveService {
    * would only widen the window for an unrelated failure.
    */
   private async recomputeRequestDays(
-    principal: Principal,
+    ctx: OrgContext,
     repository: LeaveRepository,
     employeeId: string,
     requestId: string,
@@ -1182,7 +1384,7 @@ export class LeaveService {
     const summary = { considered: 0, recomputed: 0, locked: 0, failed: 0 };
 
     const days = await repository.findRequestDays(requestId);
-    const engine = this.dayEngine.forOrg(orgContextOf(principal));
+    const engine = this.dayEngine.forOrg(ctx);
     const now = new Date();
 
     for (const day of days) {
@@ -1281,6 +1483,29 @@ export class LeaveService {
 
 /** REQ-G-02's Compensatory Off. The seed creates it; HR may rename it. */
 export const COMP_OFF_TYPE_CODE = 'CO';
+
+/**
+ * The one line REQ-I-03's inbox renders for a leave request.
+ *
+ * Written at raise time and stored on the approval, so the inbox can show a
+ * leave request and a device rebind with the same code and no join per type --
+ * which is the whole of REQ-I-01. It is a snapshot on purpose: renaming the
+ * leave type afterwards must not re-label a decision somebody already made.
+ */
+export function subjectLineOf(input: {
+  employeeName: string;
+  leaveTypeName: string;
+  fromDate: string;
+  toDate: string;
+  totalDays: number;
+}): string {
+  const range =
+    input.fromDate === input.toDate
+      ? input.fromDate
+      : `${input.fromDate} to ${input.toDate}`;
+  const days = `${String(input.totalDays)} ${input.totalDays === 1 ? 'day' : 'days'}`;
+  return `${input.employeeName}: ${input.leaveTypeName}, ${range} (${days})`;
+}
 
 function toLeaveTypePolicy(row: LeaveTypeRow): LeaveTypePolicy {
   return {

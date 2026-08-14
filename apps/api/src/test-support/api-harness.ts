@@ -327,6 +327,21 @@ export class ApiHarness {
       .where(eq(users.orgId, this.orgId));
     const userIds = ownUsers.map((row) => row.id);
 
+    // Before `users`, and before anything else that points at them.
+    //
+    // Applying for leave raises an approval request (REQ-I-01), and all three
+    // approval tables reference `users` with RESTRICT -- so from the leave /
+    // approvals join onwards, any fixture whose people ever applied for leave
+    // makes the `users` delete below fail with a foreign key violation on the
+    // *second* run of that file. Raw SQL rather than the Drizzle tables so this
+    // platform-facing helper does not import a module's schema.
+    //
+    // `leave_requests.approval_request_id` is ON DELETE SET NULL, so leave
+    // requests that outlive their approvals simply lose the link.
+    await this.db.execute(sql`DELETE FROM approval_steps WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM approval_delegations WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM approval_requests WHERE org_id = ${this.orgId}`);
+
     if (userIds.length > 0) {
       await this.db.delete(sessions).where(inArray(sessions.userId, userIds));
       await this.db.delete(passwordResets).where(inArray(passwordResets.userId, userIds));
