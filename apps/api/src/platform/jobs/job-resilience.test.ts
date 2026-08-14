@@ -30,7 +30,7 @@ import {
  * while `POST /auth/password-resets` held its connection open.
  */
 
-const ORG_ID = '01900000-0000-7000-8000-0000000000f5';
+const ORG_ID = '01900000-0000-7000-8000-0000000000b2';
 
 let harness: ApiHarness;
 let runner: JobRunner;
@@ -178,10 +178,13 @@ describe('the job monitor', () => {
 
       expect(consumed).toContain(QUEUES.NOTIFICATION);
       expect(consumed).toContain(QUEUES.MAINTENANCE);
-      // `attendance` has no handler in any phase yet, so nothing consumes it
-      // even with the workers on. A summary that claimed otherwise would be
-      // the same lie in the other direction.
-      expect(consumed).not.toContain(QUEUES.ATTENDANCE);
+      // `attendance` was the empty one when this was written, and the punch
+      // reminder and missing-OUT sweeps (REQ-K-03) gave it its first handlers.
+      // The other direction - a queue reporting a consumer this process does
+      // not have - is what "reports nothing consumed here when this process
+      // runs no workers" above is for, and that is the lie that actually
+      // shipped, so the teeth are there rather than here.
+      expect(consumed).toContain(QUEUES.ATTENDANCE);
     } finally {
       await runner.onApplicationShutdown();
     }

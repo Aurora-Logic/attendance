@@ -26,7 +26,7 @@ import { NotificationDispatcher } from './notification.dispatcher.js';
  * SELECT works against a shape the channel might not produce.
  */
 
-const ORG_ID = '01900000-0000-7000-8000-0000000000f4';
+const ORG_ID = '01900000-0000-7000-8000-0000000000b4';
 
 interface ErrorBody {
   error: { code: string; message: string };

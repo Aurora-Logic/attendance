@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { env } from '../src/platform/common/env.js';
 import type { Database } from '../src/platform/db/db.provider.js';
 import {
+  consentAcceptances,
   employees,
   organizations,
   permissions,
@@ -33,7 +34,7 @@ import { runSeed, type SeedReport } from './seed.js';
  * reconciled either way, which is exactly what the seed is for.
  */
 
-const TEST_ORG_ID = '01900000-0000-7000-8000-0000000000b1';
+const TEST_ORG_ID = '01900000-0000-7000-8000-0000000000b9';
 const TEST_ADMIN_EMAIL = 'seed-test-admin@vyuha.test';
 
 let pool: Pool;
@@ -107,6 +108,8 @@ beforeAll(async () => {
     .where(eq(users.orgId, TEST_ORG_ID));
   for (const user of existing) {
     await db.delete(userRoles).where(eq(userRoles.userId, user.id));
+    // REQ-M-03's acceptance row points at the user, so it has to go first.
+    await db.delete(consentAcceptances).where(eq(consentAcceptances.userId, user.id));
   }
   await db.delete(users).where(eq(users.orgId, TEST_ORG_ID));
 
@@ -116,6 +119,10 @@ beforeAll(async () => {
     .where(eq(roles.orgId, TEST_ORG_ID));
   for (const role of existingRoles) {
     await db.delete(rolePermissions).where(eq(rolePermissions.roleId, role.id));
+    // By role as well as by user: a grant whose user was removed by some other
+    // path still pins the role, and the failure names `user_roles` rather than
+    // the assignment that outlived its account.
+    await db.delete(userRoles).where(eq(userRoles.roleId, role.id));
   }
   await db.delete(roles).where(eq(roles.orgId, TEST_ORG_ID));
   // The organisation row itself stays: audit_logs may reference it and the

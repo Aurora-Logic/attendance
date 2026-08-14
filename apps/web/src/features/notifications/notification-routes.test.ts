@@ -74,7 +74,9 @@ describe('notification destinations resolve to real routes', () => {
     // Falsification: these are the exact values that were in the templates,
     // and the assertion above has to fail for each of them.
     const routes = declaredRoutes();
-    for (const stale of ['/leave', '/attendance/periods', '/punch-audit', '/regularizations']) {
+    // `/regularizations` was on this list while that slice had no screen. It
+    // shipped one, so the path is real now and the assertion above covers it.
+    for (const stale of ['/leave', '/attendance/periods', '/punch-audit']) {
       expect(routes.has(stale)).toBe(false);
     }
   });

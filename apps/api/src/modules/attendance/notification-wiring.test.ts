@@ -10,6 +10,10 @@ import { JobRunner } from '../../platform/jobs/job-runner.service.js';
 import { QUEUES } from '../../platform/jobs/queue.registry.js';
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { ApprovalService } from './approvals/approval.service.js';
+import {
+  ApprovalSubjectRegistry,
+  type ApprovalSubjectHandler,
+} from './approvals/approval-subject.registry.js';
 import { attendancePeriodLocks } from './schema/index.js';
 
 /**
@@ -76,12 +80,28 @@ async function purgeApprovals(): Promise<void> {
   }
 }
 
+/** This file's own subject type; see the registration in `beforeAll`. */
+const ESCALATION_PROBE_SUBJECT = 'notification_wiring_probe';
+
 beforeAll(async () => {
   await purgeApprovals();
 
   harness = await ApiHarness.start(ORG_ID, 'Notification Wiring Fixture Org');
   runner = harness.resolve(JobRunner);
   approvals = harness.resolve(ApprovalService);
+
+  // A subject of this file's own. Since the leave/approvals join landed, a
+  // decision is applied through the registered handler for its subject type,
+  // so escalating a `leave_request` id that no leave request owns now does
+  // nothing at all. What is under test here is the notification the framework
+  // sends when it escalates - not what leave does about it - so the subject is
+  // a probe with a handler that only records.
+  const probe: ApprovalSubjectHandler = {
+    subjectType: ESCALATION_PROBE_SUBJECT,
+    applyDecision: () => Promise.resolve(null),
+  };
+  harness.resolve(ApprovalSubjectRegistry).register(probe);
+
   runner.startWorkers();
 
   await harness.db
@@ -186,7 +206,7 @@ describe('approval overdue (REQ-K-03, REQ-G-09)', () => {
   it('notifies the approver it escalated to, and names no one else', async () => {
     const raised = await approvals.raise(ctx, {
       type: 'LEAVE',
-      subjectType: 'leave_request',
+      subjectType: ESCALATION_PROBE_SUBJECT,
       subjectId: uuidv7(),
       subject: 'Casual leave, 3 days',
       requesterUserId: employeeUserId,

@@ -170,10 +170,10 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   'leave.cancelled': '/my-leave',
   'leave.balance_low': '/my-leave',
   'leave.comp_off_expiring': '/my-leave',
-  // The regularization slice is being built separately and has no screen yet.
-  // Pointed at the attendance timeline the request is about, which exists,
-  // rather than at a route that does not.
-  'regularization.decided': '/my-attendance',
+  // The person's own corrections, where the decision and the approver's reason
+  // are read together (REQ-F-05). This pointed at /my-attendance while the
+  // regularization slice was being built in parallel and had no screen yet.
+  'regularization.decided': '/regularizations',
   'approval.overdue': '/approvals',
   'period.locked': '/period-lock',
   'period.unlocked': '/period-lock',
