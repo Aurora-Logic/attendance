@@ -104,7 +104,7 @@ export async function postMultipart<T>(
 ): Promise<T> {
   let response = await send(path, form, extraHeaders);
 
-  if (response.status === 401 && (await refreshAccessToken())) {
+  if (response.status === 401 && (await refreshAccessToken()) === 'refreshed') {
     // Once, not in a loop: the server rotates refresh tokens and treats a
     // replayed one as theft (REQ-B-05). The FormData is re-readable, so the
     // same body — and the same idempotency key — goes out again.
