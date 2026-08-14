@@ -52,7 +52,12 @@ const SOURCES: Record<string, string> = import.meta.glob('../../**/*.{ts,tsx}', 
 
 const PRODUCTION_SOURCES = Object.entries(SOURCES).filter(([file]) => !/\.test\.tsx?$/.test(file));
 
-const EXEMPT = /invalidateQueries|setQueryData|getQueryData|removeQueries|cancelQueries/;
+// QueryClient methods that take a key as a *filter* over queries that already
+// exist, rather than declaring one. `refetchQueries` belongs here for the same
+// reason `invalidateQueries` does; it was absent only because nothing used it
+// yet, and its absence reported the session key as registered twice.
+const EXEMPT =
+  /invalidateQueries|refetchQueries|setQueryData|getQueryData|removeQueries|cancelQueries/;
 
 /** Reads a bracketed run from `text[open]`, returning the index just past its close. */
 function endOfBracket(text: string, open: number): number {
