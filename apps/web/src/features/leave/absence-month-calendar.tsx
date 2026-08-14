@@ -1,10 +1,11 @@
 import { createContext, useContext, useMemo, type ComponentProps } from 'react';
 
 import { Calendar, CalendarDayButton } from '@/components/ui/calendar';
+import { toDateParam } from '@/features/attendance/format';
 import { toneClasses } from '@/features/attendance/status';
 import { cn } from '@/lib/utils';
 
-import { awayCount, entriesByDate, toDateKey, warningsByDate } from './team-calendar';
+import { awayCount, entriesByDate, warningsByDate } from './team-calendar';
 import type { LeaveCalendarEntry, LeaveCalendarWarning } from './team-calendar';
 
 /**
@@ -50,7 +51,7 @@ function AbsenceDayButton(props: ComponentProps<typeof CalendarDayButton>) {
   const byDate = useContext(LoadContext);
   // Outside days belong to the neighbouring month; tinting one would report a
   // load the month on screen does not carry.
-  const load = props.modifiers.outside ? undefined : byDate.get(toDateKey(props.day.date));
+  const load = props.modifiers.outside ? undefined : byDate.get(toDateParam(props.day.date));
 
   return (
     <CalendarDayButton

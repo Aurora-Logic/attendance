@@ -5,7 +5,6 @@ import {
   entriesByDate,
   leaveCalendarSchema,
   monthBounds,
-  toDateKey,
   warningSentence,
   warningsByDate,
   type LeaveCalendarEntry,
@@ -28,24 +27,23 @@ function entry(overrides: Partial<LeaveCalendarEntry> & { date: string }): Leave
   };
 }
 
-describe('toDateKey', () => {
-  it('reads the local calendar date, not the UTC one', () => {
-    // 23:30 on the 14th in a timezone ahead of UTC is still the 14th to the
-    // person looking at it. toISOString() would call this the 14th or the 15th
-    // depending on where the machine is, which is the bug NFR-05 exists to
-    // stop.
-    expect(toDateKey(new Date(2026, 7, 14, 23, 30))).toBe('2026-08-14');
-    expect(toDateKey(new Date(2026, 0, 1, 0, 5))).toBe('2026-01-01');
-  });
-
-  it('zero-pads single-digit months and days', () => {
-    expect(toDateKey(new Date(2026, 2, 5))).toBe('2026-03-05');
-  });
-});
-
 describe('monthBounds', () => {
   it('spans the whole month', () => {
     expect(monthBounds(new Date(2026, 7, 14))).toEqual({ from: '2026-08-01', to: '2026-08-31' });
+  });
+
+  it('reads the local calendar date, not the UTC one', () => {
+    // Late on the last day of a month, in a timezone ahead of UTC, a
+    // toISOString() slice would name the following month and the whole screen
+    // would ask the server for the wrong range.
+    expect(monthBounds(new Date(2026, 7, 31, 23, 30))).toEqual({
+      from: '2026-08-01',
+      to: '2026-08-31',
+    });
+  });
+
+  it('zero-pads single-digit months and days', () => {
+    expect(monthBounds(new Date(2026, 2, 5)).from).toBe('2026-03-01');
   });
 
   it('gets February right in a leap year and a common year', () => {

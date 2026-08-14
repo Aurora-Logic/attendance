@@ -148,15 +148,33 @@ export function useLeaveTypes(): UseQueryResult<Sampled<Paginated<LeaveTypePolic
   });
 }
 
+/**
+ * REQ-G-11's read side.
+ *
+ * `employeeId` is not a convenience. The endpoint is scoped, not filtered: HR
+ * holds `leave.approve.all`, so without naming a person their own screen would
+ * list every credit in the organisation under the heading "yours". Naming
+ * themselves costs nothing for an employee — the scope predicate would have
+ * narrowed it to the same row anyway — and is what makes the same hook correct
+ * for both.
+ *
+ * `enabled` is the caller's, because an account with no employee record
+ * (REQ-B-02) has no credits of its own and must not ask for everyone's.
+ */
 export function useCompOffCredits(
   state: 'ACTIVE' | 'LAPSED' | 'CONSUMED',
+  options: { employeeId?: string | null; enabled?: boolean } = {},
 ): UseQueryResult<Paginated<CompOffCredit>, Error> {
+  const search = new URLSearchParams({ state, pageSize: '100' });
+  if (options.employeeId) search.set('employeeId', options.employeeId);
+
   return useQuery({
-    queryKey: [...LEAVE_QUERY_ROOT, 'comp-off', state],
+    enabled: options.enabled ?? true,
+    queryKey: [...LEAVE_QUERY_ROOT, 'comp-off', state, options.employeeId ?? null],
     queryFn: async ({ signal }) =>
       parseOrThrow(
         compOffListSchema,
-        await apiRequest<unknown>(`/leave/comp-off?state=${state}&pageSize=100`, { signal }),
+        await apiRequest<unknown>(`/leave/comp-off?${search.toString()}`, { signal }),
         'comp-off credits',
       ),
   });

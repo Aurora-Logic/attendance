@@ -8,6 +8,8 @@ import {
   type LeaveDayPortion,
 } from '@vyuha/shared';
 
+import { toDateParam } from '@/features/attendance/format';
+
 import { leaveTypeRefSchema, namedRefSchema } from './types';
 
 /**
@@ -57,26 +59,19 @@ export const PORTION_LABELS: Record<LeaveDayPortion, string> = {
 };
 
 /**
- * A calendar date as `YYYY-MM-DD`, read off the local clock.
+ * The first and last date of the month a date falls in, inclusive.
  *
- * Never `toISOString().slice(0, 10)`. NFR-05 stores a leave date as a DATE and
- * not an instant, and converting through UTC moves every date back a day for
- * anyone east of Greenwich after mid-afternoon — which on this screen means a
- * manager in India opening the month and seeing the 1st missing.
+ * `toDateParam` rather than `toISOString().slice(0, 10)`: NFR-05 stores a
+ * leave date as a DATE and not an instant, and converting through UTC moves
+ * every date back a day for anyone east of Greenwich after mid-afternoon —
+ * which here means a manager in India opening August and being sent July.
  */
-export function toDateKey(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${String(date.getFullYear())}-${month}-${day}`;
-}
-
-/** The first and last date of the month a date falls in, inclusive. */
 export function monthBounds(date: Date): { from: string; to: string } {
   const first = new Date(date.getFullYear(), date.getMonth(), 1);
   // Day 0 of the next month is the last day of this one, so February and the
   // leap day come from the runtime rather than from a table written here.
   const last = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-  return { from: toDateKey(first), to: toDateKey(last) };
+  return { from: toDateParam(first), to: toDateParam(last) };
 }
 
 /**

@@ -43,6 +43,7 @@ import { toast } from '@/components/ui/toast';
 import { ApiError } from '@/lib/api/client';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
+import { useSessionStore } from '@/lib/session/session-store';
 import { cn } from '@/lib/utils';
 import {
   APPROVAL_STATUSES,
@@ -53,6 +54,8 @@ import {
 } from '@vyuha/shared';
 
 import { actionErrorCopy, apiErrorCopy, type ErrorCopy } from './api-error-copy';
+import { COMP_OFF_STATES, type CompOffState } from './comp-off';
+import { CompOffCredits } from './comp-off-credits';
 import { SampleDataNotice } from './sample-data-notice';
 import { formatDays } from './leave-days';
 import { LeaveApplicationForm } from './leave-application-form';
@@ -87,6 +90,10 @@ function leaveYearOf(date: Date): number {
 
 function isApprovalStatus(value: string | null): value is ApprovalStatus {
   return value !== null && (APPROVAL_STATUSES as readonly string[]).includes(value);
+}
+
+function isCompOffState(value: string | null): value is CompOffState {
+  return value !== null && (COMP_OFF_STATES as readonly string[]).includes(value);
 }
 
 function readPositiveInt(raw: string | null, fallback: number, max: number): number {
@@ -322,6 +329,13 @@ function HistorySkeleton() {
 export function MyLeavePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const canApply = usePermission(PERMISSIONS.LEAVE_APPLY_SELF);
+  // Named explicitly on the comp-off read: `/leave/comp-off` is scoped rather
+  // than filtered, so an HR account asking without an employee id would get
+  // every credit in the organisation under a heading that says "yours".
+  const employeeId = useSessionStore((s) => s.employeeId);
+  const compOffState = isCompOffState(searchParams.get('compOff'))
+    ? (searchParams.get('compOff') as CompOffState)
+    : 'ACTIVE';
 
   const leaveYear = leaveYearOf(new Date());
   const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
@@ -409,6 +423,24 @@ export function MyLeavePage() {
           </div>
         ) : null}
       </section>
+
+      <Separator />
+
+      {/* REQ-G-11. Its own band rather than a column on the balance tiles:
+          the balance says how many days there are, and the only thing that
+          matters about a comp-off credit is the date it stops existing. */}
+      <CompOffCredits
+        employeeId={employeeId}
+        state={compOffState}
+        onStateChange={(next) => {
+          setSearchParams((current) => {
+            const params = new URLSearchParams(current);
+            if (next === 'ACTIVE') params.delete('compOff');
+            else params.set('compOff', next);
+            return params;
+          });
+        }}
+      />
 
       <Separator />
 

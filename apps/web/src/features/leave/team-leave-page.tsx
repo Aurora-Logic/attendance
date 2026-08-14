@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { CaretLeftIcon, CaretRightIcon, TreePalmIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import {
+  CaretLeftIcon,
+  CaretRightIcon,
+  GiftIcon,
+  TreePalmIcon,
+  WarningCircleIcon,
+} from '@phosphor-icons/react';
 import { addMonths, format, isSameMonth, parse, startOfMonth } from 'date-fns';
 import { useSearchParams } from 'react-router';
 
@@ -29,6 +35,7 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toDateParam } from '@/features/attendance/format';
 import { MonthField } from '@/features/attendance/pickers';
 import { useDepartments } from '@/features/employees/use-departments';
 import { ApiError } from '@/lib/api/client';
@@ -39,12 +46,12 @@ import { PERMISSIONS } from '@vyuha/shared';
 
 import { apiErrorCopy } from './api-error-copy';
 import { AbsenceMonthCalendar } from './absence-month-calendar';
+import { CompOffGrantSheet } from './comp-off-grant-sheet';
 import {
   PORTION_LABELS,
   awayCount,
   entriesByDate,
   monthBounds,
-  toDateKey,
   warningSentence,
   type LeaveCalendarEntry,
 } from './team-calendar';
@@ -155,6 +162,7 @@ function ListSkeleton() {
 export function TeamLeavePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+  const [grantOpen, setGrantOpen] = useState(false);
   // The endpoint admits `leave.apply.self` as well as the two approver keys,
   // and answers a plain employee with their own days only. The sidebar hides
   // this screen from them, but a pasted link still reaches it — so say what
@@ -178,7 +186,7 @@ export function TeamLeavePage() {
   const threshold = query.data?.threshold ?? 0;
 
   const byDate = entriesByDate(entries);
-  const selectedKey = selected === undefined ? null : toDateKey(selected);
+  const selectedKey = selected === undefined ? null : toDateParam(selected);
   const listed = selectedKey === null ? entries : (byDate.get(selectedKey) ?? []);
 
   function setParam(key: string, value: string | null) {
@@ -229,6 +237,20 @@ export function TeamLeavePage() {
     },
   });
 
+  // PRD §6.4: Alt+C creates a master on the fly. A comp-off credit is the one
+  // record this screen creates.
+  useShortcut({
+    id: 'team-leave.grant-comp-off',
+    keys: 'alt+c',
+    label: 'Grant comp-off',
+    scope: 'screen',
+    allowInInput: true,
+    when: () => canSeeTeam,
+    run: () => {
+      setGrantOpen(true);
+    },
+  });
+
   const copy = apiErrorCopy(query.error, {
     subject: 'team leave',
     permission: 'leave.approve.team',
@@ -245,6 +267,26 @@ export function TeamLeavePage() {
           canSeeTeam
             ? 'Approved leave this month, and which days are already thin.'
             : 'Approved leave this month. Without the leave.approve.team permission this shows your own leave only.'
+        }
+        action={
+          // REQ-G-11 grants live here rather than on a screen of their own:
+          // the person who grants a credit for a worked holiday is the same
+          // approver reading this month, and the key is the same one.
+          canSeeTeam ? (
+            <Button
+              onClick={() => {
+                setGrantOpen(true);
+              }}
+            >
+              <GiftIcon data-icon="inline-start" />
+              Grant comp-off
+              <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
+            </Button>
+          ) : (
+            <span className="text-muted-foreground text-xs">
+              Granting comp-off needs the leave.approve.team permission.
+            </span>
+          )
         }
       />
 
@@ -456,6 +498,15 @@ export function TeamLeavePage() {
           />
         ) : null}
       </section>
+
+      {/* Pre-filled with the day on screen when one is chosen: the reason an
+          approver opens this sheet is almost always a date they are looking
+          at. */}
+      <CompOffGrantSheet
+        open={grantOpen}
+        onOpenChange={setGrantOpen}
+        defaultDate={selected ?? month}
+      />
     </>
   );
 }
