@@ -93,7 +93,13 @@ interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
-  /** Internal: suppresses the refresh-and-retry, so refreshing cannot recurse. */
+  /**
+   * Suppresses the refresh-and-retry. Set on the refresh call itself so it
+   * cannot recurse, and on public auth endpoints - login, and any future
+   * password-reset or invitation-accept call - where a 401 is the endpoint's
+   * verdict rather than an expired token, and a retry would replay the very
+   * request being refused.
+   */
   skipRefresh?: boolean;
 }
 
@@ -111,22 +117,32 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
   });
 }
 
-/** Exchanges the refresh cookie for a new access token. Returns false if there is none. */
-export async function refreshAccessToken(): Promise<boolean> {
+/**
+ * 'unauthenticated' is the server's answer; 'network-error' is no answer at
+ * all. The two must stay distinct: treating an unreachable server as "signed
+ * out" is how an offline reload ends up hiding a queued punch behind a login
+ * form (REQ-D-10).
+ */
+export type RefreshOutcome = 'refreshed' | 'unauthenticated' | 'network-error';
+
+/** Exchanges the refresh cookie for a new access token. */
+export async function refreshAccessToken(): Promise<RefreshOutcome> {
   let response: Response;
   try {
     response = await send('/auth/refresh', { method: 'POST', skipRefresh: true });
   } catch {
-    return false;
+    // The server never answered, so nothing is known about the session and
+    // nothing is torn down.
+    return 'network-error';
   }
   if (!response.ok) {
     setAccessToken(null);
-    return false;
+    return 'unauthenticated';
   }
   const body = (await response.json()) as { accessToken?: unknown };
-  if (typeof body.accessToken !== 'string') return false;
+  if (typeof body.accessToken !== 'string') return 'unauthenticated';
   setAccessToken(body.accessToken);
-  return true;
+  return 'refreshed';
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -146,7 +162,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (response.status === 401 && !options.skipRefresh) {
-    if (await refreshAccessToken()) {
+    if ((await refreshAccessToken()) === 'refreshed') {
       return apiRequest<T>(path, { ...options, skipRefresh: true });
     }
   }

@@ -252,7 +252,12 @@ const managerOptionsSchema = z.object({
  */
 export function useManagerOptions(): UseQueryResult<PickerRow[], Error> {
   return useQuery({
-    queryKey: ['employees', 'options'],
+    // Not ['employees', 'options']: org-masters caches an EmployeeOption[]
+    // (with employeeCode) under that key while this hook caches PickerRow[]
+    // (with hint) - same endpoint, different shape, so sharing the key would
+    // hand one form the other's rows. Still under the 'employees' root, so
+    // the employee-mutation invalidations reach it.
+    queryKey: ['employees', 'manager-options'],
     queryFn: async ({ signal }) => {
       const body = await apiRequest<unknown>('/employees?pageSize=200&status=ACTIVE', { signal });
       const parsed = parseOrThrow(managerOptionsSchema, body, 'employee list');

@@ -118,7 +118,12 @@ const departmentsResponseSchema = z.object({
  */
 export function useDepartments(): UseQueryResult<Sampled<Paginated<DepartmentSummary>>, Error> {
   return useQuery({
-    queryKey: ['departments', 'options'],
+    // Not ['departments', 'options']: the employees feature caches a plain
+    // DepartmentOption[] under that key, and this hook caches a Sampled
+    // envelope. One key holding two shapes means whichever fetches first
+    // poisons the other screen. Still under the 'departments' root, so the
+    // master-data invalidations reach it.
+    queryKey: ['departments', 'attendance-options'],
     queryFn: async ({ signal }) => {
       try {
         const body = await apiRequest<unknown>('/departments?pageSize=200', { signal });
