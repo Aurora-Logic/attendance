@@ -356,6 +356,24 @@ export class ApiHarness {
 
     if (preservePeople) return;
 
+    // Requests that reference an employee with RESTRICT, cleared before the
+    // employees they point at.
+    //
+    // These were absent while nothing wrote them, and the day that changed the
+    // symptom was a foreign-key violation inside `beforeAll` of two unrelated
+    // suites that happened to share an org id with the one that did. Deleting
+    // them here does not make sharing an id safe -- `punches` is append-only
+    // and can never be cleared, so a punch-writing suite still needs an id of
+    // its own -- but it removes one silent way for two files to break each
+    // other, and the failure that remains names `punches` and points straight
+    // at the cause. Raw SQL because these tables live in `modules/attendance`
+    // and this file is test support for the whole application.
+    await this.db.execute(
+      sql`DELETE FROM attendance_adjustments WHERE org_id = ${this.orgId}`,
+    );
+    await this.db.execute(sql`DELETE FROM regularizations WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM on_duty_requests WHERE org_id = ${this.orgId}`);
+
     // Employees reference each other through reporting_manager_id and
     // departments through head_employee_id, so the links are cut before the
     // rows go, rather than relying on a delete order that happens to work.

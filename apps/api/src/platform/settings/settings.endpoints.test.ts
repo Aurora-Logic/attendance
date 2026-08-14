@@ -100,10 +100,17 @@ describe('GET /settings (REQ-L-01, REQ-L-02)', () => {
     // The screen prints this next to the field. A value of null there is the
     // difference between a control and a decoration.
     expect(read.body.enforcement.attendance.maxWorkMinutes).toBe('Day engine');
-    expect(read.body.enforcement.attendance.regularizationWindowDays).toBeNull();
+    // In force since the regularization slice landed (REQ-F-02): both limits
+    // are read on every raise and by `GET /regularizations/policy`. They were
+    // asserted null here until then, which was the honest answer at the time.
+    expect(read.body.enforcement.attendance.regularizationWindowDays).toBe('Regularization');
+    expect(read.body.enforcement.attendance.regularizationMaxPerMonth).toBe('Regularization');
     // In force since the punch pipeline began stamping `files.expires_at`
     // from this row (REQ-L-03).
     expect(read.body.enforcement.photo.retentionMonths).toBe('Punch photo pipeline');
+    // Still a decoration, and the screen still says so: REQ-D-08 fixes the
+    // geofence to a hard block and the punch service implements it directly.
+    expect(read.body.enforcement.attendance.geofenceBehaviour).toBeNull();
   });
 
   it('never returns SMTP credentials', async () => {

@@ -86,12 +86,18 @@ export const ATTENDANCE_SETTINGS = {
   regularizationWindowDays: {
     key: 'attendance.regularization_window_days',
     help: 'How many days back a regularization may be raised (REQ-F-02).',
-    enforcedBy: null,
+    // Read on every raise, and again by `GET /regularizations/policy` so the
+    // form bounds its own calendar to the window actually in force. Today
+    // counts as one of the days, so 7 reaches back to six days ago.
+    enforcedBy: 'Regularization',
   },
   regularizationMaxPerMonth: {
     key: 'attendance.regularization_max_per_month',
     help: 'How many regularizations one employee may raise in a month (REQ-F-02).',
-    enforcedBy: null,
+    // Counted over the calendar month the request is *made* in, not the month
+    // being corrected. Zero switches the feature off without taking the
+    // permission away from four roles.
+    enforcedBy: 'Regularization',
   },
   autoEscalationDays: {
     key: 'attendance.auto_escalation_days',
