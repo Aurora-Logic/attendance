@@ -320,7 +320,7 @@ describe('a stuck employee lock does not take the API down', () => {
     // And what a contended punch is told. Not 500: a PWA outbox has to be able
     // to tell "try again" from "this punch will never work".
     expect(refused.status, detail).toBe(503);
-    expect(refused.code, detail).toBe('SERVICE_BUSY');
+    expect(refused.code, detail).toBe('SERVICE_UNAVAILABLE');
 
     // The twelve either waited out their budget or, once the key came free,
     // met REQ-D-01 on its merits. None of them may be an unhandled fault, and

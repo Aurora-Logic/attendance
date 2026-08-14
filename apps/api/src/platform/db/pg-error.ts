@@ -10,6 +10,18 @@
 /** `unique_violation`, from the Postgres error code table (class 23). */
 const UNIQUE_VIOLATION = '23505';
 
+/**
+ * node-postgres raises this exact `Error` from `Pool._pulseQueue` when
+ * `connectionTimeoutMillis` elapses with no free client. It carries no SQLSTATE
+ * -- Postgres was never reached -- so the message is the only signal there is.
+ *
+ * Matched rather than inferred from timing because the distinction is the whole
+ * point: the pool being saturated is transient and the caller should retry, and
+ * everything else that reaches the exception filter unrecognised is a bug the
+ * caller cannot do anything about.
+ */
+const POOL_CONNECT_TIMEOUT = 'timeout exceeded when trying to connect';
+
 /** How far to follow `cause`; guards against a chain that loops back. */
 const MAX_DEPTH = 4;
 
@@ -22,6 +34,31 @@ function errorCode(value: unknown): string | null {
 
 export function isUniqueViolation(error: unknown): boolean {
   return errorCode(error) === UNIQUE_VIOLATION;
+}
+
+/**
+ * True when the pool could not hand out a connection in time.
+ *
+ * Measured on the production build with every one of the ten pool connections
+ * blocked on a table lock: `GET /me/today` for an employee with nothing to do
+ * with the contention answered `500 INTERNAL_ERROR` after 5.07s, while
+ * `/ready` correctly reported `503 degraded` at the same instant. A 500 tells
+ * a client to stop; this is the one database failure where trying again in a
+ * moment is exactly right.
+ *
+ * The message is read from anywhere in the `cause` chain because Drizzle wraps
+ * the driver's error in one whose own message is the SQL -- the failure
+ * arrives as "Failed query: select 1 ...: timeout exceeded when trying to
+ * connect".
+ */
+export function isPoolConnectionTimeout(error: unknown): boolean {
+  return (
+    followCause(error, (current) =>
+      current instanceof Error && current.message.includes(POOL_CONNECT_TIMEOUT)
+        ? current.message
+        : null,
+    ) !== null
+  );
 }
 
 /**

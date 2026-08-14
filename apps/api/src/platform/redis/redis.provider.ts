@@ -50,6 +50,31 @@ export function redisTarget(): RedisTarget {
   };
 }
 
+/**
+ * How long a command may wait for a Redis that is not answering.
+ *
+ * ioredis gives up on a queued command after `MAX_RETRIES_PER_REQUEST`
+ * reconnection attempts, so the wait a caller actually experiences is that
+ * many `reconnectDelayMs` values -- and once an outage has lasted a few
+ * seconds, every one of them is the cap. The two numbers therefore multiply,
+ * which is the part that was missed: a 5,000ms cap meant a single command took
+ * about twenty seconds to fail, and a sign-in makes two of them.
+ *
+ * Exported so `redis.provider.test.ts` can hold the product to a stated bound
+ * rather than each half to a number that looks reasonable on its own.
+ */
+export const MAX_RETRIES_PER_REQUEST = 3;
+export const RECONNECT_DELAY_CAP_MS = 1_000;
+
+export function reconnectDelayMs(attempt: number): number {
+  return Math.min(attempt * 200, RECONNECT_DELAY_CAP_MS);
+}
+
+/** The worst a caller waits before the fail-open path runs. */
+export function commandGiveUpMs(): number {
+  return MAX_RETRIES_PER_REQUEST * RECONNECT_DELAY_CAP_MS;
+}
+
 function ioredisOptions(): RedisOptions {
   const target = redisTarget();
   return {
@@ -76,9 +101,16 @@ export const redisProvider: Provider = {
       // command issued before the socket is ready throw -- which is precisely
       // the first login after a deploy, and would have the limiter failing
       // open at the one moment it is most likely to be needed.
-      maxRetriesPerRequest: 3,
+      //
+      // "Quick" is the retry cap's job, not this number's, and the cap used to
+      // be 5,000: a few seconds into an outage the strategy always sits there,
+      // so a command took about twenty seconds to fail and a sign-in -- two
+      // commands -- was measured at 35.3s against an unreachable Redis. The
+      // limiter failed open exactly as documented, half a minute after anybody
+      // cared. See `commandGiveUpMs`.
+      maxRetriesPerRequest: MAX_RETRIES_PER_REQUEST,
       connectTimeout: 2_000,
-      retryStrategy: (attempt: number) => Math.min(attempt * 200, 5_000),
+      retryStrategy: reconnectDelayMs,
     });
 
     // ioredis emits 'error' on a dropped connection. With no listener, Node

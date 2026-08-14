@@ -267,7 +267,7 @@ const POOL_TIMEOUT_TEXT = 'timeout exceeded when trying to connect';
 
 const busyError = (reason: string): AppError =>
   new AppError(
-    ERROR_CODES.SERVICE_BUSY,
+    ERROR_CODES.SERVICE_UNAVAILABLE,
     'That punch could not be recorded just now. It is safe to send it again.',
     { details: { retryable: true, reason } },
   );

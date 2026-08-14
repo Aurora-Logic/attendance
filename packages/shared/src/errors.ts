@@ -11,13 +11,15 @@ export const ERROR_CODES = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   RATE_LIMITED: 'RATE_LIMITED',
   /**
-   * The request was fine and the server could not serve it right now -- a
-   * contended row lock, an exhausted connection pool. Distinct from
-   * INTERNAL_ERROR because the two call for opposite client behaviour: this
-   * one is worth retrying, and the offline outbox needs to be able to tell
-   * "send this again in a moment" from "this will never work".
+   * The request was fine and the server could not serve it right now — a
+   * contended row lock, an exhausted connection pool, a dependency that is
+   * down. Distinct from INTERNAL_ERROR because the two say opposite things to
+   * a client: a 500 means "this will not work, stop", while this one is worth
+   * retrying, and the punch outbox (REQ-D-10) is built to hold a punch and
+   * re-send it. Carries `retryAfterSeconds` in `details`, and the same value
+   * in a `Retry-After` header.
    */
-  SERVICE_BUSY: 'SERVICE_BUSY',
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
 
   // Auth (REQ-B-01…B-10)
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',

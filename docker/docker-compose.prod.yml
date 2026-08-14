@@ -65,6 +65,13 @@ services:
       dockerfile: docker/api.Dockerfile
     image: vyuha-api
     restart: unless-stopped
+    # Docker's default is 10s, and the API can legitimately need longer after a
+    # Redis outage: the queue teardown is bounded, then the Redis and Postgres
+    # hooks run, and `main.ts` forces the exit at 12s if a driver still holds
+    # the event loop open. At 10s the deploy killed the process mid-shutdown
+    # and reported a failure; 30s leaves room for all of it and still fails
+    # fast if something is genuinely wedged.
+    stop_grace_period: 30s
     env_file:
       - ${VYUHA_ENV_FILE:-../.env.production}
     environment:

@@ -204,6 +204,82 @@ describe('AppExceptionFilter', () => {
     expect(captured.body?.error.requestId).toBe(REQUEST_ID);
   });
 
+  /**
+   * A saturated pool used to arrive here unrecognised and leave as 500
+   * INTERNAL_ERROR -- measured at 5.07s on `GET /me/today` while `/ready`
+   * reported 503 at the same instant. 500 tells a client to give up; the punch
+   * outbox (REQ-D-10) keeps a punch only when a request comes back without a
+   * usable answer, so the status is the difference between a punch that is
+   * re-sent and one that is dropped.
+   */
+  it('answers a pool connection timeout with a retryable 503, not a 500', () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    const wrapper = new Error('Failed query: select 1 params: ');
+    (wrapper as { cause?: unknown }).cause = new Error('timeout exceeded when trying to connect');
+
+    const captured = run(wrapper);
+
+    expect(captured.status).toBe(503);
+    expect(captured.body?.error.code).toBe(ERROR_CODES.SERVICE_UNAVAILABLE);
+    expect(captured.body?.error.details).toEqual({ retryAfterSeconds: 5 });
+    expect(captured.headers['Retry-After']).toBe('5');
+  });
+
+  it('still withholds the driver text of a pool timeout from the body', () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    const captured = run(
+      new Error('Failed query: select * from users where email = $1: timeout exceeded when trying to connect'),
+    );
+
+    expect(captured.status).toBe(503);
+    expect(JSON.stringify(captured.body)).not.toContain('select * from users');
+  });
+
+  it('logs a dependency failure at error level with the driver reason', () => {
+    const logged: unknown[] = [];
+    vi.spyOn(Logger.prototype, 'error').mockImplementation((...args: unknown[]) => {
+      logged.push(...args);
+    });
+
+    run(new Error('timeout exceeded when trying to connect'));
+
+    expect(logged[0]).toMatchObject({
+      status: 503,
+      code: ERROR_CODES.SERVICE_UNAVAILABLE,
+      msg: 'Dependency failure on POST /api/v1/punches',
+      reason: 'timeout exceeded when trying to connect',
+    });
+  });
+
+  /**
+   * The header has to come from the same place the body does, or the two can
+   * disagree. RATE_LIMITED has carried `retryAfterSeconds` in its details since
+   * the per-IP limiter landed and never stated it as a header, so a client that
+   * does not parse the envelope was told to retry by nothing at all.
+   */
+  it('states an AppError retry hint as a Retry-After header too', () => {
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    const captured = run(
+      new AppError(ERROR_CODES.RATE_LIMITED, 'Too many attempts.', {
+        details: { retryAfterSeconds: 137 },
+      }),
+    );
+
+    expect(captured.status).toBe(429);
+    expect(captured.headers['Retry-After']).toBe('137');
+  });
+
+  it('sets no Retry-After when the error carries no hint', () => {
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    const captured = run(AppError.notFound('Employee', 'abc'));
+
+    expect(captured.headers['Retry-After']).toBeUndefined();
+  });
+
   it('writes nothing when the response has already been flushed', () => {
     vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 

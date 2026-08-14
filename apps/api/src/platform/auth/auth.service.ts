@@ -679,6 +679,13 @@ export class AuthService {
     // were conditional on the account -- it is not, but the 202 is the
     // contract regardless, and a caller cannot act on the difference. The
     // request is lost and the failure is loud.
+    //
+    // That was true of the intent and false of the behaviour until `enqueue`
+    // grew a deadline. BullMQ's connection retries a command for ever, so with
+    // Redis unreachable this `await` never settled and the catch below never
+    // ran: measured on the production build, 40s with no answer at all where
+    // the contract promises 202 in 32ms. The catch is what makes the promise
+    // real, so it can only be kept by an enqueue that is allowed to fail.
     try {
       await this.jobs.enqueue('deliver-password-reset', {
         email,
@@ -686,8 +693,12 @@ export class AuthService {
         requestedAt: new Date().toISOString(),
       });
     } catch (error: unknown) {
+      // "Probably not" rather than "not": the abandoned `add` is not
+      // cancellable, so a Redis that comes back inside its own retry window
+      // may still accept the job and send the mail. Claiming otherwise would
+      // send whoever reads this line looking for a bug in the mailer.
       this.logger.error({
-        msg: 'Could not queue a password reset; no mail will be sent for this request.',
+        msg: 'Could not queue a password reset within the deadline; this request will probably send no mail. The caller still received 202.',
         reason: describeError(error),
       });
     }

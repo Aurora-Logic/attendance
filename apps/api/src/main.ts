@@ -7,6 +7,7 @@ import { Logger } from 'nestjs-pino';
 
 import { assertDecoratorMetadataIsEmitted } from './platform/common/decorator-metadata.js';
 import { EnvValidationError } from './platform/common/env.schema.js';
+import { StartupError } from './platform/common/startup-error.js';
 
 /**
  * Everything below is imported dynamically, and that is deliberate.
@@ -67,14 +68,50 @@ async function bootstrap(): Promise<void> {
   // Runs onApplicationShutdown on SIGTERM and SIGINT, which is what ends the
   // Postgres pool (DbModule).
   app.enableShutdownHooks();
+  installShutdownWatchdog();
 
   await app.listen(env.PORT);
 }
 
+/**
+ * The backstop for a shutdown that will not finish.
+ *
+ * `JobRunner` bounds every stage of its own teardown, so the hook returns; a
+ * socket a driver refuses to release can still hold the event loop open after
+ * it, and the process would linger with nothing left to do. Docker sends
+ * SIGKILL after its grace period and the deploy is marked failed, so exiting
+ * on our own terms -- after the hooks have had their turn -- is strictly
+ * better than being killed.
+ *
+ * `unref` is what keeps this from being the thing that delays exit: a process
+ * that is otherwise finished does not wait for this timer.
+ */
+function installShutdownWatchdog(): void {
+  // Comfortably past the bounded queue teardown (`SHUTDOWN_BUDGET_MS`) plus
+  // the Redis and Postgres hooks that run after it, and comfortably inside the
+  // `stop_grace_period` the production compose states -- a watchdog that fires
+  // after Docker's SIGKILL is no watchdog at all, which the first version of
+  // this was: it forced the exit at 15s, and the default grace is 10.
+  const GRACE_MS = 12_000;
+
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, () => {
+      setTimeout(() => {
+        process.stderr.write(
+          `${signal} received ${String(GRACE_MS / 1000)}s ago and the process has not exited; forcing it. ` +
+            'Something is holding the event loop open -- check the shutdown warnings above.\n',
+        );
+        process.exit(1);
+      }, GRACE_MS).unref();
+    });
+  }
+}
+
 bootstrap().catch((error: unknown) => {
-  if (error instanceof EnvValidationError) {
-    // The report is the whole message; a stack trace here would only point at
-    // the parser, never at the variable the reader has to fix.
+  // Both of these report themselves: the message is the whole report, and a
+  // stack trace would only point at the parser or the driver, never at the
+  // thing the reader has to fix.
+  if (error instanceof EnvValidationError || error instanceof StartupError) {
     process.stderr.write(`${error.message}\n`);
     process.exit(1);
   }

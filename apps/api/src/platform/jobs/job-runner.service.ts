@@ -4,16 +4,22 @@ import {
   type OnApplicationBootstrap,
   type OnApplicationShutdown,
 } from '@nestjs/common';
+import { ERROR_CODES } from '@vyuha/shared';
 import { Job, Queue, Worker, type JobsOptions } from 'bullmq';
 
 import { env } from '../common/env.js';
-import { describeError } from '../common/errors.js';
+import { AppError, describeError } from '../common/errors.js';
+import { StartupError } from '../common/startup-error.js';
 import { bullConnectionOptions } from './bull-connection.js';
 import { JobRegistry, type JobResult } from './job-handler.js';
 import {
   DEFAULT_JOB_OPTIONS,
+  ENQUEUE_TIMEOUT_MS,
   JOB_QUEUE,
   SCHEDULED_JOBS,
+  SHUTDOWN_BUDGET_MS,
+  SHUTDOWN_STAGE_MS,
+  WORKER_SHUTDOWN_BUDGET_MS,
   type JobName,
   type JobPayloads,
   type QueueName,
@@ -31,6 +37,13 @@ import {
  * be five idle Redis connections in every test process and every web instance,
  * for queues whose first job arrives in Phase 3.
  */
+
+/**
+ * What a client is told to wait before retrying a refused enqueue. Short: the
+ * failure this reports is a cache blip, not a maintenance window, and the
+ * offline punch queue drains on its own triggers anyway.
+ */
+const RETRY_AFTER_SECONDS = 5;
 
 export interface EnqueueOptions {
   /**
@@ -76,21 +89,61 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
       prefix: env.JOBS_QUEUE_PREFIX,
       defaultJobOptions: DEFAULT_JOB_OPTIONS,
     });
+
+    // Same reason the worker has one: without a listener BullMQ's EventEmitter
+    // turns a connection error into an unhandled error event, and a boot with
+    // Redis down printed bare `connect ECONNREFUSED` stack traces -- 160 of
+    // them in 25 seconds -- with nothing naming the queue they came from.
+    queue.on('error', (error: Error) => {
+      this.logger.error({
+        msg: 'Job queue connection error.',
+        queue: name,
+        reason: describeError(error),
+      });
+    });
+
     this.queues.set(name, queue);
     return queue;
   }
 
+  /**
+   * Hands a job to Redis, or gives up.
+   *
+   * The bound is the point. Every caller of this method is on a request path,
+   * and BullMQ's connection retries a command forever by contract
+   * (`bull-connection.ts`), so without it a Redis outage does not make an
+   * enqueue fail -- it makes the request that asked for it never answer, while
+   * holding its connection open. `SERVICE_UNAVAILABLE` rather than a bare
+   * `Error` because that is a decision the caller can act on: absorb it and
+   * keep an unconditional promise the way `requestPasswordReset` does, or let
+   * it reach the client as a retryable 503.
+   *
+   * The abandoned `add` is not cancellable -- Redis may still accept the job
+   * when it comes back -- so the message says the request was not accepted
+   * rather than that nothing will happen.
+   */
   async enqueue<TName extends JobName>(
     jobName: TName,
     payload: JobPayloads[TName],
     options: EnqueueOptions = {},
   ): Promise<string> {
-    const job = await this.queueFor(JOB_QUEUE[jobName]).add(jobName, payload, {
-      ...(options.jobId === undefined ? {} : { jobId: options.jobId }),
-      ...(options.delayMs === undefined ? {} : { delay: options.delayMs }),
-      ...(options.attempts === undefined ? {} : { attempts: options.attempts }),
-      ...(options.backoff === undefined ? {} : { backoff: options.backoff }),
-    });
+    const job = await this.withinDeadline(
+      this.queueFor(JOB_QUEUE[jobName]).add(jobName, payload, {
+        ...(options.jobId === undefined ? {} : { jobId: options.jobId }),
+        ...(options.delayMs === undefined ? {} : { delay: options.delayMs }),
+        ...(options.attempts === undefined ? {} : { attempts: options.attempts }),
+        ...(options.backoff === undefined ? {} : { backoff: options.backoff }),
+      }),
+      ENQUEUE_TIMEOUT_MS,
+      () =>
+        new AppError(
+          ERROR_CODES.SERVICE_UNAVAILABLE,
+          'Background work could not be queued just now. Try again shortly.',
+          {
+            details: { retryAfterSeconds: RETRY_AFTER_SECONDS, jobName },
+          },
+        ),
+    );
 
     // BullMQ types `id` as optional because a job added to a flow may not have
     // one yet. A plain `add` always does.
@@ -98,9 +151,46 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
   }
 
   /**
+   * Rejects with `onTimeout()` if `work` has not settled in `timeoutMs`.
+   *
+   * The timer is cleared either way, and the losing promise's rejection is
+   * swallowed rather than left to become an unhandled rejection -- an
+   * abandoned BullMQ command does eventually reject, minutes later, long after
+   * anybody cared.
+   */
+  private async withinDeadline<T>(
+    work: Promise<T>,
+    timeoutMs: number,
+    onTimeout: () => Error,
+  ): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const expiry = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(onTimeout());
+      }, timeoutMs);
+    });
+
+    work.catch(() => undefined);
+
+    try {
+      return await Promise.race([work, expiry]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  /**
    * Registers the recurring work from `SCHEDULED_JOBS`. Upsert by id, so
    * restarting does not stack duplicates and editing the pattern updates the
    * existing scheduler instead of leaving the old one firing too.
+   *
+   * Bounded for the reason `enqueue` is, and it matters more here: this runs
+   * inside `onApplicationBootstrap`, which `app.listen()` awaits. Booting with
+   * Redis unreachable used to stop on the first upsert and stay there -- a
+   * process alive for ever, holding no port, never reaching `app.listen`, with
+   * nothing in its output but repeated connection stack traces. Failing the
+   * boot is right (a process that cannot queue must not take traffic); failing
+   * it silently and for ever is not.
    */
   private async installSchedules(): Promise<void> {
     for (const scheduled of SCHEDULED_JOBS) {
@@ -113,10 +203,18 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
         continue;
       }
 
-      await this.queueFor(JOB_QUEUE[scheduled.jobName]).upsertJobScheduler(
-        scheduled.schedulerId,
-        { pattern: scheduled.pattern },
-        { name: scheduled.jobName, data: { requestedAt: new Date().toISOString() } },
+      await this.withinDeadline(
+        this.queueFor(JOB_QUEUE[scheduled.jobName]).upsertJobScheduler(
+          scheduled.schedulerId,
+          { pattern: scheduled.pattern },
+          { name: scheduled.jobName, data: { requestedAt: new Date().toISOString() } },
+        ),
+        ENQUEUE_TIMEOUT_MS,
+        () =>
+          new StartupError(
+            `Redis did not accept the job scheduler "${scheduled.schedulerId}" within ${String(ENQUEUE_TIMEOUT_MS)}ms.`,
+            `REDIS_URL points at a server this process cannot reach. The API refuses to serve traffic it cannot queue background work from; fix Redis, or start this process with JOBS_WORKER_ENABLED=false only once Redis is reachable.`,
+          ),
       );
     }
   }
@@ -181,6 +279,22 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
   }
 
   /**
+   * The queues this process is actually draining.
+   *
+   * Read from the running workers rather than from the registry, because the
+   * two disagree in the deployment that matters. Handlers register during
+   * `onModuleInit` whatever `JOBS_WORKER_ENABLED` says -- registration is what
+   * makes a job name understood, and a web instance must still understand the
+   * names it enqueues. Only `startWorkers` puts a consumer on a queue, and it
+   * runs only when the flag is on. Deriving this from the registry made the
+   * admin job monitor report `consumedHere: true` for four queues on a process
+   * that had created no workers at all.
+   */
+  consumedQueues(): ReadonlySet<QueueName> {
+    return new Set(this.workers.keys());
+  }
+
+  /**
    * The dispatch a worker performs. Separated so the failure modes are visible
    * in one place: an unknown job name is a deployment mismatch and must not be
    * retried into oblivion, and a handler's own error is rethrown untouched so
@@ -222,13 +336,82 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
 
   // -------------------------------------------------------------- shutdown
 
+  /**
+   * Shutdown that always finishes.
+   *
+   * `Worker.close()` waits for the current jobs and for its own connections,
+   * and a connection configured to retry for ever (BullMQ's requirement) never
+   * reports that it has given up. A process that had lived through a Redis
+   * outage therefore never completed this hook: measured still alive 90s after
+   * SIGTERM, holding no port, with Redis already back and `/ready` answering
+   * `redis ok` in 38ms. An instance that never lost Redis exited in 2s.
+   *
+   * So each stage is bounded and the next one is harsher than the last -- ask
+   * politely, then force, then drop the sockets -- and the whole teardown
+   * shares one budget, because per-stage bounds multiply into a total that
+   * outlasts the orchestrator's patience. Nothing here rethrows: the only
+   * outcome that matters is that this method returns, because a shutdown hook
+   * that does not is a deploy that does not.
+   */
   async onApplicationShutdown(): Promise<void> {
+    const started = Date.now();
+
     // Workers first: a worker closed after its queue would keep trying to read
-    // from a connection that is already going away.
-    await Promise.all([...this.workers.values()].map((worker) => worker.close()));
+    // from a connection that is already going away. They get a share of the
+    // budget rather than all of it -- see `WORKER_SHUTDOWN_BUDGET_MS`.
+    await Promise.all(
+      [...this.workers.values()].map((worker) =>
+        this.stopWorker(worker, started + WORKER_SHUTDOWN_BUDGET_MS),
+      ),
+    );
     this.workers.clear();
 
-    await Promise.all([...this.queues.values()].map((queue) => queue.close()));
+    const queueDeadline = started + SHUTDOWN_BUDGET_MS;
+    await Promise.all(
+      [...this.queues.values()].map(async (queue) => {
+        if (await this.attempt(queue.close(), 'queue close', queueDeadline)) return;
+        await this.attempt(queue.disconnect(), 'queue disconnect', queueDeadline);
+      }),
+    );
     this.queues.clear();
+  }
+
+  private async stopWorker(worker: Worker, deadline: number): Promise<void> {
+    // `close()` drains in-flight jobs, which is what we want when it works.
+    // `close(true)` abandons them, which is the right answer for a worker held
+    // up by one long job -- an abandoned job is picked up again by BullMQ's
+    // stalled-job recovery. Neither helps when the connection itself is wedged,
+    // which is what `disconnect` is for.
+    if (await this.attempt(worker.close(), 'worker close', deadline)) return;
+    if (await this.attempt(worker.close(true), 'forced worker close', deadline)) return;
+    await this.attempt(worker.disconnect(), 'worker disconnect', deadline);
+  }
+
+  /**
+   * True when the work finished inside the bound; false on timeout or error.
+   *
+   * The wait is the shorter of one stage and whatever is left of the shared
+   * budget, so a stage that starts late gets less rather than extending the
+   * total. Once the budget is spent every remaining stage is skipped outright.
+   */
+  private async attempt(work: Promise<unknown>, what: string, deadline: number): Promise<boolean> {
+    const remaining = Math.min(SHUTDOWN_STAGE_MS, deadline - Date.now());
+
+    if (remaining <= 0) {
+      this.logger.warn({ msg: `Shutdown: no budget left for ${what}; skipping it.` });
+      return false;
+    }
+
+    try {
+      await this.withinDeadline(
+        work,
+        remaining,
+        () => new Error(`${what} did not finish within ${String(remaining)}ms.`),
+      );
+      return true;
+    } catch (error: unknown) {
+      this.logger.warn({ msg: `Shutdown: ${what} gave up.`, reason: describeError(error) });
+      return false;
+    }
   }
 }
