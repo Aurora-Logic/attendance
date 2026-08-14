@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { env } from '../src/platform/common/env.js';
 import type { Database } from '../src/platform/db/db.provider.js';
 import {
+  employees,
   organizations,
   permissions,
   rolePermissions,
@@ -20,6 +21,7 @@ import {
   users,
 } from '../src/platform/db/schema/index.js';
 import { verifyPassword } from '../src/platform/auth/password.js';
+import { ADMINISTRATOR_EMPLOYEE_CODE } from './master-data.js';
 import { runSeed, type SeedReport } from './seed.js';
 
 /**
@@ -66,6 +68,31 @@ function seed(): Promise<SeedReport> {
     orgName: 'Seed Idempotency Fixture',
     adminEmail: TEST_ADMIN_EMAIL,
   });
+}
+
+/** The seeded administrator, read back from the database rather than the report. */
+async function adminAccount(): Promise<{ id: string; employeeId: string | null }> {
+  const rows = await db
+    .select({ id: users.id, employeeId: users.employeeId })
+    .from(users)
+    .where(and(eq(users.orgId, TEST_ORG_ID), sql`lower(${users.email}) = ${TEST_ADMIN_EMAIL}`))
+    .limit(1);
+
+  const row = rows[0];
+  if (row === undefined) throw new Error('The seeded administrator is missing.');
+  return row;
+}
+
+async function employeeIdByCode(code: string): Promise<string> {
+  const rows = await db
+    .select({ id: employees.id })
+    .from(employees)
+    .where(and(eq(employees.orgId, TEST_ORG_ID), eq(employees.employeeCode, code)))
+    .limit(1);
+
+  const id = rows[0]?.id;
+  if (id === undefined) throw new Error(`Employee ${code} is missing.`);
+  return id;
 }
 
 beforeAll(async () => {
@@ -118,6 +145,9 @@ describe('seed', () => {
     expect(report.admin.created).toBe(true);
     expect(report.admin.password).not.toBeNull();
     expect((report.admin.password ?? '').length).toBeGreaterThanOrEqual(20);
+    expect(report.admin.employee.linked).toBe(true);
+    expect(report.admin.employee.code).toBe(ADMINISTRATOR_EMPLOYEE_CODE);
+    expect(report.admin.employee.reason).toBeNull();
   });
 
   it('reconciles the catalogue against ALL_PERMISSIONS exactly', async () => {
@@ -198,6 +228,31 @@ describe('seed', () => {
     expect(Number(heads.rows[0]?.count ?? 0)).toBe(6);
   });
 
+  it('joins the administrator login to an employee, so it can punch (REQ-B-02)', async () => {
+    // The seed used to create the account and the roster and never join them,
+    // so a fresh database produced an administrator that `/punch` refused
+    // ("not linked to an employee record") and `GET /leave/balances` answered
+    // 400 for. Both are the first screens a pilot administrator opens.
+    const { employeeId } = await adminAccount();
+    expect(employeeId).not.toBeNull();
+
+    const linked = await db.execute<{ code: string; shift: string | null; status: string }>(
+      sql`SELECT employee_code AS code, default_shift_id AS shift, status
+            FROM employees WHERE id = ${employeeId} AND deleted_at IS NULL`,
+    );
+    expect(linked.rows[0]?.code).toBe(ADMINISTRATOR_EMPLOYEE_CODE);
+    // A join to somebody with no shift, or to somebody who has left, would
+    // satisfy the line above and still leave the administrator unable to
+    // punch: the day engine refuses a day with no shift at all.
+    expect(linked.rows[0]?.shift).not.toBeNull();
+    expect(linked.rows[0]?.status).toBe('ACTIVE');
+
+    // The join invents no person. It writes one foreign key between two rows
+    // the seed already created, so REQ-A-03's twenty-five still holds -- which
+    // is why the count assertion above it did not have to move.
+    expect(await countRows('employees')).toBe(25);
+  });
+
   it('seeds one general shift, marked as a placeholder, and points everyone at it', async () => {
     const rows = await db.execute<{ code: string; name: string; count: string }>(
       sql`SELECT code, name FROM shifts WHERE org_id = ${TEST_ORG_ID} AND deleted_at IS NULL`,
@@ -273,6 +328,7 @@ describe('seed', () => {
       designations: await countRows('designations'),
       locations: await countRows('locations'),
     };
+    const linkBefore = (await adminAccount()).employeeId;
 
     const second = await seed();
 
@@ -284,6 +340,12 @@ describe('seed', () => {
     // The most important line in this test: a re-run must not rotate a
     // credential someone is already using, and must not print one.
     expect(second.admin.password).toBeNull();
+    // The join is written once and reported once. A second run that reported
+    // `linked` again would mean it had rewritten a foreign key it should have
+    // found already set.
+    expect(second.admin.employee.linked).toBe(false);
+    expect(second.admin.employee.code).toBe(ADMINISTRATOR_EMPLOYEE_CODE);
+    expect((await adminAccount()).employeeId).toBe(linkBefore);
     expect(second.masterData.employees.created).toBe(0);
     expect(second.masterData.departments.created).toBe(0);
     expect(second.masterData.links).toEqual({
@@ -338,5 +400,58 @@ describe('seed', () => {
     // And the run after the repair is quiet again.
     const fourth = await seed();
     expect(fourth.roles.every((role) => role.granted === 0 && role.revoked === 0)).toBe(true);
+  });
+
+  it('does not drag the administrator back after somebody moves the employee join', async () => {
+    // Re-seeding is how drift gets repaired, and REQ-B-02 makes this join
+    // editable -- so the one kind of drift it must not "repair" is a
+    // deliberate move. Onboarding a real administrator is exactly that move.
+    const account = await adminAccount();
+    const original = account.employeeId;
+    const elsewhere = await employeeIdByCode('VY-0025');
+
+    await db.update(users).set({ employeeId: elsewhere }).where(eq(users.id, account.id));
+
+    const rerun = await seed();
+    expect(rerun.admin.employee.id).toBe(elsewhere);
+    expect(rerun.admin.employee.code).toBe('VY-0025');
+    expect(rerun.admin.employee.linked).toBe(false);
+    expect((await adminAccount()).employeeId).toBe(elsewhere);
+
+    await db.update(users).set({ employeeId: original }).where(eq(users.id, account.id));
+  });
+
+  it('reports rather than throws when the employee already belongs to another login', async () => {
+    // `users_employee_uq` allows one living login per employee. Claiming it
+    // anyway would abort the transaction and take the whole seed down with
+    // it -- every role, every master row -- over a link that can be made by
+    // hand in a minute.
+    const account = await adminAccount();
+    const held = await employeeIdByCode(ADMINISTRATOR_EMPLOYEE_CODE);
+
+    // The administrator lets go first: the index the branch exists to respect
+    // would otherwise reject the fixture itself.
+    await db.update(users).set({ employeeId: null }).where(eq(users.id, account.id));
+    const squatter = await db
+      .insert(users)
+      .values({
+        orgId: TEST_ORG_ID,
+        email: 'seed-test-squatter@vyuha.test',
+        employeeId: held,
+        status: 'ACTIVE',
+      })
+      .returning({ id: users.id });
+    const squatterId = squatter[0]?.id ?? '';
+
+    const rerun = await seed();
+    expect(rerun.admin.employee.id).toBeNull();
+    expect(rerun.admin.employee.linked).toBe(false);
+    expect(rerun.admin.employee.reason).toBe('employee-already-linked');
+    // The rest of the seed still ran.
+    expect(rerun.organization.created).toBe(false);
+    expect(rerun.roles).toHaveLength(4);
+
+    await db.delete(users).where(eq(users.id, squatterId));
+    await db.update(users).set({ employeeId: held }).where(eq(users.id, account.id));
   });
 });

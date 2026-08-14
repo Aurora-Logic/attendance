@@ -235,6 +235,16 @@ theirs), Claude Code assists through the product's own endpoints.
 - Employee roster imported via `POST /employees/import/validate` + `commit`
   (row 15). Note: this is API-only — there is no import screen yet — so it
   runs as a scripted call; do not build UI in this workstream.
+- **The administrator's own login joined to their employee record.** REQ-B-02
+  keeps the login and the person as separate rows, and a login with no person
+  attached is refused by `/punch` ("this sign-in is not linked to an employee
+  record") and by `GET /leave/balances`. An administrator who skips this
+  discovers it at the punch screen on day one, in front of employees. The
+  seed now joins `admin@vyuha.local` to VY-0001 so a development database is
+  punchable out of the box, but VY-0001 is a fabricated person — on production
+  the administrator's login must point at **their own** row from the roster
+  import above, not at the seeded one. Verify by punching once as that account
+  and by opening My Leave.
 - Invitations sent to every pilot user over real SMTP (row 8), delivery
   confirmed.
 - A one-page employee comms note: what is collected (photo, location), why,
@@ -252,8 +262,12 @@ IP allowlist, real shift timings plus weekly-off pattern plus rosters for
 every pilot employee (bulk endpoints), real leave types with opening-balance
 adjustments via /leave/balances/adjust, holiday import, and the employee
 roster via /employees/import/validate then /commit (API-only, scripted - no
-new UI). Assert nothing placeholder remains: the seeded General shift and
-seed leave types must be updated or replaced. Send all invitations over real
+new UI). Point the administrator's own login at their real employee row from
+that import, not at the seeded VY-0001, and prove it by punching once and
+opening My Leave as that account - a login with no employee record is refused
+by /punch and by GET /leave/balances. Assert nothing placeholder remains: the
+seeded General shift and seed leave types must be updated or replaced. Send
+all invitations over real
 SMTP and verify delivery in the mail log. Draft the one-page employee comms
 note (photo and location collection, retention, PWA install, permission
 prompts). Everything through the product's own audited endpoints - no direct
@@ -317,6 +331,9 @@ checklist:
       real shift timings, a roster for every pilot employee, real leave
       types with opening balances, this year's holidays — and no
       placeholder seed rows anywhere.
+- [ ] Every pilot login is joined to an employee record, the administrator's
+      included and pointing at their own row rather than the seeded VY-0001.
+      A login without one cannot punch and has no leave.
 - [ ] Invitations delivered to every pilot employee; one sampled acceptance
       completes on a personal phone end to end: PWA install, camera and
       location permissions granted, punch lands.

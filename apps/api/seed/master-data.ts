@@ -139,13 +139,22 @@ const DESIGNATIONS: readonly DesignationSpec[] = [
 ];
 
 /**
+ * The employee the seeded administrator login is joined to (see `seed.ts`).
+ *
+ * VY-0001 rather than a row of the administrator's own: they are the root of
+ * the reporting tree and head of Administration, so a login joined to them has
+ * the whole organisation in team scope, which is what an administrator needs.
+ */
+export const ADMINISTRATOR_EMPLOYEE_CODE = 'VY-0001';
+
+/**
  * Five levels deep on the longest branch -- Anita, Bharat, Farhan, Lalit,
  * Varun -- because the team data scope walks a chain rather than a list of
  * direct reports (PRD §2), and a two-level tree cannot tell a correct
  * implementation from one that stops after the first hop.
  */
 const EMPLOYEES: readonly EmployeeSpec[] = [
-  { code: 'VY-0001', firstName: 'Anita', lastName: 'Rao', departmentCode: 'ADM', designationCode: 'DIR', managerCode: null, employmentType: 'PERMANENT', status: 'ACTIVE', dateOfJoining: '2019-04-01' },
+  { code: ADMINISTRATOR_EMPLOYEE_CODE, firstName: 'Anita', lastName: 'Rao', departmentCode: 'ADM', designationCode: 'DIR', managerCode: null, employmentType: 'PERMANENT', status: 'ACTIVE', dateOfJoining: '2019-04-01' },
 
   { code: 'VY-0002', firstName: 'Bharat', lastName: 'Menon', departmentCode: 'OPS', designationCode: 'GM', managerCode: 'VY-0001', employmentType: 'PERMANENT', status: 'ACTIVE', dateOfJoining: '2019-06-17' },
   { code: 'VY-0003', firstName: 'Chandni', lastName: 'Iyer', departmentCode: 'HR', designationCode: 'GM', managerCode: 'VY-0001', employmentType: 'PERMANENT', status: 'ACTIVE', dateOfJoining: '2019-08-05' },

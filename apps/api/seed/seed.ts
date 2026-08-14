@@ -12,6 +12,7 @@ import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 
 import type { Database } from '../src/platform/db/db.provider.js';
 import {
+  employees,
   organizations,
   permissions,
   rolePermissions,
@@ -20,7 +21,11 @@ import {
   users,
 } from '../src/platform/db/schema/index.js';
 import { hashPassword } from '../src/platform/auth/password.js';
-import { seedMasterData, type MasterDataReport } from './master-data.js';
+import {
+  ADMINISTRATOR_EMPLOYEE_CODE,
+  seedMasterData,
+  type MasterDataReport,
+} from './master-data.js';
 
 /**
  * Technical design §18 and PRD §2.1: one organisation, the four seeded roles
@@ -75,9 +80,21 @@ export interface SeedReport {
     created: boolean;
     /** Present only on the run that created the account. Printed once, never stored. */
     password: string | null;
+    /** REQ-B-02: the employee record this login acts as. */
+    employee: AdminEmployeeLink;
   };
   /** REQ-A-01 … REQ-A-03: locations, departments, designations, employees. */
   readonly masterData: MasterDataReport;
+}
+
+export interface AdminEmployeeLink {
+  /** The employee this login acts as, or null when none could be joined. */
+  readonly id: string | null;
+  readonly code: string | null;
+  /** True only on the run that wrote the join. A re-run reports false. */
+  readonly linked: boolean;
+  /** Null exactly when `id` is set. */
+  readonly reason: 'no-such-employee' | 'employee-already-linked' | null;
 }
 
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -97,15 +114,18 @@ export async function runSeed(db: Database, options: SeedOptions = {}): Promise<
     const organization = await ensureOrganisation(tx, orgId, orgName);
     const roleReport = await reconcileRoles(tx, orgId);
     const admin = await ensureAdministrator(tx, orgId, adminEmail, candidateHash, candidatePassword);
-    // Last, because the departments it creates are headed by the employees it
-    // creates, and both need the organisation to exist first.
+    // Before the link below, because the departments it creates are headed by
+    // the employees it creates, and both need the organisation to exist first.
     const masterData = await seedMasterData(tx, orgId);
+    // And after it, because the employee the administrator is joined to does
+    // not exist until the line above has run.
+    const adminEmployee = await linkAdministratorEmployee(tx, orgId, admin.userId);
 
     return {
       permissions: permissionReport,
       organization,
       roles: roleReport,
-      admin,
+      admin: { ...admin, employee: adminEmployee },
       masterData,
     };
   });
@@ -268,7 +288,7 @@ async function ensureAdministrator(
   email: string,
   passwordHash: string,
   password: string,
-): Promise<SeedReport['admin']> {
+): Promise<Omit<SeedReport['admin'], 'employee'>> {
   const adminRole = await tx
     .select({ id: roles.id })
     .from(roles)
@@ -320,6 +340,93 @@ async function ensureAdministrator(
     .onConflictDoNothing({ target: [userRoles.userId, userRoles.roleId] });
 
   return { userId: row.id, email: row.email, created: true, password };
+}
+
+/**
+ * REQ-B-02: the login and the employee record are separate rows joined 1:1, and
+ * nothing joined them. A freshly seeded `admin@vyuha.local` therefore had no
+ * employee record at all, so `/punch` answered "this sign-in is not linked to
+ * an employee record" and `GET /leave/balances` answered 400 -- the two
+ * employee-scoped screens were unreachable on every clean checkout, which is
+ * the whole of what a pilot administrator opens on day one.
+ *
+ * **Joined to a person the seed already created, not to an employee row of the
+ * administrator's own.** A dedicated row would put a twenty-sixth body into the
+ * headcount, the muster and every export -- invented data on a path that runs,
+ * which CLAUDE.md §6 forbids -- while this writes one foreign key between two
+ * rows the seed already owns and invents nothing.
+ *
+ * The seed is a development and pilot bootstrap; `run-seed.ts` refuses to run
+ * with `NODE_ENV=production` unless forced. Onboarding a real administrator
+ * means correcting or repointing that employee record, which is now a step in
+ * the launch plan (§WS-D) rather than something a pilot discovers at the punch
+ * screen.
+ *
+ * Idempotent in the same shape as everything else here: it fills a join that is
+ * empty and never repoints one. Somebody who moved the login onto their own
+ * employee record in the UI must not have that dragged back by a re-seed.
+ */
+async function linkAdministratorEmployee(
+  tx: Transaction,
+  orgId: string,
+  userId: string,
+): Promise<AdminEmployeeLink> {
+  const current = await tx
+    .select({ employeeId: users.employeeId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  const alreadyJoined = current[0]?.employeeId ?? null;
+  if (alreadyJoined !== null) {
+    const held = await tx
+      .select({ code: employees.employeeCode })
+      .from(employees)
+      .where(eq(employees.id, alreadyJoined))
+      .limit(1);
+
+    return { id: alreadyJoined, code: held[0]?.code ?? null, linked: false, reason: null };
+  }
+
+  const target = await tx
+    .select({ id: employees.id })
+    .from(employees)
+    .where(
+      and(
+        eq(employees.orgId, orgId),
+        eq(employees.employeeCode, ADMINISTRATOR_EMPLOYEE_CODE),
+        isNull(employees.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  const employeeId = target[0]?.id;
+  if (employeeId === undefined) {
+    return { id: null, code: null, linked: false, reason: 'no-such-employee' };
+  }
+
+  // `users_employee_uq` allows one living login per employee, so taking a
+  // record that already belongs to somebody else would be rejected by the
+  // index -- and would be the wrong outcome even if it were not. Reported
+  // rather than thrown: an administrator who has to be linked by hand is a
+  // worse day than a failed seed, not a reason to refuse the other twelve
+  // things this script does.
+  const claimed = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.employeeId, employeeId), isNull(users.deletedAt)))
+    .limit(1);
+
+  if (claimed[0] !== undefined) {
+    return { id: null, code: null, linked: false, reason: 'employee-already-linked' };
+  }
+
+  await tx
+    .update(users)
+    .set({ employeeId })
+    .where(and(eq(users.id, userId), isNull(users.employeeId)));
+
+  return { id: employeeId, code: ADMINISTRATOR_EMPLOYEE_CODE, linked: true, reason: null };
 }
 
 /**

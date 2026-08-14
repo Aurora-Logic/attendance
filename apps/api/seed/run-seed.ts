@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 
-import { runSeed, type SeedReport } from './seed.js';
+import { runSeed, type AdminEmployeeLink, type SeedReport } from './seed.js';
 
 /**
  * `pnpm db:seed`. A thin runner: everything worth testing is in `seed.ts`,
@@ -66,6 +66,17 @@ function print(report: SeedReport, elapsedMs: number): void {
     `administrator ${report.admin.email} ${report.admin.created ? '(created)' : '(already present)'}`,
   );
 
+  // Printed whether or not it worked. An administrator with no employee record
+  // cannot punch and has no leave, and the place that fact used to surface was
+  // the punch screen on day one.
+  const link = report.admin.employee;
+  lines.push(
+    link.id === null
+      ? `employee link none -- ${describe(link.reason)}. This login cannot punch and has no leave; ` +
+          'link it from the employee register.'
+      : `employee link ${link.code ?? '(unknown code)'} ${link.linked ? '(linked)' : '(already linked)'}`,
+  );
+
   const master = report.masterData;
   for (const [label, counts] of [
     ['locations', master.locations],
@@ -106,6 +117,17 @@ function print(report: SeedReport, elapsedMs: number): void {
   }
 
   process.stdout.write(`seed completed in ${String(elapsedMs)}ms\n`);
+}
+
+function describe(reason: AdminEmployeeLink['reason']): string {
+  switch (reason) {
+    case 'no-such-employee':
+      return 'the employee the seed joins the administrator to is not in this database';
+    case 'employee-already-linked':
+      return 'that employee record already belongs to another login';
+    case null:
+      return 'no reason recorded, which is a bug in seed.ts';
+  }
 }
 
 main().catch((error: unknown) => {
