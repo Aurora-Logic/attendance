@@ -35,6 +35,52 @@ import { attendanceDays, punches, shifts } from '../schema/index.js';
 const firstInPunch = alias(punches, 'first_in_punch');
 const lastOutPunch = alias(punches, 'last_out_punch');
 
+/** UTC ISO-8601 with a literal Z, which `new Date` reads without ambiguity. */
+const INSTANT_FORMAT = sql.raw(`'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'`);
+
+/**
+ * The time this day actually started or ended: an approved correction if there
+ * is one, otherwise the punch.
+ *
+ * REQ-F-03 says an approved regularization is written beside the punches and
+ * the day is recomputed, and that the original punches "remain untouched and
+ * visible". The engine honours both — it derives the day's minutes from the
+ * adjustment while leaving `first_in_punch_id` and `last_out_punch_id` pointed
+ * at the real punches, so the detail sheet can still show what was actually
+ * recorded.
+ *
+ * That left this read saying something untrue. Reading the punch alone, a day
+ * whose missing OUT had just been approved came back as "in 09:05, out —,
+ * worked 8h 25m": three numbers that cannot all be right, on the first screen
+ * the employee opens after their correction is approved. The adjustment is
+ * folded in here, and only here — the punch list beside it is untouched, so
+ * both halves of REQ-F-03 are now true at once.
+ *
+ * Last non-null wins, ordered by `created_at`, which is exactly how
+ * `DayEngineRepository.findAdjustment` folds several adjustments for one day.
+ * Two implementations of that rule would be two answers to "what time did this
+ * person leave", and the muster and the minutes beside it would disagree.
+ */
+function effectiveInstant(
+  orgId: string,
+  column: 'adjusted_in' | 'adjusted_out',
+  punchTime: PgColumn,
+): SQL<string | null> {
+  return sql<string | null>`to_char(
+    coalesce(
+      (SELECT ${sql.raw(`vy_adj.${column}`)}
+         FROM attendance_adjustments AS vy_adj
+        WHERE vy_adj.org_id = ${orgId}
+          AND vy_adj.employee_id = ${attendanceDays.employeeId}
+          AND vy_adj.attendance_date = ${attendanceDays.date}
+          AND vy_adj.deleted_at IS NULL
+          AND ${sql.raw(`vy_adj.${column}`)} IS NOT NULL
+        ORDER BY vy_adj.created_at DESC, vy_adj.id DESC
+        LIMIT 1),
+      ${punchTime}
+    ) AT TIME ZONE 'UTC', ${INSTANT_FORMAT})`;
+}
+
 const SORT_COLUMNS: Record<AttendanceDaySortField, PgColumn> = {
   date: attendanceDays.date,
   employeeCode: employees.employeeCode,
@@ -68,8 +114,9 @@ interface JoinedRow {
   shiftName: string | null;
   scheduledIn: Date | null;
   scheduledOut: Date | null;
-  firstInAt: Date | null;
-  lastOutAt: Date | null;
+  /** Already ISO-8601 UTC text: see `effectiveInstant`, which formats it. */
+  firstInAt: string | null;
+  lastOutAt: string | null;
   workedMinutes: number;
   breakMinutes: number;
   otMinutes: number;
@@ -93,8 +140,8 @@ function toSummary(row: JoinedRow): AttendanceDaySummary {
     shift: row.shiftId === null || row.shiftName === null ? null : { id: row.shiftId, name: row.shiftName },
     scheduledIn: row.scheduledIn?.toISOString() ?? null,
     scheduledOut: row.scheduledOut?.toISOString() ?? null,
-    firstInAt: row.firstInAt?.toISOString() ?? null,
-    lastOutAt: row.lastOutAt?.toISOString() ?? null,
+    firstInAt: row.firstInAt,
+    lastOutAt: row.lastOutAt,
     workedMinutes: row.workedMinutes,
     breakMinutes: row.breakMinutes,
     otMinutes: row.otMinutes,
@@ -176,8 +223,8 @@ export class AttendanceDayRepository extends ScopedRepository<typeof attendanceD
         shiftName: shifts.name,
         scheduledIn: attendanceDays.scheduledIn,
         scheduledOut: attendanceDays.scheduledOut,
-        firstInAt: firstInPunch.serverTime,
-        lastOutAt: lastOutPunch.serverTime,
+        firstInAt: effectiveInstant(orgId, 'adjusted_in', firstInPunch.serverTime),
+        lastOutAt: effectiveInstant(orgId, 'adjusted_out', lastOutPunch.serverTime),
         workedMinutes: attendanceDays.workedMinutes,
         breakMinutes: attendanceDays.breakMinutes,
         otMinutes: attendanceDays.otMinutes,

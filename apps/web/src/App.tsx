@@ -11,6 +11,7 @@ import { HolidaysPage } from '@/features/holidays';
 import { LeaveTypesPage, MyLeavePage } from '@/features/leave';
 import { PatternsPage } from '@/features/patterns/patterns-page';
 import { PunchPage } from '@/features/punch';
+import { RegularizationsPage } from '@/features/regularization';
 import { ShiftsPage } from '@/features/shifts';
 import { AnalyticsPage } from '@/features/analytics';
 import { AuditLogPage } from '@/features/audit';
@@ -55,6 +56,7 @@ const BUILT_ROUTES = new Set([
   '/recycle-bin',
   '/organisation',
   '/analytics',
+  '/regularizations',
 ]);
 
 const queryClient = new QueryClient({
@@ -101,6 +103,7 @@ export default function App() {
               <Route path="recycle-bin" element={<RecycleBinPage />} />
               <Route path="organisation" element={<OrgMastersPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
+              <Route path="regularizations" element={<RegularizationsPage />} />
 
               {/* Off the sidebar on purpose: reached from the user menu, not
                   from the navigation groups the PRD fixes (§6.1). */}

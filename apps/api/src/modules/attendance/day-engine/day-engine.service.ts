@@ -185,6 +185,28 @@ export class DayEngine {
 
     return { outcome: 'written', attendanceDayId, day };
   }
+
+  /**
+   * REQ-E-09, asked before a caller writes something a recompute would have to
+   * pick up.
+   *
+   * `computeDay` already refuses a locked date, which is enough for a caller
+   * that only recomputes. It is not enough for one that writes a *record* the
+   * engine will read later: an approved regularization stored against a locked
+   * month would sit inert and then apply itself the moment the month was
+   * reopened, which is a change nobody made at a time nobody chose. Those
+   * callers ask first.
+   *
+   * Here rather than in each caller's repository so `attendance_period_locks`
+   * has one reader. A second copy of this query is a second answer to the same
+   * question waiting to disagree.
+   */
+  async isLocked(employeeId: string, date: string): Promise<boolean> {
+    parseCalendarDate(date);
+    const employee = await this.repository.findEmployee(employeeId);
+    if (employee === null) throw AppError.notFound('Employee', employeeId);
+    return this.repository.isPeriodLocked(employee, date);
+  }
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -44,12 +45,33 @@ export const regularizations = pgTable(
       onDelete: 'set null',
     }),
     status: approvalStatusEnum('status').notNull().default('PENDING'),
+    /**
+     * Migration 0014, and the same three columns `leave_requests` carries.
+     * Separate from `updated_at`/`updated_by`, which move on any edit: an
+     * attachment added after a decision would otherwise rewrite who made it.
+     */
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decidedBy: uuid('decided_by'),
+    /** REQ-F-05 makes this mandatory on a rejection; the service enforces it. */
+    decisionReason: text('decision_reason'),
     ...standardColumns(),
   },
   (t) => [
     index('regularizations_employee_date_idx').on(t.orgId, t.employeeId, t.date),
     // REQ-F-02's per-month cap is counted over this.
     index('regularizations_org_date_idx').on(t.orgId, t.date),
+    index('regularizations_status_idx').on(t.orgId, t.status),
+    // Migration 0014. The cap in REQ-F-02 is counted in the service and a
+    // count is not a lock -- two submissions a millisecond apart both read the
+    // same total and both pass. Scoped to PENDING so a rejected request does
+    // not block the corrected re-raise, which is the ordinary use.
+    uniqueIndex('regularizations_one_open_per_day_idx')
+      .on(t.orgId, t.employeeId, t.date)
+      .where(sql`${t.status} = 'PENDING' AND ${t.deletedAt} IS NULL`),
+    check(
+      'regularizations_decision_is_attributed',
+      sql`(decided_at IS NULL) = (decided_by IS NULL)`,
+    ),
   ],
 );
 
@@ -111,11 +133,20 @@ export const onDutyRequests = pgTable(
       onDelete: 'set null',
     }),
     status: approvalStatusEnum('status').notNull().default('PENDING'),
+    /** Migration 0014; see the note on `regularizations`. */
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decidedBy: uuid('decided_by'),
+    /** REQ-F-05 makes this mandatory on a rejection; the service enforces it. */
+    decisionReason: text('decision_reason'),
     ...standardColumns(),
   },
   (t) => [
     index('on_duty_requests_range_idx').on(t.orgId, t.employeeId, t.fromDate, t.toDate),
     index('on_duty_requests_status_idx').on(t.orgId, t.status),
     check('on_duty_requests_range_ordered', sql`to_date >= from_date`),
+    check(
+      'on_duty_requests_decision_is_attributed',
+      sql`(decided_at IS NULL) = (decided_by IS NULL)`,
+    ),
   ],
 );

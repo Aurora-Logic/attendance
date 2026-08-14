@@ -30,6 +30,7 @@ import { toast } from '@/components/ui/toast';
 import { apiErrorCopy, actionErrorCopy } from '@/features/leave/api-error-copy';
 import { CheckboxRow } from '@/features/leave/control-row';
 import { SampleDataNotice } from '@/features/leave/sample-data-notice';
+import { RegularizationDecisionsSection } from '@/features/regularization';
 import { ApiError } from '@/lib/api/client';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -125,6 +126,7 @@ export function ApprovalsPage() {
   const canApproveTeam = usePermission(PERMISSIONS.LEAVE_APPROVE_TEAM);
   const canApproveAll = usePermission(PERMISSIONS.LEAVE_APPROVE_ALL);
   const canApprove = canApproveTeam || canApproveAll;
+  const canDecideRegularizations = usePermission(PERMISSIONS.REGULARIZATION_APPROVE);
 
   const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
   const pageSize = readPositiveInt(searchParams.get('pageSize'), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
@@ -371,6 +373,20 @@ export function ApprovalsPage() {
             : 'Everything you have put up for approval, of every kind, and where each one has got to.'
         }
       />
+
+      {/* Leave no longer appears here: it now raises a real approval request
+          and is decided in the inbox below, so its own band was deleted with
+          the join. Regularization and on-duty still decide on their own
+          endpoints, so they keep this arrangement until their handler lands
+          too (REQ-F-03, REQ-F-05). Gated on its own key -- an approver may
+          hold `leave.approve.team` and not `regularization.approve`. */}
+      {canDecideRegularizations && permissionsKnown ? (
+        <>
+          <RegularizationDecisionsSection />
+          <Separator />
+        </>
+      ) : null}
+
 
       <div className="flex flex-col gap-4">
         {/* One list, of every kind (REQ-I-01). The leave band that used to sit

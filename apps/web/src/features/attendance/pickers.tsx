@@ -416,6 +416,12 @@ interface TimeFieldProps extends OpenControl {
   value: string;
   onValueChange: (value: string) => void;
   label: string;
+  /**
+   * Matches a `FieldLabel`'s `htmlFor`, so the trigger is the labelled control.
+   * Optional: a toolbar use has no visible label and relies on `aria-label`
+   * alone, while a use inside a `Field` needs the association to exist.
+   */
+  id?: string;
   disabled?: boolean;
   className?: string;
 }
@@ -428,6 +434,7 @@ export function TimeField({
   value,
   onValueChange,
   label,
+  id,
   disabled,
   className,
   ...control
@@ -443,6 +450,7 @@ export function TimeField({
       description="Pick an hour and a minute."
       trigger={
         <Button
+          id={id}
           variant="outline"
           aria-label={label}
           disabled={disabled}

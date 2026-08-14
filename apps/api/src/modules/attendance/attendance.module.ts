@@ -4,6 +4,7 @@ import { ConsentModule } from '../../platform/consent/consent.module.js';
 import { ApprovalModule } from './approvals/approvals.module.js';
 import { HolidayModule } from './holidays/holidays.module.js';
 import { LeaveModule } from './leave/leave.module.js';
+import { RegularizationModule } from './regularization/regularization.module.js';
 import { ReportModule } from './reports/reports.module.js';
 import { ShiftModule } from './shifts/shifts.module.js';
 
@@ -33,7 +34,15 @@ import { PunchService } from './punch/punch.service.js';
   // never contend for this file. ConsentModule is the exception to "nothing
   // is imported here": it is platform but not @Global(), and the punch
   // context needs its service to say whether the REQ-M-03 notice still gates.
-  imports: [ConsentModule, ShiftModule, HolidayModule, ApprovalModule, LeaveModule, ReportModule],
+  imports: [
+    ConsentModule,
+    ShiftModule,
+    HolidayModule,
+    ApprovalModule,
+    LeaveModule,
+    ReportModule,
+    RegularizationModule,
+  ],
   controllers: [
     PunchController,
     PunchContextController,
