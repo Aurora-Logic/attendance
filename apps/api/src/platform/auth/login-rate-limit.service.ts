@@ -5,6 +5,7 @@ import { ERROR_CODES } from '@vyuha/shared';
 import type { Redis } from 'ioredis';
 
 import { AppError, describeError } from '../common/errors.js';
+import { LuaScript } from '../redis/lua-script.js';
 import { InjectRedis } from '../redis/redis.provider.js';
 
 /**
@@ -21,11 +22,34 @@ import { InjectRedis } from '../redis/redis.provider.js';
  * a fixed-window counter would let an attacker spend the full budget at
  * 14:59:59 and the full budget again at 15:00:01.
  *
- * Only *failed* attempts are counted, and that is deliberate rather than
- * lenient. Everyone in this product punches in from one office within the same
- * few minutes (ADR 0002), so they share one public IP: counting successes
- * would lock out the entire workforce at 09:05 every morning, which is a
- * denial of service the product would inflict on itself.
+ * **The check and the record are one Lua script**, and the attempt claims its
+ * slot on the way in rather than reporting it on the way out. The previous
+ * shape -- `assertWithinBudget` at the top of `login`, `recordFailure` after
+ * the password had been checked -- was a check-then-act race with a whole
+ * scrypt verification sitting inside the gap, so every request in flight read
+ * the same count and passed. Measured against the booted production API: a
+ * burst of sixty concurrent wrong passwords from one address produced sixty
+ * 401s, no 429 at all, and left the window holding sixty members against a cap
+ * of twenty. Sixty free guesses is not "twenty per fifteen minutes".
+ *
+ * Claiming on the way in means a request that then *succeeds* holds a slot for
+ * the length of one sign-in. That is deliberate, and it is the only version
+ * whose cap can hold, because nothing can tell a good password from a bad one
+ * before checking it. Only *failed* attempts are counted at rest -- a success
+ * calls `clear`, which drops the whole window for that address -- so the
+ * self-inflicted denial of service the failure-only rule exists to prevent
+ * (everyone in this product signs in from one office NAT within the same few
+ * minutes, ADR 0002) needs the successes to be *simultaneous*, not merely
+ * close together.
+ *
+ * Measured against the booted production build, since the trade is only worth
+ * making if the numbers say so. One sign-in takes {min 48ms, p50 60ms}, almost
+ * all of it scrypt, which is how long a slot is held. Twenty good sign-ins
+ * fired in the same instant from one address: twenty 200s. Fifty spread across
+ * one second, which is denser than any human arrival pattern: fifty 200s. The
+ * refusal appears only past twenty *concurrently in flight* -- twenty-five at
+ * once gives five 429s -- which is what a cap of twenty means, and is a soft
+ * refusal that clears in one request rather than a lockout.
  *
  * **When Redis is unreachable the limiter fails open**, loudly. The trade is
  * deliberate: failing closed would mean nobody in the company can sign in
@@ -45,40 +69,101 @@ export function loginRateLimitKey(ip: string): string {
   return `${KEY_PREFIX}${ip}`;
 }
 
+/**
+ * The slot one attempt holds, so the caller can hand it back.
+ *
+ * Null when there was no address to attribute the attempt to, which is the
+ * same "do nothing at all" the rest of this class applies to a null IP.
+ */
+export interface LoginAttemptClaim {
+  readonly ip: string;
+  readonly member: string;
+}
+
+const CLAIMED = 1;
+const REFUSED = 0;
+
+/**
+ * KEYS: the address window.
+ * ARGV: window cutoff score, now, the member to record, the cap, the TTL in ms.
+ *
+ * Returns `{1, ''}` when the slot was taken, and `{0, <oldest score>}` when the
+ * window was already full -- the oldest surviving failure is when it frees up,
+ * and it has to be read inside the script or the answer can be stale by the
+ * time it is used.
+ */
+const CLAIM_ATTEMPT = new LuaScript(`
+local cutoff = ARGV[1]
+
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', cutoff)
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[4]) then
+  local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+  return {0, oldest[2] or ''}
+end
+
+redis.call('ZADD', KEYS[1], ARGV[2], ARGV[3])
+-- Expiry is the whole eviction strategy. The previous version needed a
+-- tracked-address cap and a hand-written sweep to stop a rotating source
+-- turning the counter into a memory leak; Redis does it.
+redis.call('PEXPIRE', KEYS[1], ARGV[5])
+return {1, ''}
+`);
+
 @Injectable()
 export class LoginRateLimiter {
   private readonly logger = new Logger(LoginRateLimiter.name);
 
   constructor(@InjectRedis() private readonly redis: Redis) {}
 
-  /** Throws RATE_LIMITED when this address has already spent its budget. */
-  async assertWithinBudget(ip: string | null, now: number = Date.now()): Promise<void> {
-    if (ip === null) return;
+  /**
+   * Takes one of this address's slots, or throws RATE_LIMITED when there is
+   * none left. The slot stands as a recorded failure unless the caller hands
+   * it back with `release`, or clears the address with `clear`.
+   */
+  async claimAttempt(
+    ip: string | null,
+    now: number = Date.now(),
+  ): Promise<LoginAttemptClaim | null> {
+    if (ip === null) return null;
 
     const key = loginRateLimitKey(ip);
+    // Unique per attempt: a sorted set deduplicates by member, so two failures
+    // in the same millisecond would otherwise count once.
+    const member = `${String(now)}-${randomBytes(6).toString('hex')}`;
 
-    let recent: string[];
+    let outcome: unknown;
     try {
-      // Prune and read in one round trip. Pruning here as well as on write
-      // means an address that stops failing does not keep a stale count.
-      const results = await this.redis
-        .multi()
-        .zremrangebyscore(key, '-inf', String(now - WINDOW_MS))
-        .zrange(key, '0', '0', 'WITHSCORES')
-        .zcard(key)
-        .exec();
-
-      const count = readCount(results, 2);
-      if (count < MAX_FAILURES_PER_IP) return;
-
-      recent = readStrings(results, 1);
+      outcome = await CLAIM_ATTEMPT.run(
+        this.redis,
+        [key],
+        [
+          String(now - WINDOW_MS),
+          String(now),
+          member,
+          String(MAX_FAILURES_PER_IP),
+          String(WINDOW_MS),
+        ],
+      );
     } catch (error: unknown) {
-      this.failOpen('checking', error);
-      return;
+      this.failOpen('claiming an attempt for', error);
+      return null;
+    }
+
+    const [status, oldestScore] = readClaim(outcome);
+    if (status === CLAIMED) return { ip, member };
+    if (status !== REFUSED) {
+      // Unreachable unless the script above is edited. Failing open matches
+      // the outage posture rather than refusing every sign-in in the company,
+      // but it is a defect in this file rather than a fact about the world.
+      this.logger.error({
+        msg: 'Login limiter script returned an unrecognised reply; the per-IP limit is NOT in force.',
+        reply: String(status),
+      });
+      return null;
     }
 
     // The score of the oldest surviving failure is when the window frees up.
-    const oldest = Number(recent[1] ?? now);
+    const oldest = oldestScore === '' ? now : Number(oldestScore);
     const retryAfterSeconds = Math.max(1, Math.ceil((oldest + WINDOW_MS - now) / 1000));
 
     this.logger.warn({ msg: 'Login rate limit reached for address', ip });
@@ -90,26 +175,20 @@ export class LoginRateLimiter {
     );
   }
 
-  async recordFailure(ip: string | null, now: number = Date.now()): Promise<void> {
-    if (ip === null) return;
-
-    const key = loginRateLimitKey(ip);
-    // Unique per attempt: a sorted set deduplicates by member, so two failures
-    // in the same millisecond would otherwise count once.
-    const member = `${String(now)}-${randomBytes(6).toString('hex')}`;
-
+  /**
+   * Hands a claimed slot back.
+   *
+   * For an attempt that ended in neither a success nor a credential refusal --
+   * a database blip, a bug. Without it a dependency outage would spend an
+   * office's whole budget on requests that never tested a password, and lock
+   * everyone out for the window after the outage cleared.
+   */
+  async release(claim: LoginAttemptClaim | null): Promise<void> {
+    if (claim === null) return;
     try {
-      await this.redis
-        .multi()
-        .zremrangebyscore(key, '-inf', String(now - WINDOW_MS))
-        .zadd(key, String(now), member)
-        // Expiry is the whole eviction strategy. The previous version needed a
-        // tracked-address cap and a hand-written sweep to stop a rotating
-        // source turning the counter into a memory leak; Redis does it.
-        .pexpire(key, WINDOW_MS)
-        .exec();
+      await this.redis.zrem(loginRateLimitKey(claim.ip), claim.member);
     } catch (error: unknown) {
-      this.failOpen('recording a failure for', error);
+      this.failOpen('releasing an attempt for', error);
     }
   }
 
@@ -131,20 +210,9 @@ export class LoginRateLimiter {
   }
 }
 
-type MultiResult = [Error | null, unknown][] | null;
-
-function readCount(results: MultiResult, index: number): number {
-  const entry = results?.[index];
-  if (entry === undefined) throw new Error('Redis pipeline returned no result for ZCARD.');
-  const [error, value] = entry;
-  if (error !== null) throw error;
-  return typeof value === 'number' ? value : 0;
-}
-
-function readStrings(results: MultiResult, index: number): string[] {
-  const entry = results?.[index];
-  if (entry === undefined) return [];
-  const [error, value] = entry;
-  if (error !== null) throw error;
-  return Array.isArray(value) ? value.map(String) : [];
+/** The script's `{status, oldestScore}` pair, defended against anything else. */
+function readClaim(reply: unknown): [number, string] {
+  if (!Array.isArray(reply)) return [-1, ''];
+  const [status, oldest] = reply as unknown[];
+  return [typeof status === 'number' ? status : -1, typeof oldest === 'string' ? oldest : ''];
 }

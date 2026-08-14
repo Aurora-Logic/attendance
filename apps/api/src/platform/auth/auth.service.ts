@@ -53,6 +53,17 @@ const MAX_FAILED_ATTEMPTS = 5;
 const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const LOCKOUT_MS = 15 * 60 * 1000;
 
+/**
+ * The refusals that are a failed sign-in attempt and must cost the address a
+ * slot in the per-IP window. Everything else `login` can throw is a fault
+ * rather than an attempt, and gives its slot back.
+ */
+const COUNTED_AGAINST_THE_ADDRESS: ReadonlySet<string> = new Set([
+  ERROR_CODES.INVALID_CREDENTIALS,
+  ERROR_CODES.ACCOUNT_LOCKED,
+  ERROR_CODES.ACCOUNT_INACTIVE,
+]);
+
 /** REQ-B-03: single-use, 72 hours. REQ-B-04: single-use, 30 minutes. */
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
@@ -94,9 +105,33 @@ export class AuthService {
 
   // ---------------------------------------------------------------- login
 
+  /**
+   * The per-IP slot is claimed *before* the attempt rather than recorded after
+   * it, because the password check sits between the two and every request in
+   * flight during that gap used to read the same count (see
+   * `LoginRateLimiter`). The claim is what makes the attempt cost budget, so
+   * the failure branches below no longer record anything of their own.
+   */
   async login(input: LoginDto, context: SessionRequestContext): Promise<LoginResult> {
-    await this.rateLimiter.assertWithinBudget(context.ip);
+    const claim = await this.rateLimiter.claimAttempt(context.ip);
 
+    try {
+      return await this.attemptLogin(input, context);
+    } catch (error: unknown) {
+      // A refusal this limiter exists to count keeps its slot. Anything else --
+      // a database blip, a bug -- hands it back, so an outage cannot spend an
+      // office's whole budget on requests that never tested a password.
+      if (!(error instanceof AppError) || !COUNTED_AGAINST_THE_ADDRESS.has(error.code)) {
+        await this.rateLimiter.release(claim);
+      }
+      throw error;
+    }
+  }
+
+  private async attemptLogin(
+    input: LoginDto,
+    context: SessionRequestContext,
+  ): Promise<LoginResult> {
     const user = await this.findByEmail(input.email);
     const now = new Date();
 
@@ -104,7 +139,6 @@ export class AuthService {
     // the hash so a locked account costs nothing to refuse -- and so that a
     // brute-force run cannot use the lockout window to keep testing passwords.
     if (user !== null && user.lockedUntil !== null && user.lockedUntil > now) {
-      await this.rateLimiter.recordFailure(context.ip);
       throw new AppError(ERROR_CODES.ACCOUNT_LOCKED, 'This account is temporarily locked.', {
         details: { lockedUntil: user.lockedUntil.toISOString() },
       });
@@ -117,7 +151,6 @@ export class AuthService {
 
     if (!correct || user === null) {
       if (user !== null) await this.recordFailedAttempt(user, now);
-      await this.rateLimiter.recordFailure(context.ip);
       throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 'Email or password is incorrect.');
     }
 
@@ -125,7 +158,6 @@ export class AuthService {
     // that an account exists but is suspended is the same leak as telling them
     // it exists at all.
     if (user.status !== 'ACTIVE') {
-      await this.rateLimiter.recordFailure(context.ip);
       throw new AppError(
         ERROR_CODES.ACCOUNT_INACTIVE,
         user.status === 'INVITED'
@@ -173,6 +205,7 @@ export class AuthService {
    * REQ-B-10. The window is what makes this "five per fifteen minutes" rather
    * than "five ever": a run of failures older than the window is a different
    * run, and starts the count again.
+   *
    */
   private async recordFailedAttempt(
     user: { id: string; orgId: string; email: string; failedAttempts: number; failedAttemptsSince: Date | null },
