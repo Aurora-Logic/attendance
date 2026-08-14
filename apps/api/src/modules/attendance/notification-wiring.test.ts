@@ -1,7 +1,9 @@
 import { NOTIFICATION_EVENTS, PERMISSIONS, SYSTEM_ROLES, uuidv7 } from '@vyuha/shared';
 import { and, desc, eq, sql } from 'drizzle-orm';
+import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { env } from '../../platform/common/env.js';
 import type { OrgContext } from '../../platform/db/scoped-repository.js';
 import { notifications } from '../../platform/db/schema/index.js';
 import { JobRunner } from '../../platform/jobs/job-runner.service.js';
@@ -55,7 +57,28 @@ async function drainNotifications(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
 
+/**
+ * Before the harness resets the organisation, not after.
+ *
+ * `resetOrganisation` deletes users, and `approval_steps.approver_user_id` is
+ * RESTRICT - so an approval raised by a previous run makes the second run's
+ * reset fail with a foreign-key violation, which reads as a broken test rather
+ * than as leftover state. The approvals suite solves it exactly this way.
+ */
+async function purgeApprovals(): Promise<void> {
+  const pool = new Pool({ connectionString: env.DATABASE_URL, max: 1 });
+  try {
+    await pool.query('DELETE FROM approval_steps WHERE org_id = $1', [ORG_ID]);
+    await pool.query('DELETE FROM approval_delegations WHERE org_id = $1', [ORG_ID]);
+    await pool.query('DELETE FROM approval_requests WHERE org_id = $1', [ORG_ID]);
+  } finally {
+    await pool.end();
+  }
+}
+
 beforeAll(async () => {
+  await purgeApprovals();
+
   harness = await ApiHarness.start(ORG_ID, 'Notification Wiring Fixture Org');
   runner = harness.resolve(JobRunner);
   approvals = harness.resolve(ApprovalService);

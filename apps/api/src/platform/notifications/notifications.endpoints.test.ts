@@ -1,5 +1,6 @@
 import {
   NOTIFICATION_EVENTS,
+  NOTIFICATION_EVENT_ROUTES,
   SYSTEM_ROLES,
   type NotificationPreference,
   type NotificationReadResult,
@@ -11,6 +12,7 @@ import { and, eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { env } from '../common/env.js';
 import { notificationPreferences, notifications } from '../db/schema/index.js';
 import { NotificationDispatcher } from './notification.dispatcher.js';
 
@@ -139,8 +141,12 @@ describe('GET /me/notifications (REQ-K-02)', () => {
     const [newest, , oldest] = result.body.data;
     expect(newest?.title).toBe('Your leave was approved');
     // The in-app channel stores it inside the jsonb payload; the endpoint is
-    // what turns that into a typed field the client can navigate to.
-    expect(newest?.actionUrl).toContain('/leave/');
+    // what turns that into a typed field the client can navigate to. The path
+    // is `NOTIFICATION_EVENT_ROUTES`, which is a route the web app renders --
+    // this used to assert `/leave/`, which never was one.
+    expect(newest?.actionUrl).toContain(
+      `${env.WEB_BASE_URL}${NOTIFICATION_EVENT_ROUTES[NOTIFICATION_EVENTS.LEAVE_APPROVED]}`,
+    );
     expect(newest?.readAt).toBeNull();
     expect(newest?.eventType).toBe(NOTIFICATION_EVENTS.LEAVE_APPROVED);
     expect(
