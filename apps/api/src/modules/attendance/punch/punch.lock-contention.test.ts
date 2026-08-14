@@ -259,8 +259,11 @@ describe('a stuck employee lock does not take the API down', () => {
       preparePunch(stuckToken, `lc-stuck-${String(i)}-${runId}`),
     );
 
-    let contended: Attempt[] = [];
-    let refused: Attempt = { status: 0, code: null };
+    // Assigned inside the try and read after the finally, so both are declared
+    // here without an initial value: a placeholder would be a reading nobody
+    // took, and a failure that reported one would be a lie about what happened.
+    let contended: Attempt[];
+    let refused: Attempt;
     let health: Timed = { status: 200, ms: 0 };
     let today: Timed = { status: 200, ms: 0 };
     let waiting = 0;
