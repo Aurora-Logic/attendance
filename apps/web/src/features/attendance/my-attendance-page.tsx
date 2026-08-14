@@ -95,21 +95,49 @@ function columnsFor(canSeeOvertime: boolean): RecordColumn<AttendanceDay>[] {
   return canSeeOvertime ? COLUMNS : COLUMNS.filter((column) => column.key !== 'ot');
 }
 
-/** Mirrors the calendar and the list it stands in for, so nothing resizes. */
+/**
+ * Mirrors what actually loads, in order: summary strip, calendar, list. The
+ * strip was missing entirely, so the calendar a reader had started scanning
+ * jumped ~120px the moment the month arrived. Dimensions are taken from the
+ * loaded screen (strip cell 59px, calendar 391px at 360 / 335px at 1440),
+ * not from what looked about right.
+ */
 function MonthSkeleton() {
   return (
     <div role="status" aria-busy="true" aria-label="Loading your attendance" className="flex flex-col gap-4">
-      <div aria-hidden className="flex flex-col gap-2 border p-3">
-        <Skeleton className="h-6 w-40 self-center" />
-        <div className="grid grid-cols-7 gap-1.5">
-          {Array.from({ length: 35 }, (_, index) => (
-            <Skeleton key={index} className="h-9" />
+      <div aria-hidden className="divide-border grid grid-cols-2 divide-x divide-y border sm:grid-cols-4 sm:divide-y-0">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="flex flex-col gap-0.5 px-3 py-2">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-6 w-8" />
+          </div>
+        ))}
+      </div>
+      <div aria-hidden className="flex flex-col gap-3 border p-3">
+        {/* The month caption row, then seven weekday labels, then six weeks
+            of day cells at the calendar's own cell size (36px, 44px coarse). */}
+        <div className="flex items-center justify-between">
+          <Skeleton className="pointer-coarse:size-11 size-9" />
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="pointer-coarse:size-11 size-9" />
+        </div>
+        <div className="grid min-h-10 grid-cols-7 items-center gap-1">
+          {Array.from({ length: 7 }, (_, index) => (
+            <Skeleton key={index} className="mx-auto h-4 w-6" />
           ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {Array.from({ length: 42 }, (_, index) => (
+            <Skeleton key={index} className="pointer-coarse:h-11 h-9" />
+          ))}
+        </div>
+        <div className="border-t pt-3">
+          <Skeleton className="h-4 w-48" />
         </div>
       </div>
       <div aria-hidden className="border">
         {Array.from({ length: 6 }, (_, index) => (
-          <div key={index} className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
+          <div key={index} className="flex min-h-14 items-center gap-4 border-b px-3 py-2.5 last:border-b-0 md:min-h-9">
             <Skeleton className="h-3 w-20 shrink-0" />
             <Skeleton className="hidden h-3 w-16 shrink-0 sm:block" />
             <Skeleton className="h-3 w-12 shrink-0" />

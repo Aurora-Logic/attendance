@@ -67,11 +67,16 @@ const inputGroupButtonVariants = cva(
   "flex items-center gap-2 text-xs shadow-none",
   {
     variants: {
+      // The ::after insets rebuild the 44px touch target these sizes lose by
+      // overriding the Button height: the base Button expands by the inset its
+      // own size pairs with, so a 24px-tall reveal button here measured 38px
+      // under a thumb -- and only 28px wide, because the base expansion never
+      // widens. Same trick as button.tsx, with this component's arithmetic.
       size: {
-        xs: "h-6 gap-1 rounded-none px-1.5 [&>svg:not([class*='size-'])]:size-3.5",
-        sm: "gap-1",
-        "icon-xs": "size-6 rounded-none p-0 has-[>svg]:p-0",
-        "icon-sm": "size-7 p-0 has-[>svg]:p-0",
+        xs: "h-6 gap-1 rounded-none px-1.5 pointer-coarse:after:-inset-y-[10px] pointer-coarse:after:-inset-x-2 [&>svg:not([class*='size-'])]:size-3.5",
+        sm: "gap-1 pointer-coarse:after:-inset-x-2",
+        "icon-xs": "size-6 rounded-none p-0 pointer-coarse:after:-inset-[10px] has-[>svg]:p-0",
+        "icon-sm": "size-7 p-0 pointer-coarse:after:-inset-[8px] has-[>svg]:p-0",
       },
     },
     defaultVariants: {

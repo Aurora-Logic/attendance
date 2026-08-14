@@ -101,7 +101,10 @@ function StatusStrip({
         ))}
         <div className="flex flex-col gap-1 px-3 py-2">
           <dt className="text-muted-foreground text-[0.6875rem]">Status</dt>
-          <dd>{statusSlot}</dd>
+          {/* A dash before the first punch of the day, for the same reason
+              "Last punch" says "None today": a labelled cell with nothing
+              under it reads as a render failure, not as "nothing yet". */}
+          <dd className="text-xs font-medium">{statusSlot ?? EMPTY_VALUE}</dd>
         </div>
         <div className="flex flex-col gap-0.5 px-3 py-2">
           <dt className="text-muted-foreground text-[0.6875rem]">Last punch</dt>
@@ -112,19 +115,37 @@ function StatusStrip({
   );
 }
 
+/**
+ * Sized from the strip it stands in for, measured, not guessed: the clock row
+ * runs 55px and a one-line cell 51px, so the camera box and the action under
+ * them do not move when the data lands. Same grid as the loaded screen from
+ * lg, where the camera is a 22rem column, not a full-width band.
+ */
 function PunchSkeleton() {
   return (
     <div role="status" aria-busy="true" aria-label="Loading today" className="flex flex-col gap-4">
-      <div aria-hidden className="flex flex-col gap-3 border p-3">
-        <Skeleton className="h-8 w-40" />
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div aria-hidden className="border">
+        <div className="flex items-baseline justify-between gap-x-4 border-b px-3 py-3">
+          <Skeleton className="h-[30px] w-36" />
+          <Skeleton className="h-4 w-20" />
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4">
           {Array.from({ length: 4 }, (_, index) => (
-            <Skeleton key={index} className="h-8" />
+            <div key={index} className="flex flex-col gap-0.5 px-3 py-2">
+              <Skeleton className="h-4 w-14" />
+              <Skeleton className="h-4 w-20" />
+            </div>
           ))}
         </div>
       </div>
-      <Skeleton aria-hidden className="aspect-4/3 w-full" />
-      <Skeleton aria-hidden className="h-14 w-full" />
+      <div aria-hidden className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+        <Skeleton className="aspect-4/3 w-full" />
+        <div className="hidden flex-col gap-4 lg:flex">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-4 w-1/2" />
+        </div>
+      </div>
+      <Skeleton aria-hidden className="h-14 w-full md:h-11 md:w-56" />
     </div>
   );
 }
@@ -308,6 +329,10 @@ export function PunchPage() {
   const reasonRequired =
     (outsideWindow && today?.windowBehaviour === 'ALLOW_WITH_REASON') || locationMissing;
   const reasonOk = !reasonRequired || reason.trim().length >= MIN_REASON_LENGTH;
+  // Red only once something insufficient has been typed. An untouched field
+  // painted red reads as a broken form (the leave form states the same rule);
+  // until then the disabled button's helper line already says what is missing.
+  const reasonInvalid = reasonRequired && reason.trim().length > 0 && !reasonOk;
 
   // REQ-M-03: the notice is shown on the first punch and acceptance recorded.
   const consentNeeded = today ? !today.consentAccepted : false;
@@ -691,13 +716,13 @@ export function PunchPage() {
                   {/* REQ-D-06 / REQ-D-08a. Shown only when it is actually
                       required, so it never reads as an optional note box. */}
                   {reasonRequired ? (
-                    <Field data-invalid={reasonOk ? undefined : true}>
+                    <Field data-invalid={reasonInvalid ? true : undefined}>
                       <FieldLabel htmlFor="punch-reason">
                         {outsideWindow ? 'Why are you punching outside the window?' : 'Why is your location unavailable?'}
                       </FieldLabel>
                       <Textarea
                         id="punch-reason"
-                        aria-invalid={reasonOk ? undefined : true}
+                        aria-invalid={reasonInvalid ? true : undefined}
                         placeholder="A sentence is enough."
                         value={reason}
                         onChange={(event) => {

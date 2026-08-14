@@ -74,6 +74,10 @@ export function CameraPanel({ camera, className }: { camera: Camera; className?:
             // Mirrored, because an unmirrored front camera reads as somebody
             // else's face and people move the wrong way to centre themselves.
             '-scale-x-100',
+            // Faded in rather than popped: the stream arrives whenever the
+            // hardware is ready, which is exactly when the eye is on the box.
+            // Opacity only, and the reduced-motion block collapses it.
+            'transition-opacity duration-300 ease-out',
             state === 'ready' ? 'opacity-100' : 'opacity-0',
           )}
         />
