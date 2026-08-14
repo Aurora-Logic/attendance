@@ -54,6 +54,40 @@ different application.
 | WS-E final verify | Pending WS-D. |
 | WS-F charts and insights | Not started (launch-week, not go/no-go). |
 
+### The connect-everything push — 14 Aug, evening
+
+Eight branches built in parallel and merged into one product: five feature
+slices and three blocker-fix areas. **1,728 tests** (25 shared, 268 web,
+1,435 api), typecheck and lint clean, production bundle verified free of
+debug code, dev-only routes and sample data.
+
+What landed: **regularization and on-duty** (REQ-F — a forgotten punch-out
+finally has a way out, raised from the day sheet where the problem is
+noticed, and approval recomputes the day); **the leave/approvals join**
+(REQ-I — leave now reaches the real inbox, so delegation and escalation
+govern something); **notifications made visible** (REQ-K — bell, list,
+preferences, and the seven events that had templates but never fired);
+**admin completion** (roles can now be assigned to people, the org logo lives
+on the server, records carry their own history, and the Integrations screen
+stopped calling an endpoint that did not exist); and **the orphaned screens**
+(team leave calendar, comp-off, restricted-holiday election, balance
+adjustment, employee bulk import — every one an API that already worked with
+no way to reach it).
+
+**What the merge itself caught, none of it visible in any branch alone.** Two
+agents invented the same error code for the same idea. Two claimed the same
+day-sheet footer — both belonged, so it holds both. Notifications pointed its
+regularization event at a placeholder screen with a comment saying that slice
+had none yet; it does now. Notifications also wrote a falsification test
+asserting `/regularizations` was not a route, which regularization then
+created — the test was right to fail. And a guard test written by one agent
+caught **four files sharing a test organisation id**, which is why two suites
+had been quietly deleting each other's fixtures mid-run.
+
+The lesson worth keeping: parallel branches each verified in isolation are
+not a verified product. The merge is its own engineering task, and it found
+more real defects per hour than any single branch did.
+
 **§2 row 10 is now urgent and evidenced.** The single-flight fix closes the
 within-one-document race, which is the one the offline punch path hits. It
 does **not** close two separate documents: two tabs opened together, a
@@ -68,6 +102,21 @@ a browser restart.
 **The critical path is now entirely §2** — DNS pointed at the VPS, SMTP, R2-or-MinIO, geofence coordinates, shift timings, roster, leave types with opening balances, holidays. No code work blocks the pilot.
 
 ---
+
+## 0a. Residual risk at pilot — read before deciding how many people to invite
+
+Nothing below is a reason not to launch. They are the things that will still
+be true on the first morning, and holding them consciously is the difference
+between a pilot and a surprise.
+
+| Risk | State | What reduces it |
+|---|---|---|
+| **Nothing has met a real phone, network or person** | The largest unknown by far. Every defect found so far was found by a machine driving a machine. Day one of any pilot surfaces things no test reaches — a permission dialog tapped wrong, a dead spot on the shop floor, a name with an apostrophe. | Start with 5–10 people for two days, not 50. Same system, same day, a tenth of the blast radius. |
+| **Nothing has run at scale** | The seed is 25 employees against a 500-employee performance target. No load test exists. | Fine at pilot size. Do the performance pass before widening past ~50. |
+| **No production error tracking** | `SENTRY_DSN` is a validated slot with no SDK behind it, pending a dependency approval (§2 row 13). Failures are visible only in `vy logs api`. | Watch the logs directly for the first two days, or approve the dependency. |
+| **Two tabs / a browser restart can still sign a user out of everything** | P1-6. Tonight's Web Lock closed the offline-reconnect and two-tab-together cases; a browser restart presenting a stale cookie still trips reuse detection. | §2 row 10 — a ~10-second server-side rotation tolerance. Your call, small change. |
+| **Eleven of thirteen reports do not exist** | Attendance Register and Punch Audit are live; Payroll Input is not, and export is CSV rather than formatted Excel. | Month-end is the real deadline, not day one. Needs the `exceljs` approval and the column sign-off. |
+| **The approvals framework governs leave, but not yet regularization** | Regularization and on-duty decide on their own endpoints, as leave did until tonight. Both decision bands are deleted whole when their handler lands. | Works correctly today; it is an architectural loose end, not a defect. |
 
 ## 0. The honest verdict
 
