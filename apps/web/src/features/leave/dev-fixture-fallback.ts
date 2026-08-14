@@ -29,10 +29,17 @@ export type Sampled<T> = T & { sample: boolean };
  * unbuilt endpoint is the only thing sample data is allowed to stand in for,
  * and swallowing a permission error behind plausible rows would be a lie about
  * what the reader is allowed to see.
+ *
+ * "The server said nothing" is not the same as either, and it used to count
+ * here. `NETWORK_ERROR` means no server was reached — the ordinary state of
+ * this app on a phone with no signal — so an offline reload in development
+ * answered with fixtures instead of the error state, and a rehearsal of the
+ * offline path showed something the pilot will never see. A 404 and nothing
+ * else.
  */
 function isUnbuiltEndpoint(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
-  return error.code === 'NETWORK_ERROR' || error.code === 'NOT_FOUND' || error.status === 404;
+  return error.code === 'NOT_FOUND' || error.status === 404;
 }
 
 /**

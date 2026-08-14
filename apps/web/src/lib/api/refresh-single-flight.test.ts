@@ -91,7 +91,7 @@ describe('refreshAccessToken is single-flight', () => {
     fetchMock.mockReturnValueOnce(inFlight.promise);
 
     const callers = [refreshAccessToken(), refreshAccessToken()];
-    inFlight.resolve(jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'no' } }, 401));
+    inFlight.resolve(jsonResponse({ error: { code: 'TOKEN_EXPIRED', message: 'no' } }, 401));
 
     expect(await Promise.all(callers)).toEqual(['unauthenticated', 'unauthenticated']);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -162,7 +162,7 @@ describe('a cold document asks for a token before it asks for data', () => {
       served += 1;
       return Promise.resolve(
         served === 1
-          ? jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'expired' } }, 401)
+          ? jsonResponse({ error: { code: 'TOKEN_EXPIRED', message: 'expired' } }, 401)
           : jsonResponse({ ok: true }),
       );
     });
