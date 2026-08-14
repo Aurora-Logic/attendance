@@ -1,0 +1,29 @@
+# The repo root is the build context for both images (docker/*.Dockerfile),
+# so without this file everything on disk enters the context -- including
+# local apps/*/.env files, which then sit inside build-stage layers of every
+# image built on this machine. Secrets never belong in a layer, cached or not.
+#
+# Kept deliberately narrow: the Dockerfiles COPY package manifests, packages/,
+# apps/api, apps/web and docker/Caddyfile, so those paths must stay visible.
+
+# Real environment files, wherever they live. The two tracked examples are
+# documentation and carry no secrets, so they may stay.
+**/.env
+**/.env.*
+!.env.example
+!.env.production.example
+
+# Version control and agent state -- large, and none of it builds.
+.git
+.claude
+
+# Installed and built locally; the image installs and builds its own.
+**/node_modules
+**/dist
+
+# Documentation, CI and editor noise -- nothing in the images reads them.
+docs
+.github
+**/coverage
+**/*.log
+**/.DS_Store
