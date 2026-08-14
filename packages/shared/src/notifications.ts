@@ -142,6 +142,43 @@ export const NOTIFICATION_EVENT_DESCRIPTORS: Record<
   },
 };
 
+/**
+ * Where opening a notification goes.
+ *
+ * Here rather than inside the API's template table because it is the one part
+ * of a template the *web app* has to agree with, and it was wrong for eight of
+ * the thirteen events for as long as the catalogue has existed: `/leave/{id}`,
+ * `/attendance/periods`, `/punch-audit/{id}` and `/approvals/{id}` are not
+ * routes this app renders, so every one of them would have landed on the
+ * not-found placeholder. Nobody noticed, because until the bell existed there
+ * was no way to click one.
+ *
+ * A base route only. Where a detail screen exists the template appends the id;
+ * where one does not, the list is the honest destination and a route that does
+ * not exist is not. `notification-routes.test.ts` in the web app reads the real
+ * router and fails if any value here stops resolving.
+ */
+export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = {
+  'punch.reminder': '/punch',
+  'punch.missing_out': '/my-attendance',
+  // A flagged punch is an approval subject (REQ-I-01), and the inbox is where
+  // it is cleared. PRD §5 screen 9 (Punch Audit) has no route yet.
+  'punch.flagged': '/approvals',
+  'leave.applied': '/approvals',
+  'leave.approved': '/my-leave',
+  'leave.rejected': '/my-leave',
+  'leave.cancelled': '/my-leave',
+  'leave.balance_low': '/my-leave',
+  'leave.comp_off_expiring': '/my-leave',
+  // The regularization slice is being built separately and has no screen yet.
+  // Pointed at the attendance timeline the request is about, which exists,
+  // rather than at a route that does not.
+  'regularization.decided': '/my-attendance',
+  'approval.overdue': '/approvals',
+  'period.locked': '/period-lock',
+  'period.unlocked': '/period-lock',
+};
+
 /** Only the channels this phase actually delivers on (REQ-K-02). */
 export const DELIVERABLE_NOTIFICATION_CHANNELS: readonly NotificationChannel[] = [
   'in_app',

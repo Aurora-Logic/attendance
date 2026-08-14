@@ -1,9 +1,9 @@
 import {
-  BellIcon,
   CompassIcon,
   InfoIcon,
   KeyboardIcon,
   MagnifyingGlassIcon,
+  MegaphoneIcon,
   MonitorIcon,
   MoonIcon,
   SignOutIcon,
@@ -46,6 +46,7 @@ import {
 import { Toaster } from '@/components/ui/toast';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { GuideOverlay } from '@/features/guide';
+import { NotificationBell } from '@/features/notifications';
 import { hasUnread } from '@/features/updates';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useGuideStore } from '@/lib/guide-store';
@@ -280,7 +281,7 @@ function UserMenu() {
                   void navigate('/updates');
                 }}
               >
-                <BellIcon data-icon="inline-start" />
+                <MegaphoneIcon data-icon="inline-start" />
                 Updates
                 {unread ? (
                   <span className="bg-primary ml-auto size-2 rounded-full" aria-hidden />
@@ -382,7 +383,7 @@ function UserMenu() {
               void navigate('/updates');
             }}
           >
-            <BellIcon />
+            <MegaphoneIcon />
             Updates
             {unread ? <span className="bg-primary ml-auto size-2 rounded-full" aria-hidden /> : null}
           </DropdownMenuItem>
@@ -533,6 +534,13 @@ export function AppShell() {
             >
               <KeyboardIcon />
             </Button>
+
+            {/* REQ-K-05. The header's bell is notifications, and Updates keeps
+                its place in the account menu behind a megaphone: two bells a
+                few pixels apart, one meaning "the product changed" and one
+                meaning "something happened to you", is a coin toss every time
+                somebody sees a dot. */}
+            <NotificationBell />
 
             <UserMenu />
           </div>
