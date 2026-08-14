@@ -124,6 +124,7 @@ const PUNCH_FLAG_ORDER: readonly PunchFlag[] = [
   'device_mismatch',
   'clock_skew',
   'offline_sync',
+  'derived_time',
 ];
 
 export function toPunchRecord(row: PunchRow): PunchRecord {
@@ -186,6 +187,8 @@ export interface NewPunch {
   readonly attendanceDate: string;
   readonly punchType: PunchType;
   readonly serverTime: Date;
+  /** Migration 0014: set only when the punch is judged at another instant. */
+  readonly effectiveTime: Date | null;
   readonly clientTime: Date | null;
   readonly clockSkewSeconds: number | null;
   readonly syncDelaySeconds: number | null;
@@ -659,6 +662,7 @@ export class PunchRepository {
         attendanceDate: values.attendanceDate,
         punchType: values.punchType,
         serverTime: values.serverTime,
+        effectiveTime: values.effectiveTime,
         clientTime: values.clientTime,
         clockSkewSeconds: values.clockSkewSeconds,
         syncDelaySeconds: values.syncDelaySeconds,

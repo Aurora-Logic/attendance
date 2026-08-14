@@ -51,8 +51,10 @@ import {
   isIpAllowed,
   isWithinWindow,
   normaliseIp,
+  queuedEffectiveTime,
   windowFor,
   type DateCandidate,
+  type EffectiveTime,
   type PunchWindow,
 } from './punch-policy.js';
 import { DEFAULT_PUNCH_SETTINGS, photoExpiry, type PunchSettings } from './punch-settings.js';
@@ -547,13 +549,60 @@ export class PunchService {
     }
 
     const settings = await repository.readSettings();
-    const candidates = await this.candidatesFor(repository, ctx, employee, now);
+
+    // 4a. REQ-D-10 against REQ-D-05, resolved for queued punches and for
+    //     nothing else. See `queuedEffectiveTime`: a live punch is judged at
+    //     `now`, exactly as before, and a synced one at the clamped time its
+    //     queue recorded -- because a whole shift drained in one request
+    //     arrives in one instant, and every question below ("which day", "was
+    //     it inside the window") answered at that instant is answered about
+    //     the drain rather than about the shift.
+    //
+    //     The queue's own age limit is applied here, before the derived time
+    //     is used for anything. It used to sit further down, with the rest of
+    //     the plausibility checks, which was fine while nothing depended on
+    //     the client's time -- once the shift lookup does, a three-day-old
+    //     entry resolves a shift for a date the roster does not cover and is
+    //     refused as CONFLICT ("you have no shift for today") instead of
+    //     PUNCH_QUEUED_TOO_OLD, which tells the employee nothing they can act
+    //     on. Technical design §8: "reject queued punches older than 48 hours;
+    //     they must go through regularization instead."
+    if (source === 'OFFLINE_SYNC') {
+      const queuedSeconds = clockSkewSeconds(now, new Date(facts.clientTime));
+      if (queuedSeconds > OFFLINE_SYNC_MAX_AGE_HOURS * SECONDS_PER_HOUR) {
+        throw new AppError(
+          ERROR_CODES.PUNCH_QUEUED_TOO_OLD,
+          `This punch was queued more than ${String(OFFLINE_SYNC_MAX_AGE_HOURS)} hours ago. Raise a regularization for it instead.`,
+          { details: { queuedAt: facts.clientTime, delaySeconds: queuedSeconds } },
+        );
+      }
+    }
+
+    const effective =
+      source === 'OFFLINE_SYNC'
+        ? queuedEffectiveTime(new Date(facts.clientTime), now)
+        : { at: now, derived: false, clamped: false };
+
+    if (source === 'OFFLINE_SYNC' && !effective.derived) {
+      // Unreachable through the schema, which parses `clientTime` as an ISO
+      // instant. Logged rather than guessed at: the punch is then judged at
+      // the sync instant, which is the old behaviour and is wrong for a queued
+      // punch, and a silent wrong day is exactly what this change exists to
+      // stop.
+      this.logger.error({
+        msg: 'A queued punch carried an unusable client time; it will be judged at the sync instant.',
+        idempotencyKey,
+        clientTime: facts.clientTime,
+      });
+    }
+
+    const candidates = await this.candidatesFor(repository, ctx, employee, effective.at);
 
     // 5. REQ-C-02. Which day this punch belongs to, decided once, here.
     const attendanceDate = chooseAttendanceDate(
       candidates.map((entry) => entry.candidate),
       facts.type,
-      now,
+      effective.at,
     );
     const chosen = candidates.find((entry) => entry.candidate.date === attendanceDate);
     if (chosen === undefined) {
@@ -589,6 +638,7 @@ export class PunchService {
       chosen,
       { ...facts, source },
       now,
+      effective,
       meta,
       principal,
     );
@@ -612,6 +662,10 @@ export class PunchService {
       attendanceDate,
       punchType: facts.type,
       serverTime: now,
+      // Only when it differs from arrival; see migration 0014 and the column's
+      // own comment. Writing it for every punch would store the same fact
+      // twice and make "was this derived" a comparison rather than a value.
+      effectiveTime: effective.derived ? effective.at : null,
       clientTime: new Date(facts.clientTime),
       // The same subtraction, filed under the meaning it actually has for this
       // source: a wrong clock on a live punch, a queue delay on a synced one.
@@ -720,6 +774,12 @@ export class PunchService {
         type: inserted.type,
         attendanceDate: inserted.attendanceDate,
         serverTime: inserted.serverTime,
+        // REQ-D-10: recorded explicitly, not left to be inferred from the
+        // flag. An auditor asking "why does this day say eight hours" gets
+        // the instant that answer was computed from, and the client time it
+        // came from, from the trail rather than from a reconstruction.
+        effectiveTime: effective.derived ? effective.at.toISOString() : null,
+        clientTime: facts.clientTime,
         source: inserted.source,
         flags: inserted.flags,
         photoFileId: inserted.photo.fileId,
@@ -746,38 +806,51 @@ export class PunchService {
     shift: ShiftForDate,
     facts: SourcedFacts,
     now: Date,
+    effective: EffectiveTime,
     meta: RequestMeta,
     principal: Principal,
   ): Promise<PunchVerdict> {
     const flags = new Set<PunchFlag>();
     let reasonRequired = false;
 
-    // -- clock (REQ-D-05). Server time already decided everything above; this
-    //    only records how far off the device was.
+    // -- clock (REQ-D-05). Measured against the arrival instant whatever the
+    //    punch is judged at: on a live punch this is how wrong the device's
+    //    clock is, and on a queued one it is REQ-D-10's delay. Deriving it
+    //    from `effective.at` instead would report every offline punch as
+    //    perfectly synchronised, which is the one number the requirement asks
+    //    to be shown in reports.
     const skew = clockSkewSeconds(now, new Date(facts.clientTime));
     if (facts.source === 'OFFLINE_SYNC') {
-      if (skew > OFFLINE_SYNC_MAX_AGE_HOURS * SECONDS_PER_HOUR) {
-        throw new AppError(
-          ERROR_CODES.PUNCH_QUEUED_TOO_OLD,
-          `This punch was queued more than ${String(OFFLINE_SYNC_MAX_AGE_HOURS)} hours ago. Raise a regularization for it instead.`,
-          { details: { queuedAt: facts.clientTime, delaySeconds: skew } },
-        );
-      }
+      // The 48-hour refusal is not here: it has to run before the derived time
+      // is used to resolve a shift, so it lives at step 4a in `record`.
+      //
       // No `offline_sync` flag is stored: `source` already says it, and
       // `PunchRepository` puts it back into the API's flag list. One fact, one
       // column.
+      //
+      // `derived_time` is stored, because nothing else says it: this punch was
+      // judged on a time the server was told rather than one it witnessed.
+      if (effective.derived) flags.add('derived_time');
+      // And the clamp is not a detail to bury. A queued time that had to be
+      // pulled back to the sync instant came from a device whose clock is in
+      // the future, which is REQ-D-05's `clock_skew` however the punch
+      // travelled -- and without it a phone set a day ahead would look like an
+      // ordinary drain.
+      if (effective.clamped) flags.add('clock_skew');
     } else if (isClockSkewed(skew)) {
       flags.add('clock_skew');
     }
 
-    // -- window (REQ-D-06)
+    // -- window (REQ-D-06), asked at the instant the punch is judged at rather
+    //    than the instant it arrived. Otherwise every punch in a drain is
+    //    measured against the moment the phone found a network.
     const window = windowFor(
       shift.candidate.policy,
       shift.candidate.scheduledIn,
       shift.candidate.scheduledOut,
       facts.type,
     );
-    const outsideWindow = !isWithinWindow(window, now);
+    const outsideWindow = !isWithinWindow(window, effective.at);
     if (outsideWindow) {
       if (settings.windowBehaviour === 'BLOCK') {
         throw new AppError(

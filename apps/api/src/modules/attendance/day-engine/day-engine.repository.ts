@@ -470,6 +470,7 @@ export class DayEngineRepository {
         id: punches.id,
         punchType: punches.punchType,
         serverTime: punches.serverTime,
+        effectiveTime: punches.effectiveTime,
         source: punches.source,
         isHalfDayMarked: punches.isHalfDayMarked,
         outsideWindow: punches.outsideWindow,
@@ -486,9 +487,18 @@ export class DayEngineRepository {
       )
       .orderBy(asc(punches.serverTime), asc(punches.id));
 
-    return rows.map((row) => ({
+    // The coalesce lives here rather than in the engine: `effective_time` is
+    // set only when it differs from arrival (migration 0014), and the engine
+    // should read one instant per punch without a branch about which kind it
+    // is. `server_time` itself is not passed on -- nothing downstream of this
+    // needs the instant a punch arrived, and offering both is offering a way
+    // to compute a day from the wrong one.
+    return rows.map(({ serverTime, effectiveTime, ...row }) => ({
       ...row,
-      serverTime: requireInstant(row.serverTime, 'punches.server_time'),
+      effectiveTime: requireInstant(
+        effectiveTime ?? serverTime,
+        'punches.effective_time / punches.server_time',
+      ),
     }));
   }
 

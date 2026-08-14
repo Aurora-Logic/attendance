@@ -1,4 +1,8 @@
-import { CLOCK_SKEW_FLAG_SECONDS, type PunchType } from '@vyuha/shared';
+import {
+  CLOCK_SKEW_FLAG_SECONDS,
+  OFFLINE_SYNC_MAX_AGE_HOURS,
+  type PunchType,
+} from '@vyuha/shared';
 
 /**
  * Every decision the punch endpoint makes that does not need the database, as
@@ -165,6 +169,57 @@ export function clockSkewSeconds(serverTime: Date, clientTime: Date): number {
 
 export function isClockSkewed(seconds: number): boolean {
   return Math.abs(seconds) > CLOCK_SKEW_FLAG_SECONDS;
+}
+
+/** The instant a punch is judged at, and whether the client supplied it. */
+export interface EffectiveTime {
+  readonly at: Date;
+  /** True only for a queued punch whose recorded client time was usable. */
+  readonly derived: boolean;
+  /** True when that time had to be pulled back inside the allowed range. */
+  readonly clamped: boolean;
+}
+
+const MS_PER_HOUR = 3_600_000;
+
+/**
+ * REQ-D-10's queued punch, reconciled with REQ-D-05's "client time is never
+ * trusted for a policy decision".
+ *
+ * The two genuinely pull against each other, and only for this one source. A
+ * drain arrives in a single instant, so judging its entries at that instant
+ * makes a shift's worth of punches a day of zero length -- measured: an IN
+ * queued eight hours before its OUT produced ABSENT with 0 worked minutes,
+ * from client times that recorded 479. Judging them at the time the device
+ * recorded is the only answer that produces the day the person worked, and
+ * REQ-D-10 already says a queued punch "carries the original client
+ * timestamp".
+ *
+ * So the client is believed here, and nowhere else, and not without limits:
+ *
+ * - never later than the sync instant, so a device with its clock in the
+ *   future cannot punch forward into a day that has not happened;
+ * - never earlier than the queue's own 48-hour limit, which the endpoint
+ *   already refuses outright -- the same boundary said twice, so a rounding at
+ *   the edge cannot slip a punch past it;
+ * - never silently: a punch judged this way carries `derived_time`, a punch
+ *   that had to be clamped also carries `clock_skew`, and `effective_time` on
+ *   the row records the instant that was used.
+ *
+ * A client time that is not a time at all falls back to the sync instant and
+ * is reported as underived, so the caller logs it rather than a wrong day
+ * being invented from a value nobody can read.
+ *
+ * Web and mobile punches never reach this function. REQ-D-05 is unchanged for
+ * them: `now` decides, and it is the server's.
+ */
+export function queuedEffectiveTime(clientTime: Date, now: Date): EffectiveTime {
+  const asserted = clientTime.getTime();
+  if (!Number.isFinite(asserted)) return { at: now, derived: false, clamped: false };
+
+  const earliest = now.getTime() - OFFLINE_SYNC_MAX_AGE_HOURS * MS_PER_HOUR;
+  const bounded = Math.min(Math.max(asserted, earliest), now.getTime());
+  return { at: new Date(bounded), derived: true, clamped: bounded !== asserted };
 }
 
 // ------------------------------------------------------------- ip allowlist

@@ -56,6 +56,19 @@ export const PUNCH_FLAGS = [
   'device_mismatch',
   'clock_skew',
   'offline_sync',
+  /**
+   * REQ-D-10 against REQ-D-05: the instant this punch was judged on came from
+   * the queue rather than from the server's clock.
+   *
+   * Only a queued punch can carry it. A whole shift drained in one request is
+   * received in one instant, so a day computed from the moment of arrival is a
+   * day of zero length; the punch is therefore attributed to the time the
+   * device recorded, clamped so it can neither be in the future nor older than
+   * the queue's own 48-hour limit. This flag is what keeps that from being
+   * silent -- a reader of the muster or the audit trail can see that the
+   * server did not witness this time, it was told it.
+   */
+  'derived_time',
 ] as const;
 
 export type PunchFlag = (typeof PUNCH_FLAGS)[number];
