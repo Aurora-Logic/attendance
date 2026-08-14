@@ -48,7 +48,16 @@ const ORG_ID = '01900000-0000-7000-8000-0000000000e4';
 const TIMEZONE = 'Asia/Kolkata';
 /** Two more than the pool's `max`, so the exhaustion path is exercised too. */
 const CONTENDERS = 12;
-/** Generous: the healthy paths are one indexed query each. */
+/**
+ * Below `connectionTimeoutMillis`, which is the line that matters.
+ *
+ * Twelve punches decoding and re-encoding 1280x960 photographs in one Node
+ * process make everything slower, and a probe answering in a second under that
+ * load is a busy server, not a broken one. Five seconds is not: that is
+ * exactly how long `pg-pool` waits before giving up on a connection, and a
+ * reading pinned there is the pool being empty rather than the CPU being
+ * busy -- which is what the unfixed server produced, every time.
+ */
 const HEALTHY_BUDGET_MS = 4_000;
 
 let harness: ApiHarness;
@@ -111,20 +120,30 @@ function preparePunch(token: string, key: string): () => Promise<Attempt> {
 }
 
 /**
- * Backends this API is holding on this database, from the server's own view.
+ * Connections this API has parked on an advisory lock, from the server's own
+ * view. This is the outage itself, counted: each one is a pooled connection
+ * that has been taken out of circulation for as long as somebody else holds a
+ * key, and ten of them is the whole pool.
  *
  * Asked over the probe's own connection rather than through `harness.db`. The
  * harness shares the application's pool, so the first version of this measured
- * an exhausted pool by asking the exhausted pool -- and reported a five-second
+ * an exhausted pool by asking the exhausted pool, and reported a five-second
  * connect timeout instead of a number.
+ *
+ * Counting merely non-idle backends was the second mistake: a pool that has
+ * just finished a query, or one being torn down by the previous test file, is
+ * indistinguishable from one that is stuck, and the assertion failed once for
+ * a reason that had nothing to do with the punch path. `wait_event = advisory`
+ * can only be this.
  */
-async function activeBackends(): Promise<number> {
+async function backendsWaitingOnLock(): Promise<number> {
   const result = await holder.query<{ value: number }>(`
     SELECT count(*)::int AS value
       FROM pg_stat_activity
      WHERE datname = current_database()
        AND application_name = 'vyuha-api'
-       AND state <> 'idle'
+       AND wait_event_type = 'Lock'
+       AND wait_event = 'advisory'
   `);
   return result.rows[0]?.value ?? 0;
 }
@@ -139,7 +158,10 @@ async function timedGet(path: string, token: string | null): Promise<Timed> {
   try {
     const response = await fetch(`${harness.baseUrl}${path}`, {
       headers: token === null ? {} : { authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(HEALTHY_BUDGET_MS + 6_000),
+      // Bounded at the budget itself: a probe that hangs for ten seconds would
+      // spend the sampling window on one reading, and "it took at least this
+      // long" is already the failure.
+      signal: AbortSignal.timeout(HEALTHY_BUDGET_MS),
     });
     await response.text();
     return { status: response.status, ms: Date.now() - started };
@@ -239,25 +261,38 @@ describe('a stuck employee lock does not take the API down', () => {
 
     let contended: Attempt[] = [];
     let refused: Attempt = { status: 0, code: null };
-    let health: Timed = { status: 0, ms: 0 };
-    let today: Timed = { status: 0, ms: 0 };
-    let backends = 0;
+    let health: Timed = { status: 200, ms: 0 };
+    let today: Timed = { status: 200, ms: 0 };
+    let waiting = 0;
 
     const inFlight = Promise.all(fire.map((send) => send()));
     try {
-      // Long enough for every one of them to have reached the lock.
-      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      // Sampled over a window rather than at one instant, and the *worst* of
+      // each sample is what gets asserted.
+      //
+      // A single reading taken 1.2 seconds in was the first version, and it
+      // passed against the unfixed server: twelve punches have a photograph to
+      // decode, stamp, compress, thumbnail and upload before any of them
+      // reaches the lock, so the one moment sampled was sometimes before the
+      // pool had filled. Contention that takes a second to build has to be
+      // watched, not glanced at.
+      const refusedPunch = preparePunch(stuckToken, `lc-refused-${runId}`)();
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        waiting = Math.max(waiting, await backendsWaitingOnLock());
+        const [readySample, todaySample] = await Promise.all([
+          timedGet('/ready', null),
+          timedGet('/me/today', bystanderToken),
+        ]);
+        if (readySample.status !== 200 || readySample.ms > health.ms) health = readySample;
+        if (todaySample.status !== 200 || todaySample.ms > today.ms) today = todaySample;
+      }
 
-      backends = await activeBackends();
-      [health, today, refused] = await Promise.all([
-        timedGet('/ready', null),
-        timedGet('/me/today', bystanderToken),
-        // One more punch, awaited *while* the key is still held, so what a
-        // contended caller is told is measured rather than inferred. The
-        // twelve above are collected after the release and can legitimately
-        // include stragglers that got the key the moment it came free.
-        preparePunch(stuckToken, `lc-refused-${runId}`)(),
-      ]);
+      // Awaited while the key is still held, so what a contended caller is
+      // told is measured rather than inferred. The twelve above are collected
+      // after the release and can legitimately include stragglers that got the
+      // key the moment it came free.
+      refused = await refusedPunch;
     } finally {
       // Released before the contended requests are collected, not after: an
       // unbounded wait can only end when the key is free, and awaiting them
@@ -266,7 +301,7 @@ describe('a stuck employee lock does not take the API down', () => {
       contended = await inFlight;
     }
 
-    const detail = JSON.stringify({ backends, health, today, refused, contended });
+    const detail = JSON.stringify({ waiting, health, today, refused, contended });
 
     // The claim that matters most: nothing about one employee's key reached
     // anybody else's request.
@@ -274,8 +309,10 @@ describe('a stuck employee lock does not take the API down', () => {
     expect(health.ms, detail).toBeLessThan(HEALTHY_BUDGET_MS);
     expect(today.status, detail).toBe(200);
     expect(today.ms, detail).toBeLessThan(HEALTHY_BUDGET_MS);
-    // Fewer than `max`, so the pool was never the thing that was full.
-    expect(backends, detail).toBeLessThan(10);
+    // Not one connection parked on the key. This is the difference between a
+    // lock that serialises one employee's inserts and a lock that answers for
+    // everybody else's requests.
+    expect(waiting, detail).toBe(0);
 
     // And what a contended punch is told. Not 500: a PWA outbox has to be able
     // to tell "try again" from "this punch will never work".
