@@ -16,6 +16,7 @@ import { ZodValidationPipe } from './platform/common/zod-validation.pipe.js';
 import { DbModule } from './platform/db/db.module.js';
 import { FileModule } from './platform/files/file.module.js';
 import { HealthModule } from './platform/health/health.module.js';
+import { IntegrationModule } from './platform/integration/integration.module.js';
 import { JobsModule } from './platform/jobs/jobs.module.js';
 import { MailModule } from './platform/mail/mail.module.js';
 import { NotificationsModule } from './platform/notifications/notifications.module.js';
@@ -65,6 +66,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     OrgModule,
     PeopleModule,
     SettingsModule,
+    IntegrationModule,
     HealthModule,
     // The first `modules/` entry. Everything above it is the shared kernel;
     // CRM and ERP will sit beside this one and import nothing from it.

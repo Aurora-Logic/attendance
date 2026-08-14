@@ -7,8 +7,8 @@ import { ApiError, ensureAccessToken, getAccessToken, refreshAccessToken } from 
  * `POST` of a `multipart/form-data` body.
  *
  * `apiRequest` speaks JSON only — it would `JSON.stringify` a FormData into
- * `{}` — so the two multipart endpoints in this app (`POST /punches` and
- * `POST /punches/sync`) need their own sender. Everything else about the call
+ * `{}` — so the multipart endpoints in this app (`POST /punches`,
+ * `POST /punches/sync` and `POST /settings/logo`) need their own sender. Everything else about the call
  * is identical to `apiRequest`: the same bearer token, the same
  * `credentials: 'include'` for the refresh cookie, the same one-shot refresh on
  * a 401, and the same `ApiError` shape, so callers do not have to know there

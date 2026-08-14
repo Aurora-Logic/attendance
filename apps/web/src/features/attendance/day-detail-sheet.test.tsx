@@ -26,6 +26,7 @@ import type { AttendanceDay } from './types';
 
 function day(overrides: Partial<AttendanceDay>): AttendanceDay {
   return {
+    id: 'd1',
     employee: { id: 'e1', name: 'Test User' },
     date: '2026-08-12',
     status: 'PRESENT',

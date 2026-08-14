@@ -3,6 +3,7 @@ import { TreePalmIcon, WarningCircleIcon, XCircleIcon } from '@phosphor-icons/re
 import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { RecordHistorySheet } from '@/features/audit/record-history-sheet';
 import { PageHeader } from '@/components/shared/page-header';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -144,7 +145,21 @@ const HISTORY_COLUMNS: RecordColumn<LeaveRequest>[] = [
   {
     key: 'cancel',
     header: '',
-    cell: (row) => <CancelLeaveAction request={row} />,
+    // Wrapped so a press on Cancel does not also activate the row behind it and
+    // open the history sheet on top of the confirm dialog. `RowActions` guards
+    // its own trigger the same way, for the same reason.
+    cell: (row) => (
+      <span
+        onClick={(event) => {
+          event.stopPropagation();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+        }}
+      >
+        <CancelLeaveAction request={row} />
+      </span>
+    ),
   },
 ];
 
@@ -322,6 +337,11 @@ function HistorySkeleton() {
 export function MyLeavePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const canApply = usePermission(PERMISSIONS.LEAVE_APPLY_SELF);
+  // REQ-M-02's per-record history. The row is only made activatable for a
+  // reader who can actually read the trail, rather than made clickable for
+  // everybody and then refused inside the sheet.
+  const canReadTrail = usePermission(PERMISSIONS.AUDIT_VIEW);
+  const [historyFor, setHistoryFor] = useState<LeaveRequest | null>(null);
 
   const leaveYear = leaveYearOf(new Date());
   const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
@@ -465,7 +485,14 @@ export function MyLeavePage() {
       <Separator />
 
       <section className="flex flex-col gap-4">
-        <SectionHeading title="History" note="Every application you have made, newest first." />
+        <SectionHeading
+          title="History"
+          note={
+            canReadTrail
+              ? 'Every application you have made, newest first. Activate a row for what changed on it and who changed it.'
+              : 'Every application you have made, newest first.'
+          }
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <Select value={status ?? ALL_STATUSES} onValueChange={setStatus}>
@@ -547,11 +574,31 @@ export function MyLeavePage() {
               mobileSupporting={(row) =>
                 `${formatDate(row.fromDate)} – ${formatDate(row.toDate)} · ${formatDays(row.totalDays)}`
               }
+              // REQ-M-02. Row activation rather than a column button, because a
+              // column cell is not rendered at all in the stacked mobile card —
+              // an action only desktop readers could reach would satisfy the
+              // requirement on one device and not the other.
+              onRowActivate={canReadTrail ? setHistoryFor : undefined}
             />
             <RecordPagination page={page} pageSize={pageSize} total={total} />
           </>
         ) : null}
       </section>
+
+      <RecordHistorySheet
+        open={historyFor !== null}
+        onOpenChange={(next) => {
+          if (!next) setHistoryFor(null);
+        }}
+        entityType="leave_request"
+        entityId={historyFor?.id ?? null}
+        title={
+          historyFor === null
+            ? ''
+            : `${historyFor.leaveType.name}, ${formatDate(historyFor.fromDate)}`
+        }
+        description="Applied, approved, rejected or cancelled — every step recorded against this request."
+      />
     </>
   );
 }

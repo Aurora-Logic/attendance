@@ -57,6 +57,10 @@ file:line. The goal is that nobody can tell which parts a given session wrote.
   behind `import.meta.env.DEV`, and only on reads, and every screen that can
   fall back must render `SampleDataNotice`. The two sanctioned shims are
   `features/attendance/api.ts` and `features/leave/dev-fixture-fallback.ts`.
+- A fallback must never stand in for a **record-scoped** read. Invented rows
+  are recognisable as a demonstration when they are the organisation's; the
+  same rows presented as the history of one named person are a fabrication.
+  `useAuditLog` refuses the fallback whenever `entityId` is set.
 - The proof is the bundle, not the source: after `pnpm --filter @vyuha/web build`,
   grep `apps/web/dist/assets/*.js` for fixture identifiers - they must be
   absent (the fallback compiles to dead code). A fixture name in the

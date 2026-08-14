@@ -303,9 +303,15 @@ function dayFor(employee: SampleEmployee, date: Date): AttendanceDay {
   const derived = deriveDay(employee, date, shift);
   const scheduled = derived.status === 'WEEKLY_OFF' || derived.status === 'HOLIDAY';
 
+  const day = format(date, 'yyyy-MM-dd');
+
   return {
+    // Deterministic, like everything else here: a sample row that changed id on
+    // every render could not be screenshot twice, and a real `attendance_days`
+    // id would suggest the row exists on the server, which it does not.
+    id: `sample-day-${employee.id}-${day}`,
     employee: { id: employee.id, name: employee.name },
-    date: format(date, 'yyyy-MM-dd'),
+    date: day,
     shiftName: scheduled ? null : shift.name,
     scheduledIn: scheduled ? null : shift.scheduledIn,
     scheduledOut: scheduled ? null : shift.scheduledOut,

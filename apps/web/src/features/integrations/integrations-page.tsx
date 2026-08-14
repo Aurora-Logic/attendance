@@ -16,12 +16,16 @@ import {
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
 import { EMPTY_VALUE } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
-import { STATUS_LABELS, STATUS_VARIANT, type IntegrationConnection } from './types';
+import {
+  STATUS_LABELS,
+  STATUS_VARIANT,
+  statusExplanation,
+  type IntegrationConnection,
+} from './types';
 import { useIntegrations } from './use-integrations';
 
 /**
@@ -34,6 +38,10 @@ import { useIntegrations } from './use-integrations';
  * on every press teaches the reader to distrust the whole screen.
  */
 
+/**
+ * "Never", not a dash. A connection that has never been heard from is a fact
+ * about the connection, and an em dash reads as a missing value.
+ */
 function heartbeatAge(value: string | null): string {
   if (value === null) return 'Never';
   const parsed = parseISO(value);
@@ -88,7 +96,8 @@ function ListSkeleton() {
 export function IntegrationsPage() {
   const canManage = usePermission(PERMISSIONS.INTEGRATION_MANAGE);
   const query = useIntegrations({ enabled: canManage });
-  const rows = query.data?.value.data ?? [];
+  const rows = query.data?.data ?? [];
+  const staleAfterMinutes = query.data?.staleAfterMinutes ?? null;
 
   if (!canManage) {
     return (
@@ -130,8 +139,6 @@ export function IntegrationsPage() {
       />
 
       <div className="flex flex-col gap-4">
-        {query.data?.sample ? <SampleDataNotice what="integrations" /> : null}
-
         {query.isPending ? <ListSkeleton /> : null}
 
         {query.isError ? (
@@ -152,27 +159,45 @@ export function IntegrationsPage() {
               </EmptyMedia>
               <EmptyTitle>No connections</EmptyTitle>
               <EmptyDescription>
-                A connection is created when the Tally agent is installed on the machine that runs
-                TallyPrime and is given a token. Nothing syncs until then, and attendance does not
-                depend on it.
+                This is the expected state today. A connection is created when the Tally agent is
+                installed on the machine that runs TallyPrime and is given a token. Nothing syncs
+                until then, and attendance does not depend on it.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : null}
 
         {rows.length > 0 ? (
-          <RecordTable
-            columns={COLUMNS}
-            rows={rows}
-            rowKey={(row) => row.id}
-            mobilePrimary={(row) => row.name}
-            mobileStatus={(row) => (
-              <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
-            )}
-            mobileSupporting={(row) =>
-              `${row.system} · last heartbeat ${heartbeatAge(row.lastHeartbeatAt)}`
-            }
-          />
+          <>
+            <RecordTable
+              columns={COLUMNS}
+              rows={rows}
+              rowKey={(row) => row.id}
+              mobilePrimary={(row) => row.name}
+              mobileStatus={(row) => (
+                <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
+              )}
+              mobileSupporting={(row) =>
+                `${row.system} · last heartbeat ${heartbeatAge(row.lastHeartbeatAt)}`
+              }
+            />
+
+            {/* A status word is not enough on this screen: "Never connected"
+                and "Heartbeat overdue" are different problems with different
+                fixes, and the reader has no other place to learn which. The
+                stale window is the server's own number, read from the response
+                rather than restated here. */}
+            <dl className="flex flex-col gap-2 border p-4 text-sm">
+              {rows.map((row) => (
+                <div key={row.id} className="flex flex-col gap-0.5">
+                  <dt className="text-xs font-medium">{row.name}</dt>
+                  <dd className="text-muted-foreground text-xs">
+                    {statusExplanation(row, staleAfterMinutes ?? 0)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </>
         ) : null}
 
         <Alert>

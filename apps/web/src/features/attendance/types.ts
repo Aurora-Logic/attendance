@@ -35,6 +35,13 @@ export interface AttendanceDayEmployee {
 }
 
 export interface AttendanceDay {
+  /**
+   * The `attendance_days` row id. Carried through the mapping because
+   * REQ-M-02's per-record history filters the trail on it, and the override
+   * service audits against this id -- so without it the day sheet could show a
+   * status somebody changed and no way to ask who.
+   */
+  id: string;
   employee: AttendanceDayEmployee;
   /** Date-only `YYYY-MM-DD`. NFR-05: an attendance date is not an instant. */
   date: string;
@@ -124,6 +131,7 @@ const dayWireSchema: z.ZodType<DayWire> = z.object({
 /** The one place the wire shape becomes the shape the screens render. */
 function toAttendanceDay(row: DayWire): AttendanceDay {
   return {
+    id: row.id,
     employee: row.employee,
     date: row.date,
     shiftName: row.shift?.name ?? null,

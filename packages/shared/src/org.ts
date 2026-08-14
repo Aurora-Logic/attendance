@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import type { IntegrationStatus, IntegrationSystem } from './enums.js';
 import type { NamedRef } from './people.js';
 import { pageQuerySchema } from './pagination.js';
 
@@ -245,6 +246,62 @@ export interface RecycleBinEntry {
   readonly deletedAt: string;
   readonly deletedBy: NamedRef | null;
   readonly reason: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// REQ-L-01: the organisation logo (OPEN-QUESTIONS P0-7)
+//
+// It lived in localStorage while there was no file service to put it in, which
+// meant a second person signing in saw the monogram. Its permanent home is
+// `organizations.logo_key` pointing at a row in `files`, and it is read back
+// through a short-lived signed URL like every other object (NFR-09).
+// ---------------------------------------------------------------------------
+
+export interface OrgBranding {
+  readonly name: string;
+  /**
+   * A signed URL, or null when no logo is set -- and also null when one is set
+   * but its object has gone. A broken image in the sidebar of every screen
+   * would be a worse answer than the monogram.
+   */
+  readonly logoUrl: string | null;
+  /** How long the URL above is good for, so a client can decide when to refetch. */
+  readonly logoUrlExpiresInSeconds: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Technical design §14: the Tally seam, read-only
+//
+// Phase 0 scope is the tables and the interface, so Phase 6 is additive.
+// Nothing syncs, nothing heartbeats yet, and this contract deliberately
+// describes only what is true today: which connections exist and what state
+// each is in. Creating one, issuing a token and rotating it are credential
+// operations with no endpoint behind them, and they are not declared here —
+// a field in a contract is a standing invitation for somebody to fill it in.
+// ---------------------------------------------------------------------------
+
+export interface IntegrationConnectionView {
+  readonly id: string;
+  readonly system: IntegrationSystem;
+  readonly name: string;
+  readonly status: IntegrationStatus;
+  /** ISO instant, or null when the agent has never reported in. */
+  readonly lastHeartbeatAt: string | null;
+  /**
+   * True when an agent token has been issued. Never the token, and never its
+   * hash — the hash is not selected by any read path in the application.
+   */
+  readonly tokenIssued: boolean;
+}
+
+export interface IntegrationListResponse {
+  readonly data: readonly IntegrationConnectionView[];
+  /**
+   * How long a silence has to last before a connection is called stale, so the
+   * screen states the same number the server judged by rather than printing one
+   * of its own.
+   */
+  readonly staleAfterMinutes: number;
 }
 
 export const recycleBinQuerySchema = pageQuerySchema.extend({

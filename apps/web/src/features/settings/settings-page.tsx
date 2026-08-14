@@ -36,6 +36,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
+import {
+  RecordHistoryButton,
+  RecordHistorySheet,
+} from '@/features/audit/record-history-sheet';
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
@@ -176,7 +180,12 @@ export function SettingsPage() {
 
 function SettingsForm({ saved }: { saved: OrgSettings }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(saved));
+  const [historyOpen, setHistoryOpen] = useState(false);
   const save = useSaveSettings();
+  // REQ-M-02 and REQ-L-05. Settings are the one record where the diff matters
+  // more than the current value: "what is the retention now" is on the screen,
+  // and "who shortened it, and when" is the question a purged photo raises.
+  const canReadTrail = usePermission(PERMISSIONS.AUDIT_VIEW);
 
   const patch = patchOf(draft, saved);
   const dirty = Object.keys(patch).length > 0;
@@ -257,6 +266,13 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
             ? `Unsaved changes in ${String(Object.keys(patch).length)} section${Object.keys(patch).length === 1 ? '' : 's'}.`
             : 'Everything on this screen is saved.'}
         </p>
+        {canReadTrail ? (
+          <RecordHistoryButton
+            onClick={() => {
+              setHistoryOpen(true);
+            }}
+          />
+        ) : null}
         {dirty ? (
           <Button
             variant="outline"
@@ -599,6 +615,17 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           <EmailTab settings={saved} />
         </TabsContent>
       </Tabs>
+
+      <RecordHistorySheet
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        entityType="settings"
+        // The organisation row is what every settings write audits against,
+        // including the logo (REQ-L-01), so one id covers all four tabs.
+        entityId={saved.organisation.id}
+        title="Organisation settings"
+        description="Every settings change, with the values before and after (REQ-L-05)."
+      />
     </div>
   );
 }

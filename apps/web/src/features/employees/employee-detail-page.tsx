@@ -28,6 +28,10 @@ import {
 } from '@/components/ui/empty';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  RecordHistoryButton,
+  RecordHistorySheet,
+} from '@/features/audit/record-history-sheet';
 import { DayDetailSheet } from '@/features/attendance/day-detail-sheet';
 import { formatClock, formatDuration, toDateParam } from '@/features/attendance/format';
 import { MonthField } from '@/features/attendance/pickers';
@@ -40,6 +44,7 @@ import {
 } from '@/features/attendance/status';
 import { AttendanceFlags, AttendanceStatusBadge } from '@/features/attendance/status-badge';
 import { employeeActions } from './employee-actions';
+import { EmployeeAccessSection } from './employee-access-section';
 import { EmployeeSheet } from './employee-sheet';
 import { EmployeeLifecycleDialog, type LifecycleTarget } from './lifecycle-dialog';
 import type { AttendanceDay } from '@/features/attendance/types';
@@ -449,7 +454,12 @@ export function EmployeeDetailPage() {
 
   const [sheet, setSheet] = useState<EmployeeDetail | 'new' | null>(null);
   const [lifecycle, setLifecycle] = useState<LifecycleTarget | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const canManage = permissions.has(PERMISSIONS.EMPLOYEE_MANAGE);
+  const canReadTrail = permissions.has(PERMISSIONS.AUDIT_VIEW);
+  // REQ-B-07. Deliberately not `employee.manage`: HR editing a person's
+  // department must not be able to make them an administrator.
+  const canManageRoles = permissions.has(PERMISSIONS.ROLES_MANAGE);
 
   const punches = punchesQuery.data?.punches ?? [];
   const atCurrentMonth = isSameMonth(month, new Date());
@@ -477,9 +487,21 @@ export function EmployeeDetailPage() {
         });
 
   const backToRegister = (
-    <div className="flex items-center gap-2">
+    // Wraps rather than scrolling at 360px, and the row keeps its order:
+    // record-scoped actions first, the way out last.
+    <div className="flex flex-wrap items-center gap-2">
       {actions.length > 0 ? (
         <RowActions label={`Actions for ${record?.firstName ?? 'this employee'}`} actions={actions} />
+      ) : null}
+      {/* REQ-M-02. Only offered once the record has loaded: a history button
+          that opens an empty sheet while the id is still unknown would look
+          like the trail was empty rather than not yet asked for. */}
+      {canReadTrail && record !== null ? (
+        <RecordHistoryButton
+          onClick={() => {
+            setHistoryOpen(true);
+          }}
+        />
       ) : null}
       <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/employees" />}>
         <ArrowLeftIcon data-icon="inline-start" />
@@ -574,6 +596,23 @@ export function EmployeeDetailPage() {
           <EmployeeFacts employee={employee.data} />
 
           <Separator />
+
+          {/* REQ-B-07's assignment control. Above the month analysis rather
+              than below it: "what can this person do" is a question about the
+              record, and burying it under three charts would put it past the
+              point anyone scrolls.
+
+              Hidden rather than disabled for a reader without roles.manage,
+              which CLAUDE.md §4 allows. The sidebar already filters the Roles
+              screen out of their navigation entirely, so a permanent refusal
+              panel on every employee they open would be the only place in the
+              product that told them about a screen they cannot reach. */}
+          {canManageRoles ? (
+            <>
+              <EmployeeAccessSection employee={employee.data} />
+              <Separator />
+            </>
+          ) : null}
 
           <div className="flex flex-col gap-6">
             {/* Toolbar row (PRD §6.2). Wraps rather than scrolling sideways at
@@ -833,6 +872,17 @@ export function EmployeeDetailPage() {
         onOpenChange={(open) => {
           if (!open) setLifecycle(null);
         }}
+      />
+
+      <RecordHistorySheet
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        entityType="employee"
+        entityId={record?.id ?? null}
+        title={
+          record === null ? '' : employeeDisplayName(record.firstName, record.lastName)
+        }
+        description="Every change recorded against this employee record, newest first."
       />
     </>
   );

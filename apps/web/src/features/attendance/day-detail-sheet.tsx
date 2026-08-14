@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ClockCounterClockwiseIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
@@ -12,6 +12,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import {
+  RecordHistoryButton,
+  RecordHistorySheet,
+} from '@/features/audit/record-history-sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -77,6 +81,13 @@ export function DayDetailSheet({
   const canRaise = usePermission(PERMISSIONS.REGULARIZATION_RAISE);
   const kind = day === null ? null : suggestedKind(day);
 
+  // REQ-M-02. A derived day is the one record in this product that a person
+  // can find changed underneath them — an override, a lock, a nightly
+  // recompute — so "who did this to my day" is the question it most needs to
+  // be able to answer.
+  const canReadTrail = usePermission(PERMISSIONS.AUDIT_VIEW);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
   return (
     <Sheet open={day !== null} onOpenChange={onOpenChange}>
       {/* Bottom on a phone, right on a desktop: the sheet should arrive from
@@ -116,39 +127,67 @@ export function DayDetailSheet({
               ) : null}
             </div>
 
-            {/* REQ-F-01, offered where the problem is noticed rather than only
-                on a screen somebody has to know to visit. Pinned to the sheet's
-                bottom edge, which is the one place a thumb reaches without the
-                hand moving, and only for a day that is actually broken.
+            {/* REQ-F-01 and REQ-M-02 share this footer. The correction is
+                offered where the problem is noticed rather than only on a
+                screen somebody has to know to visit, and the trail answers
+                "who did this to my day" about the one record in this product
+                that can change underneath a person -- an override, a lock, a
+                recompute. Pinned to the sheet's bottom edge, which is the one
+                place a thumb reaches without the hand moving. */}
+            {(kind !== null && canRaise) || canReadTrail ? (
+              <SheetFooter className="shrink-0 flex-row justify-end gap-2 border-t">
+                {canReadTrail ? (
+                  <RecordHistoryButton
+                    onClick={() => {
+                      setHistoryOpen(true);
+                    }}
+                  />
+                ) : null}
+                {/* A link, not a button that submits: the correction needs a
+                    reason and a time, and the form is where those are given.
+                    It carries the day and the kind so nothing is chosen twice.
 
-                A link, not a button that submits: the correction needs a reason
-                and a time, and the form is where those are given. It carries the
-                day and the kind so nothing has to be chosen twice. */}
-            {kind !== null && canRaise ? (
-              <SheetFooter className="shrink-0 border-t">
-                {/* `buttonVariants` on a real anchor, which is shadcn's own
-                    pattern for a link that looks like a button (the Calendar
-                    in this codebase does the same). `Button render={<Link/>}`
-                    was the first attempt and Base UI warned about it: it
-                    applies role="button" to the anchor, which announces a
-                    navigation as a button and loses open-in-new-tab in
-                    assistive technology. The styling still comes from the
-                    shadcn component, so nothing here is hand-rolled. */}
-                <Link
-                  to={`/regularizations?date=${day.date}&kind=${kind}`}
-                  className={cn(buttonVariants({ variant: 'default' }), 'w-full')}
-                  onClick={() => {
-                    onOpenChange(false);
-                  }}
-                >
-                  <ClockCounterClockwiseIcon data-icon="inline-start" />
-                  Correct this day
-                </Link>
+                    `buttonVariants` on a real anchor is shadcn's own pattern
+                    for a link that looks like a button (the Calendar in this
+                    codebase does the same). `Button render={<Link/>}` was the
+                    first attempt and Base UI warned about it: it applies
+                    role="button" to the anchor, which announces a navigation
+                    as a button and loses open-in-new-tab in assistive
+                    technology. */}
+                {kind !== null && canRaise ? (
+                  <Link
+                    to={`/regularizations?date=${day.date}&kind=${kind}`}
+                    className={cn(buttonVariants({ variant: 'default' }), 'flex-1')}
+                    onClick={() => {
+                      onOpenChange(false);
+                    }}
+                  >
+                    <ClockCounterClockwiseIcon data-icon="inline-start" />
+                    Correct this day
+                  </Link>
+                ) : null}
               </SheetFooter>
             ) : null}
           </>
         ) : null}
       </SheetContent>
+
+      {/* Opens over this sheet rather than replacing it, so closing it returns
+          to the day rather than to the table. It is one surface deep, not two:
+          the history sheet swaps its own body between the list and an entry
+          instead of stacking a third. */}
+      <RecordHistorySheet
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        entityType="attendance_days"
+        entityId={day?.id ?? null}
+        title={day === null ? '' : formatDate(day.date)}
+        description={
+          day === null
+            ? ''
+            : `${day.employee.name} — every override, lock and recompute recorded against this day.`
+        }
+      />
     </Sheet>
   );
 }

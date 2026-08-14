@@ -8,6 +8,7 @@
 
 import { z } from 'zod';
 
+import type { UserStatus } from './enums.js';
 import { adminReasonSchema } from './org.js';
 
 export const PERMISSIONS = {
@@ -230,3 +231,62 @@ export const updateRoleSchema = z
   );
 
 export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
+
+// ---------------------------------------------------------------------------
+// REQ-B-07 assignment contract: `/employees/:id/access`
+//
+// "Admin can create roles, edit permission sets, and **assign multiple roles to
+// a user**." The first two shipped with the roles screen; this is the third,
+// and it hangs off the employee because that is where an administrator is
+// standing when the question arises. Roles attach to the *account*, not to the
+// employee record — REQ-B-02 keeps them separate, and an employee with no login
+// has nothing to hold a role.
+// ---------------------------------------------------------------------------
+
+/** The login account behind an employee record, when one exists (REQ-B-02). */
+export interface EmployeeAccount {
+  readonly id: string;
+  readonly email: string;
+  readonly status: UserStatus;
+  readonly lastLoginAt: string | null;
+}
+
+/**
+ * One role as the assignment control reads it.
+ *
+ * Carries its permission keys so the screen can say what granting it actually
+ * confers, rather than showing a name and leaving the reader to go and look the
+ * role up on another screen. `memberCount` is deliberately absent: it is a
+ * property of the role, not of this person's hold on it, and it would go stale
+ * the moment this endpoint granted or revoked one.
+ */
+export interface AssignedRole {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly isSystem: boolean;
+  readonly permissions: readonly PermissionKey[];
+}
+
+export interface EmployeeAccess {
+  readonly employeeId: string;
+  /** Null for an employee who has never been invited (REQ-A-06 imports). */
+  readonly account: EmployeeAccount | null;
+  readonly roles: readonly AssignedRole[];
+}
+
+/**
+ * One role at a time, not a set.
+ *
+ * The permission set on a role is replaced wholesale because two administrators
+ * composing deltas would produce a set neither chose. Membership is the
+ * opposite case: each grant and each revoke has to be judged against the
+ * REQ-B-07 last-holder invariant on its own, and a wholesale set that failed
+ * halfway would have already applied the earlier half.
+ */
+export const assignRoleSchema = z.object({
+  roleId: z.uuid(),
+  reason: adminReasonSchema,
+});
+
+export type AssignRoleInput = z.infer<typeof assignRoleSchema>;

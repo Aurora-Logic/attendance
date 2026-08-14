@@ -25,6 +25,7 @@ import type { AttendanceDay } from './types';
 
 function day(partial: Partial<AttendanceDay> & { date: string }): AttendanceDay {
   return {
+    id: `day-${partial.date}`,
     employee: { id: 'e1', name: 'Someone' },
     shiftName: 'General',
     scheduledIn: '09:00',

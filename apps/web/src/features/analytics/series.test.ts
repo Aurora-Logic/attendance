@@ -25,6 +25,7 @@ import type { PunchRow, RosterRow } from './use-analytics-data';
 
 function day(partial: Partial<AttendanceDay> & { date: string }): AttendanceDay {
   return {
+    id: `day-${partial.date}`,
     employee: { id: 'e1', name: 'Anita Rao' },
     shiftName: 'General',
     scheduledIn: '09:00',

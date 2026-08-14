@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 
+import { EmployeeAccessController } from './employee-access.controller.js';
+import { EmployeeAccessService } from './employee-access.service.js';
 import { EmployeeController } from './employee.controller.js';
 import { EmployeeService } from './employee.service.js';
 
@@ -10,8 +12,8 @@ import { EmployeeService } from './employee.service.js';
  * implementations and three of them wrong.
  */
 @Module({
-  controllers: [EmployeeController],
-  providers: [EmployeeService],
+  controllers: [EmployeeController, EmployeeAccessController],
+  providers: [EmployeeService, EmployeeAccessService],
   exports: [EmployeeService],
 })
 export class PeopleModule {}
