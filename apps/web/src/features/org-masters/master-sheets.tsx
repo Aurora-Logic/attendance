@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import { WarningCircleIcon } from '@phosphor-icons/react';
+import { MapPinIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+
+import { formatCoordinate, parseMapsLink, type MapsLinkResult } from './maps-link';
 import { Form } from '@/components/shared/form';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -513,6 +515,11 @@ function LocationBody({
     ipAllowlist: (existing?.ipAllowlist ?? []).join('\n'),
   }));
   const [touched, setTouched] = useState(false);
+  // Not part of the draft: the link is a way of filling the two coordinates,
+  // not a field of the record, and storing it would leave a stale URL beside
+  // numbers somebody later corrected by hand.
+  const [mapsLink, setMapsLink] = useState('');
+  const [mapsResult, setMapsResult] = useState<MapsLinkResult>({ kind: 'empty' });
 
   const save = useSaveLocation();
   const nameIssue = nameProblem(draft.name);
@@ -636,6 +643,60 @@ function LocationBody({
           silently shifts every attendance date for this location.
         </FieldDescription>
       </Field>
+
+      {/* The paste field comes before the two number fields on purpose: it is
+          how this gets filled in practice. Nobody types a latitude — they
+          press Share in Google Maps and paste. The numbers below stay, both
+          because a short link cannot be parsed and because somebody has to be
+          able to see and correct what was read. */}
+      <Field>
+        <FieldLabel htmlFor="location-maps-link">Paste a Google Maps link</FieldLabel>
+        <Input
+          id="location-maps-link"
+          className="pointer-coarse:h-11"
+          placeholder="https://www.google.com/maps/@19.0759837,72.8776559,17z"
+          value={mapsLink}
+          onChange={(event) => {
+            const text = event.target.value;
+            setMapsLink(text);
+            const result = parseMapsLink(text);
+            setMapsResult(result);
+            if (result.kind === 'found') {
+              setDraft((current) => ({
+                ...current,
+                geofenceLat: formatCoordinate(result.latitude),
+                geofenceLng: formatCoordinate(result.longitude),
+              }));
+            }
+          }}
+        />
+        <FieldDescription>
+          Optional shortcut. It fills the two fields below; it is not stored.
+        </FieldDescription>
+      </Field>
+
+      {mapsResult.kind === 'found' ? (
+        <Alert>
+          <MapPinIcon />
+          <AlertTitle>Centre read from the link</AlertTitle>
+          <AlertDescription>
+            {formatCoordinate(mapsResult.latitude)}, {formatCoordinate(mapsResult.longitude)} — check
+            it against the map before saving.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {mapsResult.kind === 'short-link' || mapsResult.kind === 'unrecognised' ? (
+        <Alert variant="destructive">
+          <WarningCircleIcon />
+          <AlertTitle>
+            {mapsResult.kind === 'short-link'
+              ? 'That link hides its coordinates'
+              : 'No coordinates in that'}
+          </AlertTitle>
+          <AlertDescription>{mapsResult.message}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <Field>
         <FieldLabel htmlFor="location-lat">Geofence latitude</FieldLabel>
