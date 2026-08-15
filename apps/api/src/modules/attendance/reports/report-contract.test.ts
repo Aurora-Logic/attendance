@@ -1,23 +1,184 @@
 import {
   MAX_EXPORT_RANGE_DAYS,
+  MUSTER_GRID_DAYS,
   REPORT_DEFINITIONS,
   REPORT_KEYS,
+  absenteeismCell,
+  attendanceExceptionCell,
   attendanceRegisterCell,
   defaultVisibleColumns,
   describeFilters,
   exportFileName,
   exportRequestSchema,
+  headcountCell,
   isReportKey,
+  leaveAvailedCell,
+  leaveBalanceCell,
+  leaveLedgerCell,
+  missingPunchCell,
+  musterDayKey,
+  musterGridCell,
   punchAuditCell,
   rangeLengthInDays,
   reportRowQuerySchema,
   resolveColumns,
   savedViewInputSchema,
   sortableFields,
+  type AbsenteeismSource,
+  type AttendanceExceptionSource,
   type AttendanceRegisterSource,
+  type HeadcountSource,
+  type LeaveAvailedSource,
+  type LeaveBalanceSource,
+  type LeaveLedgerSource,
+  type MissingPunchSource,
+  type MusterGridSource,
   type PunchAuditSource,
+  type ReportCellValue,
+  type ReportKey,
 } from '@vyuha/shared';
 import { describe, expect, it } from 'vitest';
+
+/**
+ * One fully populated row per derived report. Fully populated on purpose: the
+ * guard below asserts every column extracts something that is not null, which
+ * only means anything if the source has something in every field.
+ */
+const SAMPLES = {
+  musterGrid: {
+    id: 'emp-1',
+    employee: { name: 'Asha Menon' },
+    employeeCode: 'E-001',
+    departmentName: 'Production',
+    days: Object.fromEntries(
+      Array.from({ length: MUSTER_GRID_DAYS }, (_, index) => [musterDayKey(index + 1), 'P']),
+    ),
+    presentDays: 22,
+    absentDays: 1,
+    leaveDays: 2,
+    halfDays: 1,
+    onDutyDays: 1,
+    weeklyOffDays: 4,
+    holidayDays: 1,
+    workedMinutes: 10_560,
+    otMinutes: 120,
+    lateDays: 3,
+  } satisfies MusterGridSource,
+
+  exception: {
+    id: 'emp-1',
+    employee: { name: 'Asha Menon' },
+    employeeCode: 'E-001',
+    departmentName: 'Production',
+    locationName: 'Head Office',
+    occurrences: 4,
+    totalMinutes: 48,
+    averageMinutes: 12,
+    worstMinutes: 21,
+    firstDate: '2026-08-03',
+    lastDate: '2026-08-27',
+  } satisfies AttendanceExceptionSource,
+
+  absenteeism: {
+    id: 'emp-1:2026-08',
+    employee: { name: 'Asha Menon' },
+    employeeCode: 'E-001',
+    departmentName: 'Production',
+    locationName: 'Head Office',
+    month: '2026-08',
+    scheduledDays: 26,
+    presentDays: 22,
+    leaveDays: 2,
+    absentDays: 2,
+    absencePercent: 7.7,
+  } satisfies AbsenteeismSource,
+
+  missingPunch: {
+    id: 'day-1',
+    employee: { name: 'Asha Menon' },
+    employeeCode: 'E-001',
+    departmentName: 'Production',
+    date: '2026-08-12',
+    status: 'PENDING',
+    shiftName: 'General',
+    punchedInAt: '2026-08-12T03:34:00.000Z',
+    punchedOutAt: '2026-08-12T12:41:00.000Z',
+    flags: ['missing_punch'],
+    regularizationStatus: 'APPROVED',
+    regularizationKind: 'MISSING_OUT',
+    regularizationDecidedAt: '2026-08-13T05:00:00.000Z',
+    regularizationReason: 'Phone battery died',
+  } satisfies MissingPunchSource,
+
+  leaveBalance: {
+    id: 'emp-1:type-1',
+    employee: { name: 'Asha Menon' },
+    employeeCode: 'E-001',
+    departmentName: 'Production',
+    leaveTypeCode: 'CL',
+    leaveTypeName: 'Casual leave',
+    leaveYear: 2026,
+    opening: 2,
+    accrued: 6,
+    availed: 3,
+    adjusted: 1,
+    carriedForward: 2,
+    closing: 8,
+  } satisfies LeaveBalanceSource,
+
+  leaveLedger: {
+    id: 'ledger-1',
+    employee: { name: 'Asha Menon' },
+    employeeCode: 'E-001',
+    leaveTypeCode: 'CL',
+    leaveTypeName: 'Casual leave',
+    leaveYear: 2026,
+    postedAt: '2026-08-13T05:00:00.000Z',
+    movementType: 'AVAILED',
+    days: -1.5,
+    referenceType: 'leave_request',
+    periodKey: '2026-08',
+    note: 'Approved leave',
+  } satisfies LeaveLedgerSource,
+
+  leaveAvailed: {
+    id: 'emp-1:type-1',
+    employee: { name: 'Asha Menon' },
+    employeeCode: 'E-001',
+    departmentName: 'Production',
+    leaveTypeCode: 'CL',
+    leaveTypeName: 'Casual leave',
+    isPaid: true,
+    requests: 2,
+    days: 2.5,
+    firstDate: '2026-08-04',
+    lastDate: '2026-08-19',
+  } satisfies LeaveAvailedSource,
+
+  headcount: {
+    id: '2026-08',
+    month: '2026-08',
+    opening: 214,
+    joiners: 6,
+    leavers: 2,
+    closing: 218,
+  } satisfies HeadcountSource,
+} as const;
+
+/**
+ * One report's extractor bound to one sample row.
+ *
+ * Generic, so the extractor and the row it is handed have to match -- which is
+ * the whole point of the check below and would be lost the moment either side
+ * were widened to `unknown` to make the list homogeneous.
+ */
+function coverage<T>(
+  key: ReportKey,
+  cell: (row: T, columnKey: string) => ReportCellValue,
+  row: T,
+): { key: ReportKey; read: (columnKey: string) => ReportCellValue } {
+  return { key, read: (columnKey) => cell(row, columnKey) };
+}
 
 /**
  * The report contract, which is shared between the screen and the exporter.
@@ -105,6 +266,77 @@ describe('the report catalogue', () => {
         `no extractor for punch-audit column "${column.key}"`,
       ).not.toBeNull();
     }
+
+    // The daily muster reads the register's rows, so it must not name a column
+    // the register's extractor has never heard of.
+    for (const column of REPORT_DEFINITIONS['daily-muster'].columns) {
+      expect(
+        attendanceRegisterCell(day, column.key),
+        `no extractor for daily-muster column "${column.key}"`,
+      ).not.toBeNull();
+    }
+  });
+
+  /**
+   * The same guard for the reports that aggregate, which need it more: their
+   * rows exist only for them, so a column key and a query column that drift
+   * apart produce an empty column on screen and in the file, and nothing
+   * anywhere reports it.
+   */
+  it('has an extractor for every column of every derived report', () => {
+    const cases = [
+      coverage('monthly-muster', musterGridCell, SAMPLES.musterGrid),
+      coverage('late-arrivals', attendanceExceptionCell, SAMPLES.exception),
+      coverage('early-exits', attendanceExceptionCell, SAMPLES.exception),
+      coverage('overtime', attendanceExceptionCell, SAMPLES.exception),
+      coverage('absenteeism', absenteeismCell, SAMPLES.absenteeism),
+      coverage('missing-punch', missingPunchCell, SAMPLES.missingPunch),
+      coverage('leave-balance', leaveBalanceCell, SAMPLES.leaveBalance),
+      coverage('leave-ledger', leaveLedgerCell, SAMPLES.leaveLedger),
+      coverage('leave-availed', leaveAvailedCell, SAMPLES.leaveAvailed),
+      coverage('headcount', headcountCell, SAMPLES.headcount),
+    ];
+
+    // Every report with a derived row shape is covered, so a report added
+    // without a sample here fails rather than going unchecked.
+    const covered = new Set<ReportKey>(cases.map((entry) => entry.key));
+    const readModelBacked: readonly ReportKey[] = [
+      'attendance-register',
+      'daily-muster',
+      'punch-audit',
+    ];
+    for (const key of REPORT_KEYS) {
+      if (readModelBacked.includes(key)) continue;
+      expect(covered, `report "${key}" has no extractor sample`).toContain(key);
+    }
+
+    for (const entry of cases) {
+      for (const column of REPORT_DEFINITIONS[entry.key].columns) {
+        expect(
+          entry.read(column.key),
+          `no extractor for ${entry.key} column "${column.key}"`,
+        ).not.toBeNull();
+      }
+    }
+  });
+
+  it('reads a muster grid day out of the day map and nothing else', () => {
+    expect(musterGridCell(SAMPLES.musterGrid, 'd01')).toBe('P');
+    // Not a day key, and not a column: the regex must not swallow it.
+    expect(musterGridCell(SAMPLES.musterGrid, 'd32')).toBeNull();
+    expect(musterGridCell(SAMPLES.musterGrid, 'd0')).toBeNull();
+    expect(musterGridCell({ ...SAMPLES.musterGrid, days: {} }, 'd05')).toBeNull();
+  });
+
+  it('leaves a day with no correction empty rather than calling it "none"', () => {
+    const raised = missingPunchCell(SAMPLES.missingPunch, 'regularizationStatus');
+    expect(raised).toBe('APPROVED');
+    expect(
+      missingPunchCell(
+        { ...SAMPLES.missingPunch, regularizationStatus: null },
+        'regularizationStatus',
+      ),
+    ).toBeNull();
   });
 
   it('reads a coordinate pair as one cell and an absent location as empty', () => {

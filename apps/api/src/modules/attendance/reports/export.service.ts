@@ -107,10 +107,17 @@ export class ExportService {
   // ------------------------------------------------------------- requesting
 
   async request(principal: Principal, input: ExportRequest): Promise<ExportJobSummary> {
+    // Checked here as well as in the job, and deliberately: a period the report
+    // cannot answer for is a 400 on the button press, not a queued job that
+    // fails five times with backoff before anyone is told why.
+    const filters = ReportService.assertFiltersUsable(input.reportKey, input.filters);
     const requestedAt = new Date();
     const filename = exportFileName(input.reportKey, requestedAt, input.format);
     const snapshot: RequestSnapshot = {
-      filters: input.filters,
+      // The narrowed filters, not the requested ones: the daily muster collapses
+      // a range to its last day, and the header block must state the period the
+      // rows actually cover.
+      filters,
       columns: resolveColumns(input.reportKey, input.columns).map((column) => column.key),
       ...(input.sort === undefined ? {} : { sort: input.sort }),
     };
@@ -151,7 +158,7 @@ export class ExportService {
       after: {
         reportKey: input.reportKey,
         format: input.format,
-        filters: input.filters,
+        filters,
         columns: snapshot.columns,
         sort: snapshot.sort ?? REPORT_DEFINITIONS[input.reportKey].defaultSort,
       },

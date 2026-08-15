@@ -11,14 +11,11 @@ import {
   Query,
 } from '@nestjs/common';
 import {
-  ALL_REPORTS,
   PERMISSIONS,
   isReportKey,
-  type AttendanceDaySummary,
   type ExportDownload,
   type ExportJobSummary,
   type Paginated,
-  type PunchRecord,
   type ReportDefinition,
   type ReportKey,
   type SavedView,
@@ -35,7 +32,7 @@ import {
   SavedViewInputDto,
   SavedViewQueryDto,
 } from './report.dto.js';
-import { ReportService } from './report.service.js';
+import { ReportService, type ReportRow } from './report.service.js';
 import { SavedViewService } from './saved-view.service.js';
 
 /**
@@ -62,12 +59,13 @@ export class ReportController {
   /**
    * The report catalogue. Served rather than compiled into the client so that
    * a client one release behind still renders only the reports the server can
-   * actually produce.
+   * actually produce -- and narrowed to the ones this caller's keys can return
+   * rows for, so `Ctrl+G` never offers a report that would answer empty forever.
    */
   @Get()
   @RequirePermission(PERMISSIONS.REPORT_VIEW)
-  catalogue(): { data: readonly ReportDefinition[] } {
-    return { data: ALL_REPORTS };
+  catalogue(@CurrentUser() principal: Principal): { data: readonly ReportDefinition[] } {
+    return { data: this.reports.catalogue(principal) };
   }
 
   // ------------------------------------------------------------ saved views
@@ -154,7 +152,7 @@ export class ReportController {
     @CurrentUser() principal: Principal,
     @Param('reportKey') reportKey: string,
     @Query() query: ReportRowQueryDto,
-  ): Promise<Paginated<AttendanceDaySummary> | Paginated<PunchRecord>> {
+  ): Promise<Paginated<ReportRow>> {
     return this.reports.list(principal, requireReportKey(reportKey), query);
   }
 }

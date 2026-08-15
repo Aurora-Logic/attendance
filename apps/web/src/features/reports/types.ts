@@ -4,14 +4,27 @@ import {
   EXPORT_FORMATS,
   EXPORT_STATUSES,
   REPORT_COLUMN_TYPES,
+  REPORT_DEFINITIONS,
   REPORT_FILTER_NAMES,
   REPORT_KEYS,
+  absenteeismCell,
+  attendanceExceptionCell,
+  attendanceRegisterCell,
+  headcountCell,
+  leaveAvailedCell,
+  leaveBalanceCell,
+  leaveLedgerCell,
+  missingPunchCell,
+  musterGridCell,
+  punchAuditCell,
   reportFilterSchema,
   savedViewConfigSchema,
   type AttendanceDaySummary,
   type ExportJobSummary,
   type PunchRecord,
+  type ReportCellValue,
   type ReportDefinition,
+  type ReportKey,
   type SavedView,
 } from '@vyuha/shared';
 
@@ -170,10 +183,333 @@ export const signedPhotoSchema = z.object({
   expiresInSeconds: z.number(),
 });
 
-/** The row union the shell renders, discriminated by the report it came from. */
-export type ReportRows =
-  | { readonly kind: 'attendance-register'; readonly rows: AttendanceRegisterRow[] }
-  | { readonly kind: 'punch-audit'; readonly rows: PunchAuditRow[] };
+// ------------------------------------------------- the reports that aggregate
+
+/**
+ * The rows the derived reports send.
+ *
+ * Parsed, not asserted, for the reason the two above are: the shell renders
+ * whatever columns the definition names, so a field that arrived as `undefined`
+ * would draw an empty cell rather than raise anything. `.catchall` is
+ * deliberately absent -- an unexpected key is harmless, a missing one is not.
+ */
+const employeeRefSchema = z.object({ name: z.string() });
+
+export const musterGridRowSchema = z.object({
+  id: z.string(),
+  employee: employeeRefSchema,
+  employeeCode: z.string(),
+  departmentName: z.string().nullable(),
+  days: z.record(z.string(), z.string().nullable()),
+  presentDays: z.number(),
+  absentDays: z.number(),
+  leaveDays: z.number(),
+  halfDays: z.number(),
+  onDutyDays: z.number(),
+  weeklyOffDays: z.number(),
+  holidayDays: z.number(),
+  workedMinutes: z.number(),
+  otMinutes: z.number(),
+  lateDays: z.number(),
+});
+
+export const attendanceExceptionRowSchema = z.object({
+  id: z.string(),
+  employee: employeeRefSchema,
+  employeeCode: z.string(),
+  departmentName: z.string().nullable(),
+  locationName: z.string().nullable(),
+  occurrences: z.number(),
+  totalMinutes: z.number(),
+  averageMinutes: z.number(),
+  worstMinutes: z.number(),
+  firstDate: z.string().nullable(),
+  lastDate: z.string().nullable(),
+});
+
+export const absenteeismRowSchema = z.object({
+  id: z.string(),
+  employee: employeeRefSchema,
+  employeeCode: z.string(),
+  departmentName: z.string().nullable(),
+  locationName: z.string().nullable(),
+  month: z.string(),
+  scheduledDays: z.number(),
+  presentDays: z.number(),
+  leaveDays: z.number(),
+  absentDays: z.number(),
+  absencePercent: z.number(),
+});
+
+export const missingPunchRowSchema = z.object({
+  id: z.string(),
+  employee: employeeRefSchema,
+  employeeCode: z.string(),
+  departmentName: z.string().nullable(),
+  date: z.string(),
+  status: z.string(),
+  shiftName: z.string().nullable(),
+  punchedInAt: z.string().nullable(),
+  punchedOutAt: z.string().nullable(),
+  flags: z.array(z.string()).readonly(),
+  regularizationStatus: z.string().nullable(),
+  regularizationKind: z.string().nullable(),
+  regularizationDecidedAt: z.string().nullable(),
+  regularizationReason: z.string().nullable(),
+});
+
+export const leaveBalanceRowSchema = z.object({
+  id: z.string(),
+  employee: employeeRefSchema,
+  employeeCode: z.string(),
+  departmentName: z.string().nullable(),
+  leaveTypeCode: z.string(),
+  leaveTypeName: z.string(),
+  leaveYear: z.number(),
+  opening: z.number(),
+  accrued: z.number(),
+  availed: z.number(),
+  adjusted: z.number(),
+  carriedForward: z.number(),
+  closing: z.number(),
+});
+
+export const leaveLedgerRowSchema = z.object({
+  id: z.string(),
+  employee: employeeRefSchema,
+  employeeCode: z.string(),
+  leaveTypeCode: z.string(),
+  leaveTypeName: z.string(),
+  leaveYear: z.number(),
+  postedAt: z.string(),
+  movementType: z.string(),
+  days: z.number(),
+  referenceType: z.string().nullable(),
+  periodKey: z.string().nullable(),
+  note: z.string().nullable(),
+});
+
+export const leaveAvailedRowSchema = z.object({
+  id: z.string(),
+  employee: employeeRefSchema,
+  employeeCode: z.string(),
+  departmentName: z.string().nullable(),
+  leaveTypeCode: z.string(),
+  leaveTypeName: z.string(),
+  isPaid: z.boolean(),
+  requests: z.number(),
+  days: z.number(),
+  firstDate: z.string().nullable(),
+  lastDate: z.string().nullable(),
+});
+
+export const headcountRowSchema = z.object({
+  id: z.string(),
+  month: z.string(),
+  opening: z.number(),
+  joiners: z.number(),
+  leavers: z.number(),
+  closing: z.number(),
+});
+
+// --------------------------------------------------------------- the row view
+
+/**
+ * A row as the shell renders it: a key, the two things a phone-sized card
+ * shows, and every cell the report's definition names.
+ *
+ * The cells are extracted once, here, by the same functions in `@vyuha/shared`
+ * that the exporter calls -- which is the whole point of the arrangement. The
+ * table below this never sees a report-specific row type, so adding a report
+ * cannot mean adding a branch to the rendering code, and the screen cannot
+ * start reading a field the file does not.
+ */
+export interface ReportRowView {
+  readonly id: string;
+  /** Mobile line one (PRD §6.5). */
+  readonly primary: string;
+  /** Mobile line one, right side. Null for a report with nothing pill-shaped. */
+  readonly status: string | null;
+  readonly cells: Readonly<Record<string, ReportCellValue>>;
+  /** Set only on the punch audit, for REQ-J-02's photo viewer. */
+  readonly punch: PunchAuditRow | null;
+}
+
+export type MusterGridRow = z.infer<typeof musterGridRowSchema>;
+export type AttendanceExceptionRow = z.infer<typeof attendanceExceptionRowSchema>;
+export type AbsenteeismRow = z.infer<typeof absenteeismRowSchema>;
+export type MissingPunchRow = z.infer<typeof missingPunchRowSchema>;
+export type LeaveBalanceRow = z.infer<typeof leaveBalanceRowSchema>;
+export type LeaveLedgerRow = z.infer<typeof leaveLedgerRowSchema>;
+export type LeaveAvailedRow = z.infer<typeof leaveAvailedRowSchema>;
+export type HeadcountRow = z.infer<typeof headcountRowSchema>;
+
+/**
+ * How one report's rows become views: the parser, the shared extractor, and the
+ * two fields a phone-sized card shows.
+ *
+ * Generic in the row type and never widened to `unknown`, so `cell` is the
+ * extractor that matches `schema` and the compiler says so. `toRowViews`
+ * switches on the report key and hands one of these to `build` -- which is why
+ * there is not a cast anywhere in this file.
+ */
+interface RowViewShape<T> {
+  readonly schema: z.ZodType<T>;
+  readonly cell: (row: T, key: string) => ReportCellValue;
+  readonly id: (row: T) => string;
+  readonly primary: (row: T) => string;
+  readonly status: (row: T) => string | null;
+  readonly punch?: (row: T) => PunchAuditRow;
+}
+
+const REGISTER_SHAPE: RowViewShape<AttendanceRegisterRow> = {
+  schema: attendanceRegisterRowSchema,
+  cell: attendanceRegisterCell,
+  id: (row) => row.id,
+  primary: (row) => row.employee.name,
+  status: (row) => row.status,
+};
+
+const PUNCH_SHAPE: RowViewShape<PunchAuditRow> = {
+  schema: punchAuditRowSchema,
+  cell: punchAuditCell,
+  id: (row) => row.id,
+  primary: (row) => row.employee.name,
+  status: (row) => row.type,
+  punch: (row) => row,
+};
+
+const MUSTER_GRID_SHAPE: RowViewShape<MusterGridRow> = {
+  schema: musterGridRowSchema,
+  cell: musterGridCell,
+  id: (row) => row.id,
+  primary: (row) => row.employee.name,
+  status: () => null,
+};
+
+/** One shape for the three reports that are one query with the measure swapped. */
+const EXCEPTION_SHAPE: RowViewShape<AttendanceExceptionRow> = {
+  schema: attendanceExceptionRowSchema,
+  cell: attendanceExceptionCell,
+  id: (row) => row.id,
+  primary: (row) => row.employee.name,
+  status: () => null,
+};
+
+const ABSENTEEISM_SHAPE: RowViewShape<AbsenteeismRow> = {
+  schema: absenteeismRowSchema,
+  cell: absenteeismCell,
+  id: (row) => row.id,
+  primary: (row) => row.employee.name,
+  status: (row) => row.month,
+};
+
+const MISSING_PUNCH_SHAPE: RowViewShape<MissingPunchRow> = {
+  schema: missingPunchRowSchema,
+  cell: missingPunchCell,
+  id: (row) => row.id,
+  // The correction's state where there is one, because that is what a reader
+  // working this list is deciding on; the day's own status otherwise.
+  status: (row) => row.regularizationStatus ?? row.status,
+  primary: (row) => row.employee.name,
+};
+
+const LEAVE_BALANCE_SHAPE: RowViewShape<LeaveBalanceRow> = {
+  schema: leaveBalanceRowSchema,
+  cell: leaveBalanceCell,
+  id: (row) => row.id,
+  primary: (row) => row.employee.name,
+  status: (row) => row.leaveTypeCode,
+};
+
+const LEAVE_LEDGER_SHAPE: RowViewShape<LeaveLedgerRow> = {
+  schema: leaveLedgerRowSchema,
+  cell: leaveLedgerCell,
+  id: (row) => row.id,
+  primary: (row) => row.employee.name,
+  status: (row) => row.movementType,
+};
+
+const LEAVE_AVAILED_SHAPE: RowViewShape<LeaveAvailedRow> = {
+  schema: leaveAvailedRowSchema,
+  cell: leaveAvailedCell,
+  id: (row) => row.id,
+  primary: (row) => row.employee.name,
+  status: (row) => row.leaveTypeCode,
+};
+
+const HEADCOUNT_SHAPE: RowViewShape<HeadcountRow> = {
+  schema: headcountRowSchema,
+  cell: headcountCell,
+  id: (row) => row.id,
+  primary: (row) => row.month,
+  status: () => null,
+};
+
+function build<T>(
+  shape: RowViewShape<T>,
+  reportKey: ReportKey,
+  rows: readonly unknown[],
+): ReportRowView[] {
+  const columns = REPORT_DEFINITIONS[reportKey].columns;
+  return rows.map((raw) => {
+    const row = shape.schema.parse(raw);
+    // Every declared column, not only the visible ones, so turning one on in
+    // the F12 chooser redraws from what is already in hand rather than asking
+    // the server again for a value it already sent.
+    const cells: Record<string, ReportCellValue> = {};
+    for (const column of columns) cells[column.key] = shape.cell(row, column.key);
+    return {
+      id: shape.id(row),
+      primary: shape.primary(row),
+      status: shape.status(row),
+      cells,
+      punch: shape.punch === undefined ? null : shape.punch(row),
+    };
+  });
+}
+
+/**
+ * One page of any report, as rows the table can render.
+ *
+ * Throws on a shape it cannot read; `api.ts` turns that into the screen's error
+ * state. The switch is exhaustive over `ReportKey` -- adding a report key
+ * without a shape here is a compile error, not an empty table.
+ */
+export function toRowViews(reportKey: ReportKey, rows: readonly unknown[]): ReportRowView[] {
+  switch (reportKey) {
+    case 'attendance-register':
+    case 'daily-muster':
+      return build(REGISTER_SHAPE, reportKey, rows);
+    case 'punch-audit':
+      return build(PUNCH_SHAPE, reportKey, rows);
+    case 'monthly-muster':
+      return build(MUSTER_GRID_SHAPE, reportKey, rows);
+    case 'late-arrivals':
+    case 'early-exits':
+    case 'overtime':
+      return build(EXCEPTION_SHAPE, reportKey, rows);
+    case 'absenteeism':
+      return build(ABSENTEEISM_SHAPE, reportKey, rows);
+    case 'missing-punch':
+      return build(MISSING_PUNCH_SHAPE, reportKey, rows);
+    case 'leave-balance':
+      return build(LEAVE_BALANCE_SHAPE, reportKey, rows);
+    case 'leave-ledger':
+      return build(LEAVE_LEDGER_SHAPE, reportKey, rows);
+    case 'leave-availed':
+      return build(LEAVE_AVAILED_SHAPE, reportKey, rows);
+    case 'headcount':
+      return build(HEADCOUNT_SHAPE, reportKey, rows);
+  }
+}
+
+/** The envelope every report's rows arrive in. The rows themselves are `unknown`
+ *  until `toRowViews` parses them against the report's own shape. */
+export const reportPageEnvelopeSchema = z.object({
+  data: z.array(z.unknown()),
+  meta: pageMetaSchema,
+});
 
 /**
  * The two row contracts are structurally the shared ones. Stated as a type

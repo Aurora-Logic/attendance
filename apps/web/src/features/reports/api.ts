@@ -21,17 +21,16 @@ import type {
 } from '@vyuha/shared';
 
 import {
-  attendanceRegisterPageSchema,
   exportDownloadSchema,
   exportJobListSchema,
   exportJobSchema,
-  punchAuditPageSchema,
   reportCatalogueSchema,
+  reportPageEnvelopeSchema,
   savedViewListSchema,
   savedViewSchema,
   signedPhotoSchema,
-  type AttendanceRegisterRow,
-  type PunchAuditRow,
+  toRowViews,
+  type ReportRowView,
 } from './types';
 
 /**
@@ -90,39 +89,42 @@ export function reportRowsSearch(params: ReportRowsParams): string {
   return search.toString();
 }
 
-export function useAttendanceRegister(
+/**
+ * One page of whichever report is open.
+ *
+ * One hook for every report, not one per report: the row shape is chosen by
+ * `toRowViews` from the report key, and the cells come out of the same
+ * extractors the exporter uses. A new report is a definition and a row source
+ * on the API and nothing here -- which is the claim the shell was built on, and
+ * was worth making true rather than nearly true.
+ */
+export function useReportRows(
+  reportKey: ReportKey,
   params: ReportRowsParams,
-  enabled: boolean,
-): UseQueryResult<Paginated<AttendanceRegisterRow>, Error> {
+): UseQueryResult<Paginated<ReportRowView>, Error> {
   const query = reportRowsSearch(params);
   return useQuery({
-    enabled,
-    queryKey: reportKeys.rows('attendance-register', query),
+    queryKey: reportKeys.rows(reportKey, query),
     queryFn: async ({ signal }) => {
-      const body = await apiRequest<unknown>(`/reports/attendance-register/rows?${query}`, {
-        signal,
-      });
-      return parse(attendanceRegisterPageSchema, body, 'attendance register');
+      const body = await apiRequest<unknown>(`/reports/${reportKey}/rows?${query}`, { signal });
+      const page = parse(reportPageEnvelopeSchema, body, 'report');
+      try {
+        return { data: toRowViews(reportKey, page.data), meta: page.meta };
+      } catch (error: unknown) {
+        // A row that does not match its report's contract is the same failure
+        // as a malformed envelope, and has to reach the error state rather than
+        // draw a table of empty cells that reads as a quiet period.
+        throw new ApiError({
+          code: 'INTERNAL_ERROR',
+          message: 'This report came back in a shape this screen cannot read.',
+          status: 0,
+          details: { reportKey, cause: error instanceof Error ? error.message : String(error) },
+        });
+      }
     },
     // Paging or changing a filter changes the key. Without this the table
     // empties to a skeleton between every step, which reads as the report
     // breaking and coming back rather than as the page moving.
-    placeholderData: keepPreviousData,
-  });
-}
-
-export function usePunchAudit(
-  params: ReportRowsParams,
-  enabled: boolean,
-): UseQueryResult<Paginated<PunchAuditRow>, Error> {
-  const query = reportRowsSearch(params);
-  return useQuery({
-    enabled,
-    queryKey: reportKeys.rows('punch-audit', query),
-    queryFn: async ({ signal }) => {
-      const body = await apiRequest<unknown>(`/reports/punch-audit/rows?${query}`, { signal });
-      return parse(punchAuditPageSchema, body, 'punch audit');
-    },
     placeholderData: keepPreviousData,
   });
 }

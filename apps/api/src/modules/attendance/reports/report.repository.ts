@@ -51,6 +51,8 @@ export interface OrgProfile {
   readonly name: string;
   readonly timezone: string;
   readonly dateFormat: string;
+  /** REQ-L-01. The leave balance report reads it to name the year (05-decisions: April). */
+  readonly leaveYearStartMonth: number;
 }
 
 export interface ExportRequesterRow {
@@ -188,6 +190,7 @@ export class ReportRepository {
         name: organizations.name,
         timezone: organizations.timezone,
         dateFormat: organizations.dateFormat,
+        leaveYearStartMonth: organizations.leaveYearStartMonth,
       })
       .from(organizations)
       .where(and(eq(organizations.id, this.ctx.orgId), isNull(organizations.deletedAt)))

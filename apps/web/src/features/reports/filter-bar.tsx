@@ -24,7 +24,9 @@ import {
 // are there only because that directory was locked while several screens were
 // being built in parallel. Reusing them beats a second copy of the same
 // composition, which is exactly what CLAUDE.md §3 asks for.
-import { DateRangeField } from '@/features/attendance/pickers';
+import { DateField, DateRangeField, MonthField } from '@/features/attendance/pickers';
+
+import { monthRange, type PeriodMode } from './period';
 
 /**
  * REQ-J-01's filter bar: date range, location, department, employee, status,
@@ -34,6 +36,11 @@ import { DateRangeField } from '@/features/attendance/pickers';
  * Which controls appear is driven by the report's own `filters` list, served
  * by the API. A report that cannot filter by status does not render a status
  * control that quietly does nothing.
+ *
+ * The period control follows the same rule. The daily muster is for one date
+ * and the muster grid for one month, and each gets the instrument that says so
+ * -- a range picker over a report that answers for a single day invites a
+ * selection the server has to quietly narrow.
  */
 
 const ALL = 'ALL';
@@ -55,6 +62,7 @@ interface Option {
 
 interface FilterBarProps {
   available: readonly ReportFilterName[];
+  periodMode: PeriodMode;
   value: ReportFilterState;
   onChange: (patch: Partial<ReportFilterState>) => void;
   departments: readonly Option[];
@@ -108,6 +116,7 @@ function OptionSelect({
 
 export function ReportFilterBar({
   available,
+  periodMode,
   value,
   onChange,
   departments,
@@ -121,19 +130,13 @@ export function ReportFilterBar({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {shows('period') ? (
-        <DateRangeField
-          label="Report period"
-          value={value.period}
-          onValueChange={(next) => {
-            onChange({ period: next });
-          }}
-          open={periodOpen}
-          onOpenChange={onPeriodOpenChange}
-          className="w-full sm:w-auto"
-          hint={<ShortcutHint keys="alt+f2" className="ml-1 hidden md:inline-flex" />}
-        />
-      ) : null}
+      {shows('period') ? <PeriodField
+        mode={periodMode}
+        value={value.period}
+        onChange={onChange}
+        open={periodOpen}
+        onOpenChange={onPeriodOpenChange}
+      /> : null}
 
       {shows('departmentId') ? (
         <OptionSelect
@@ -244,5 +247,75 @@ export function ReportFilterBar({
         </Button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The period, in whichever instrument the report's own shape calls for.
+ *
+ * All three are existing shadcn Calendar/Popover/Sheet compositions from the
+ * attendance feature (CLAUDE.md rule 1) -- on a phone each opens as a bottom
+ * Sheet, and none of them is a native date input.
+ */
+function PeriodField({
+  mode,
+  value,
+  onChange,
+  open,
+  onOpenChange,
+}: {
+  mode: PeriodMode;
+  value: DateRange;
+  onChange: (patch: Partial<ReportFilterState>) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const hint = <ShortcutHint keys="alt+f2" className="ml-1 hidden md:inline-flex" />;
+  const anchor = value.to ?? value.from ?? new Date();
+
+  if (mode === 'date') {
+    return (
+      <DateField
+        label="Muster date"
+        value={anchor}
+        onValueChange={(next) => {
+          onChange({ period: { from: next, to: next } });
+        }}
+        open={open}
+        onOpenChange={onOpenChange}
+        className="w-full sm:w-auto"
+        hint={hint}
+      />
+    );
+  }
+
+  if (mode === 'month') {
+    return (
+      <MonthField
+        label="Report month"
+        value={value.from ?? anchor}
+        onValueChange={(next) => {
+          onChange({ period: monthRange(next) });
+        }}
+        open={open}
+        onOpenChange={onOpenChange}
+        className="w-full sm:w-auto"
+        hint={hint}
+      />
+    );
+  }
+
+  return (
+    <DateRangeField
+      label="Report period"
+      value={value}
+      onValueChange={(next) => {
+        onChange({ period: next });
+      }}
+      open={open}
+      onOpenChange={onOpenChange}
+      className="w-full sm:w-auto"
+      hint={hint}
+    />
   );
 }

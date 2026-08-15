@@ -12,18 +12,31 @@ import { pageQuerySchema } from './pagination.js';
  * not know how to write, and the exporter cannot invent one the screen never
  * showed, because there is only one list.
  *
- * Two reports are defined. They are the two whose data exists: attendance days
- * and punches. REQ-J-01's table also lists leave, overtime and headcount
- * reports, and REQ-J-04's payroll handoff; those are deliberately absent
- * rather than stubbed, because a report that renders fabricated rows is worse
- * than a report that is not there yet. Adding one is a `REPORT_DEFINITIONS`
- * entry plus a row source -- no change to the shell, the exporter, or the
- * download tray.
+ * Every report REQ-J-01 names is defined here except REQ-J-04's payroll
+ * handoff, which the client has dropped: it is not built and it is not stubbed,
+ * because a report key that answers with an empty table is indistinguishable
+ * from one whose period is quiet. Adding a report is a `REPORT_DEFINITIONS`
+ * entry plus a row source; the exporter, the download tray and the filter bar
+ * learn nothing new.
  */
 
 // ------------------------------------------------------------------- reports
 
-export const REPORT_KEYS = ['attendance-register', 'punch-audit'] as const;
+export const REPORT_KEYS = [
+  'attendance-register',
+  'daily-muster',
+  'monthly-muster',
+  'late-arrivals',
+  'early-exits',
+  'absenteeism',
+  'missing-punch',
+  'overtime',
+  'leave-balance',
+  'leave-ledger',
+  'leave-availed',
+  'punch-audit',
+  'headcount',
+] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
 
@@ -77,6 +90,24 @@ export interface ReportDefinition {
   readonly defaultSort: string;
   /** Filters this report understands; the shell hides the rest. */
   readonly filters: readonly ReportFilterName[];
+  /**
+   * The period is one calendar date rather than a range.
+   *
+   * REQ-J-01's daily muster is "one row per employee **for a date**". The shell
+   * renders a single-date picker for such a report and sends `from` equal to
+   * `to`; the server reads `to` and would answer for that one day regardless,
+   * so a hand-written URL asking for a range cannot produce a muster that
+   * silently spans one.
+   */
+  readonly singleDate?: boolean;
+  /**
+   * The period must lie inside one calendar month.
+   *
+   * The muster grid's columns are days 1 to 31. A range crossing a month
+   * boundary would put two different dates in the same column, so the server
+   * refuses it rather than adding them together.
+   */
+  readonly singleMonth?: boolean;
 }
 
 export const REPORT_FILTER_NAMES = [
@@ -142,6 +173,220 @@ const PUNCH_AUDIT_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'flags', header: 'Flags', type: 'flags', width: 26 },
 ];
 
+/**
+ * REQ-J-01's daily muster: "one row per employee for a date".
+ *
+ * The same rows as the register -- there is one `attendance_days` row per
+ * employee per date and a second query over it would be a second answer to the
+ * same question -- arranged for the sheet a supervisor prints in the morning:
+ * ordered by employee code, with the date in the header block rather than
+ * repeated down a column.
+ */
+const DAILY_MUSTER_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'employeeCode', header: 'Code', type: 'code', sortField: 'employeeCode', width: 12 },
+  { key: 'employeeName', header: 'Employee', type: 'text', width: 28 },
+  { key: 'shiftName', header: 'Shift', type: 'text', width: 16 },
+  { key: 'scheduledIn', header: 'Scheduled in', type: 'time', secondary: true, width: 13 },
+  { key: 'scheduledOut', header: 'Scheduled out', type: 'time', secondary: true, width: 13 },
+  { key: 'firstInAt', header: 'In', type: 'time', width: 8 },
+  { key: 'lastOutAt', header: 'Out', type: 'time', width: 8 },
+  { key: 'workedMinutes', header: 'Worked', type: 'duration', sortField: 'workedMinutes', width: 10 },
+  { key: 'breakMinutes', header: 'Break', type: 'duration', secondary: true, width: 10 },
+  { key: 'otMinutes', header: 'Overtime', type: 'duration', width: 10 },
+  { key: 'lateMinutes', header: 'Late by', type: 'duration', secondary: true, width: 10 },
+  { key: 'earlyExitMinutes', header: 'Early by', type: 'duration', secondary: true, width: 10 },
+  { key: 'status', header: 'Status', type: 'status', sortField: 'status', width: 14 },
+  { key: 'flags', header: 'Flags', type: 'flags', width: 22 },
+  { key: 'date', header: 'Date', type: 'date', sortField: 'date', defaultHidden: true, width: 12 },
+];
+
+// ------------------------------------------------------------- muster grid
+
+/** Days 1 to 31, as the column keys the grid's cells are addressed by. */
+export const MUSTER_GRID_DAYS = 31;
+
+/** `d01` … `d31`. Zero-padded so the definition order is the calendar order. */
+export function musterDayKey(day: number): string {
+  return `d${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * REQ-J-01's "status codes" for the grid.
+ *
+ * A rendering of `attendance_days.status` and nothing more -- no status is
+ * invented and none is merged, so a cell reading `A` is a row that says ABSENT.
+ * Two letters where one would collide, because a muster read at arm's length is
+ * read by shape.
+ */
+export const MUSTER_STATUS_CODES: Record<string, string> = {
+  PRESENT: 'P',
+  ABSENT: 'A',
+  ON_LEAVE: 'L',
+  HALF_DAY: 'HD',
+  HOLIDAY: 'H',
+  WEEKLY_OFF: 'WO',
+  ON_DUTY: 'OD',
+  PENDING: '?',
+};
+
+const MUSTER_GRID_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'employeeCode', header: 'Code', type: 'code', sortField: 'employeeCode', width: 12 },
+  { key: 'employeeName', header: 'Employee', type: 'text', width: 26 },
+  { key: 'departmentName', header: 'Department', type: 'text', secondary: true, width: 18 },
+  ...Array.from({ length: MUSTER_GRID_DAYS }, (_, index) => ({
+    key: musterDayKey(index + 1),
+    header: String(index + 1),
+    type: 'text' as const,
+    width: 4,
+  })),
+  // REQ-J-01's "totals block". Columns rather than a trailing band of rows:
+  // the exporter writes one header and one row shape, and a totals row inside
+  // the data would be summed again by whoever opens the sheet.
+  { key: 'presentDays', header: 'Present', type: 'number', sortField: 'presentDays', width: 9 },
+  { key: 'absentDays', header: 'Absent', type: 'number', sortField: 'absentDays', width: 9 },
+  { key: 'leaveDays', header: 'Leave', type: 'number', width: 9 },
+  { key: 'halfDays', header: 'Half day', type: 'number', secondary: true, width: 9 },
+  { key: 'onDutyDays', header: 'On duty', type: 'number', secondary: true, width: 9 },
+  { key: 'weeklyOffDays', header: 'Weekly off', type: 'number', secondary: true, width: 11 },
+  { key: 'holidayDays', header: 'Holiday', type: 'number', secondary: true, width: 9 },
+  { key: 'workedMinutes', header: 'Worked', type: 'duration', sortField: 'workedMinutes', width: 10 },
+  { key: 'otMinutes', header: 'Overtime', type: 'duration', width: 10 },
+  { key: 'lateDays', header: 'Late days', type: 'number', width: 10 },
+];
+
+// ------------------------------------------------------- exception summaries
+
+/**
+ * Late arrivals, early exits and overtime are one query with one measure
+ * swapped, so they are one column shape with the headers renamed.
+ *
+ * Keeping them as three definitions rather than one report with a mode is what
+ * REQ-N-02's Ctrl+G expects: a Tally user switches to "Late arrivals", not to
+ * "Exceptions" and then to a dropdown inside it.
+ */
+function exceptionColumns(labels: {
+  occurrences: string;
+  total: string;
+  average: string;
+  worst: string;
+}): readonly ReportColumnSpec[] {
+  return [
+    { key: 'employeeCode', header: 'Code', type: 'code', sortField: 'employeeCode', width: 12 },
+    { key: 'employeeName', header: 'Employee', type: 'text', width: 28 },
+    { key: 'departmentName', header: 'Department', type: 'text', width: 18 },
+    { key: 'locationName', header: 'Location', type: 'text', secondary: true, width: 16 },
+    { key: 'occurrences', header: labels.occurrences, type: 'number', sortField: 'occurrences', width: 10 },
+    { key: 'totalMinutes', header: labels.total, type: 'duration', sortField: 'totalMinutes', width: 12 },
+    { key: 'averageMinutes', header: labels.average, type: 'duration', width: 12 },
+    { key: 'worstMinutes', header: labels.worst, type: 'duration', sortField: 'worstMinutes', width: 12 },
+    { key: 'firstDate', header: 'First', type: 'date', secondary: true, width: 12 },
+    { key: 'lastDate', header: 'Last', type: 'date', secondary: true, width: 12 },
+  ];
+}
+
+const ABSENTEEISM_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'employeeCode', header: 'Code', type: 'code', sortField: 'employeeCode', width: 12 },
+  { key: 'employeeName', header: 'Employee', type: 'text', width: 28 },
+  { key: 'departmentName', header: 'Department', type: 'text', width: 18 },
+  { key: 'locationName', header: 'Location', type: 'text', secondary: true, width: 16 },
+  { key: 'scheduledDays', header: 'Scheduled', type: 'number', width: 11 },
+  { key: 'presentDays', header: 'Present', type: 'number', width: 9 },
+  { key: 'leaveDays', header: 'On leave', type: 'number', secondary: true, width: 10 },
+  { key: 'absentDays', header: 'Absent', type: 'number', sortField: 'absentDays', width: 9 },
+  {
+    key: 'absencePercent',
+    header: 'Absent %',
+    type: 'number',
+    sortField: 'absencePercent',
+    width: 10,
+  },
+];
+
+const MISSING_PUNCH_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'date', header: 'Date', type: 'date', sortField: 'date', width: 12 },
+  { key: 'employeeCode', header: 'Code', type: 'code', sortField: 'employeeCode', width: 12 },
+  { key: 'employeeName', header: 'Employee', type: 'text', width: 26 },
+  { key: 'departmentName', header: 'Department', type: 'text', secondary: true, width: 18 },
+  { key: 'shiftName', header: 'Shift', type: 'text', secondary: true, width: 16 },
+  // "Punched", not "In" and "Out": these are the raw punch times, and on a day
+  // whose correction has been approved they differ from the register's, which
+  // folds the adjustment in. Two columns with the same header and different
+  // rules is how a reader ends up believing the two screens contradict.
+  { key: 'punchedInAt', header: 'Punched in', type: 'time', width: 11 },
+  { key: 'punchedOutAt', header: 'Punched out', type: 'time', width: 11 },
+  { key: 'status', header: 'Status', type: 'status', sortField: 'status', width: 14 },
+  { key: 'flags', header: 'Flags', type: 'flags', secondary: true, width: 22 },
+  // REQ-J-01: "days flagged missing_punch, **and their regularization status**".
+  // Null is the answer for a day nobody has raised a correction for, and it
+  // renders as the empty dash rather than as "none", which would read as a
+  // decision somebody made.
+  { key: 'regularizationStatus', header: 'Correction', type: 'status', width: 14 },
+  { key: 'regularizationKind', header: 'Kind', type: 'text', secondary: true, width: 14 },
+  { key: 'regularizationDecidedAt', header: 'Decided', type: 'instant', secondary: true, width: 12 },
+  { key: 'regularizationReason', header: 'Reason', type: 'text', defaultHidden: true, width: 30 },
+];
+
+// -------------------------------------------------------------------- leave
+
+const LEAVE_BALANCE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'employeeCode', header: 'Code', type: 'code', sortField: 'employeeCode', width: 12 },
+  { key: 'employeeName', header: 'Employee', type: 'text', width: 26 },
+  { key: 'departmentName', header: 'Department', type: 'text', secondary: true, width: 18 },
+  { key: 'leaveTypeCode', header: 'Type', type: 'code', sortField: 'leaveTypeCode', width: 10 },
+  { key: 'leaveTypeName', header: 'Leave type', type: 'text', width: 20 },
+  { key: 'leaveYear', header: 'Leave year', type: 'number', secondary: true, width: 11 },
+  { key: 'opening', header: 'Opening', type: 'number', secondary: true, width: 10 },
+  { key: 'accrued', header: 'Accrued', type: 'number', width: 10 },
+  { key: 'availed', header: 'Availed', type: 'number', sortField: 'availed', width: 10 },
+  { key: 'adjusted', header: 'Adjusted', type: 'number', secondary: true, width: 10 },
+  { key: 'carriedForward', header: 'Carried forward', type: 'number', secondary: true, width: 15 },
+  { key: 'closing', header: 'Balance', type: 'number', sortField: 'closing', width: 10 },
+];
+
+const LEAVE_LEDGER_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'postedAt', header: 'Posted', type: 'instant', sortField: 'postedAt', width: 14 },
+  { key: 'employeeCode', header: 'Code', type: 'code', sortField: 'employeeCode', width: 12 },
+  { key: 'employeeName', header: 'Employee', type: 'text', width: 26 },
+  { key: 'leaveTypeCode', header: 'Type', type: 'code', width: 10 },
+  { key: 'leaveTypeName', header: 'Leave type', type: 'text', secondary: true, width: 20 },
+  { key: 'leaveYear', header: 'Leave year', type: 'number', secondary: true, width: 11 },
+  { key: 'movementType', header: 'Movement', type: 'status', sortField: 'movementType', width: 16 },
+  { key: 'days', header: 'Days', type: 'number', sortField: 'days', width: 8 },
+  { key: 'referenceType', header: 'Caused by', type: 'text', secondary: true, width: 16 },
+  { key: 'periodKey', header: 'Period', type: 'text', defaultHidden: true, width: 12 },
+  { key: 'note', header: 'Note', type: 'text', width: 30 },
+];
+
+const LEAVE_AVAILED_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'employeeCode', header: 'Code', type: 'code', sortField: 'employeeCode', width: 12 },
+  { key: 'employeeName', header: 'Employee', type: 'text', width: 26 },
+  { key: 'departmentName', header: 'Department', type: 'text', secondary: true, width: 18 },
+  { key: 'leaveTypeCode', header: 'Type', type: 'code', sortField: 'leaveTypeCode', width: 10 },
+  { key: 'leaveTypeName', header: 'Leave type', type: 'text', width: 20 },
+  { key: 'isPaid', header: 'Paid', type: 'text', secondary: true, width: 8 },
+  { key: 'requests', header: 'Requests', type: 'number', width: 10 },
+  { key: 'days', header: 'Days', type: 'number', sortField: 'days', width: 8 },
+  { key: 'firstDate', header: 'First', type: 'date', width: 12 },
+  { key: 'lastDate', header: 'Last', type: 'date', width: 12 },
+];
+
+const HEADCOUNT_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'opening', header: 'Opening', type: 'number', width: 10 },
+  { key: 'joiners', header: 'Joiners', type: 'number', sortField: 'joiners', width: 10 },
+  { key: 'leavers', header: 'Leavers', type: 'number', sortField: 'leavers', width: 10 },
+  { key: 'closing', header: 'Closing', type: 'number', sortField: 'closing', width: 10 },
+];
+
+/** The four filters every report over people understands. */
+const PEOPLE_FILTERS: readonly ReportFilterName[] = [
+  'period',
+  'employeeId',
+  'departmentId',
+  'locationId',
+];
+
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   'attendance-register': {
     key: 'attendance-register',
@@ -151,6 +396,103 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: '-date,employeeCode',
     filters: ['period', 'employeeId', 'departmentId', 'locationId', 'status', 'flags'],
   },
+  'daily-muster': {
+    key: 'daily-muster',
+    label: 'Daily muster',
+    description: 'One row per employee for a single date: shift, in, out, hours, status and flags.',
+    columns: DAILY_MUSTER_COLUMNS,
+    defaultSort: 'employeeCode',
+    filters: ['period', 'employeeId', 'departmentId', 'locationId', 'status', 'flags'],
+    singleDate: true,
+  },
+  'monthly-muster': {
+    key: 'monthly-muster',
+    label: 'Monthly muster grid',
+    description: 'Employees against the days of one month, with a totals block.',
+    columns: MUSTER_GRID_COLUMNS,
+    defaultSort: 'employeeCode',
+    filters: PEOPLE_FILTERS,
+    singleMonth: true,
+  },
+  'late-arrivals': {
+    key: 'late-arrivals',
+    label: 'Late arrivals',
+    description: 'Days recorded late, with the minutes, gathered per employee.',
+    columns: exceptionColumns({
+      occurrences: 'Late days',
+      total: 'Total late',
+      average: 'Average late',
+      worst: 'Worst late',
+    }),
+    defaultSort: '-totalMinutes',
+    filters: PEOPLE_FILTERS,
+  },
+  'early-exits': {
+    key: 'early-exits',
+    label: 'Early exits',
+    description: 'Days that ended early, with the minutes, gathered per employee.',
+    columns: exceptionColumns({
+      occurrences: 'Early exits',
+      total: 'Total early',
+      average: 'Average early',
+      worst: 'Worst early',
+    }),
+    defaultSort: '-totalMinutes',
+    filters: PEOPLE_FILTERS,
+  },
+  absenteeism: {
+    key: 'absenteeism',
+    label: 'Absenteeism',
+    description: 'Absent days and the share of scheduled days they are, by employee and month.',
+    columns: ABSENTEEISM_COLUMNS,
+    defaultSort: '-absencePercent',
+    filters: PEOPLE_FILTERS,
+  },
+  'missing-punch': {
+    key: 'missing-punch',
+    label: 'Missing punch',
+    description: 'Days flagged for a missing punch, and where their correction stands.',
+    columns: MISSING_PUNCH_COLUMNS,
+    defaultSort: '-date,employeeCode',
+    filters: PEOPLE_FILTERS,
+  },
+  overtime: {
+    key: 'overtime',
+    label: 'Overtime',
+    description: 'Overtime minutes by employee for the period. Minutes only, never money.',
+    columns: exceptionColumns({
+      occurrences: 'OT days',
+      total: 'Total overtime',
+      average: 'Average per day',
+      worst: 'Longest day',
+    }),
+    defaultSort: '-totalMinutes',
+    filters: PEOPLE_FILTERS,
+  },
+  'leave-balance': {
+    key: 'leave-balance',
+    label: 'Leave balance',
+    description: 'Balances by employee and leave type for the leave year the period falls in.',
+    columns: LEAVE_BALANCE_COLUMNS,
+    defaultSort: 'employeeCode,leaveTypeCode',
+    filters: PEOPLE_FILTERS,
+  },
+  'leave-ledger': {
+    key: 'leave-ledger',
+    label: 'Leave ledger',
+    description: 'Every leave movement posted in the period. Filter to one employee for a history.',
+    columns: LEAVE_LEDGER_COLUMNS,
+    defaultSort: '-postedAt',
+    filters: PEOPLE_FILTERS,
+  },
+  'leave-availed': {
+    key: 'leave-availed',
+    label: 'Leave availed',
+    description: 'Approved leave days falling inside the period, by employee and type.',
+    columns: LEAVE_AVAILED_COLUMNS,
+    defaultSort: '-days',
+    filters: PEOPLE_FILTERS,
+  },
   'punch-audit': {
     key: 'punch-audit',
     label: 'Punch audit',
@@ -158,6 +500,14 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     columns: PUNCH_AUDIT_COLUMNS,
     defaultSort: '-serverTime',
     filters: ['period', 'employeeId', 'departmentId', 'locationId', 'punchType'],
+  },
+  headcount: {
+    key: 'headcount',
+    label: 'Headcount',
+    description: 'Opening headcount, joiners, leavers and closing headcount by month.',
+    columns: HEADCOUNT_COLUMNS,
+    defaultSort: 'month',
+    filters: ['departmentId', 'locationId', 'period'],
   },
 };
 
@@ -299,7 +649,11 @@ export function describeFilters(
   const captions: FilterCaption[] = [];
   const named = (id: string): string => names[id] ?? id;
 
-  if (filters.from !== undefined || filters.to !== undefined) {
+  if (filters.from !== undefined && filters.from === filters.to) {
+    // The daily muster's period is one day. "02-03-2026 to 02-03-2026" is true
+    // and reads as a mistake, at the top of a file somebody prints.
+    captions.push({ label: 'Date', value: filters.from });
+  } else if (filters.from !== undefined || filters.to !== undefined) {
     captions.push({
       label: 'Period',
       value: `${filters.from ?? 'any'} to ${filters.to ?? 'any'}`,
@@ -613,6 +967,399 @@ export function punchAuditCell(row: PunchAuditSource, key: string): ReportCellVa
       return row.reason;
     case 'flags':
       return row.flags;
+    default:
+      return null;
+  }
+}
+
+// ------------------------------------------------- derived report row sources
+
+/**
+ * Every row below is produced by a query written for its report, so unlike the
+ * register and the audit -- which are the muster and the punch feed's own read
+ * models -- these shapes exist only here. That is the point: a report that
+ * aggregates has no other consumer, and giving it a shape of its own is what
+ * stops somebody reaching for it as though it were the record.
+ *
+ * `id` on each is a row key, not a record id. A grouped row is not an entity
+ * and has no id of its own; the table needs something stable to key on and the
+ * server composes one from the group.
+ */
+
+/** REQ-J-01's monthly grid: one employee, the days of one month, and totals. */
+export interface MusterGridSource {
+  readonly id: string;
+  readonly employee: { readonly name: string };
+  readonly employeeCode: string;
+  readonly departmentName: string | null;
+  /** `d01` … `d31` to a `MUSTER_STATUS_CODES` value, or absent for no such day. */
+  readonly days: Readonly<Record<string, string | null>>;
+  readonly presentDays: number;
+  readonly absentDays: number;
+  readonly leaveDays: number;
+  readonly halfDays: number;
+  readonly onDutyDays: number;
+  readonly weeklyOffDays: number;
+  readonly holidayDays: number;
+  readonly workedMinutes: number;
+  readonly otMinutes: number;
+  readonly lateDays: number;
+}
+
+const MUSTER_DAY_KEY = /^d(0[1-9]|[12]\d|3[01])$/u;
+
+export function musterGridCell(row: MusterGridSource, key: string): ReportCellValue {
+  if (MUSTER_DAY_KEY.test(key)) return row.days[key] ?? null;
+
+  switch (key) {
+    case 'employeeCode':
+      return row.employeeCode;
+    case 'employeeName':
+      return row.employee.name;
+    case 'departmentName':
+      return row.departmentName;
+    case 'presentDays':
+      return row.presentDays;
+    case 'absentDays':
+      return row.absentDays;
+    case 'leaveDays':
+      return row.leaveDays;
+    case 'halfDays':
+      return row.halfDays;
+    case 'onDutyDays':
+      return row.onDutyDays;
+    case 'weeklyOffDays':
+      return row.weeklyOffDays;
+    case 'holidayDays':
+      return row.holidayDays;
+    case 'workedMinutes':
+      return row.workedMinutes;
+    case 'otMinutes':
+      return row.otMinutes;
+    case 'lateDays':
+      return row.lateDays;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Late arrivals, early exits and overtime.
+ *
+ * One shape for three reports because it is one question -- how often, how
+ * much, how bad -- asked of three columns of `attendance_days`. The measure is
+ * named by the report's own headers, so nothing here has to know which one it
+ * is holding.
+ */
+export interface AttendanceExceptionSource {
+  readonly id: string;
+  readonly employee: { readonly name: string };
+  readonly employeeCode: string;
+  readonly departmentName: string | null;
+  readonly locationName: string | null;
+  /** Days on which the measure was non-zero. */
+  readonly occurrences: number;
+  readonly totalMinutes: number;
+  readonly averageMinutes: number;
+  readonly worstMinutes: number;
+  readonly firstDate: string | null;
+  readonly lastDate: string | null;
+}
+
+export function attendanceExceptionCell(
+  row: AttendanceExceptionSource,
+  key: string,
+): ReportCellValue {
+  switch (key) {
+    case 'employeeCode':
+      return row.employeeCode;
+    case 'employeeName':
+      return row.employee.name;
+    case 'departmentName':
+      return row.departmentName;
+    case 'locationName':
+      return row.locationName;
+    case 'occurrences':
+      return row.occurrences;
+    case 'totalMinutes':
+      return row.totalMinutes;
+    case 'averageMinutes':
+      return row.averageMinutes;
+    case 'worstMinutes':
+      return row.worstMinutes;
+    case 'firstDate':
+      return row.firstDate;
+    case 'lastDate':
+      return row.lastDate;
+    default:
+      return null;
+  }
+}
+
+/** REQ-J-01's absenteeism: "absent days and percentage by employee, department, month". */
+export interface AbsenteeismSource {
+  readonly id: string;
+  readonly employee: { readonly name: string };
+  readonly employeeCode: string;
+  readonly departmentName: string | null;
+  readonly locationName: string | null;
+  /** `YYYY-MM`. */
+  readonly month: string;
+  /** Days the person was expected: every day that is not a weekly off or holiday. */
+  readonly scheduledDays: number;
+  readonly presentDays: number;
+  readonly leaveDays: number;
+  readonly absentDays: number;
+  /** Absent days over scheduled days, to one decimal. A share, not a rate. */
+  readonly absencePercent: number;
+}
+
+export function absenteeismCell(row: AbsenteeismSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'month':
+      return row.month;
+    case 'employeeCode':
+      return row.employeeCode;
+    case 'employeeName':
+      return row.employee.name;
+    case 'departmentName':
+      return row.departmentName;
+    case 'locationName':
+      return row.locationName;
+    case 'scheduledDays':
+      return row.scheduledDays;
+    case 'presentDays':
+      return row.presentDays;
+    case 'leaveDays':
+      return row.leaveDays;
+    case 'absentDays':
+      return row.absentDays;
+    case 'absencePercent':
+      return row.absencePercent;
+    default:
+      return null;
+  }
+}
+
+/** REQ-J-01's missing punch: the flagged day, and where its correction stands. */
+export interface MissingPunchSource {
+  readonly id: string;
+  readonly employee: { readonly name: string };
+  readonly employeeCode: string;
+  readonly departmentName: string | null;
+  readonly date: string;
+  readonly status: string;
+  readonly shiftName: string | null;
+  /** The punches as recorded, before any approved correction (REQ-F-03). */
+  readonly punchedInAt: string | null;
+  readonly punchedOutAt: string | null;
+  readonly flags: readonly string[];
+  /** Null when nobody has raised one -- not "NONE", which would read as a decision. */
+  readonly regularizationStatus: string | null;
+  readonly regularizationKind: string | null;
+  readonly regularizationDecidedAt: string | null;
+  readonly regularizationReason: string | null;
+}
+
+export function missingPunchCell(row: MissingPunchSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'date':
+      return row.date;
+    case 'employeeCode':
+      return row.employeeCode;
+    case 'employeeName':
+      return row.employee.name;
+    case 'departmentName':
+      return row.departmentName;
+    case 'shiftName':
+      return row.shiftName;
+    case 'punchedInAt':
+      return row.punchedInAt;
+    case 'punchedOutAt':
+      return row.punchedOutAt;
+    case 'status':
+      return row.status;
+    case 'flags':
+      return row.flags;
+    case 'regularizationStatus':
+      return row.regularizationStatus;
+    case 'regularizationKind':
+      return row.regularizationKind;
+    case 'regularizationDecidedAt':
+      return row.regularizationDecidedAt;
+    case 'regularizationReason':
+      return row.regularizationReason;
+    default:
+      return null;
+  }
+}
+
+/** REQ-J-01's leave balance: `leave_balances`, which is the ledger's own cache. */
+export interface LeaveBalanceSource {
+  readonly id: string;
+  readonly employee: { readonly name: string };
+  readonly employeeCode: string;
+  readonly departmentName: string | null;
+  readonly leaveTypeCode: string;
+  readonly leaveTypeName: string;
+  readonly leaveYear: number;
+  readonly opening: number;
+  readonly accrued: number;
+  readonly availed: number;
+  readonly adjusted: number;
+  readonly carriedForward: number;
+  readonly closing: number;
+}
+
+export function leaveBalanceCell(row: LeaveBalanceSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'employeeCode':
+      return row.employeeCode;
+    case 'employeeName':
+      return row.employee.name;
+    case 'departmentName':
+      return row.departmentName;
+    case 'leaveTypeCode':
+      return row.leaveTypeCode;
+    case 'leaveTypeName':
+      return row.leaveTypeName;
+    case 'leaveYear':
+      return row.leaveYear;
+    case 'opening':
+      return row.opening;
+    case 'accrued':
+      return row.accrued;
+    case 'availed':
+      return row.availed;
+    case 'adjusted':
+      return row.adjusted;
+    case 'carriedForward':
+      return row.carriedForward;
+    case 'closing':
+      return row.closing;
+    default:
+      return null;
+  }
+}
+
+/** REQ-J-01's leave ledger: `leave_ledger`, which REQ-G-03 makes append-only. */
+export interface LeaveLedgerSource {
+  readonly id: string;
+  readonly employee: { readonly name: string };
+  readonly employeeCode: string;
+  readonly leaveTypeCode: string;
+  readonly leaveTypeName: string;
+  readonly leaveYear: number;
+  readonly postedAt: string;
+  readonly movementType: string;
+  /** Signed, as stored: an AVAILED movement is negative. */
+  readonly days: number;
+  readonly referenceType: string | null;
+  readonly periodKey: string | null;
+  readonly note: string | null;
+}
+
+export function leaveLedgerCell(row: LeaveLedgerSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'postedAt':
+      return row.postedAt;
+    case 'employeeCode':
+      return row.employeeCode;
+    case 'employeeName':
+      return row.employee.name;
+    case 'leaveTypeCode':
+      return row.leaveTypeCode;
+    case 'leaveTypeName':
+      return row.leaveTypeName;
+    case 'leaveYear':
+      return row.leaveYear;
+    case 'movementType':
+      return row.movementType;
+    case 'days':
+      return row.days;
+    case 'referenceType':
+      return row.referenceType;
+    case 'periodKey':
+      return row.periodKey;
+    case 'note':
+      return row.note;
+    default:
+      return null;
+  }
+}
+
+/** REQ-J-01's leave availed: approved leave *days* that fall inside the period. */
+export interface LeaveAvailedSource {
+  readonly id: string;
+  readonly employee: { readonly name: string };
+  readonly employeeCode: string;
+  readonly departmentName: string | null;
+  readonly leaveTypeCode: string;
+  readonly leaveTypeName: string;
+  readonly isPaid: boolean;
+  readonly requests: number;
+  readonly days: number;
+  readonly firstDate: string | null;
+  readonly lastDate: string | null;
+}
+
+export function leaveAvailedCell(row: LeaveAvailedSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'employeeCode':
+      return row.employeeCode;
+    case 'employeeName':
+      return row.employee.name;
+    case 'departmentName':
+      return row.departmentName;
+    case 'leaveTypeCode':
+      return row.leaveTypeCode;
+    case 'leaveTypeName':
+      return row.leaveTypeName;
+    case 'isPaid':
+      return row.isPaid;
+    case 'requests':
+      return row.requests;
+    case 'days':
+      return row.days;
+    case 'firstDate':
+      return row.firstDate;
+    case 'lastDate':
+      return row.lastDate;
+    default:
+      return null;
+  }
+}
+
+/**
+ * REQ-J-01's headcount: "active headcount, joiners, leavers by month".
+ *
+ * Every figure comes from `date_of_joining` and `date_of_leaving`, which are
+ * the only two dates the employee record actually holds. `employees.status` is
+ * a current fact with no history behind it, so it is not read here -- a person
+ * marked inactive today would otherwise rewrite what March's headcount was.
+ */
+export interface HeadcountSource {
+  readonly id: string;
+  /** `YYYY-MM`. */
+  readonly month: string;
+  readonly opening: number;
+  readonly joiners: number;
+  readonly leavers: number;
+  readonly closing: number;
+}
+
+export function headcountCell(row: HeadcountSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'month':
+      return row.month;
+    case 'opening':
+      return row.opening;
+    case 'joiners':
+      return row.joiners;
+    case 'leavers':
+      return row.leavers;
+    case 'closing':
+      return row.closing;
     default:
       return null;
   }

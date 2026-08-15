@@ -1,6 +1,7 @@
 import {
   MAX_EXPORT_RANGE_DAYS,
   PERMISSIONS,
+  REPORT_KEYS,
   SYSTEM_ROLES,
   uuidv7,
   type AttendanceDaySummary,
@@ -305,18 +306,29 @@ describe('the report catalogue', () => {
       token: viewerToken,
     });
     expect(allowed.status).toBe(200);
-    expect(allowed.body.data.map((report) => report.key)).toEqual([
-      'attendance-register',
-      'punch-audit',
-    ]);
+    // This reader holds `attendance.view.all` and no leave or employee key, so
+    // the catalogue offers the attendance reports and withholds the rest. A
+    // report they could only ever see empty is not a report they are offered.
+    const forViewer = allowed.body.data.map((report) => report.key);
+    expect(forViewer).toContain('attendance-register');
+    expect(forViewer).toContain('punch-audit');
+    expect(forViewer).toContain('monthly-muster');
+    expect(forViewer).not.toContain('leave-balance');
+    expect(forViewer).not.toContain('leave-ledger');
+    expect(forViewer).not.toContain('headcount');
+
+    // HR holds every family, and sees the whole list in its declared order.
+    const forHr = await harness.get<{ data: ReportDefinition[] }>('/reports', { token: hrToken });
+    expect(forHr.body.data.map((report) => report.key)).toEqual([...REPORT_KEYS]);
 
     const anonymous = await harness.get('/reports');
     expect(anonymous.status).toBe(401);
   });
 
   it('answers 404 for a report this build does not have', async () => {
-    // Payroll Input (REQ-J-04) is deliberately not built: its column set is
-    // unsigned-off. A stale link to it must not render an empty report.
+    // Payroll Input (REQ-J-04) is not built: the client dropped it. A stale
+    // link to it must not render an empty report, which nobody could tell from
+    // a month in which nothing happened.
     const missing = await harness.get('/reports/payroll-input/rows', { token: hrToken });
     expect(missing.status).toBe(404);
   });

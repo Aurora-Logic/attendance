@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -45,13 +45,11 @@ import {
   DEFAULT_PAGE_SIZE,
   PERMISSIONS,
   REPORT_KEYS,
-  attendanceRegisterCell,
+  REPORT_DEFINITIONS,
   defaultVisibleColumns,
   describeFilters,
   isReportKey,
-  punchAuditCell,
   resolveColumns,
-  type ReportCellValue,
   type ReportColumnSpec,
   type ReportDefinition,
   type ReportFilters,
@@ -60,12 +58,11 @@ import {
 } from '@vyuha/shared';
 
 import {
-  useAttendanceRegister,
   useDeleteView,
   useDepartmentOptions,
   useLocationOptions,
-  usePunchAudit,
   useReportCatalogue,
+  useReportRows,
   useRequestExport,
   useSavedViews,
   useSaveView,
@@ -73,10 +70,11 @@ import {
 } from './api';
 import { ColumnChooser } from './column-chooser';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
+import { periodFor, periodModeOf } from './period';
 import { isNumericColumn, renderCell } from './format';
 import { PunchPhotoSheet } from './punch-photo-sheet';
 import { SavedViews } from './saved-views';
-import type { AttendanceRegisterRow, PunchAuditRow } from './types';
+import type { PunchAuditRow, ReportRowView } from './types';
 
 /**
  * The one report shell (REQ-J-01): filter bar, column chooser, sort,
@@ -207,15 +205,21 @@ export function ReportsPage() {
     ? (reportParam as ReportKey)
     : REPORT_KEYS[0];
 
-  const definition =
-    catalogue.data?.find((report) => report.key === reportKey) ?? catalogue.data?.[0];
+  // No fallback to the first report. The columns come from the definition and
+  // the cells from `reportKey`, so a definition that is not this report's would
+  // paint one report's headers over another's rows -- every cell empty, and
+  // reading exactly like a quiet period. A client ahead of its server says so
+  // instead.
+  const definition = catalogue.data?.find((report) => report.key === reportKey);
+  const unknownReport = catalogue.isSuccess && definition === undefined;
 
   // --------------------------------------------------------------- state
 
-  const period: DateRange = {
+  const periodMode = periodModeOf(definition);
+  const period: DateRange = periodFor(periodMode, {
     from: fromDateParam(searchParams.get('from')) ?? defaultPeriod().from,
     to: fromDateParam(searchParams.get('to')) ?? defaultPeriod().to,
-  };
+  });
 
   const filters: ReportFilterState = {
     period,
@@ -231,17 +235,17 @@ export function ReportsPage() {
   const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
   const pageSize = DEFAULT_PAGE_SIZE;
 
-  const visibleColumns = useMemo(() => {
-    const raw = searchParams.get('columns');
-    const chosen = raw === null ? undefined : raw.split(',').filter(Boolean);
-    return resolveColumns(reportKey, chosen).map((column) => column.key);
-  }, [searchParams, reportKey]);
+  const columnsParam = searchParams.get('columns');
+  const visibleColumns = resolveColumns(
+    reportKey,
+    columnsParam === null ? undefined : columnsParam.split(',').filter(Boolean),
+  ).map((column) => column.key);
 
-  const columns: ReportColumnSpec[] = useMemo(() => {
-    if (definition === undefined) return [];
-    const chosen = new Set(visibleColumns);
-    return definition.columns.filter((column) => chosen.has(column.key));
-  }, [definition, visibleColumns]);
+  const chosenColumns = new Set(visibleColumns);
+  const columns: ReportColumnSpec[] =
+    definition === undefined
+      ? []
+      : definition.columns.filter((column) => chosenColumns.has(column.key));
 
   function patchParams(apply: (params: URLSearchParams) => void, keepPage = false) {
     setSearchParams((current) => {
@@ -286,10 +290,12 @@ export function ReportsPage() {
     setSearchParams(() => {
       const params = new URLSearchParams();
       params.set('report', next);
-      const from = searchParams.get('from');
-      const to = searchParams.get('to');
-      if (from !== null) params.set('from', from);
-      if (to !== null) params.set('to', to);
+      // The period carries over, narrowed to something the next report can
+      // answer for: a quarter handed to the muster grid is a refusal, and a
+      // refusal on arrival reads as the report being broken.
+      const carried = periodFor(periodModeOf(REPORT_DEFINITIONS[next]), period);
+      if (carried.from) params.set('from', toDateParam(carried.from));
+      if (carried.to) params.set('to', toDateParam(carried.to));
       return params;
     });
   }
@@ -352,9 +358,7 @@ export function ReportsPage() {
     ...(filters.punchType ? { punchType: filters.punchType as ReportFilters['punchType'] } : {}),
   };
 
-  const register = useAttendanceRegister(rowParams, reportKey === 'attendance-register');
-  const audit = usePunchAudit(rowParams, reportKey === 'punch-audit');
-  const active = reportKey === 'attendance-register' ? register : audit;
+  const active = useReportRows(reportKey, rowParams);
 
   const savedViews = useSavedViews(reportKey);
   const saveView = useSaveView();
@@ -435,20 +439,13 @@ export function ReportsPage() {
 
   // ---------------------------------------------------------- rendering
 
-  const cellFor = (row: AttendanceRegisterRow | PunchAuditRow, key: string): ReportCellValue =>
-    reportKey === 'attendance-register'
-      ? attendanceRegisterCell(row as AttendanceRegisterRow, key)
-      : punchAuditCell(row as PunchAuditRow, key);
-
-  const tableColumns: RecordColumn<AttendanceRegisterRow | PunchAuditRow>[] = columns.map(
-    (column) => ({
-      key: column.key,
-      header: column.header,
-      numeric: isNumericColumn(column.type),
-      secondary: column.secondary === true,
-      cell: (row) => renderCell(cellFor(row, column.key), column.type),
-    }),
-  );
+  const tableColumns: RecordColumn<ReportRowView>[] = columns.map((column) => ({
+    key: column.key,
+    header: column.header,
+    numeric: isNumericColumn(column.type),
+    secondary: column.secondary === true,
+    cell: (row) => renderCell(row.cells[column.key] ?? null, column.type),
+  }));
 
   // The photo is chrome, not a column: it has no cell in the exported file and
   // must never be one, so it is added to the table rather than to the report's
@@ -458,20 +455,21 @@ export function ReportsPage() {
       key: 'photo',
       header: 'Photo',
       className: 'w-16',
-      cell: (row) => (
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="View the punch photo"
-          className="pointer-coarse:size-11"
-          onClick={(event) => {
-            event.stopPropagation();
-            setSelectedPunch(row as PunchAuditRow);
-          }}
-        >
-          <ImageIcon />
-        </Button>
-      ),
+      cell: (row) =>
+        row.punch === null ? null : (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="View the punch photo"
+            className="pointer-coarse:size-11"
+            onClick={(event) => {
+              event.stopPropagation();
+              setSelectedPunch(row.punch);
+            }}
+          >
+            <ImageIcon />
+          </Button>
+        ),
     });
   }
 
@@ -486,8 +484,8 @@ export function ReportsPage() {
     (column) => !['employeeName', 'status', 'type'].includes(column.key),
   );
 
-  const rows: (AttendanceRegisterRow | PunchAuditRow)[] =
-    reportKey === 'attendance-register' ? (register.data?.data ?? []) : (audit.data?.data ?? []);
+  const rows: ReportRowView[] = active.data?.data ?? [];
+  const hasStatus = rows.some((row) => row.status !== null);
 
   const isFiltered =
     filters.departmentId !== null ||
@@ -541,6 +539,7 @@ export function ReportsPage() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <ReportFilterBar
             available={definition?.filters ?? []}
+            periodMode={periodMode}
             value={filters}
             onChange={setFilters}
             departments={departments.data ?? []}
@@ -626,6 +625,16 @@ export function ReportsPage() {
           </div>
         ) : null}
 
+        {unknownReport ? (
+          <Alert variant="destructive">
+            <WarningCircleIcon />
+            <AlertTitle>That report is not available to you</AlertTitle>
+            <AlertDescription>
+              {`"${reportKey}" is not in the catalogue this server offers you — either this build does not have it, or your role holds no permission over what it reports on. Pick another with Ctrl+G.`}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         {catalogue.isError ? (
           <Alert variant="destructive">
             <WarningCircleIcon />
@@ -646,7 +655,7 @@ export function ReportsPage() {
           </Alert>
         ) : null}
 
-        {active.isPending ? <TableSkeleton /> : null}
+        {active.isPending && !unknownReport ? <TableSkeleton /> : null}
 
         {active.isError ? (
           <Alert variant="destructive">
@@ -702,17 +711,18 @@ export function ReportsPage() {
               columns={tableColumns}
               rows={rows}
               rowKey={(row) => row.id}
-              mobilePrimary={(row) => row.employee.name}
-              mobileStatus={(row) =>
-                reportKey === 'attendance-register'
-                  ? humaniseEnum((row as AttendanceRegisterRow).status)
-                  : humaniseEnum((row as PunchAuditRow).type)
-              }
+              mobilePrimary={(row) => row.primary}
+              {...(hasStatus
+                ? {
+                    mobileStatus: (row: ReportRowView) =>
+                      row.status === null ? EMPTY_VALUE : humaniseEnum(row.status),
+                  }
+                : {})}
               mobileSupporting={(row) => {
                 const render = (column: ReportColumnSpec | undefined) =>
                   column === undefined
                     ? EMPTY_VALUE
-                    : renderCell(cellFor(row, column.key), column.type);
+                    : renderCell(row.cells[column.key] ?? null, column.type);
                 return (
                   <span className="flex items-center gap-2">
                     {render(supporting[0])}
@@ -724,7 +734,7 @@ export function ReportsPage() {
               onRowActivate={
                 reportKey === 'punch-audit'
                   ? (row) => {
-                      setSelectedPunch(row as PunchAuditRow);
+                      setSelectedPunch(row.punch);
                     }
                   : undefined
               }

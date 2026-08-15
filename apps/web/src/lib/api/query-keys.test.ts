@@ -28,10 +28,15 @@ import { describe, expect, it } from 'vitest';
  * constant passes the old test and fails this one.
  *
  * So this resolves constants and factory properties - including a factory's
- * literal arguments, which is what keeps reportKeys.rows('attendance-register')
+ * literal arguments, which is what would keep reportKeys.rows('late-arrivals')
  * apart from reportKeys.rows('punch-audit') - and it is guarded by a count
  * rather than a floor: everything the file scan finds must also be classified
  * and resolved. A scan that goes blind cannot pass by finding less.
+ *
+ * No hook writes a literal into a key factory today; the report shell reads its
+ * report key from the URL and registers one parameterised key for all of them.
+ * The binding is therefore exercised on the resolver directly, so the capability
+ * does not rot while nothing happens to use it.
  *
  * Limits, stated so a failure is quick to read:
  * - Invalidations (`invalidateQueries` and friends) are exempt. Prefix
@@ -447,20 +452,14 @@ describe('query key registrations', () => {
     expect(resolved.get('SETTINGS_QUERY_KEY')).toEqual(['settings']);
     expect(resolved.get('reportKeys.catalogue')).toEqual(['reports', 'catalogue']);
 
-    // A factory's literal arguments have to land in their parameter positions.
-    // Dropping them would make these two the same key and report a collision
-    // that does not exist, and a test that cries wolf is a test somebody
-    // deletes.
-    expect(resolved.get("reportKeys.rows('attendance-register', query)")).toEqual([
+    // The report shell registers one key for every report, parameterised by the
+    // report it is showing - there is no longer a hook per report to hardcode
+    // one. The registration therefore resolves with the report key as a
+    // wildcard, and that is the honest reading of the source.
+    expect(resolved.get('reportKeys.rows(reportKey, query)')).toEqual([
       'reports',
       'rows',
-      'attendance-register',
       '*',
-    ]);
-    expect(resolved.get("reportKeys.rows('punch-audit', query)")).toEqual([
-      'reports',
-      'rows',
-      'punch-audit',
       '*',
     ]);
 
@@ -473,6 +472,30 @@ describe('query key registrations', () => {
     expect(new Set(spreadKeys)).toEqual(new Set(['leave']));
 
     expect(byReference.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it('carries a factory\'s literal arguments into their parameter positions', () => {
+    // Exercised directly rather than through a call site, because no hook
+    // writes a literal into a key factory any more: the report shell became
+    // generic over the report it is showing. The behaviour still has to hold -
+    // the moment one does, two of them must resolve apart rather than to the
+    // same key, which would report a collision that does not exist, and a test
+    // that cries wolf is a test somebody deletes.
+    expect(resolve("reportKeys.rows('late-arrivals', query)")).toEqual([
+      'reports',
+      'rows',
+      'late-arrivals',
+      '*',
+    ]);
+    expect(resolve("reportKeys.rows('punch-audit', query)")).toEqual([
+      'reports',
+      'rows',
+      'punch-audit',
+      '*',
+    ]);
+    expect(resolve("reportKeys.rows('late-arrivals', query)")).not.toEqual(
+      resolve("reportKeys.rows('punch-audit', query)"),
+    );
   });
 
   it('finds no key constant declared under a name another file also uses', () => {
