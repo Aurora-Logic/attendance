@@ -36,7 +36,12 @@ const PATTERNS: readonly RegExp[] = [
   new RegExp(String.raw`^\s*${PAIR}\s*$`, 'u'),
 ];
 
-const SHORT_LINK = /(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)/iu;
+// share.google is what the Share button produces now, and it was missing:
+// a real office link pasted into this field was answered "no coordinates in
+// that", which reads as a bad link rather than a link this cannot read.
+// Resolving it server-side is not an option either — Google answers automated
+// requests for these with a CAPTCHA.
+const SHORT_LINK = /(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs|share\.google)/iu;
 
 function isValidPair(latitude: number, longitude: number): boolean {
   return (

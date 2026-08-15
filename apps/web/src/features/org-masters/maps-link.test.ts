@@ -69,6 +69,13 @@ describe('reading coordinates out of a pasted Google Maps link', () => {
     if (result.kind === 'short-link') expect(result.message).toContain('Open it');
   });
 
+  it('recognises share.google, which is what the Share button produces now', () => {
+    // The exact shape a real office link arrived in. Missing it meant a correct
+    // link was reported as containing no coordinates.
+    const result = parseMapsLink('https://share.google/JTKYCWYVjXilPU8TN');
+    expect(result.kind).toBe('short-link');
+  });
+
   it('treats the older goo.gl/maps form the same way', () => {
     expect(parseMapsLink('https://goo.gl/maps/abc123').kind).toBe('short-link');
   });
