@@ -1,3 +1,4 @@
+import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -60,6 +61,23 @@ export interface SubjectSection {
   readonly columns: readonly SubjectAccessColumn[];
   /** Null means the section has no meaning for this subject and is skipped. */
   readonly build: (ids: SubjectIds) => SQL | null;
+  /**
+   * The permission the *contents* need, beyond `employee.manage` on the route.
+   *
+   * REQ-M-05 names `employee.manage` as the key for this endpoint, and for the
+   * employee record itself that is right -- `EMPLOYEE_SCOPE_GRANTS.all` is that
+   * exact key, so it already means org-wide. But the file carries data governed
+   * by other families, and nothing re-checked them: the seeded HR role holds
+   * `employee.manage` and *not* `audit.view`, so an HR user could read actor
+   * emails, actor IPs and before/after diffs out of this file that the audit
+   * viewer would refuse them. A role with `employee.manage` and no attendance
+   * key resolves to `'none'` on every attendance endpoint and still received
+   * every punch coordinate.
+   *
+   * Any one of the listed keys is enough. Undefined means the section carries
+   * only employee-record data and the route's own key covers it.
+   */
+  readonly requires?: readonly PermissionKey[];
 }
 
 export interface SectionRows {
@@ -305,6 +323,7 @@ export const SUBJECT_PROFILE_SECTION: SubjectSection = {
 export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   {
     key: 'roles',
+    requires: [PERMISSIONS.ROLES_MANAGE],
     title: 'Roles held',
     columns: columns(
       ['roleName', 'Role'],
@@ -384,6 +403,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'shift-assignments',
+    requires: [PERMISSIONS.ATTENDANCE_VIEW_ALL, PERMISSIONS.SHIFT_MANAGE],
     title: 'Shift assignments',
     columns: columns(
       ['shiftName', 'Shift'],
@@ -402,6 +422,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'attendance-days',
+    requires: [PERMISSIONS.ATTENDANCE_VIEW_ALL],
     title: 'Attendance days',
     columns: columns(
       ['date', 'Date'],
@@ -440,6 +461,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'punches',
+    requires: [PERMISSIONS.ATTENDANCE_VIEW_ALL],
     title: 'Punches',
     columns: columns(
       ['attendanceDate', 'Attendance date'],
@@ -488,6 +510,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'leave-requests',
+    requires: [PERMISSIONS.LEAVE_APPROVE_ALL],
     title: 'Leave requests',
     columns: columns(
       ['leaveType', 'Leave type'],
@@ -523,6 +546,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'leave-ledger',
+    requires: [PERMISSIONS.LEAVE_APPROVE_ALL],
     title: 'Leave ledger',
     columns: columns(
       ['postedAt', 'Posted'],
@@ -547,6 +571,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'leave-balances',
+    requires: [PERMISSIONS.LEAVE_APPROVE_ALL],
     title: 'Leave balances',
     columns: columns(
       ['leaveType', 'Leave type'],
@@ -571,6 +596,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'comp-off',
+    requires: [PERMISSIONS.LEAVE_APPROVE_ALL],
     title: 'Comp-off credits',
     columns: columns(
       ['earnedForDate', 'Earned for'],
@@ -590,6 +616,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'regularizations',
+    requires: [PERMISSIONS.REGULARIZATION_APPROVE, PERMISSIONS.ATTENDANCE_VIEW_ALL],
     title: 'Regularizations',
     columns: columns(
       ['date', 'Date'],
@@ -620,6 +647,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'on-duty',
+    requires: [PERMISSIONS.REGULARIZATION_APPROVE, PERMISSIONS.ATTENDANCE_VIEW_ALL],
     title: 'On-duty requests',
     columns: columns(
       ['fromDate', 'From'],
@@ -647,6 +675,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'attendance-adjustments',
+    requires: [PERMISSIONS.ATTENDANCE_VIEW_ALL],
     title: 'Attendance adjustments',
     columns: columns(
       ['attendanceDate', 'Date'],
@@ -668,6 +697,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'approvals-raised',
+    requires: [PERMISSIONS.LEAVE_APPROVE_ALL, PERMISSIONS.REGULARIZATION_APPROVE],
     title: 'Approvals raised',
     columns: columns(
       ['approvalType', 'Type'],
@@ -691,17 +721,36 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'approvals-decided',
+    requires: [PERMISSIONS.LEAVE_APPROVE_ALL, PERMISSIONS.REGULARIZATION_APPROVE],
     title: 'Approvals decided',
-    // Only the step this person acted on, and the one-line summary the
-    // approvals framework already shows them. The requester's own record is
-    // deliberately not joined in: this file belongs to the subject, and
-    // another employee's leave reason is not theirs to be handed.
+    /*
+     * What this person did, never what it was about.
+     *
+     * `approval_requests.subject_summary` is the *other* employee's request
+     * written out in prose -- "Devang Pillai: Casual Leave, 21-09 to 22-09" --
+     * and it used to be a column here. That put third parties' names, leave
+     * types (Sick and Maternity are leave types), dates and the free-text
+     * decision reason into a file whose entire purpose is to be handed to
+     * somebody. The comment that used to sit here claimed the opposite, which
+     * is how it survived review.
+     *
+     * `reason` stays, but only because the WHERE below now matches solely on
+     * `acted_by_user_id`: with that narrowing the reason is the subject's own
+     * words, which is their data and belongs in their file. The old clause also
+     * matched `approver_user_id`, returning steps *assigned* to the subject but
+     * decided by a colleague -- printing that colleague's action and reasoning
+     * under a heading saying the subject decided it.
+     *
+     * The section is kept rather than deleted: "you decided fourteen requests,
+     * here is when" is a fact held about this person, and a subject access file
+     * that omitted it would be incomplete. It just does not need to name anyone
+     * else to say it.
+     */
     columns: columns(
       ['approvalType', 'Type'],
-      ['subjectSummary', 'Subject'],
       ['stepNo', 'Step'],
       ['action', 'Action'],
-      ['reason', 'Reason given'],
+      ['reason', 'Reason you gave'],
       ['actedAt', 'Acted'],
       ['delegatedFrom', 'Delegated from'],
     ),
@@ -709,7 +758,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
       ids.userId === null
         ? null
         : sql`
-            SELECT ar.type AS "approvalType", ar.subject_summary AS "subjectSummary",
+            SELECT ar.type AS "approvalType",
                    st.step_no AS "stepNo", st.action AS "action", st.reason AS "reason",
                    st.acted_at AS "actedAt", df.email AS "delegatedFrom"
             FROM approval_steps st
@@ -717,12 +766,13 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
             LEFT JOIN users df ON df.id = st.delegated_from_user_id
             WHERE st.org_id = ${ids.orgId}
               AND st.acted_at IS NOT NULL
-              AND (st.acted_by_user_id = ${ids.userId} OR st.approver_user_id = ${ids.userId})
+              AND st.acted_by_user_id = ${ids.userId}
             ORDER BY st.acted_at
           `,
   },
   {
     key: 'audit',
+    requires: [PERMISSIONS.AUDIT_VIEW],
     title: 'Audit entries about this person',
     // Entries where this person is the *subject*, never where they were merely
     // the actor. An HR user's actor trail carries the before/after of other

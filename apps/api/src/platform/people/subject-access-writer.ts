@@ -241,6 +241,21 @@ export class SubjectAccessCsvWriter {
     }
   }
 
+  /**
+   * A section that exists but was not filled in, and why.
+   *
+   * The distinction this preserves is the same one `table` makes between "no
+   * data held" and an absent heading, one step further out: a section withheld
+   * because the requester lacks the permission governing it is neither empty
+   * nor missing, and a compliance file that simply omitted it would be claiming
+   * completeness it does not have. The heading stays so the reader can see
+   * there is more, and ask somebody who holds the key.
+   */
+  note(title: string, reason: string): void {
+    this.heading(title);
+    this.lines.push(csvCell(reason));
+  }
+
   finish(): Buffer {
     return Buffer.from(UTF8_BOM + this.lines.join(LINE_END) + LINE_END, 'utf8');
   }

@@ -1,5 +1,6 @@
 import {
   PERMISSIONS,
+  ROLE_PERMISSION_MATRIX,
   SYSTEM_ROLES,
   type ExportDownload,
   type ExportJobSummary,
@@ -50,6 +51,7 @@ let opsToken = '';
 let subjectId = '';
 let otherId = '';
 let subjectUserId = '';
+let adminToken = '';
 
 /**
  * Clears this organisation's export rows before the harness resets it.
@@ -108,6 +110,11 @@ beforeAll(async () => {
   await harness.ensurePermissionCatalogue();
 
   const hrRoleId = await harness.createSystemRole(SYSTEM_ROLES.HR);
+  // Every section's governing key, so "holds every section" below is exercised
+  // against a requester entitled to all of it. HR deliberately is not: it holds
+  // `employee.manage` and not `audit.view`, which is the gap the section gate
+  // closes and which `what the file may contain` covers separately.
+  const adminRoleId = await harness.createSystemRole(SYSTEM_ROLES.ADMIN);
   // `employee.view` without `employee.manage`: the refusal this feature has to
   // make is against somebody who may already read the record on screen.
   const viewerRoleId = await harness.createRole(`Employee viewer ${RUN}`, [
@@ -157,6 +164,12 @@ beforeAll(async () => {
   });
   subjectUserId = subjectUser.id;
 
+  const adminUser = await harness.createUser({
+    email: scopedEmail('sa-admin-fixture'),
+    roleIds: [adminRoleId],
+    employeeId: null,
+  });
+  adminToken = (await harness.login(adminUser.email, adminUser.password)).token;
   hrToken = (await harness.login(hrUser.email, hrUser.password)).token;
   opsToken = (await harness.login(viewerUser.email, viewerUser.password)).token;
 
@@ -196,6 +209,36 @@ beforeAll(async () => {
       (org_id, employee_id, leave_type_id, from_date, to_date, total_days, reason, status)
     VALUES (${ORG_ID}, ${subjectId}, ${leaveTypeId}, '2026-04-01', '2026-04-01', 1,
             ${FORMULA_REASON}, 'PENDING')
+  `);
+
+  /*
+   * The subject decides somebody else's request.
+   *
+   * Without this the "holds nobody else" assertion below is vacuous: the
+   * `approvals-decided` section is empty, so it cannot leak, and the test
+   * passes while the section is free to print the other employee's name, leave
+   * type, dates and the decision reason. It did exactly that, and this fixture
+   * is what makes the assertion able to fail.
+   *
+   * `subject_summary` is written the way `subjectLineOf` writes it -- the other
+   * employee's name first -- because that is the string that used to reach the
+   * file.
+   */
+  const raised = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO approval_requests
+      (org_id, type, requester_user_id, subject_type, subject_id, current_step, status,
+       subject_summary, current_step_started_at, escalate_after_days)
+    VALUES (${ORG_ID}, 'LEAVE', ${viewerUser.id}, 'leave_request', ${otherId}::uuid, 1, 'APPROVED',
+            ${`Vikram Deshpande: Probe Leave, 2026-05-04 to 2026-05-05 (2 days)`}, now(), 3)
+    RETURNING id
+  `);
+  const raisedId = raised.rows[0]?.id;
+  if (raisedId === undefined) throw new Error('Approval request fixture returned no row.');
+  await harness.db.execute(sql`
+    INSERT INTO approval_steps
+      (org_id, approval_request_id, step_no, approver_user_id, acted_by_user_id, action, reason, acted_at)
+    VALUES (${ORG_ID}, ${raisedId}::uuid, 1, ${subjectUserId}, ${subjectUserId}, 'APPROVE',
+            ${'Cover is arranged.'}, now())
   `);
 
   // Both edits go through the API so the audit interceptor writes real rows --
@@ -289,10 +332,10 @@ describe('the produced file', () => {
   let finished: ExportJobSummary;
 
   beforeAll(async () => {
-    const queued = await requestExport(hrToken, subjectId);
-    finished = await waitForExport(hrToken, queued.id);
+    const queued = await requestExport(adminToken, subjectId);
+    finished = await waitForExport(adminToken, queued.id);
     expect(finished.status, finished.error ?? '').toBe('DONE');
-    text = await downloadText(hrToken, queued.id);
+    text = await downloadText(adminToken, queued.id);
   }, 120_000);
 
   it('holds every section, so an empty one is stated rather than inferred', () => {
@@ -399,7 +442,7 @@ describe('the produced file', () => {
     // TextDecoder, which strips the BOM -- so asserting on the string would
     // fail for a file that is correct, and pass for one written as UTF-16.
     const link = await harness.get<ExportDownload>(`/reports/exports/${finished.id}/download`, {
-      token: hrToken,
+      token: adminToken,
     });
     expect(link.status).toBe(200);
     const bytes = Buffer.from(await (await fetch(link.body.url)).arrayBuffer());
@@ -408,8 +451,11 @@ describe('the produced file', () => {
   });
 
   it('appears in the Downloads tray as a finished, downloadable job', async () => {
+    // The requester's own tray. `loadForRequester` pins `requestedBy`, so this
+    // has to be the account that asked -- that pinning is the control which
+    // keeps one person's subject-access file out of another's tray.
     const tray = await harness.get<{ data: ExportJobSummary[] }>('/reports/exports', {
-      token: hrToken,
+      token: adminToken,
     });
     expect(tray.status).toBe(200);
 
@@ -445,6 +491,67 @@ describe('an employee with no login account', () => {
     expect(file).toContain('[ Approvals raised ]');
     expect(file).toContain('[ Consent ]');
     expect(file).not.toContain(SUBJECT_CODE);
+  }, 120_000);
+});
+
+/**
+ * REQ-M-05's gate opens the endpoint; it does not decide what the file holds.
+ *
+ * Half the sections carry data another permission family owns -- punch
+ * coordinates, the audit trail, leave. Without a second check the export is a
+ * way around all of them, and this is reachable with no unusual configuration:
+ * the seeded HR role holds `employee.manage` and not `audit.view`.
+ */
+describe('what the file may contain', () => {
+  it('withholds the audit trail from a requester without audit.view, and says so', async () => {
+    // The seeded HR permission set exactly -- employee.manage, no audit.view --
+    // under its own name, because `beforeAll` already created the role called
+    // "HR" and `roles_org_name_uq` allows one per organisation.
+    const hrOnly = await harness.createRole(`HR again ${RUN}`, ROLE_PERMISSION_MATRIX.HR);
+    const user = await harness.createUser({
+      email: scopedEmail('sa-no-audit'),
+      roleIds: [hrOnly],
+      employeeId: null,
+    });
+    const token = (await harness.login(user.email, user.password)).token;
+
+    const queued = await requestExport(token, subjectId);
+    const finished = await waitForExport(token, queued.id);
+    expect(finished.status, finished.error ?? '').toBe('DONE');
+
+    const file = await downloadText(token, queued.id);
+
+    // The heading stays -- an omitted section reads as "nothing held" -- but
+    // the contents are replaced by the reason.
+    expect(file).toContain('Audit entries about this person');
+    expect(file).toContain('does not hold the permission that governs this data');
+
+    // And the actual audit contents are absent. `curl/8.7.1` is a user agent
+    // that only appears in an audit row; the actor emails are the identities
+    // `audit.view` exists to protect.
+    expect(file).not.toContain('sa-hr');
+    expect(file).not.toContain('User agent');
+  }, 120_000);
+
+  it('still gives an Admin the audit trail, so the gate is not simply off', async () => {
+    // The falsification for the test above: if the gate withheld the section
+    // from everybody, that test would pass while the feature was broken.
+    const adminRole = await harness.createRole(`Admin again ${RUN}`, ROLE_PERMISSION_MATRIX.Admin);
+    const user = await harness.createUser({
+      email: scopedEmail('sa-admin'),
+      roleIds: [adminRole],
+      employeeId: null,
+    });
+    const token = (await harness.login(user.email, user.password)).token;
+
+    const queued = await requestExport(token, subjectId);
+    const finished = await waitForExport(token, queued.id);
+    expect(finished.status, finished.error ?? '').toBe('DONE');
+
+    const file = await downloadText(token, queued.id);
+    expect(file).toContain('Audit entries about this person');
+    expect(file).not.toContain('does not hold the permission that governs this data');
+    expect(file).toContain('User agent');
   }, 120_000);
 });
 

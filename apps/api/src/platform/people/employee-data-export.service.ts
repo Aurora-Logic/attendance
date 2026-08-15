@@ -300,7 +300,34 @@ export class EmployeeDataExportService {
     );
 
     const included: string[] = [];
+    const withheld: string[] = [];
     for (const section of SUBJECT_SECTIONS) {
+      /*
+       * The route's `employee.manage` opens the endpoint; this decides what the
+       * file may contain.
+       *
+       * Half these sections hold data owned by another permission family --
+       * punch coordinates by `attendance.view.all`, the audit trail by
+       * `audit.view`, leave by `leave.approve.all` -- and without this the
+       * export was a way around all of them. The seeded HR role holds
+       * `employee.manage` and not `audit.view`, so this is reachable with no
+       * unusual configuration at all.
+       */
+      if (
+        section.requires !== undefined &&
+        !section.requires.some((key) => hasPermission(principal, key))
+      ) {
+        // Named, not silently dropped. A compliance file is read once, by
+        // somebody who cannot tell an omitted section from an empty one, and
+        // "everything we hold" has to be true or say where it is not.
+        writer.note(
+          section.title,
+          'Not included: your account does not hold the permission that governs this data.',
+        );
+        withheld.push(section.key);
+        continue;
+      }
+
       const { rows, truncated } = await repository.rowsFor(section, ids);
       writer.table(
         section.title,
