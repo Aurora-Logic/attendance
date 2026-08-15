@@ -296,6 +296,26 @@ export function ReportsPage() {
       const carried = periodFor(periodModeOf(REPORT_DEFINITIONS[next]), period);
       if (carried.from) params.set('from', toDateParam(carried.from));
       if (carried.to) params.set('to', toDateParam(carried.to));
+
+      /*
+       * REQ-N-02: "preserving filters where they apply".
+       *
+       * Driven by the target's own `filters` declaration rather than a list
+       * kept here, which would drift from it the first time a report declares
+       * a filter this loop has not heard of. A filter the next report does not
+       * declare is dropped rather than carried, because the server would
+       * either refuse it or, worse, ignore it -- and a filter silently ignored
+       * is a reader believing they are looking at one department when they are
+       * looking at all of them.
+       *
+       * The period is already handled above, and handled differently: it is
+       * narrowed to fit rather than passed through.
+       */
+      for (const name of REPORT_DEFINITIONS[next].filters) {
+        if (name === 'period') continue;
+        const value = searchParams.get(name);
+        if (value !== null && value !== '') params.set(name, value);
+      }
       return params;
     });
   }
