@@ -2,6 +2,21 @@
 
 Workforce attendance platform. Attendance now; CRM and Tally-backed ERP later, on the same foundation.
 
+## Deploying it
+
+**Start at [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).** It states what this
+build is, what has been verified and how, and the eight things it still needs
+from you — none of which are code.
+
+| Then | For |
+|---|---|
+| [`docs/DEPLOY-CHECKLIST.md`](docs/DEPLOY-CHECKLIST.md) | The one-time path from an empty VPS to employees punching |
+| [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | Running it afterwards — start, stop, logs, backup, restore |
+| [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md) | Every decision deferred rather than guessed, with the default in force |
+
+Deploy to a **fresh database**: migrations, then the seed. Nothing from a
+development database travels.
+
 ## What's here
 
 | File | Put it | What it's for |

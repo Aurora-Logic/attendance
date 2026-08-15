@@ -5,8 +5,9 @@ path from an empty VPS to employees punching. Follow it in order; each step
 tells you how to know it worked, because "the command exited 0" and "it works"
 are different claims.
 
-Do not start until the launch verdict is clear — ask, or check the Progress
-section of `07-launch-plan.md`.
+Read `DEPLOYMENT.md` first — it states what this build is, what is verified,
+and what it still needs from you. This file is the mechanical path once that
+answer is yes.
 
 ---
 
@@ -19,8 +20,13 @@ You need, in hand:
   and propagation is the slowest thing in this list.
 - Object storage: Cloudflare R2 credentials (recommended), or the decision to
   run MinIO on the box. R2 means an API token scoped to two buckets.
-- SMTP credentials that can actually send. Without working mail nobody but the
-  seeded administrator can ever sign in, because provisioning is invite-only.
+- **No SMTP is required.** Mail is off by default (`MAIL_TRANSPORT=log`) and
+  this deployment ships without a mail server. `POST /auth/invitations` returns
+  the accept link to the administrator, who passes it on however they like, and
+  the same menu issues a password-reset link. The one thing genuinely lost is
+  the self-service "forgot password" form, whose token reaches nobody — a
+  locked-out person asks an administrator instead. Supply SMTP later and set
+  `MAIL_TRANSPORT=smtp` to turn delivery back on.
 - The data in §4. Gather it before you deploy, not after.
 
 ## 2. Deploy
@@ -126,10 +132,31 @@ for adoption resistance, and it costs one message.
 ## 7. What day one does not include
 
 Say this in writing to whoever is depending on it, so nobody discovers it at
-month-end: eleven of the thirteen reports, Payroll Input, Excel formatting
-(exports are CSV), the notification bell and emails beyond invitations and
-resets, desktop punching, TOTP, and the calculator. Attendance Register and
-Punch Audit are the two live reports.
+month-end.
 
-Error tracking is deferred — until a Sentry decision lands, production errors
-live in `vy logs api` and nowhere else. Watch them for the first few days.
+**Not built, by decision:**
+
+- **Payroll Input (REQ-J-04).** Dropped at the client's instruction. The report
+  key answers 404 rather than returning something plausible, and a test holds
+  it there. Month-end payroll is produced from the other reports.
+- **Email.** See §1. Invitations and resets are links an administrator passes
+  on; there is no self-service password recovery.
+- **Scheduled exports do not email.** They run on a timer and land in the
+  Downloads tray, which is where the file is collected from.
+- **TOTP / two-factor.** Not implemented.
+- **TallyPrime integration, CRM and ERP.** Later phases. The integration layer
+  and module boundaries exist; nothing reads from Tally yet.
+
+**Built since the last revision of this list**, and worth correcting because
+this section said otherwise: all **thirteen** reports, **Excel export** with a
+formatted workbook (frozen header, autofilter, column widths, header block),
+**scheduled exports**, the **notification bell**, the **calculator**, employee
+**data export**, and **desktop punching** on a single-camera device.
+
+**Known gaps that are open questions rather than omissions:**
+
+- **REQ-G-10 cancellation.** Cancelling leave on or after its start date still
+  needs an approver key rather than raising an approval request. It changes who
+  may cancel and adds a second approval per request — a leave-policy decision.
+- **Error tracking.** Deferred until a Sentry decision lands; production errors
+  live in `vy logs api` and nowhere else. Watch them for the first few days.
