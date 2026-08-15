@@ -12,6 +12,7 @@
     "typecheck": "pnpm --filter '@vyuha/*' typecheck",
     "lint": "pnpm --filter '@vyuha/*' lint",
     "test": "pnpm --filter '@vyuha/*' test",
+    "smoke": "node scripts/smoke.mjs",
     "infra:up": "docker compose -f docker/docker-compose.yml up -d --wait",
     "infra:down": "docker compose -f docker/docker-compose.yml down",
     "infra:reset": "docker compose -f docker/docker-compose.yml down -v",
