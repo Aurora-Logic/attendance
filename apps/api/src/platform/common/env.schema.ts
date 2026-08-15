@@ -60,6 +60,24 @@ const optionalFlag = (fallback: boolean) =>
     (value) => value === 'true',
   );
 
+/**
+ * Optional, but typed as a plain string so a reader of `env` cannot forget to
+ * handle "unset".
+ *
+ * Only for variables where empty genuinely means "not configured" and the
+ * consumer that requires one is guarded elsewhere -- see the SMTP block below,
+ * where `superRefine` demands the same variables the moment `MAIL_TRANSPORT` is
+ * `smtp`. `optionalText` would be the honest type, and it is the wrong one
+ * here: it would flow `string | undefined` into the settings view the web
+ * client parses with `z.string()`, which is a screen breaking over a variable
+ * nobody set.
+ */
+const optionalTextOr = (fallback: string) =>
+  z
+    .string()
+    .optional()
+    .transform((value) => (value !== undefined && value.length > 0 ? value : fallback));
+
 const optionalWholeNumber = (min: number, max: number, fallback: number) =>
   z
     .string()
@@ -147,20 +165,38 @@ export const envSchema = z
     JWT_ACCESS_TTL_SECONDS: wholeNumber(60, 3600),
     JWT_REFRESH_TTL_SECONDS: wholeNumber(300, 7_776_000),
 
-    SMTP_HOST: text,
-    SMTP_PORT: wholeNumber(1, 65535),
-    SMTP_SECURE: flag,
+    /**
+     * The whole SMTP block is optional, because mail is optional.
+     *
+     * These were required, which meant a deployment with no mail server could
+     * not start at all -- and the pilot has none. `MAIL_TRANSPORT` now defaults
+     * to `log`, and the `superRefine` below demands a host and a from-address
+     * the moment somebody sets it back to `smtp`. Nothing is relaxed for a
+     * deployment that sends mail; the requirement simply now attaches to the
+     * transport that needs it rather than to every process that boots.
+     *
+     * 587 is the submission port from RFC 6409 and is only ever reached by a
+     * transport that has already been given a host.
+     */
+    SMTP_HOST: optionalTextOr(''),
+    SMTP_PORT: optionalWholeNumber(1, 65535, 587),
+    SMTP_SECURE: optionalFlag(false),
     // Mailpit accepts unauthenticated mail locally, so these stay optional.
     SMTP_USER: optionalText,
     SMTP_PASSWORD: optionalText,
-    MAIL_FROM: text,
+    MAIL_FROM: optionalTextOr(''),
     /**
-     * Which `Mailer` implementation `MailModule` binds. `log` writes the
-     * message and its link to the structured log and sends nothing, which is
-     * what an offline developer or a test environment wants; `smtp` talks to
-     * the server configured above.
+     * Which `Mailer` implementation `MailModule` binds. `log` -- the default --
+     * writes the message and its link to the structured log and sends nothing;
+     * `smtp` talks to the server configured above.
+     *
+     * The default is `log` because REQ-B-03's delivery no longer depends on it:
+     * `POST /auth/invitations` returns the accept link to the administrator who
+     * created it, and they pass it on themselves. An organisation that wants
+     * email back sets this to `smtp` and fills in the block above -- the
+     * transport interface and both implementations are untouched (REQ-K-02).
      */
-    MAIL_TRANSPORT: optionalChoice(['smtp', 'log'], 'smtp'),
+    MAIL_TRANSPORT: optionalChoice(['smtp', 'log'], 'log'),
 
     /**
      * Whether this process consumes the BullMQ queues (technical design §11).
@@ -210,6 +246,20 @@ export const envSchema = z
         code: 'custom',
         path: ['JWT_REFRESH_SECRET'],
         message: 'must differ from JWT_ACCESS_SECRET',
+      });
+    }
+
+    // Asking for SMTP without saying where to send it is a process that boots
+    // and then fails on the first message. The check that used to run for every
+    // deployment now runs for the ones that chose the transport needing it.
+    if (value.MAIL_TRANSPORT !== 'smtp') return;
+
+    for (const variable of ['SMTP_HOST', 'MAIL_FROM'] as const) {
+      if (value[variable].length > 0) continue;
+      ctx.addIssue({
+        code: 'custom',
+        path: [variable],
+        message: 'is required when MAIL_TRANSPORT is "smtp"',
       });
     }
   });

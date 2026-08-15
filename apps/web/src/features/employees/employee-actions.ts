@@ -1,4 +1,9 @@
-import { ArrowCounterClockwiseIcon, PencilSimpleIcon, UserMinusIcon } from '@phosphor-icons/react';
+import {
+  ArrowCounterClockwiseIcon,
+  PaperPlaneTiltIcon,
+  PencilSimpleIcon,
+  UserMinusIcon,
+} from '@phosphor-icons/react';
 
 import type { EmployeeListItem } from '@vyuha/shared';
 
@@ -26,8 +31,9 @@ export function employeeActions(input: {
   canManage: boolean;
   onEdit: () => void;
   onLifecycle: (target: LifecycleTarget) => void;
+  onInvite: () => void;
 }): RowAction[] {
-  const { employee, canManage, onEdit, onLifecycle } = input;
+  const { employee, canManage, onEdit, onLifecycle, onInvite } = input;
 
   // Disabled with a reason rather than hidden. CLAUDE.md's Definition of Done
   // allows either, and a stated reason is what stops somebody filing a bug
@@ -46,6 +52,28 @@ export function employeeActions(input: {
       ...gate,
     },
   ];
+
+  /**
+   * REQ-B-03, and the only place in the product an account can be created.
+   *
+   * Offered for anybody who is not retired, and offered *whatever* their
+   * account state is: whether a login already exists is not on the row, and
+   * fetching it per row would be one request per employee on a page of fifty.
+   * The dialog reads it once, for the one person, and refuses with the reason
+   * — which is also what the server does.
+   *
+   * Not offered for an inactive employee, because a retired person cannot
+   * punch and has no business being handed a way in. Reactivate first.
+   */
+  if (employee.status !== 'INACTIVE') {
+    actions.push({
+      key: 'invite',
+      label: 'Invite to sign in',
+      icon: PaperPlaneTiltIcon,
+      onSelect: onInvite,
+      ...gate,
+    });
+  }
 
   if (employee.status === 'INACTIVE') {
     actions.push({

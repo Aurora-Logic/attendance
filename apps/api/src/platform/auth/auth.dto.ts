@@ -54,6 +54,21 @@ export const requestPasswordResetSchema = z.object({
 });
 export class RequestPasswordResetDto extends createZodDto(requestPasswordResetSchema) {}
 
+/**
+ * REQ-B-04 triggered by an administrator, which names an employee rather than
+ * an address.
+ *
+ * The address is deliberately not accepted: the public request endpoint already
+ * takes one and answers 202 without saying whether it exists, and an
+ * authenticated endpoint that returned a live reset link for any address typed
+ * into it would be a way to reach accounts in another organisation. The
+ * employee id is scoped by the caller's organisation on the way in.
+ */
+export const issuePasswordResetSchema = z.object({
+  employeeId: z.uuid(),
+});
+export class IssuePasswordResetDto extends createZodDto(issuePasswordResetSchema) {}
+
 export const confirmPasswordResetSchema = z.object({
   password: newPasswordField,
 });

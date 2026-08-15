@@ -167,14 +167,92 @@ describe('parseEnv', () => {
   it('builds a message that names every offending variable', () => {
     let message = '';
     try {
-      parseEnv(envWithout('MAIL_FROM'));
+      parseEnv(envWithout('DEFAULT_TIMEZONE'));
     } catch (error: unknown) {
       if (!(error instanceof EnvValidationError)) throw error;
       message = error.message;
     }
 
     expect(message).toContain('Environment validation failed');
-    expect(message).toContain('MAIL_FROM');
+    expect(message).toContain('DEFAULT_TIMEZONE');
     expect(message).toContain('.env.example');
+  });
+});
+
+/**
+ * The client deploys with no mail server, so the process has to start without
+ * one -- and the whole SMTP block used to be required, which meant it could
+ * not. REQ-B-03's link is returned to the administrator instead of emailed, so
+ * `log` is the default and the SMTP variables are wanted only by the transport
+ * that uses them.
+ */
+describe('mail is optional (REQ-B-03, REQ-K-02)', () => {
+  const withoutMail = (): NodeJS.ProcessEnv => {
+    const copy = { ...VALID_ENV };
+    for (const key of [
+      'SMTP_HOST',
+      'SMTP_PORT',
+      'SMTP_SECURE',
+      'SMTP_USER',
+      'SMTP_PASSWORD',
+      'MAIL_FROM',
+      'MAIL_TRANSPORT',
+    ]) {
+      delete copy[key];
+    }
+    return copy;
+  };
+
+  it('boots with no mail configuration at all, and sends nothing', () => {
+    const env = parseEnv(withoutMail());
+
+    expect(env.MAIL_TRANSPORT).toBe('log');
+    // Empty rather than undefined: `env.SMTP_HOST` is read by the settings view
+    // the web client parses with `z.string()`, and a missing key there is a
+    // broken screen rather than a missing variable.
+    expect(env.SMTP_HOST).toBe('');
+    expect(env.MAIL_FROM).toBe('');
+    expect(env.SMTP_PORT).toBe(587);
+    expect(env.SMTP_SECURE).toBe(false);
+  });
+
+  it('defaults to log even when the SMTP block is filled in', () => {
+    // The .env in the repository still names Mailpit. Leaving MAIL_TRANSPORT
+    // out must not quietly start sending to it.
+    expect(parseEnv(VALID_ENV).MAIL_TRANSPORT).toBe('log');
+    expect(parseEnv({ ...VALID_ENV, MAIL_TRANSPORT: '' }).MAIL_TRANSPORT).toBe('log');
+  });
+
+  it('still demands a host and a from-address once SMTP is chosen', () => {
+    // The check did not go away; it moved onto the transport that needs it. A
+    // deployment that asks for SMTP and forgets where to send it must not boot
+    // and fail on its first message.
+    const issues = issuesOf({ ...withoutMail(), MAIL_TRANSPORT: 'smtp' });
+
+    expect(Object.keys(issues).sort()).toEqual(['MAIL_FROM', 'SMTP_HOST']);
+    // The reporter says "not set" for a variable that is absent whatever the
+    // schema's own message was, which is the more useful sentence of the two.
+    expect(issues.SMTP_HOST).toBe('is required but not set');
+
+    // Empty is the same as unset here, as everywhere else in this schema --
+    // and this is the path that shows the condition, because there is a value
+    // to describe.
+    expect(
+      issuesOf({ ...VALID_ENV, MAIL_TRANSPORT: 'smtp', SMTP_HOST: '' }).SMTP_HOST,
+    ).toContain('required when MAIL_TRANSPORT is "smtp"');
+  });
+
+  it('accepts a complete SMTP configuration', () => {
+    // The control. Without it the case above would pass for a schema that
+    // rejected `smtp` outright.
+    const env = parseEnv({ ...VALID_ENV, MAIL_TRANSPORT: 'smtp' });
+    expect(env.MAIL_TRANSPORT).toBe('smtp');
+    expect(env.SMTP_HOST).toBe('localhost');
+  });
+
+  it('rejects a transport that is neither', () => {
+    expect(issuesOf({ ...VALID_ENV, MAIL_TRANSPORT: 'sendgrid' }).MAIL_TRANSPORT).toContain(
+      'must be one of: smtp, log',
+    );
   });
 });

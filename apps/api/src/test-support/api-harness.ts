@@ -137,8 +137,25 @@ export class ApiHarness {
     readonly baseUrl: string,
     readonly db: Database,
     readonly orgId: string,
-    readonly mail: RecordingMailer,
+    private readonly recorded: RecordingMailer | null,
   ) {}
+
+  /**
+   * Everything the application tried to send.
+   *
+   * Throws rather than returning an empty recorder for a harness started with
+   * `startWithRealMailer`, where by design nothing is captured: silently
+   * answering "no mail" there would let a test assert an absence that was never
+   * observed.
+   */
+  get mail(): RecordingMailer {
+    if (this.recorded === null) {
+      throw new Error(
+        'This harness booted the application\'s own mailer, so nothing was recorded. Use ApiHarness.start for tests that read messages.',
+      );
+    }
+    return this.recorded;
+  }
 
   /**
    * `orgId` is fixed per test file rather than random, so a re-run reuses the
@@ -176,6 +193,39 @@ export class ApiHarness {
 
     const harness = new ApiHarness(app, `${url}${API_PREFIX_PATH}`, db, orgId, mail);
     await harness.resetOrganisation(orgName, options.preservePeople ?? false);
+    await harness.clearLoginRateLimit();
+    await harness.clearPasswordResetRateLimit();
+    return harness;
+  }
+
+  /**
+   * The same application with **no provider replaced at all**, so `MailModule`
+   * binds whichever transport `MAIL_TRANSPORT` selects.
+   *
+   * `start` swaps in `RecordingMailer`, which always succeeds -- which is
+   * exactly what a test of "this works without a mail server" must not rely on.
+   * A build that still needed SMTP would pass against a recorder and fail on
+   * the first real deployment. Here the mailer is the one the shipped default
+   * chooses, and the caller asserts which class arrived.
+   */
+  static async startWithRealMailer(orgId: string, orgName: string): Promise<ApiHarness> {
+    expect(new URL(env.DATABASE_URL).port).toBe('55432');
+
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+
+    const app = moduleRef.createNestApplication({ logger: false });
+    app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
+    await app.listen(0);
+
+    const url = (await app.getUrl()).replace('[::1]', '127.0.0.1');
+    const harness = new ApiHarness(
+      app,
+      `${url}${API_PREFIX_PATH}`,
+      app.get<Database>(DRIZZLE),
+      orgId,
+      null,
+    );
+    await harness.resetOrganisation(orgName, false);
     await harness.clearLoginRateLimit();
     await harness.clearPasswordResetRateLimit();
     return harness;

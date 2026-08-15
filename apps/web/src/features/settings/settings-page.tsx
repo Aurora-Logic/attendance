@@ -740,10 +740,12 @@ function EmailTab({ settings }: { settings: OrgSettings }) {
       {settings.email.transport === 'log' ? (
         <Alert>
           <EnvelopeSimpleIcon />
-          <AlertTitle>Nothing is being delivered</AlertTitle>
+          <AlertTitle>Mail is off, and that is the default</AlertTitle>
           <AlertDescription>
-            The server is set to write messages to its log instead of sending them. Invitations and
-            password resets will not reach anybody until the transport is SMTP.
+            The server writes messages to its log instead of sending them. Invitations and password
+            resets are unaffected: both hand their link back on screen, for you to send however you
+            like. What is not delivered is everything else — reminders and approval notices. Set the
+            transport to SMTP to turn those on.
           </AlertDescription>
         </Alert>
       ) : null}

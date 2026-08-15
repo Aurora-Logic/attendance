@@ -1,5 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ERROR_CODES } from '@vyuha/shared';
+import {
+  ERROR_CODES,
+  INVITATION_TTL_HOURS,
+  PASSWORD_RESET_TTL_MINUTES,
+  type InvitationResult,
+  type PasswordResetLink,
+  type SignInAccount,
+} from '@vyuha/shared';
 import { and, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
@@ -37,6 +44,7 @@ import {
 } from './opaque-token.js';
 import { hashPassword, needsRehash, verifyPassword } from './password.js';
 import { assertPasswordAcceptable } from './password-policy.js';
+import { INVITATION_PATH, PASSWORD_RESET_PATH, tokenLink } from './web-links.js';
 import { SessionService, type SessionRequestContext } from './session.service.js';
 
 /**
@@ -64,9 +72,14 @@ const COUNTED_AGAINST_THE_ADDRESS: ReadonlySet<string> = new Set([
   ERROR_CODES.ACCOUNT_INACTIVE,
 ]);
 
-/** REQ-B-03: single-use, 72 hours. REQ-B-04: single-use, 30 minutes. */
-const INVITATION_TTL_MS = 72 * 60 * 60 * 1000;
-const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
+/**
+ * REQ-B-03: single-use, 72 hours. REQ-B-04: single-use, 30 minutes.
+ *
+ * Derived from the shared constants rather than restated, so the sentence the
+ * invite dialog prints and the deadline the row carries cannot drift apart.
+ */
+const INVITATION_TTL_MS = INVITATION_TTL_HOURS * 60 * 60 * 1000;
+const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
 
 export interface LoginResult {
   readonly response: LoginResponse;
@@ -78,12 +91,13 @@ export interface RefreshResult {
   readonly refreshToken: string;
 }
 
-export interface InvitationResult {
-  readonly id: string;
-  readonly userId: string;
-  readonly email: string;
-  readonly expiresAt: string;
-}
+/**
+ * `InvitationResult`, `PasswordResetLink` and `SignInAccount` are declared in
+ * `@vyuha/shared` and re-exported here, so the controller keeps importing its
+ * return types from the service it calls while the web client parses the same
+ * shape.
+ */
+export type { InvitationResult, PasswordResetLink, SignInAccount };
 
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
@@ -380,7 +394,58 @@ export class AuthService {
 
   // ---------------------------------------------------------- invitations
 
-  /** REQ-B-03. Returns the invitation; the token leaves only by email. */
+  /**
+   * Whether this employee already has a login, for the screen that decides
+   * whether to offer them one.
+   *
+   * Under `employee.manage`, the permission that governs inviting, rather than
+   * under `roles.manage`, which governs `GET /employees/:id/access`. The two
+   * questions look alike and are not: "can this person sign in" is what an
+   * inviter needs, and "which roles do they hold" is a map of what one named
+   * person can do in the organisation. Answering the first does not require
+   * answering the second, and requiring the second key to ask the first would
+   * lock HR out of the only screen that creates accounts.
+   */
+  async readSignInAccount(principal: Principal, employeeId: string): Promise<SignInAccount> {
+    const rows = await this.db
+      .select({ email: users.email, status: users.status })
+      .from(users)
+      .innerJoin(employees, eq(employees.id, users.employeeId))
+      .where(
+        and(
+          eq(users.employeeId, employeeId),
+          eq(users.orgId, principal.orgId),
+          eq(employees.orgId, principal.orgId),
+          isNull(users.deletedAt),
+          isNull(employees.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    // No row is the ordinary answer, not an error: REQ-A-06 imports create
+    // employees with no login at all, and that is exactly who gets invited.
+    return { employeeId, account: row === undefined ? null : { email: row.email, status: row.status } };
+  }
+
+  /**
+   * REQ-B-03. Returns the invitation **and the link that accepts it**.
+   *
+   * The token used to leave only by email, which was correct while a mail
+   * server was assumed. There is none: `MAIL_TRANSPORT` defaults to `log`, so
+   * the send below is a no-op unless a deployment turns SMTP on, and an
+   * invitation nobody can read is an account nobody can ever sign into.
+   *
+   * This is not a new exposure. The caller holds `employee.manage` -- the
+   * permission that let them create the account in the first place -- and would
+   * have been the person forwarding the email anyway. What changes is the
+   * channel: they copy the link and pass it on themselves. Every property
+   * REQ-B-03 gives the token is untouched: single use, 72 hours, only the hash
+   * stored, and any previous live link revoked by this one.
+   *
+   * The send stays because REQ-K-02 keeps the channel interface alive and
+   * because an organisation that configures SMTP should get both.
+   */
   async createInvitation(
     principal: Principal,
     input: CreateInvitationDto,
@@ -450,19 +515,24 @@ export class AuthService {
       return { invitationId: row.id, userId };
     });
 
-    await this.mailer.send({
+    const acceptUrl = this.acceptUrlFor(token);
+
+    await this.sendKeepingTheLink({
       to: input.email,
       subject: 'You have been invited to Vyuha',
       body:
         'An administrator has created an account for you. Follow the link to set a password. ' +
-        'The link can be used once and expires in 72 hours.',
-      actionUrl: `${env.WEB_BASE_URL}/accept-invitation/${token}`,
+        `The link can be used once and expires in ${String(INVITATION_TTL_HOURS)} hours.`,
+      actionUrl: acceptUrl,
     });
 
     this.auditContext.record({
       action: 'invitation.created',
       entityType: 'invitation',
       entityId: result.invitationId,
+      // Deliberately no link and no token. The trail records that access was
+      // granted and by whom; a live credential in a table half the
+      // organisation can read is a different thing entirely.
       after: { email: input.email, userId: result.userId, expiresAt: expiresAt.toISOString() },
     });
 
@@ -471,6 +541,7 @@ export class AuthService {
       userId: result.userId,
       email: input.email,
       expiresAt: expiresAt.toISOString(),
+      acceptUrl,
     };
   }
 
@@ -732,18 +803,7 @@ export class AuthService {
     const token = generateOpaqueToken();
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
 
-    // Each new request sweeps the user's spent rows -- expired, or superseded
-    // by a completed reset -- so the table cannot grow without bound under
-    // exactly the traffic the request cap exists for. The audit trail, not this
-    // table, is the record that requests happened.
-    await this.db
-      .delete(passwordResets)
-      .where(
-        and(
-          eq(passwordResets.userId, user.id),
-          or(lte(passwordResets.expiresAt, new Date()), isNotNull(passwordResets.usedAt)),
-        ),
-      );
+    await this.sweepSpentResets(user.id);
 
     await this.db.insert(passwordResets).values({
       orgId: user.orgId,
@@ -768,11 +828,121 @@ export class AuthService {
     await this.mailer.send({
       to: user.email,
       subject: 'Reset your Vyuha password',
-      body: 'Follow the link to choose a new password. It can be used once and expires in 30 minutes.',
-      actionUrl: `${env.WEB_BASE_URL}/reset-password/${token}`,
+      body: `Follow the link to choose a new password. It can be used once and expires in ${String(PASSWORD_RESET_TTL_MINUTES)} minutes.`,
+      actionUrl: this.resetUrlFor(token),
     });
 
     return 'sent';
+  }
+
+  /**
+   * REQ-B-04 as an administrator performs it, and deliberately a *second* route
+   * rather than a change to `POST /auth/password-resets`.
+   *
+   * The public one must keep answering 202 and nothing else. It is
+   * unauthenticated by necessity -- somebody locked out of their account cannot
+   * present a token -- so returning a link there would let any stranger who
+   * knows an address take the account over, and returning it only for real
+   * addresses would rebuild the enumeration oracle that endpoint is shaped to
+   * avoid. Neither is recoverable by rate limiting.
+   *
+   * This route is the opposite in every respect: authenticated,
+   * `employee.manage`, keyed on an employee record rather than on a typed-in
+   * address, and audited against the administrator who asked. It exists because
+   * with `MAIL_TRANSPORT=log` the public path mints a token that reaches
+   * nobody, which leaves an organisation with no mail server unable to help
+   * somebody who has forgotten their password.
+   *
+   * Keyed on `employeeId`, not on an email: an endpoint taking an arbitrary
+   * address would issue reset links for accounts outside the caller's
+   * organisation, and the employee row is what the caller was looking at.
+   */
+  async issuePasswordResetLink(
+    principal: Principal,
+    employeeId: string,
+  ): Promise<PasswordResetLink> {
+    const rows = await this.db
+      .select({
+        id: users.id,
+        email: users.email,
+        orgId: users.orgId,
+        status: users.status,
+      })
+      .from(users)
+      .innerJoin(employees, eq(employees.id, users.employeeId))
+      .where(
+        and(
+          eq(users.employeeId, employeeId),
+          eq(users.orgId, principal.orgId),
+          eq(employees.orgId, principal.orgId),
+          isNull(users.deletedAt),
+          isNull(employees.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    const user = rows[0];
+    if (user === undefined) {
+      // Written out rather than `AppError.notFound`, whose message is built as
+      // "<entity> not found" -- true of the account and misleading about the
+      // employee, who may exist perfectly well with no login (REQ-B-02).
+      throw new AppError(
+        ERROR_CODES.NOT_FOUND,
+        'That employee has no login account, so there is no password to reset.',
+        { details: { employeeId } },
+      );
+    }
+    if (user.status !== 'ACTIVE') {
+      // An invitation that has not been accepted has no password to reset, and
+      // a suspended account must not be handed a way back in. Both are told
+      // apart because the caller is an administrator looking at the record --
+      // there is no address to enumerate here.
+      throw AppError.conflict(
+        user.status === 'INVITED'
+          ? 'That account has not accepted its invitation yet. Send a new invitation link instead.'
+          : 'That account is suspended. Reactivate it before resetting its password.',
+      );
+    }
+
+    const token = generateOpaqueToken();
+    const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
+
+    await this.sweepSpentResets(user.id);
+    await this.db.insert(passwordResets).values({
+      orgId: user.orgId,
+      userId: user.id,
+      tokenHash: this.hashResetToken(token),
+      expiresAt,
+      requestedIp: null,
+    });
+
+    const resetUrl = this.resetUrlFor(token);
+
+    // A copy still goes out when a transport is configured, so somebody who
+    // asked for the reset themselves gets it the usual way too.
+    await this.sendKeepingTheLink({
+      to: user.email,
+      subject: 'Reset your Vyuha password',
+      body: `An administrator issued a password reset for your account. It can be used once and expires in ${String(PASSWORD_RESET_TTL_MINUTES)} minutes.`,
+      actionUrl: resetUrl,
+    });
+
+    this.auditContext.record({
+      action: 'password_reset.issued',
+      entityType: 'user',
+      entityId: user.id,
+      // The actor is the administrator, which the interceptor fills in. That is
+      // the difference worth recording against `password_reset.requested`,
+      // where the subject asked for it themselves.
+      after: { email: user.email, employeeId, expiresAt: expiresAt.toISOString() },
+    });
+
+    return {
+      userId: user.id,
+      email: user.email,
+      expiresAt: expiresAt.toISOString(),
+      resetUrl,
+    };
   }
 
   /** REQ-B-04: single use, and it invalidates every other session. */
@@ -949,6 +1119,65 @@ export class AuthService {
 
   private hashResetToken(token: string): string {
     return hashOpaqueToken(TOKEN_PURPOSES.PASSWORD_RESET, token, env.JWT_REFRESH_SECRET);
+  }
+
+  /**
+   * The two links, built in one place each.
+   *
+   * They used to be string literals at the single site that mailed them. Now
+   * that the same URL is both mailed and returned to the caller, a second copy
+   * of the format is a second thing to get wrong -- and a link whose path does
+   * not match the web route is an invitation that 404s. `web-links.ts` owns the
+   * join, and says there why a trailing slash is the case that matters.
+   */
+  private acceptUrlFor(token: string): string {
+    return tokenLink(env.WEB_BASE_URL, INVITATION_PATH, token);
+  }
+
+  private resetUrlFor(token: string): string {
+    return tokenLink(env.WEB_BASE_URL, PASSWORD_RESET_PATH, token);
+  }
+
+  /**
+   * Each new reset sweeps the user's spent rows -- expired, or superseded by a
+   * completed reset -- so the table cannot grow without bound under exactly the
+   * traffic the request cap exists for. The audit trail, not this table, is the
+   * record that resets happened.
+   */
+  private async sweepSpentResets(userId: string): Promise<void> {
+    await this.db
+      .delete(passwordResets)
+      .where(
+        and(
+          eq(passwordResets.userId, userId),
+          or(lte(passwordResets.expiresAt, new Date()), isNotNull(passwordResets.usedAt)),
+        ),
+      );
+  }
+
+  /**
+   * Sends, and absorbs a transport failure into the log, for the two paths
+   * whose *response* carries the link.
+   *
+   * This is not the swallow `sendWithoutRevealingTheAccount` performs, and the
+   * reason is different: nothing is being concealed here. The caller already
+   * holds a working link, so failing the request over a mail server that is by
+   * default not even configured would throw away the delivery mechanism in
+   * order to report the failure of the optional one -- and would leave the
+   * invitation row committed with no way for anybody to read its link. The
+   * message is lost, the failure is loud, and "does our SMTP work" is answered
+   * by the test send on the Settings screen (REQ-L-04).
+   */
+  private async sendKeepingTheLink(mail: OutboundMail): Promise<void> {
+    try {
+      await this.mailer.send(mail);
+    } catch (error: unknown) {
+      this.logger.error({
+        msg: 'Mail delivery failed. The caller was given the link in the response, so the request still succeeded.',
+        subject: mail.subject,
+        reason: describeError(error),
+      });
+    }
   }
 
   private async accessResponse(

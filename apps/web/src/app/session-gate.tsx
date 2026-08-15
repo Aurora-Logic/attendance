@@ -1,7 +1,10 @@
 import { useEffect, type ReactNode } from 'react';
+import { useLocation } from 'react-router';
 
 import { Spinner } from '@/components/ui/spinner';
 import { LoginPage } from '@/features/auth/login-page';
+import { SetPasswordPage } from '@/features/auth/set-password-page';
+import { setPasswordRoute } from '@/features/auth/set-password-route';
 import { useSessionStore } from '@/lib/session/session-store';
 import { useMe, useRevalidateSessionOnReconnect } from '@/lib/session/use-session';
 
@@ -12,9 +15,17 @@ import { useMe, useRevalidateSessionOnReconnect } from '@/lib/session/use-sessio
  * because the access token lives in memory only and a cold load has to try
  * the refresh cookie first — collapsing the two would flash the login screen
  * at every signed-in user on every page refresh.
+ *
+ * Four, now. An invitation link (REQ-B-03) and a password-reset link
+ * (REQ-B-04) are answered by the token in the URL rather than by a session, and
+ * every one of them used to land on the sign-in form — a screen with nowhere to
+ * set a password, which meant an invited person could never become a signed-in
+ * one. Those routes cannot live in `App.tsx` either: everything there renders
+ * inside `AppShell`, which is behind this very gate.
  */
 export function SessionGate({ children }: { children: ReactNode }) {
   const { data: me, isPending } = useMe();
+  const setPassword = setPasswordRoute(useLocation().pathname);
   const setFromMe = useSessionStore((s) => s.setFromMe);
   const clear = useSessionStore((s) => s.clear);
 
@@ -38,6 +49,14 @@ export function SessionGate({ children }: { children: ReactNode }) {
       clear();
     }
   }, [me, isPending, setFromMe, clear]);
+
+  // Before the session is even consulted: the token is the credential, and
+  // somebody following an invitation has no session by definition. An
+  // administrator who is signed in and opens the link gets the same screen,
+  // which is correct — the token names the account, not the reader.
+  if (setPassword !== null) {
+    return <SetPasswordPage mode={setPassword.mode} token={setPassword.token} />;
+  }
 
   if (isPending) {
     return (

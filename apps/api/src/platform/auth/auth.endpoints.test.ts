@@ -5,8 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ApiHarness, CookieJar, scopedEmail } from '../../test-support/api-harness.js';
 import { invitations, passwordResets, users } from '../db/schema/index.js';
 import { JobRunner } from '../jobs/job-runner.service.js';
+import { LogMailer, Mailer } from '../mail/mailer.js';
 import { hashOpaqueToken, TOKEN_PURPOSES } from './opaque-token.js';
 import { env } from '../common/env.js';
+import { parseEnv } from '../common/env.schema.js';
 
 /**
  * The endpoint surface of REQ-B-01 … REQ-B-10, over real HTTP against the real
@@ -42,6 +44,27 @@ interface MeBody {
   employee: { employeeCode: string } | null;
   roles: { id: string; name: string }[];
   permissions: string[];
+}
+
+/** REQ-B-03's response, which now carries the link as well as the row. */
+interface InvitationBody {
+  id: string;
+  userId: string;
+  email: string;
+  expiresAt: string;
+  acceptUrl: string;
+}
+
+interface PasswordResetLinkBody {
+  userId: string;
+  email: string;
+  expiresAt: string;
+  resetUrl: string;
+}
+
+/** `WEB_BASE_URL` is configuration, so it reaches a pattern as data, not source. */
+function escapeForRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 
@@ -378,13 +401,12 @@ describe('POST /auth/invitations (REQ-B-03)', () => {
     const invited = scopedEmail('invitee');
     const before = Date.now();
 
-    const result = await harness.post<{ id: string; userId: string; expiresAt: string }>(
-      '/auth/invitations',
-      { token: adminToken, body: { email: invited, roleIds: [employeeRoleId] } },
-    );
+    const result = await harness.post<InvitationBody>('/auth/invitations', {
+      token: adminToken,
+      body: { email: invited, roleIds: [employeeRoleId] },
+    });
 
     expect(result.status).toBe(201);
-    expect(result.text).not.toContain('token');
 
     const expiresIn = new Date(result.body.expiresAt).getTime() - before;
     expect(expiresIn).toBeGreaterThan(71 * 60 * 60 * 1000);
@@ -403,6 +425,10 @@ describe('POST /auth/invitations (REQ-B-03)', () => {
     expect(rows[0]?.tokenHash).toBe(
       hashOpaqueToken(TOKEN_PURPOSES.INVITATION, token ?? '', env.JWT_REFRESH_SECRET),
     );
+    // And the hash never travels: the response carries the link, which carries
+    // the token, and nothing that would let a reader of the response recognise
+    // a row in this table.
+    expect(result.text).not.toContain(rows[0]?.tokenHash ?? 'no-hash');
 
     const account = await harness.db
       .select({ status: users.status, passwordHash: users.passwordHash })
@@ -411,6 +437,118 @@ describe('POST /auth/invitations (REQ-B-03)', () => {
     expect(account[0]?.status).toBe('INVITED');
     expect(account[0]?.passwordHash).toBeNull();
   });
+
+  /**
+   * The deployment has no mail server, so the response *is* the delivery.
+   *
+   * This used to assert the opposite -- `expect(result.text).not.toContain('token')`
+   * -- and that was right while an email was the only way the link could
+   * reach anybody. It is not any more: `MAIL_TRANSPORT` defaults to `log`, and
+   * an invitation whose link exists only inside a message nobody sends is an
+   * account nobody can ever sign into. The administrator holds
+   * `employee.manage`; they are the person who would have forwarded that email.
+   */
+  it('returns a working accept link to the administrator who created it', async () => {
+    const invited = scopedEmail('link-invitee');
+
+    const created = await harness.post<InvitationBody>('/auth/invitations', {
+      token: adminToken,
+      body: { email: invited, roleIds: [employeeRoleId] },
+    });
+
+    expect(created.status).toBe(201);
+    expect(created.body.acceptUrl).toMatch(
+      new RegExp(`^${escapeForRegExp(env.WEB_BASE_URL)}/accept-invitation/`, 'u'),
+    );
+
+    // The token in the link is the token that was minted -- proven against the
+    // stored hash rather than against the mail, so this still means something
+    // in a deployment where no message is sent at all.
+    const token = created.body.acceptUrl.split('/').pop() ?? '';
+    const rows = await harness.db
+      .select({ tokenHash: invitations.tokenHash })
+      .from(invitations)
+      .where(eq(invitations.id, created.body.id));
+    expect(rows[0]?.tokenHash).toBe(
+      hashOpaqueToken(TOKEN_PURPOSES.INVITATION, token, env.JWT_REFRESH_SECRET),
+    );
+
+    // Exactly one slash between the origin and the path. `WEB_BASE_URL` is
+    // validated for its protocol and nothing else, so a configured trailing
+    // slash is legal -- and `//accept-invitation/<token>` matches no route the
+    // web app declares, which would be an invitation that 404s for everybody.
+    expect(created.body.acceptUrl).not.toContain('//accept-invitation');
+    expect(new URL(created.body.acceptUrl).pathname.startsWith('/accept-invitation/')).toBe(true);
+
+    // And it works: a person holding only this URL reaches an account.
+    const accepted = await harness.post(`/auth/invitations/${token}/accept`, {
+      body: { password: 'the-link-i-was-handed' },
+    });
+    expect(accepted.status).toBe(200);
+    expect((await harness.login(invited, 'the-link-i-was-handed')).status).toBe(200);
+
+    // Still single use, still 72 hours: the channel changed, the token did not.
+    const replay = await harness.post<ErrorBody>(`/auth/invitations/${token}/accept`, {
+      body: { password: 'a-second-go-at-it-x' },
+    });
+    expect(replay.status).toBe(409);
+  });
+
+  /**
+   * The proof that the change actually removes the dependency.
+   *
+   * `RecordingMailer` never throws, so a suite that only watched for a 201
+   * would pass just as happily against a build that still needed a mail server.
+   * This one boots a second application with `MAIL_TRANSPORT=log` and no SMTP
+   * credentials whatsoever -- which is the shipped default and the shape of the
+   * deployment -- and drives an invitation through to a sign-in on it.
+   */
+  it('serves invitations on a boot with MAIL_TRANSPORT=log and no SMTP settings', async () => {
+    // Part one: the configuration itself. Every SMTP variable removed, and the
+    // schema accepts it -- the process this describes is one that starts on a
+    // machine with no mail server anywhere near it.
+    const withoutMail = { ...process.env };
+    for (const key of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASSWORD', 'MAIL_FROM', 'MAIL_TRANSPORT']) {
+      delete withoutMail[key];
+    }
+    expect(parseEnv(withoutMail).MAIL_TRANSPORT).toBe('log');
+
+    // Part two: the running application, with its own mailer rather than the
+    // recorder every other test installs.
+    const bare = await ApiHarness.startWithRealMailer(
+      '01900000-0000-7000-8000-0000000000a6',
+      'No Mail Server Org',
+    );
+
+    try {
+      expect(bare.resolve(Mailer)).toBeInstanceOf(LogMailer);
+      expect(env.SMTP_USER).toBeUndefined();
+      expect(env.SMTP_PASSWORD).toBeUndefined();
+
+      const roleId = await bare.createSystemRole(SYSTEM_ROLES.ADMIN);
+      const inviter = await bare.createUser({ email: scopedEmail('no-smtp-admin'), roleIds: [roleId] });
+      const token = (await bare.login(inviter.email, inviter.password)).token;
+      expect(token).not.toBe('');
+
+      const invited = scopedEmail('no-smtp-invitee');
+      const created = await bare.post<InvitationBody>('/auth/invitations', {
+        token,
+        body: { email: invited },
+      });
+
+      expect(created.status).toBe(201);
+      expect(created.body.acceptUrl).toContain('/accept-invitation/');
+
+      const accepted = await bare.post(
+        `/auth/invitations/${created.body.acceptUrl.split('/').pop() ?? ''}/accept`,
+        { body: { password: 'no-mail-server-needed' } },
+      );
+      expect(accepted.status).toBe(200);
+      expect((await bare.login(invited, 'no-mail-server-needed')).status).toBe(200);
+    } finally {
+      await bare.close();
+    }
+  }, 60_000);
 
   it('accepting sets the password, activates the account, and is single use', async () => {
     const invited = scopedEmail('accepter');
@@ -714,6 +852,181 @@ describe('POST /auth/password-resets (REQ-B-04)', () => {
 });
 
 /**
+ * What the invite screen reads before it offers anything.
+ *
+ * Its whole reason for existing is the permission it sits behind. The screen
+ * first used `GET /employees/:id/access`, which answers the same question and
+ * is gated on `roles.manage` -- so HR, who hold `employee.manage` and are the
+ * people the screen is for, would have opened it and been refused by an
+ * endpoint they should never call.
+ */
+describe('GET /auth/invitations/for-employee/:employeeId (REQ-B-02)', () => {
+  it('says whether an employee already has a login', async () => {
+    const linked = await harness.get<{ employeeId: string; account: { email: string; status: string } | null }>(
+      `/auth/invitations/for-employee/${linkedEmployeeRecordId}`,
+      { token: adminToken },
+    );
+    expect(linked.status).toBe(200);
+    expect(linked.body.account?.email).toBe(employee.email);
+    expect(linked.body.account?.status).toBe('ACTIVE');
+
+    // The role list is what `roles.manage` protects, and it is not here.
+    expect(linked.text).not.toContain('roles');
+    expect(linked.text).not.toContain('permissions');
+  });
+
+  it('answers null, not 404, for an employee with no login', async () => {
+    // REQ-A-06 imports create employees with no account at all. That is the
+    // ordinary case this endpoint exists to report, not an error.
+    const fresh = await harness.createEmployee({ code: 'AE-005', firstName: 'Esha' });
+    const result = await harness.get<{ account: unknown }>(
+      `/auth/invitations/for-employee/${fresh}`,
+      { token: adminToken },
+    );
+    expect(result.status).toBe(200);
+    expect(result.body.account).toBeNull();
+  });
+
+  it('is answerable with employee.manage and without roles.manage', async () => {
+    // The regression this endpoint was created for. A role holding
+    // `employee.manage` and nothing about roles must be able to read it.
+    const hrRoleId = await harness.createRole('Invite Only', [PERMISSIONS.EMPLOYEE_MANAGE]);
+    const hr = await harness.createUser({ email: scopedEmail('invite-only'), roleIds: [hrRoleId] });
+    const hrToken = (await harness.login(hr.email, hr.password)).token;
+    expect(hrToken).not.toBe('');
+
+    const allowed = await harness.get(`/auth/invitations/for-employee/${linkedEmployeeRecordId}`, {
+      token: hrToken,
+    });
+    expect(allowed.status).toBe(200);
+
+    // The control: the same caller must still be refused the roles read this
+    // endpoint exists to avoid needing.
+    const refused = await harness.get(`/employees/${linkedEmployeeRecordId}/access`, {
+      token: hrToken,
+    });
+    expect(refused.status).toBe(403);
+  });
+
+  it('refuses a malformed id', async () => {
+    const result = await harness.get<ErrorBody>('/auth/invitations/for-employee/not-a-uuid', {
+      token: adminToken,
+    });
+    expect(result.status).toBe(400);
+  });
+});
+
+/**
+ * REQ-B-04 as an administrator performs it: a second route, because the public
+ * one must never hand a link to an unauthenticated caller.
+ */
+describe('POST /auth/password-resets/for-employee (REQ-B-04)', () => {
+  it('returns a working reset link for an employee who has an account', async () => {
+    const before = Date.now();
+    const result = await harness.post<PasswordResetLinkBody>(
+      '/auth/password-resets/for-employee',
+      { token: adminToken, body: { employeeId: linkedEmployeeRecordId } },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.email).toBe(employee.email);
+    expect(result.body.resetUrl).toMatch(
+      new RegExp(`^${escapeForRegExp(env.WEB_BASE_URL)}/reset-password/`, 'u'),
+    );
+
+    // REQ-B-04's thirty minutes, unchanged by who asked for it.
+    const ttl = new Date(result.body.expiresAt).getTime() - before;
+    expect(ttl).toBeGreaterThan(29 * 60 * 1000);
+    expect(ttl).toBeLessThan(31 * 60 * 1000);
+
+    const token = result.body.resetUrl.split('/').pop() ?? '';
+    const rows = await harness.db
+      .select({ tokenHash: passwordResets.tokenHash })
+      .from(passwordResets)
+      .where(eq(passwordResets.userId, employee.id));
+    expect(rows.map((row) => row.tokenHash)).toContain(
+      hashOpaqueToken(TOKEN_PURPOSES.PASSWORD_RESET, token, env.JWT_REFRESH_SECRET),
+    );
+
+    // It is a real reset: the password changes and the old one stops working.
+    const confirmed = await harness.post(`/auth/password-resets/${token}/confirm`, {
+      body: { password: 'issued-by-an-administrator' },
+    });
+    expect(confirmed.status).toBe(200);
+    expect((await harness.login(employee.email, 'issued-by-an-administrator')).status).toBe(200);
+    expect((await harness.login(employee.email, employee.password)).status).toBe(401);
+
+    // The rest of this file signs in as `employee`, so put it back and refresh
+    // the token every later test uses.
+    employee.password = 'issued-by-an-administrator';
+    employeeToken = (await harness.login(employee.email, employee.password)).token;
+    expect(employeeToken).not.toBe('');
+
+    expect(await harness.waitForAuditAction('password_reset.issued')).toBe(true);
+  });
+
+  it('refuses an employee with no login account', async () => {
+    const withoutLogin = await harness.createEmployee({ code: 'AE-003', firstName: 'Chetan' });
+    const result = await harness.post<ErrorBody>('/auth/password-resets/for-employee', {
+      token: adminToken,
+      body: { employeeId: withoutLogin },
+    });
+
+    expect(result.status).toBe(404);
+    expect(result.body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('refuses an account that has not accepted its invitation', async () => {
+    // Resetting a password that does not exist yet would activate an account
+    // nobody has ever proved they own. The invitation is the way in.
+    const pendingEmployee = await harness.createEmployee({ code: 'AE-004', firstName: 'Deepa' });
+    const created = await harness.post<InvitationBody>('/auth/invitations', {
+      token: adminToken,
+      body: { email: scopedEmail('never-accepted-reset'), employeeId: pendingEmployee },
+    });
+    expect(created.status).toBe(201);
+
+    const result = await harness.post<ErrorBody>('/auth/password-resets/for-employee', {
+      token: adminToken,
+      body: { employeeId: pendingEmployee },
+    });
+    expect(result.status).toBe(409);
+    expect(result.body.error.message).toContain('invitation');
+  });
+
+  it('validates the body', async () => {
+    const result = await harness.post<ErrorBody>('/auth/password-resets/for-employee', {
+      token: adminToken,
+      body: { employeeId: 'not-a-uuid' },
+    });
+    expect(result.status).toBe(400);
+    expect(result.body.error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('does not answer for an employee in another organisation', async () => {
+    // The id is well formed and names nobody here. A 404 rather than a 403:
+    // the caller learns nothing about whether the row exists elsewhere.
+    const result = await harness.post<ErrorBody>('/auth/password-resets/for-employee', {
+      token: adminToken,
+      body: { employeeId: '01900000-0000-7000-8000-00000000dddd' },
+    });
+    expect(result.status).toBe(404);
+  });
+
+  it('leaves the public endpoint answering 202 with no link in it', async () => {
+    // The pair is the point. If this ever starts returning a URL, anybody who
+    // knows an address owns the account.
+    const result = await harness.post('/auth/password-resets', {
+      body: { email: employee.email },
+    });
+
+    expect(result.status).toBe(202);
+    expect(result.text).not.toContain('/reset-password/');
+    expect(result.text).toBe(JSON.stringify({ status: 'accepted' }));
+  });
+});
+
+/**
  * Technical design §10: "Every endpoint enforces independently. A test asserts
  * that each protected endpoint returns 403 for an under-privileged token."
  *
@@ -725,6 +1038,12 @@ const PROTECTED_ENDPOINTS: readonly {
   method: string;
   path: string;
   body?: unknown;
+  /**
+   * A body the endpoint would accept, built when the control case runs. A
+   * literal would not do: the two rows take different shapes, and the row that
+   * invites needs an address no earlier run has used.
+   */
+  controlBody: () => unknown;
   requires: string;
 }[] = [
   {
@@ -732,6 +1051,24 @@ const PROTECTED_ENDPOINTS: readonly {
     method: 'POST',
     path: '/auth/invitations',
     body: { email: 'blocked@vyuha.test' },
+    controlBody: () => ({ email: scopedEmail('control') }),
+    requires: PERMISSIONS.EMPLOYEE_MANAGE,
+  },
+  {
+    name: 'POST /auth/password-resets/for-employee',
+    method: 'POST',
+    path: '/auth/password-resets/for-employee',
+    body: { employeeId: '01900000-0000-7000-8000-00000000cccc' },
+    controlBody: () => ({ employeeId: linkedEmployeeRecordId }),
+    requires: PERMISSIONS.EMPLOYEE_MANAGE,
+  },
+  {
+    name: 'GET /auth/invitations/for-employee/:employeeId',
+    method: 'GET',
+    // A read, and still protected: whether a named person can sign in is not
+    // public information.
+    path: `/auth/invitations/for-employee/01900000-0000-7000-8000-00000000cccc`,
+    controlBody: () => undefined,
     requires: PERMISSIONS.EMPLOYEE_MANAGE,
   },
 ];
@@ -761,7 +1098,7 @@ describe('403 for an under-privileged token (technical design §10)', () => {
       // including the admin -- would pass the two cases above.
       const result = await harness.request(endpoint.method, endpoint.path, {
         token: adminToken,
-        body: { email: scopedEmail('control') },
+        body: endpoint.controlBody(),
       });
       expect(result.status).toBeLessThan(400);
     });

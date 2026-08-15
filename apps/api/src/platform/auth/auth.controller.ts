@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   Req,
   Res,
@@ -18,12 +19,18 @@ import {
   AcceptInvitationDto,
   ConfirmPasswordResetDto,
   CreateInvitationDto,
+  IssuePasswordResetDto,
   LoginDto,
   RequestPasswordResetDto,
   type LoginResponse,
   type MeResponse,
 } from './auth.dto.js';
-import { AuthService, type InvitationResult } from './auth.service.js';
+import {
+  AuthService,
+  type InvitationResult,
+  type PasswordResetLink,
+  type SignInAccount,
+} from './auth.service.js';
 import { clearRefreshCookie, readRefreshCookie, setRefreshCookie } from './refresh-cookie.js';
 import type { SessionRequestContext } from './session.service.js';
 
@@ -98,6 +105,10 @@ export class AuthController {
   /**
    * REQ-B-03. `employee.manage` is the HR/Admin key from PRD §2.1 -- the
    * decorator names a permission, never a role.
+   *
+   * The 201 carries the accept link. There is no mail server by default
+   * (`MAIL_TRANSPORT=log`), so this response *is* the delivery: the
+   * administrator copies the link and passes it on. See `AuthService`.
    */
   @Post('invitations')
   @RequirePermission(PERMISSIONS.EMPLOYEE_MANAGE)
@@ -107,6 +118,24 @@ export class AuthController {
     @Body() body: CreateInvitationDto,
   ): Promise<InvitationResult> {
     return this.auth.createInvitation(principal, body);
+  }
+
+  /**
+   * Whether an employee already has a login, for the screen that decides
+   * whether to offer them one.
+   *
+   * Under `employee.manage` and not `roles.manage`: `GET /employees/:id/access`
+   * answers this and also returns the person's role list, which is a different
+   * and more sensitive question. An invite screen that read *that* would refuse
+   * HR -- the role the screen exists for -- so it reads this instead.
+   */
+  @Get('invitations/for-employee/:employeeId')
+  @RequirePermission(PERMISSIONS.EMPLOYEE_MANAGE)
+  readSignInAccount(
+    @CurrentUser() principal: Principal,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+  ): Promise<SignInAccount> {
+    return this.auth.readSignInAccount(principal, employeeId);
   }
 
   @Post('invitations/:token/accept')
@@ -132,6 +161,27 @@ export class AuthController {
   ): Promise<{ status: 'accepted' }> {
     await this.auth.requestPasswordReset(body.email, req.ip ?? null);
     return { status: 'accepted' };
+  }
+
+  /**
+   * REQ-B-04 for an administrator holding `employee.manage`, and a separate
+   * route from the public one above on purpose -- `AuthService` states why at
+   * length. In short: the public endpoint is unauthenticated and must never
+   * return a link; this one is the only way to help somebody reset a password
+   * when no mail server is configured.
+   *
+   * The literal segment cannot collide with `password-resets/:token/confirm`:
+   * that route matches two segments after the resource and this one matches
+   * one.
+   */
+  @Post('password-resets/for-employee')
+  @RequirePermission(PERMISSIONS.EMPLOYEE_MANAGE)
+  @HttpCode(HttpStatus.CREATED)
+  issuePasswordResetLink(
+    @CurrentUser() principal: Principal,
+    @Body() body: IssuePasswordResetDto,
+  ): Promise<PasswordResetLink> {
+    return this.auth.issuePasswordResetLink(principal, body.employeeId);
   }
 
   @Post('password-resets/:token/confirm')

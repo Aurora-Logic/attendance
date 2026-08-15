@@ -1,3 +1,5 @@
+import { MIN_PASSWORD_LENGTH } from '@vyuha/shared';
+
 import { AppError } from '../common/errors.js';
 
 /**
@@ -7,9 +9,14 @@ import { AppError } from '../common/errors.js';
  * No composition rules is the deliberate part. Forcing a digit and a symbol
  * produces "Password1!" -- which is on the list below -- while a four-word
  * passphrase that no list contains gets rejected for having no capital.
+ *
+ * The floor itself lives in `@vyuha/shared` so the invitation-accept form can
+ * refuse ten characters before the round trip rather than after it. Only the
+ * number is shared: the list below stays on the server, because shipping a
+ * catalogue of weak passwords to the browser helps nobody but the guesser.
  */
 
-export const MIN_PASSWORD_LENGTH = 10;
+export { MIN_PASSWORD_LENGTH };
 
 /**
  * A short list rather than a downloaded corpus of ten million.

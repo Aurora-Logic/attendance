@@ -45,6 +45,7 @@ import {
 import { AttendanceFlags, AttendanceStatusBadge } from '@/features/attendance/status-badge';
 import { employeeActions } from './employee-actions';
 import { EmployeeAccessSection } from './employee-access-section';
+import { EmployeeInviteDialog } from './invite-dialog';
 import { EmployeeSheet } from './employee-sheet';
 import { EmployeeLifecycleDialog, type LifecycleTarget } from './lifecycle-dialog';
 import type { AttendanceDay } from '@/features/attendance/types';
@@ -455,6 +456,7 @@ export function EmployeeDetailPage() {
   const [sheet, setSheet] = useState<EmployeeDetail | 'new' | null>(null);
   const [lifecycle, setLifecycle] = useState<LifecycleTarget | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [inviting, setInviting] = useState<EmployeeDetail | null>(null);
   const canManage = permissions.has(PERMISSIONS.EMPLOYEE_MANAGE);
   const canReadTrail = permissions.has(PERMISSIONS.AUDIT_VIEW);
   // REQ-B-07. Deliberately not `employee.manage`: HR editing a person's
@@ -484,6 +486,9 @@ export function EmployeeDetailPage() {
             setSheet(record);
           },
           onLifecycle: setLifecycle,
+          onInvite: () => {
+            setInviting(record);
+          },
         });
 
   const backToRegister = (
@@ -871,6 +876,15 @@ export function EmployeeDetailPage() {
         target={lifecycle}
         onOpenChange={(open) => {
           if (!open) setLifecycle(null);
+        }}
+      />
+      {/* Same dialog as the register's, from the same action list, so the two
+          screens cannot come to different conclusions about who may be
+          invited (REQ-B-03). */}
+      <EmployeeInviteDialog
+        employee={inviting}
+        onOpenChange={(open) => {
+          if (!open) setInviting(null);
         }}
       />
 

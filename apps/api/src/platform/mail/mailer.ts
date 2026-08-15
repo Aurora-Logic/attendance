@@ -36,9 +36,10 @@ export abstract class Mailer {
 }
 
 /**
- * Delivery by log line. Selected with `MAIL_TRANSPORT=log`, and the right
- * choice for a developer with no SMTP server and for any test that wants the
- * invitation token without a mailbox.
+ * Delivery by log line. Selected with `MAIL_TRANSPORT=log` -- the default --
+ * and the right choice for a deployment with no mail server, for a developer
+ * with no SMTP server, and for any test that wants the invitation token without
+ * a mailbox.
  */
 @Injectable()
 export class LogMailer extends Mailer {
@@ -46,11 +47,17 @@ export class LogMailer extends Mailer {
 
   send(mail: OutboundMail): Promise<void> {
     if (isProduction) {
-      // Loud, and deliberately without the link. In production this is a
-      // failure to deliver an invitation, not a debugging convenience, and the
-      // token must not be sitting in a log aggregator.
-      this.logger.error({
-        msg: 'MAIL_TRANSPORT is "log" in production; this message was NOT delivered.',
+      // Deliberately without the link: a token in a log aggregator is a token
+      // in the hands of everyone who can read logs.
+      //
+      // `warn`, not `error`. This used to be an error because `smtp` was the
+      // default, so reaching this line in production meant a mail server had
+      // been forgotten. `log` is now the default and a deployment without one
+      // is the expected shape -- REQ-B-03's link is handed to the
+      // administrator in the response instead. It stays loud because a
+      // password reset the *subject* asked for still has nowhere to go.
+      this.logger.warn({
+        msg: 'MAIL_TRANSPORT is "log": this message was not delivered. Invitation and reset links are returned to the administrator who issues them; set MAIL_TRANSPORT=smtp to send them by email as well.',
         to: mail.to,
         subject: mail.subject,
       });

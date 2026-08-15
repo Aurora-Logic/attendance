@@ -50,6 +50,7 @@ import {
 import { employeeActions } from './employee-actions';
 import { EmployeeSheet } from './employee-sheet';
 import { EmployeeImportSheet } from './import-sheet';
+import { EmployeeInviteDialog } from './invite-dialog';
 import { EmployeeLifecycleDialog, type LifecycleTarget } from './lifecycle-dialog';
 import { STATUS_LABELS, STATUS_VARIANT } from './status';
 import { useDepartments } from './use-departments';
@@ -209,6 +210,7 @@ export function EmployeesPage() {
   const [sheet, setSheet] = useState<EmployeeListItem | 'new' | null>(null);
   const [lifecycle, setLifecycle] = useState<LifecycleTarget | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [inviting, setInviting] = useState<EmployeeListItem | null>(null);
 
   // PRD §6.4: Alt+C creates a master on the fly. An employee is a master.
   useShortcut({
@@ -340,6 +342,9 @@ export function EmployeesPage() {
         setSheet(row);
       },
       onLifecycle: setLifecycle,
+      onInvite: () => {
+        setInviting(row);
+      },
     });
     return (
       <RowActions
@@ -593,6 +598,15 @@ export function EmployeesPage() {
         }}
       />
       <EmployeeImportSheet open={importOpen} onOpenChange={setImportOpen} />
+      {/* REQ-B-03. The register is where somebody stands when they realise a
+          new starter cannot sign in, so the invitation is issued from here
+          rather than from a screen of its own. */}
+      <EmployeeInviteDialog
+        employee={inviting}
+        onOpenChange={(open) => {
+          if (!open) setInviting(null);
+        }}
+      />
     </>
   );
 }

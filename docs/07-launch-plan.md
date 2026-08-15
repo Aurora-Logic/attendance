@@ -99,7 +99,7 @@ replacement — genuine theft replays are separated by minutes, not seconds).
 A client-side Web Lock would also close the two-tab case but does nothing for
 a browser restart.
 
-**The critical path is now entirely §2** — DNS pointed at the VPS, SMTP, R2-or-MinIO, geofence coordinates, shift timings, roster, leave types with opening balances, holidays. No code work blocks the pilot.
+**The critical path is now entirely §2** — DNS pointed at the VPS, R2-or-MinIO, geofence coordinates, shift timings, roster, leave types with opening balances, holidays. SMTP has left this list: mail is off by default and invitation links are handed over by the administrator (row 8). No code work blocks the pilot.
 
 ---
 
@@ -188,7 +188,7 @@ open, `OPEN-QUESTIONS.md` carried items):
 | 5 | This year's holiday list | Empty calendar; every working day computes as a working day |
 | 6 | Production host + domain name, and DNS pointed at it | No TLS, no deploy |
 | 7 | Cloudflare R2 credentials (or the word "MinIO on the VPS instead") | No photo storage in production |
-| 8 | SMTP credentials for real mail | Invitations cannot be delivered; nobody can sign in |
+| 8 | ~~SMTP credentials for real mail~~ **No longer blocking.** Mail is off by default (`MAIL_TRANSPORT=log`) and the client is deploying without a mail server | Nothing. `POST /auth/invitations` returns the accept link to the administrator, who copies it out of the Employees screen and sends it however they like; the same menu issues a password-reset link. The one thing still lost is the self-service "forgot password" form, whose token reaches nobody — a locked-out person asks an administrator instead. Supply SMTP later and set `MAIL_TRANSPORT=smtp` to turn delivery back on |
 | 9 | Decision: icons — amend docs to phosphor (recommended, two-line change) or sweep back to lucide | The constitution and the codebase keep contradicting each other |
 | 10 | Decision: refresh-token rotation tolerance ~10s (recommended) or leave the two-tab logout as is | Two tabs / a restored window log the user out of everything |
 | 11 | Acknowledgement in writing that the pilot excludes the §0 list | Scope disputes at month-end |
@@ -332,8 +332,10 @@ theirs), Claude Code assists through the product's own endpoints.
   the administrator's login must point at **their own** row from the roster
   import above, not at the seeded one. Verify by punching once as that account
   and by opening My Leave.
-- Invitations sent to every pilot user over real SMTP (row 8), delivery
-  confirmed.
+- An invitation issued for every pilot user from the Employees screen, and the
+  link handed to each of them (row 8 — there is no mail server, and the
+  administrator passing the link on is the delivery). Each link is single-use
+  and dies after 72 hours, so issue them close to the day you need them.
 - A one-page employee comms note: what is collected (photo, location), why,
   the retention period, how to install the PWA, and the camera/location
   permission prompts to expect. The delivery plan's own risk table names
@@ -353,9 +355,10 @@ new UI). Point the administrator's own login at their real employee row from
 that import, not at the seeded VY-0001, and prove it by punching once and
 opening My Leave as that account - a login with no employee record is refused
 by /punch and by GET /leave/balances. Assert nothing placeholder remains: the
-seeded General shift and seed leave types must be updated or replaced. Send
-all invitations over real
-SMTP and verify delivery in the mail log. Draft the one-page employee comms
+seeded General shift and seed leave types must be updated or replaced. Issue
+an invitation for each pilot user from the Employees screen and hand over the
+link it returns - there is no mail server, and that is by design (row 8).
+Draft the one-page employee comms
 note (photo and location collection, retention, PWA install, permission
 prompts). Everything through the product's own audited endpoints - no direct
 SQL.
