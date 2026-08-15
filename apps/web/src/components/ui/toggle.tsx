@@ -11,11 +11,18 @@ const toggleVariants = cva(
         default: "bg-transparent",
         outline: "border border-input bg-transparent hover:bg-muted",
       },
+      /*
+       * The same 44px floor the Button primitive takes, for the same reason:
+       * the `::after` growth here is `-inset-y-*` too, so a short label like
+       * "7d" came out 36 wide and 44 tall and the vertical-only growth never
+       * reached the narrow side. `min-w-*` already exists per size; this is the
+       * coarse-pointer value of it.
+       */
       size: {
         default:
-          "h-8 pointer-coarse:after:-inset-y-[7px] min-w-8 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        sm: "h-7 pointer-coarse:after:-inset-y-[9px] min-w-7 rounded-none px-2.5 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5",
-        lg: "h-9 pointer-coarse:after:-inset-y-[5px] min-w-9 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+          "h-8 pointer-coarse:after:-inset-y-[7px] min-w-8 pointer-coarse:min-w-11 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        sm: "h-7 pointer-coarse:after:-inset-y-[9px] min-w-7 pointer-coarse:min-w-11 rounded-none px-2.5 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5",
+        lg: "h-9 pointer-coarse:after:-inset-y-[5px] min-w-9 pointer-coarse:min-w-11 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
       },
     },
     defaultVariants: {

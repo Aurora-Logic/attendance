@@ -340,17 +340,31 @@ await s.send('Log.enable');
 const TOUCH_REACH = `
   window.__touchReach = (el) => {
     const rect = el.getBoundingClientRect();
-    let extra = 0;
+    let growY = 0;
+    let growX = 0;
     for (const pseudo of ['::after', '::before']) {
       const style = getComputedStyle(el, pseudo);
       if (style.content === 'none' || style.position !== 'absolute') continue;
       const top = parseFloat(style.insetBlockStart);
       const bottom = parseFloat(style.insetBlockEnd);
+      const left = parseFloat(style.insetInlineStart);
+      const right = parseFloat(style.insetInlineEnd);
       // Negative insets push the pseudo outwards; that is the reach we want.
-      const grow = Math.max(Number.isNaN(top) ? 0 : -top, Number.isNaN(bottom) ? 0 : -bottom, 0);
-      extra = Math.max(extra, grow);
+      growY = Math.max(growY, Number.isNaN(top) ? 0 : -top, Number.isNaN(bottom) ? 0 : -bottom, 0);
+      growX = Math.max(growX, Number.isNaN(left) ? 0 : -left, Number.isNaN(right) ? 0 : -right, 0);
     }
-    return Math.round(rect.height + extra * 2);
+    /*
+     * The narrower side, not the height.
+     *
+     * This measured height alone for months, which made it blind to exactly the
+     * control that fails in practice: a text button rendering icon-only on a
+     * phone keeps its text-size padding, so it comes out 36 wide and 44 tall.
+     * The size classes grow the hit area with 'pointer-coarse:after:-inset-y-*'
+     * -- vertical only -- so height reached 44 while width never moved, and the
+     * gate reported the screen compliant. WCAG 2.5.5 and CLAUDE.md both mean
+     * 44 in both directions.
+     */
+    return Math.round(Math.min(rect.height + growY * 2, rect.width + growX * 2));
   };
   true;
 `;
