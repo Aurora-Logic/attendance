@@ -185,14 +185,43 @@ const EMPLOYEES: readonly EmployeeSpec[] = [
   { code: 'VY-0025', firstName: 'Aditya', lastName: 'Bhandari', departmentCode: 'ADM', designationCode: 'SR-EXEC', managerCode: 'VY-0001', employmentType: 'PERMANENT', status: 'ACTIVE', dateOfJoining: '2024-04-15' },
 ];
 
-export async function seedMasterData(tx: Transaction, orgId: string): Promise<MasterDataReport> {
+/**
+ * Whether to create the twenty-five example people.
+ *
+ * Off unless asked for, and that default is the whole point. The
+ * deployment checklist tells an operator to run the seed against the real
+ * database, and every one of these employees is a fictional person -- Anita
+ * Rao, Bharat Menon and the rest. Seeded into a live system they appear in the
+ * muster, in headcount, in every report and in every export, indistinguishable
+ * from staff, and each one is undeletable the moment anything references it
+ * (`employees` is RESTRICT from punches and the leave ledger). Somebody would
+ * have to retire twenty-five imaginary colleagues by hand.
+ *
+ * The structural masters above -- locations, departments, designations, the
+ * General shift -- are still created. They are a skeleton an administrator
+ * renames, not people, and REQ-A-01 gives no way to add an employee without
+ * a department to put them in.
+ */
+export async function seedMasterData(
+  tx: Transaction,
+  orgId: string,
+  options: { readonly examplePeople?: boolean } = {},
+): Promise<MasterDataReport> {
   const locationIds = await ensureLocations(tx, orgId);
   const departmentIds = await ensureDepartments(tx, orgId);
   const designationIds = await ensureDesignations(tx, orgId);
   const shiftIds = await ensureShifts(tx, orgId);
 
   const headOfficeId = locationIds.get('HO') ?? null;
-  const created = await ensureEmployees(tx, orgId, departmentIds, designationIds, headOfficeId);
+  // An empty set, not zero: everything downstream asks it what it contains.
+  const created = await ensureEmployees(
+    tx,
+    orgId,
+    departmentIds,
+    designationIds,
+    headOfficeId,
+    options.examplePeople === true ? 'all' : 'administrator-only',
+  );
   const employeeIds = await codeIndex(tx, orgId);
 
   const reportingManagers = await linkReportingManagers(tx, orgId, created, employeeIds);
@@ -367,9 +396,33 @@ async function ensureEmployees(
   departmentIds: CodeMap,
   designationIds: CodeMap,
   locationId: string | null,
+  /**
+   * Which of the roster to create.
+   *
+   * `'administrator-only'` writes one row: the record the seeded login acts as.
+   * That row has to exist -- REQ-B-02 lets an account run without one, but then
+   * Punch and My Leave correctly refuse, and an administrator who cannot punch
+   * on day one is a support call. It is one real person's record, named for the
+   * role until they rename it, rather than twenty-five invented colleagues.
+   */
+  scope: 'all' | 'administrator-only',
 ): Promise<Set<string>> {
   const existing = await codeIndex(tx, orgId);
-  const missing = EMPLOYEES.filter((spec) => !existing.has(spec.code));
+  const roster =
+    scope === 'all'
+      ? EMPLOYEES
+      : EMPLOYEES.filter((spec) => spec.code === ADMINISTRATOR_EMPLOYEE_CODE).map((spec) => ({
+          ...spec,
+          // Not "Anita Rao". Whoever runs the deployment renames this to
+          // themselves; a placeholder that reads as a placeholder is better
+          // than a plausible name nobody can account for.
+          firstName: process.env.SEED_ADMIN_FIRST_NAME ?? 'Administrator',
+          // REQ-A-01 asks only for a first name, but this spec type requires
+          // both; an empty surname renders as the first name alone.
+          lastName: process.env.SEED_ADMIN_LAST_NAME ?? '',
+          managerCode: null,
+        }));
+  const missing = roster.filter((spec) => !existing.has(spec.code));
   if (missing.length === 0) return new Set();
 
   await tx.insert(employees).values(

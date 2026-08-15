@@ -57,9 +57,20 @@ vy run --rm api node dist/../seed/run-seed.js   # or: pnpm --filter @vyuha/api d
 The seed prints a random administrator password **once**. Copy it now; it is
 not recoverable. Sign in at `https://<DOMAIN>` immediately and change it.
 
-**Know it worked:** you can sign in, and the seed reported an `employee link`
-line. That link is what lets the administrator punch and hold leave — without
-it the Punch and My Leave screens correctly refuse.
+**It creates one employee, not twenty-five.** `VY-0001`, named "Administrator",
+which is the record the seeded login acts as — rename it to yourself on the
+Employees screen. The twenty-five example people (Anita Rao, Bharat Menon and
+the rest) are a developer convenience and are **off unless asked for**: they
+would otherwise appear in your muster, headcount, every report and every export,
+indistinguishable from staff and undeletable the moment anything referenced
+them. Set `SEED_ADMIN_FIRST_NAME` and `SEED_ADMIN_LAST_NAME` before seeding if
+you would rather it wrote your name straight away.
+
+On a developer machine, `--with-example-people` restores the full roster.
+
+**Know it worked:** you can sign in, and the seed reported `employees 1 created`
+and an `employee link` line. That link is what lets the administrator punch and
+hold leave — without it the Punch and My Leave screens correctly refuse.
 
 ## 4. Load your data
 

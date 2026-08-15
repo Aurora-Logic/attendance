@@ -62,6 +62,15 @@ export interface SeedOptions {
   /** Overridden only by the idempotency test, so it does not touch the real
    *  seeded organisation on a developer's database. */
   readonly orgId?: string;
+  /**
+   * Create the twenty-five example employees (REQ-A-01's sample roster).
+   *
+   * Off unless asked for. `master-data.ts` carries the reasoning: the deploy
+   * checklist runs this seed against the real database, and these are
+   * fictional people who would appear in the muster, headcount and every
+   * export, undeletable as soon as anything references them.
+   */
+  readonly examplePeople?: boolean;
 }
 
 export interface SeedReport {
@@ -116,7 +125,9 @@ export async function runSeed(db: Database, options: SeedOptions = {}): Promise<
     const admin = await ensureAdministrator(tx, orgId, adminEmail, candidateHash, candidatePassword);
     // Before the link below, because the departments it creates are headed by
     // the employees it creates, and both need the organisation to exist first.
-    const masterData = await seedMasterData(tx, orgId);
+    const masterData = await seedMasterData(tx, orgId, {
+      examplePeople: options.examplePeople === true,
+    });
     // And after it, because the employee the administrator is joined to does
     // not exist until the line above has run.
     const adminEmployee = await linkAdministratorEmployee(tx, orgId, admin.userId);

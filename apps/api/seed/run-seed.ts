@@ -17,6 +17,16 @@ import { runSeed, type AdminEmployeeLink, type SeedReport } from './seed.js';
 
 const FORCE_FLAG = '--force';
 
+/**
+ * Opt in to the twenty-five example employees.
+ *
+ * A flag rather than a default, because the deploy checklist runs this against
+ * the real database and every one of them is a fictional person. See
+ * `master-data.ts`. A developer who wants a populated laptop passes this; a
+ * production seed cannot get them by forgetting something.
+ */
+const EXAMPLE_PEOPLE_FLAG = '--with-example-people';
+
 async function main(): Promise<void> {
   const envFile = resolve(process.cwd(), '.env');
   if (existsSync(envFile)) process.loadEnvFile(envFile);
@@ -42,6 +52,7 @@ async function main(): Promise<void> {
     const report = await runSeed(drizzle(pool), {
       orgName: process.env.SEED_ORG_NAME,
       adminEmail: process.env.SEED_ADMIN_EMAIL,
+      examplePeople: process.argv.includes(EXAMPLE_PEOPLE_FLAG),
     });
     print(report, Date.now() - started);
   } finally {
