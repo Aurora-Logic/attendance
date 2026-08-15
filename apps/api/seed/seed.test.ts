@@ -68,6 +68,16 @@ function seed(): Promise<SeedReport> {
     orgId: TEST_ORG_ID,
     orgName: 'Seed Idempotency Fixture',
     adminEmail: TEST_ADMIN_EMAIL,
+    /*
+     * The example roster, explicitly.
+     *
+     * It became opt-in so a production seed cannot put twenty-five fictional
+     * people into a live organisation. This file is what proves that roster
+     * still seeds correctly when it *is* asked for -- the hierarchy, the
+     * reporting lines, the department heads -- so it asks for it. The default
+     * is covered separately below.
+     */
+    examplePeople: true,
   });
 }
 

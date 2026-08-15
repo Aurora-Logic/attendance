@@ -22,6 +22,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
 import { PERMISSIONS, type RegularizationKind } from '@vyuha/shared';
 
+import { DayPunches } from './day-punches';
 import { formatClock, formatDuration, formatWindow } from './format';
 import { AttendanceFlags, AttendanceStatusBadge } from './status-badge';
 import type { AttendanceDay } from './types';
@@ -125,6 +126,16 @@ export function DayDetailSheet({
                   <AttendanceFlags flags={day.flags} />
                 </>
               ) : null}
+
+              {/* REQ-D-02's photograph, where the day is actually looked at.
+                  The times above answer "when"; the photo is what makes the
+                  punch trustworthy, and without it somebody querying a late
+                  arrival had to go and find the same rows in the punch audit
+                  report. Fetched only because this sheet is open -- a calendar
+                  that pre-loaded them would issue one request per day. */}
+              <Separator className="my-4" />
+              <p className="text-muted-foreground mb-2 text-xs">Punches</p>
+              <DayPunches employeeId={day.employee.id} date={day.date} enabled />
             </div>
 
             {/* REQ-F-01 and REQ-M-02 share this footer. The correction is

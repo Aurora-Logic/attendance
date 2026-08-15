@@ -17,7 +17,11 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { toDateParam } from '@/features/attendance/format';
-import { DateField } from '@/features/attendance/pickers';
+import {
+  DateField,
+  EMPLOYEE_DATE_YEARS_BACK,
+  EMPLOYEE_DATE_YEARS_FORWARD,
+} from '@/features/attendance/pickers';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { formatDate } from '@/lib/format';
 import { employeeDisplayName, type EmployeeListItem } from '@vyuha/shared';
@@ -183,6 +187,11 @@ function LifecycleBody({ target, onClose }: { target: LifecycleTarget; onClose: 
             label="Last working date"
             value={lastDay}
             onValueChange={setLastDay}
+            // A last working date can be back-dated to when somebody actually
+            // left, or set ahead for a notice period, so it needs the same
+            // reach as a joining date rather than the default two years.
+            yearsBack={EMPLOYEE_DATE_YEARS_BACK}
+            yearsForward={EMPLOYEE_DATE_YEARS_FORWARD}
             className="w-full"
           />
           <FieldDescription>

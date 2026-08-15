@@ -161,7 +161,32 @@ interface DateFieldProps extends OpenControl {
   hint?: ReactNode;
   disabled?: (date: Date) => boolean;
   className?: string;
+  /**
+   * How far back the year dropdown reaches, in years before today.
+   *
+   * The default suits a date near the present -- a muster date, a period
+   * boundary. A joining date does not: somebody hired in 2009 is sixteen years
+   * of "previous month" away, and paging there one month at a time is the kind
+   * of thing that makes a form get abandoned. `EMPLOYEE_DATE_YEARS_BACK` is the
+   * value the employee form passes.
+   */
+  yearsBack?: number;
+  /** And forward, for a date that may be in the future (a last working day). */
+  yearsForward?: number;
 }
+
+/** Two years back covers a muster or a period boundary without a long list. */
+const DEFAULT_YEARS_BACK = 2;
+const DEFAULT_YEARS_FORWARD = 1;
+
+/**
+ * The range a joining or leaving date needs.
+ *
+ * Fifty years back reaches anybody still working; five forward covers a notice
+ * period entered in advance.
+ */
+export const EMPLOYEE_DATE_YEARS_BACK = 50;
+export const EMPLOYEE_DATE_YEARS_FORWARD = 5;
 
 /** One date, written dd-MM-yyyy (REQ-L-01). */
 export function DateField({
@@ -171,9 +196,21 @@ export function DateField({
   hint,
   disabled,
   className,
+  yearsBack = DEFAULT_YEARS_BACK,
+  yearsForward = DEFAULT_YEARS_FORWARD,
   ...control
 }: DateFieldProps) {
   const [open, setOpen] = useOpenState(control);
+
+  /*
+   * The dropdowns need a bounded range; without `startMonth`/`endMonth` the
+   * year list is empty and the caption falls back to a label with no way to
+   * jump. Anchored on today rather than on the selected value, so the range
+   * does not shift under the reader as they pick.
+   */
+  const today = new Date();
+  const startMonth = new Date(today.getFullYear() - yearsBack, 0, 1);
+  const endMonth = new Date(today.getFullYear() + yearsForward, 11, 31);
 
   return (
     <PickerSurface
@@ -199,6 +236,12 @@ export function DateField({
         selected={value}
         defaultMonth={value}
         disabled={disabled}
+        // Month and year as dropdowns rather than only a pair of arrows. A
+        // date more than a few months away is otherwise reached one click at a
+        // time, which is the single most common complaint about a date field.
+        captionLayout="dropdown"
+        startMonth={startMonth}
+        endMonth={endMonth}
         onSelect={(next: Date) => {
           onValueChange(next);
           setOpen(false);

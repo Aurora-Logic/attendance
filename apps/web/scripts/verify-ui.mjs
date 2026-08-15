@@ -467,14 +467,23 @@ check(
 
 // ------------------------------------------ Ctrl+F1 / F1 sheet (REQ-N-04)
 await s.key('F1', 'F1');
+/*
+ * Asserted on the dialog and its chips, not on its wording.
+ *
+ * This looked for the literal "Keyboard shortcuts" and went red the day the
+ * sheet's title became "This screen" -- a copy change, with the dialog opening
+ * and listing every shortcut exactly as before. A gate that fails on wording
+ * teaches people to ignore it. REQ-N-04 asks for a reference sheet on this key;
+ * a dialog carrying hint chips is that, whatever it calls itself.
+ */
 check(
   'F1 opens the shortcut reference sheet',
-  Boolean(await s.waitFor(`document.body.textContent.includes('Keyboard shortcuts')`)),
+  Boolean(await s.waitFor(`!!document.querySelector('[data-slot="dialog-content"]')`)),
 );
 const chips = await s.eval(`document.querySelectorAll('[data-slot="kbd"]').length`);
 check('Sheet lists shortcuts as hint chips', chips >= 4, `${chips} kbd chips`);
 await s.key('Escape', 'Escape');
-await s.waitFor(`!document.body.textContent.includes('Keyboard shortcuts')`);
+await s.waitFor(`!document.querySelector('[data-slot="dialog-content"]')`);
 
 // ------------------------------------------------ demo form (Phase 0 gate)
 check('Patterns route mounts', await s.goto('/patterns'));
@@ -765,9 +774,11 @@ await sleep(500);
 check(
   'F1 opens the shortcut reference as a centred dialog',
   (await s.eval(
+    // Centred, not a sheet -- the point of this check -- and carrying chips,
+    // which is what makes it the reference sheet rather than any dialog.
     `!!document.querySelector('[data-slot="dialog-content"]') &&
      !document.querySelector('[data-slot="sheet-content"]') &&
-     document.body.textContent.includes('Keyboard shortcuts')`,
+     document.querySelectorAll('[data-slot="kbd"]').length >= 4`,
   )) === true,
 );
 await s.key('Escape', 'Escape');
@@ -957,7 +968,12 @@ const filteredStatuses = await s.eval(
 check(
   'A status filter survives a cold load from the URL',
   filteredStatuses !== '[]' && JSON.parse(filteredStatuses).every((t) => t === 'On notice'),
-  `${String(JSON.parse(filteredStatuses).length)} rows, all "On notice"`,
+  // The statuses actually found, not a sentence asserting what they should be.
+  // This read `all "On notice"` unconditionally, so a run that returned one
+  // Active row -- or the literal 'NO STATUS COLUMN' sentinel above -- reported
+  // "1 rows, all On notice" and sent the reader looking for a filter bug that
+  // was not there.
+  `${String(JSON.parse(filteredStatuses).length)} rows: ${filteredStatuses}`,
 );
 check(
   'The chosen filter is reflected in the control, not just the data',

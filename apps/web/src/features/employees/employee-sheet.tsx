@@ -38,7 +38,11 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
 import { toDateParam } from '@/features/attendance/format';
-import { DateField } from '@/features/attendance/pickers';
+import {
+  DateField,
+  EMPLOYEE_DATE_YEARS_BACK,
+  EMPLOYEE_DATE_YEARS_FORWARD,
+} from '@/features/attendance/pickers';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { humaniseEnum } from '@/lib/format';
@@ -455,6 +459,11 @@ function EmployeeForm({
                 <DateField
                   label="Date of joining"
                   value={parseISO(draft.dateOfJoining)}
+                  // Fifty years of year dropdown rather than the two a date
+                  // near the present needs. Somebody hired in 2009 is sixteen
+                  // years of month-at-a-time paging away from today.
+                  yearsBack={EMPLOYEE_DATE_YEARS_BACK}
+                  yearsForward={EMPLOYEE_DATE_YEARS_FORWARD}
                   onValueChange={(next) => {
                     setDraft((current) => ({ ...current, dateOfJoining: toDateParam(next) }));
                   }}
