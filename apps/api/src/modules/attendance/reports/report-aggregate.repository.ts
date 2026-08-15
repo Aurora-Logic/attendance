@@ -129,6 +129,17 @@ const HEADCOUNT_SORTS: SortMap = {
 function orderBy(sort: readonly SortTerm[], allowed: SortMap, tiebreak: string): SQL {
   const clauses: string[] = [];
   for (const term of sort) {
+    /*
+     * `Object.hasOwn`, not a bare lookup.
+     *
+     * `allowed` is an object literal, so `term.field` of "constructor" or
+     * "toString" resolves up the prototype chain to a function, which
+     * `${column}` then stringifies straight into a `sql.raw` ORDER BY. It is
+     * unreachable today -- `parseSort` gates fields against an array with
+     * `includes`, which prototype keys fail -- but that gate is in a different
+     * file, and this is the line that would pay for its removal.
+     */
+    if (!Object.hasOwn(allowed, term.field)) continue;
     const column = allowed[term.field];
     if (column === undefined) continue;
     clauses.push(`${column} ${term.direction === 'desc' ? 'DESC' : 'ASC'} NULLS LAST`);

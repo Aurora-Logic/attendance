@@ -42,6 +42,17 @@ import { ReportService } from './report.service.js';
 /** Nothing about a schedule is worth retrying past this; the next sweep is in 15 minutes. */
 const MAX_RUNS_PER_SWEEP = 200;
 
+/**
+ * And no single organisation may take more than this share of it.
+ *
+ * The global cap alone is a cross-tenant hazard: schedules are ordered by
+ * `org_id`, so the tenant with the lowest id fills the budget first and the
+ * ones after it are never reached. Since org ids are uuidv7 that is the
+ * first-onboarded tenant, permanently, and the symptom is silent -- no error,
+ * no tray row, reports simply stop arriving for everybody else.
+ */
+const MAX_RUNS_PER_ORG_PER_SWEEP = 25;
+
 export interface ScheduleSweepOutcome {
   readonly considered: number;
   readonly started: number;
@@ -245,7 +256,51 @@ export class ScheduleService {
              EXTRACT(DAY    FROM (${now.toISOString()}::timestamptz AT TIME ZONE o.timezone))::int AS local_dom
         FROM report_schedules s
         JOIN organizations o ON o.id = s.org_id
-       WHERE s.is_active AND s.deleted_at IS NULL
+       WHERE s.is_active
+         AND s.deleted_at IS NULL
+         /*
+          * A soft-deleted organisation's schedules are not merely pointless,
+          * they are corrosive: report_schedules.org_id is ON DELETE restrict
+          * so orgs are only ever soft-deleted and their schedules are never
+          * switched off, orgProfile() then throws, and the job retries with
+          * backoff every fifteen minutes for ever -- consuming budget that
+          * belongs to live tenants.
+          */
+         AND o.deleted_at IS NULL
+         /*
+          * Due-ness, decided here rather than in JavaScript afterwards.
+          *
+          * isScheduleDue still runs below and is still the authority -- this
+          * is the same rule pushed down so that an undue schedule costs nothing
+          * against the budget. With the filter in JavaScript, 250 never-due
+          * schedules in one tenant consumed the whole limit and a second
+          * tenant's daily report was never *considered*, let alone late. That
+          * was reproducible: one org with the lowest id starves every org
+          * onboarded after it, silently, for ever.
+          */
+         AND s.last_run_on IS DISTINCT FROM
+             (${now.toISOString()}::timestamptz AT TIME ZONE o.timezone)::date
+         AND (s.hour * 60 + s.minute) <=
+             EXTRACT(HOUR   FROM (${now.toISOString()}::timestamptz AT TIME ZONE o.timezone))::int * 60
+           + EXTRACT(MINUTE FROM (${now.toISOString()}::timestamptz AT TIME ZONE o.timezone))::int
+         AND (s.cadence <> 'WEEKLY' OR s.weekday =
+             EXTRACT(ISODOW FROM (${now.toISOString()}::timestamptz AT TIME ZONE o.timezone))::int)
+         AND (s.cadence <> 'MONTHLY' OR s.day_of_month =
+             EXTRACT(DAY   FROM (${now.toISOString()}::timestamptz AT TIME ZONE o.timezone))::int)
+         /*
+          * And the budget is per organisation, not global. One tenant filling
+          * its own quota is that tenant's problem; one tenant filling every
+          * other tenant's is an outage they cannot see or fix.
+          */
+         AND s.id IN (
+           SELECT id FROM (
+             SELECT s2.id,
+                    row_number() OVER (PARTITION BY s2.org_id ORDER BY s2.created_at) AS rn
+               FROM report_schedules s2
+              WHERE s2.org_id = s.org_id AND s2.is_active AND s2.deleted_at IS NULL
+           ) ranked
+            WHERE ranked.rn <= ${MAX_RUNS_PER_ORG_PER_SWEEP}
+         )
        ORDER BY s.org_id, s.created_at
        LIMIT ${MAX_RUNS_PER_SWEEP}
     `);

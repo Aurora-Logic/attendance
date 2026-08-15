@@ -351,7 +351,12 @@ export class ReportService {
       ...this.commonFilters(filters),
     };
 
-    const measure = EXCEPTION_MEASURES[reportKey];
+    // Guarded for the reason `orderBy` gives: this value reaches a `sql.raw`
+    // column reference, and a prototype key would resolve to a function rather
+    // than to undefined.
+    const measure = Object.hasOwn(EXCEPTION_MEASURES, reportKey)
+      ? EXCEPTION_MEASURES[reportKey]
+      : undefined;
     if (measure !== undefined) {
       return { kind: 'exception', ...(await repository.exceptions(measure, scoped, sort, limit, offset)) };
     }

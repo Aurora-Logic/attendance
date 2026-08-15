@@ -380,6 +380,45 @@ describe('a weekly schedule', () => {
   }, 90_000);
 });
 
+/**
+ * One tenant must not be able to consume every other tenant's sweep.
+ *
+ * The sweep has a global budget, and it used to be the *only* budget: rows were
+ * ordered by `org_id` and due-ness was decided in JavaScript afterwards, so a
+ * tenant with enough never-due schedules filled the limit and the tenants after
+ * it were never considered at all. Since organisation ids are uuidv7 that meant
+ * the first-onboarded tenant starved every later one, permanently, with no
+ * error and no tray row -- reports simply stopped arriving.
+ */
+describe('the sweep budget', () => {
+  it('caps how much of it one organisation can take', async () => {
+    // Comfortably above the per-org cap, and all set to an hour that has not
+    // arrived, so every one of them is undue.
+    const rows = Array.from({ length: 40 }, (_, index) => index);
+    for (const index of rows) {
+      const created = await harness.post<ReportSchedule>('/reports/schedules', {
+        token: hrToken,
+        body: {
+          reportKey: 'attendance-register',
+          name: `Budget probe ${String(index)} ${runId}`,
+          cadence: 'DAILY',
+          hour: 23,
+          minute: 59,
+        },
+      });
+      expect(created.status).toBe(201);
+    }
+
+    // Early morning, so none of the 40 is due. Before the fix every one of them
+    // would still have been fetched and counted against the global budget.
+    const outcome = await sweep.run({ now: instantAt('2026-09-01', 1, 0) }, CONTEXT);
+    expect(outcome.started).toBe(0);
+    // The point: an undue schedule now costs nothing at all, so a tenant full
+    // of them leaves the budget intact for everybody else.
+    expect(outcome.considered).toBe(0);
+  }, 120_000);
+});
+
 describe('who may see a schedule', () => {
   it('does not show one reader another reader\'s schedule', async () => {
     const otherRoleId = await harness.createRole(`Exporter ${runId}`, [
