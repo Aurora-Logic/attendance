@@ -728,21 +728,26 @@ function LocationsTab() {
   );
 }
 
+/** The three masters this screen owns; also which panel is mounted. */
+type MasterTab = 'departments' | 'designations' | 'locations';
+
 export function OrgMastersPage() {
   const resetPage = useResetPage();
+  const [tab, setTab] = useState<MasterTab>('departments');
 
   return (
     <>
       <PageHeader description="Departments, designations and locations — the three masters every employee record points at." />
 
       <Tabs
-        defaultValue="departments"
+        value={tab}
         className="gap-4"
         // The three tabs share one `?page=`, so moving between them has to drop
         // it. Without this, leaving departments on page 2 would open a
         // one-page designation list on page 2, which renders as no rows and
         // reads as an empty master.
-        onValueChange={() => {
+        onValueChange={(next) => {
+          setTab(next as MasterTab);
           resetPage();
         }}
       >
@@ -764,14 +769,26 @@ export function OrgMastersPage() {
             </TabsList>
           }
         >
+          {/* Only the visible tab is mounted, and that is a correctness rule
+              rather than a saving.
+
+              Each panel registers Alt+C for "create the thing this tab is
+              about" (PRD 6.4). Tabs keeps every panel mounted, so all three
+              registered the same key in the same screen layer, the registry
+              refused the duplicate exactly as it should, and the throw took the
+              whole screen into the error boundary -- Organisation was
+              unreachable, showing "This screen stopped responding".
+
+              Mounting one panel also stops two list queries firing for tabs
+              nobody is looking at, but that is the smaller half. */}
           <TabsContent value="departments">
-            <DepartmentsTab />
+            {tab === 'departments' ? <DepartmentsTab /> : null}
           </TabsContent>
           <TabsContent value="designations">
-            <DesignationsTab />
+            {tab === 'designations' ? <DesignationsTab /> : null}
           </TabsContent>
           <TabsContent value="locations">
-            <LocationsTab />
+            {tab === 'locations' ? <LocationsTab /> : null}
           </TabsContent>
         </TabsToolbar>
       </Tabs>
