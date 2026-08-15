@@ -5,6 +5,7 @@ import {
   ClockIcon,
   EnvelopeSimpleIcon,
   LockKeyIcon,
+  MapPinAreaIcon,
   PaperPlaneTiltIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
@@ -45,6 +46,7 @@ import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { DEVICE_BINDING_MODES, PERMISSIONS, PUNCH_WINDOW_BEHAVIOURS } from '@vyuha/shared';
 
+import { OfficeLocationPanel } from './office-location-panel';
 import { PolicyChoiceField, PolicyNumberField } from './policy-fields';
 import {
   DATE_FORMATS,
@@ -61,15 +63,24 @@ import {
   type PhotoPolicy,
   type SettingsPatch,
 } from './types';
+import { useOfficeGeofence, useSaveGeofence } from './use-office-location';
 import { useSaveSettings, useSettings, useTestEmail } from './use-settings';
 
 /**
- * REQ-L-01 to REQ-L-05 / PRD §5 screen 16.
+ * REQ-L-01 to REQ-L-05 / PRD §5 screen 16, plus the office geofence (REQ-D-08).
  *
  * One Save for the whole screen rather than one per tab. The draft is held for
- * all four groups and the request carries only the groups that changed, so
- * saving the timezone cannot blank the punch policy and the reader never has to
- * work out which of four buttons applies to the field they just edited.
+ * all four settings groups and the request carries only the groups that
+ * changed, so saving the timezone cannot blank the punch policy and the reader
+ * never has to work out which of four buttons applies to the field they just
+ * edited.
+ *
+ * The office location tab is the one thing here that is not a settings row:
+ * the geofence centre lives on a `locations` record, so Save sends a second
+ * request to a second endpoint. That stays behind the same button — two Save
+ * buttons on one screen is exactly what the paragraph above exists to avoid —
+ * but the two requests are independent, and the screen reports which of them
+ * landed rather than assuming both did.
  */
 
 const KB = 1024;
@@ -182,29 +193,62 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(saved));
   const [historyOpen, setHistoryOpen] = useState(false);
   const save = useSaveSettings();
+  const office = useOfficeGeofence();
+  const saveOffice = useSaveGeofence();
   // REQ-M-02 and REQ-L-05. Settings are the one record where the diff matters
   // more than the current value: "what is the retention now" is on the screen,
   // and "who shortened it, and when" is the question a purged photo raises.
   const canReadTrail = usePermission(PERMISSIONS.AUDIT_VIEW);
 
   const patch = patchOf(draft, saved);
-  const dirty = Object.keys(patch).length > 0;
+  const officeWrite = office.write;
+  const changedSections = Object.keys(patch).length + (officeWrite === null ? 0 : 1);
+  const dirty = changedSections > 0;
+  const saving = save.isPending || saveOffice.isPending;
+  // An office draft the panel refuses to send is not "saved", and the status
+  // line would be lying if it said so.
+  const officeBlocked = office.change.kind === 'invalid';
 
   function submit() {
-    if (!dirty) return;
-    save.mutate(patch, {
-      onSuccess: (next) => {
-        // PRD §6.6: the toast repeats the action the button named.
+    if (!dirty || saving) return;
+
+    const settingsPatch = Object.keys(patch).length > 0 ? patch : null;
+
+    void (async () => {
+      // allSettled, not all: a refused geofence must not throw away an edited
+      // timezone that the server already accepted, and one rejection must not
+      // leave the other promise unhandled.
+      const [settingsResult, officeResult] = await Promise.allSettled([
+        settingsPatch === null ? Promise.resolve(null) : save.mutateAsync(settingsPatch),
+        officeWrite === null ? Promise.resolve(null) : saveOffice.mutateAsync(officeWrite),
+      ]);
+
+      const savedSettings = settingsResult.status === 'fulfilled' && settingsResult.value !== null;
+      const savedOffice = officeResult.status === 'fulfilled' && officeResult.value !== null;
+
+      if (settingsResult.status === 'fulfilled' && settingsResult.value !== null) {
+        setDraft(draftOf(settingsResult.value));
+      }
+      // The panel derives its fields from the fetched row, so dropping the
+      // edits is what makes the server's answer the thing on screen.
+      if (savedOffice) office.reset();
+
+      // PRD §6.6: the toast repeats the action the button named — and names
+      // only what actually saved. A failure is rendered above the fields it
+      // did not save, not in a corner the reader has already looked away from.
+      if (savedSettings || savedOffice) {
         toast.add({
           type: 'success',
-          title: 'Settings saved',
+          title:
+            savedSettings && savedOffice
+              ? 'Settings and office location saved'
+              : savedSettings
+                ? 'Settings saved'
+                : 'Office location saved',
           description: 'The change is recorded in the audit log.',
         });
-        setDraft(draftOf(next));
-      },
-      // No error toast. The failure is rendered above the fields it did not
-      // save, not in a corner the reader has already looked away from.
-    });
+      }
+    })();
   }
 
   // PRD §6.4: Ctrl+A is Accept / Save, and it fires from inside a field.
@@ -214,7 +258,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
     label: 'Accept / Save',
     scope: 'screen',
     allowInInput: true,
-    when: () => dirty && !save.isPending,
+    when: () => dirty && !saving,
     run: submit,
   });
 
@@ -263,8 +307,11 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-muted-foreground min-w-0 flex-1 text-xs" aria-live="polite">
           {dirty
-            ? `Unsaved changes in ${String(Object.keys(patch).length)} section${Object.keys(patch).length === 1 ? '' : 's'}.`
-            : 'Everything on this screen is saved.'}
+            ? `Unsaved changes in ${String(changedSections)} section${changedSections === 1 ? '' : 's'}.`
+            : officeBlocked
+              ? 'Nothing to save.'
+              : 'Everything on this screen is saved.'}
+          {officeBlocked ? ' The office location has a problem to fix first.' : ''}
         </p>
         {canReadTrail ? (
           <RecordHistoryButton
@@ -273,25 +320,27 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
             }}
           />
         ) : null}
-        {dirty ? (
+        {dirty || officeBlocked ? (
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
               setDraft(draftOf(saved));
+              office.reset();
               save.reset();
+              saveOffice.reset();
             }}
           >
             Discard changes
           </Button>
         ) : null}
-        <Button size="sm" disabled={!dirty || save.isPending} onClick={submit}>
-          {save.isPending ? (
+        <Button size="sm" disabled={!dirty || saving} onClick={submit}>
+          {saving ? (
             <Spinner data-icon="inline-start" />
           ) : (
             <ACTION_ICONS.save data-icon="inline-start" />
           )}
-          {save.isPending ? 'Saving' : 'Save'}
+          {saving ? 'Saving' : 'Save'}
           <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
         </Button>
       </div>
@@ -309,6 +358,10 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           <TabsTrigger value="organisation" className="px-3">
             <BuildingsIcon data-icon="inline-start" />
             Organisation
+          </TabsTrigger>
+          <TabsTrigger value="office" className="px-3">
+            <MapPinAreaIcon data-icon="inline-start" />
+            Office location
           </TabsTrigger>
           <TabsTrigger value="attendance" className="px-3">
             <ClockIcon data-icon="inline-start" />
@@ -413,6 +466,17 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           </div>
         </TabsContent>
 
+        <TabsContent value="office">
+          <OfficeLocationPanel
+            office={office}
+            behaviour={{
+              value: draft.attendance.geofenceBehaviour,
+              enforcedBy: saved.enforcement.attendance.geofenceBehaviour,
+            }}
+            saveError={saveOffice.error}
+          />
+        </TabsContent>
+
         <TabsContent value="attendance">
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
@@ -448,8 +512,8 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                 }}
               >
                 <FieldDescription>
-                  The radius and centre are set per location, not here. Punch currently blocks
-                  outside the radius whatever this says.
+                  The centre and radius are on the Office location tab, per location. Punch
+                  currently blocks outside the radius whatever this says.
                 </FieldDescription>
               </PolicyChoiceField>
 
