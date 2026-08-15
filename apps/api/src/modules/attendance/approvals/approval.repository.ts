@@ -1,4 +1,5 @@
 import {
+  PERMISSIONS,
   employeeDisplayName,
   type ApprovalAction,
   type ApprovalRequestSummary,
@@ -145,6 +146,40 @@ export class ApprovalRepository extends ScopedRepository<typeof approvalRequests
          AND ${approvalDelegations.toUserId} = ${actorUserId}
          AND ${approvalDelegations.deletedAt} IS NULL
          AND ${delegationLiveOn(this.orgToday())}
+         /*
+          * And the delegator must hold a key that decides this kind of request.
+          *
+          * The decide path narrows on the handler's actPermissions
+          * (ApprovalService.liveDelegatorsTo). This is the read path, and
+          * leaving it unnarrowed meant the refusal was only on the button: a
+          * delegation from somebody with no approval permission at all still
+          * put the request in the delegate's inbox, with the subject line, the
+          * requester's name and the full step history. Being told "not yours to
+          * decide" after reading it is not the control.
+          *
+          * The key set is chosen by the request's own type, mirroring what the
+          * handlers declare. That mapping exists in two places now -- here in
+          * SQL and in each handler -- which is a real cost; the alternative is
+          * loading every delegator's permissions per row. The endpoints test
+          * asserts the inbox and the decision agree, so a divergence fails
+          * rather than quietly widening what can be read.
+          */
+         AND EXISTS (
+           SELECT 1
+             FROM user_roles ur
+             JOIN roles r ON r.id = ur.role_id
+             JOIN role_permissions rp ON rp.role_id = ur.role_id
+             JOIN permissions p ON p.id = rp.permission_id
+            WHERE ur.user_id = ${approvalDelegations.fromUserId}
+              AND r.org_id = ${this.ctx.orgId}
+              AND r.deleted_at IS NULL
+              AND p.key IN (
+                CASE WHEN ${approvalRequests.type} = 'LEAVE'
+                     THEN ${PERMISSIONS.LEAVE_APPROVE_TEAM} ELSE ${PERMISSIONS.REGULARIZATION_APPROVE} END,
+                CASE WHEN ${approvalRequests.type} = 'LEAVE'
+                     THEN ${PERMISSIONS.LEAVE_APPROVE_ALL} ELSE ${PERMISSIONS.REGULARIZATION_APPROVE} END
+              )
+         )
     )`;
   }
 

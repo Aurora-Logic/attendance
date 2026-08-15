@@ -1682,6 +1682,29 @@ describe('the leave / approvals join (REQ-G-09, REQ-I-01, REQ-I-05)', () => {
     // The balance is the thing that must not have moved.
     expect(await statusOf(request.id)).toBe('PENDING');
     expect(await ledgerRowsFor(request.id)).toEqual([]);
+
+    /*
+     * And it must not be readable either.
+     *
+     * Refusing the button while still listing the request is not the control:
+     * the inbox row carries the subject line -- the employee's name, leave type
+     * and dates -- plus the requester and the full step history. The read path
+     * has its own delegation lookup (`ApprovalRepository.delegatorIds`) and
+     * narrowing only the decide path left this open.
+     */
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>(
+      '/approvals?view=inbox&pageSize=200',
+      { token: managerToken },
+    );
+    expect(inbox.status, inbox.text).toBe(200);
+    expect(inbox.body.data.some((row) => row.id === request.approvalRequestId)).toBe(false);
+
+    // Not merely absent from the list: unreadable by id as well.
+    const readBack = await harness.get<ErrorBody>(
+      `/approvals/${String(request.approvalRequestId)}`,
+      { token: managerToken },
+    );
+    expect([403, 404]).toContain(readBack.status);
   });
 });
 

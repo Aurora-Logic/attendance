@@ -287,9 +287,20 @@ export class EmployeeDataExportService {
       dateFormat: profile.dateFormat,
     });
 
-    // Identity and employment first, as labelled facts: one row of many columns
-    // reads as a wall of headers, and this is the section a person opens the
-    // file to check.
+    /*
+     * Identity and employment first, as labelled facts: one row of many columns
+     * reads as a wall of headers, and this is the section a person opens the
+     * file to check.
+     *
+     * Gated like every other section rather than assumed. It renders here,
+     * outside the loop, which is precisely how the sign-in account fields it
+     * used to carry escaped the check -- they are their own section now, and
+     * this asks the same question the loop does so the arrangement cannot rot
+     * back.
+     */
+    if (!SUBJECT_PROFILE_SECTION.requires.some((key) => hasPermission(principal, key))) {
+      return this.refuse(row, employeeId, 'You do not hold the permission that reads an employee record.');
+    }
     const profileRows = await repository.rowsFor(SUBJECT_PROFILE_SECTION, ids);
     const facts = profileRows.rows[0] ?? [];
     writer.facts(

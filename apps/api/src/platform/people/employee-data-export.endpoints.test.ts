@@ -241,6 +241,27 @@ beforeAll(async () => {
             ${'Cover is arranged.'}, now())
   `);
 
+  /*
+   * A request the subject *raised* whose summary is somebody else's.
+   *
+   * `LeaveService.apply` resolves the requester as
+   * `findUserIdForEmployee(employeeId) ?? principal.userId`, so when the
+   * employee has no login -- REQ-B-02 allows it, REQ-A-06 imports create them
+   * in bulk -- the row lands on the typist while `subject_summary` names the
+   * colleague. Filtering `approvals-raised` on the requester therefore does not
+   * make the summary theirs, and without this fixture that section could print
+   * Vikram's leave into Meera's file with every assertion still green.
+   */
+  const onBehalf = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO approval_requests
+      (org_id, type, requester_user_id, subject_type, subject_id, current_step, status,
+       subject_summary, current_step_started_at, escalate_after_days)
+    VALUES (${ORG_ID}, 'LEAVE', ${subjectUserId}, 'leave_request', ${otherId}::uuid, 1, 'PENDING',
+            ${`Vikram Deshpande: Probe Leave, 2026-06-01 to 2026-06-02 (2 days)`}, now(), 3)
+    RETURNING id
+  `);
+  if (onBehalf.rows[0] === undefined) throw new Error('On-behalf approval fixture returned no row.');
+
   // Both edits go through the API so the audit interceptor writes real rows --
   // one about the subject, one about somebody else. The second is the leak test.
   const patchedSubject = await harness.patch(`/employees/${subjectId}`, {
@@ -531,6 +552,33 @@ describe('what the file may contain', () => {
     // `audit.view` exists to protect.
     expect(file).not.toContain('sa-hr');
     expect(file).not.toContain('User agent');
+  }, 120_000);
+
+  it('withholds the sign-in account from a requester without roles.manage', async () => {
+    /*
+     * These fields used to ride along on the identity block, which renders
+     * ahead of the gated loop, so their permission was never consulted.
+     * `/employees/:id/access` gates the sign-in email, status and last sign-in
+     * behind `roles.manage`; password-changed and locked-until are exposed by
+     * no endpoint at all, which made an ungated export the only way to read
+     * them.
+     */
+    const hrOnly = await harness.createRole(`HR no roles ${RUN}`, ROLE_PERMISSION_MATRIX.HR);
+    const user = await harness.createUser({
+      email: scopedEmail('sa-no-roles'),
+      roleIds: [hrOnly],
+      employeeId: null,
+    });
+    const token = (await harness.login(user.email, user.password)).token;
+
+    const queued = await requestExport(token, subjectId);
+    const finished = await waitForExport(token, queued.id);
+    expect(finished.status, finished.error ?? '').toBe('DONE');
+
+    const file = await downloadText(token, queued.id);
+    expect(file).toContain('Sign-in account');
+    expect(file).not.toContain('Password last changed');
+    expect(file).not.toContain('Account locked until');
   }, 120_000);
 
   it('still gives an Admin the audit trail, so the gate is not simply off', async () => {

@@ -42,16 +42,16 @@ import { ReportService } from './report.service.js';
 /** Nothing about a schedule is worth retrying past this; the next sweep is in 15 minutes. */
 const MAX_RUNS_PER_SWEEP = 200;
 
-/**
- * And no single organisation may take more than this share of it.
+/*
+ * There is deliberately no per-organisation cap any more.
  *
- * The global cap alone is a cross-tenant hazard: schedules are ordered by
- * `org_id`, so the tenant with the lowest id fills the budget first and the
- * ones after it are never reached. Since org ids are uuidv7 that is the
- * first-onboarded tenant, permanently, and the symptom is silent -- no error,
- * no tray row, reports simply stop arriving for everybody else.
+ * There was one, and it was worse than the problem: ranking every active
+ * schedule by creation date and keeping the first 25 made the 26th an
+ * organisation ever created permanently invisible, due or not. Fairness is
+ * ordering, not a second limit -- the sweep now serves every organisation's
+ * oldest-unrun schedule before any organisation's second, so no tenant can
+ * take the budget and none is cut out of it.
  */
-const MAX_RUNS_PER_ORG_PER_SWEEP = 25;
 
 export interface ScheduleSweepOutcome {
   readonly considered: number;
@@ -292,16 +292,30 @@ export class ScheduleService {
           * its own quota is that tenant's problem; one tenant filling every
           * other tenant's is an outage they cannot see or fix.
           */
-         AND s.id IN (
-           SELECT id FROM (
-             SELECT s2.id,
-                    row_number() OVER (PARTITION BY s2.org_id ORDER BY s2.created_at) AS rn
-               FROM report_schedules s2
-              WHERE s2.org_id = s.org_id AND s2.is_active AND s2.deleted_at IS NULL
-           ) ranked
-            WHERE ranked.rn <= ${MAX_RUNS_PER_ORG_PER_SWEEP}
-         )
-       ORDER BY s.org_id, s.created_at
+       /*
+        * Fair ordering, then the caps.
+        *
+        * The first attempt at this ranked every *active* schedule by
+        * created_at and kept the first 25 -- so the 26th an organisation ever
+        * created became invisible to every sweep for ever, due or not, which
+        * was worse than the starvation it set out to fix: under the old global
+        * cap those rows at least ran. Two things make that impossible now.
+        * The ranking is applied to the due rows only, because everything above
+        * has already filtered to them. And it orders by last_run_on with nulls
+        * first, which rotates: a schedule pushed out of one sweep has an older
+        * last run than the ones that displaced it, so it leads the next.
+        *
+        * The outer ORDER BY is by rank before organisation, so every
+        * organisation's first due schedule is served before any organisation's
+        * second. Ordering by org_id -- as this did -- meant the lowest id won
+        * the global budget outright, and organisation ids are uuidv7, so that
+        * was the first tenant onboarded, permanently.
+        */
+       ORDER BY row_number() OVER (
+                  PARTITION BY s.org_id
+                  ORDER BY s.last_run_on ASC NULLS FIRST, s.created_at
+                ),
+                s.org_id
        LIMIT ${MAX_RUNS_PER_SWEEP}
     `);
 

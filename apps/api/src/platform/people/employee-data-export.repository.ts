@@ -74,10 +74,15 @@ export interface SubjectSection {
    * key resolves to `'none'` on every attendance endpoint and still received
    * every punch coordinate.
    *
-   * Any one of the listed keys is enough. Undefined means the section carries
-   * only employee-record data and the route's own key covers it.
+   * Any one of the listed keys is enough. Required, not optional: a section
+   * carrying another family's data that simply forgot to declare one would be
+   * exported by default, and this file's own history is the argument against
+   * relying on memory -- the last leak survived review behind a comment saying
+   * the opposite. A section holding only employee-record data declares
+   * `[PERMISSIONS.EMPLOYEE_MANAGE]`, which the route already required, so the
+   * decision is made rather than skipped.
    */
-  readonly requires?: readonly PermissionKey[];
+  readonly requires: readonly PermissionKey[];
 }
 
 export interface SectionRows {
@@ -240,6 +245,11 @@ function columns(...pairs: readonly (readonly [string, string])[]): readonly Sub
  */
 export const SUBJECT_PROFILE_SECTION: SubjectSection = {
   key: 'profile',
+  // The employee record itself, which is exactly what `employee.manage` is the
+  // key for. The sign-in account that used to be appended here is now its own
+  // gated section -- it rendered through `writer.facts` ahead of the gated
+  // loop, so its permission was never consulted.
+  requires: [PERMISSIONS.EMPLOYEE_MANAGE],
   title: 'Identity and employment',
   columns: columns(
     ['employeeId', 'Employee id'],
@@ -265,11 +275,6 @@ export const SUBJECT_PROFILE_SECTION: SubjectSection = {
     ['recordCreatedAt', 'Record created'],
     ['recordUpdatedAt', 'Record last updated'],
     ['recordDeletedAt', 'Record deleted'],
-    ['accountEmail', 'Sign-in email'],
-    ['accountStatus', 'Account status'],
-    ['lastLoginAt', 'Last sign-in'],
-    ['passwordChangedAt', 'Password last changed'],
-    ['accountLockedUntil', 'Account locked until'],
   ),
   build: (ids) => sql`
     SELECT
@@ -297,12 +302,7 @@ export const SUBJECT_PROFILE_SECTION: SubjectSection = {
       e.tally_ref                     AS "tallyRef",
       e.created_at                    AS "recordCreatedAt",
       e.updated_at                    AS "recordUpdatedAt",
-      e.deleted_at                    AS "recordDeletedAt",
-      u.email                         AS "accountEmail",
-      u.status                        AS "accountStatus",
-      u.last_login_at                 AS "lastLoginAt",
-      u.password_changed_at           AS "passwordChangedAt",
-      u.locked_until                  AS "accountLockedUntil"
+      e.deleted_at                    AS "recordDeletedAt"
     FROM employees e
     LEFT JOIN departments       dep ON dep.id = e.department_id
     LEFT JOIN designations      des ON des.id = e.designation_id
@@ -311,7 +311,6 @@ export const SUBJECT_PROFILE_SECTION: SubjectSection = {
     LEFT JOIN shifts            sh  ON sh.id  = e.default_shift_id
     LEFT JOIN weekly_off_patterns wop ON wop.id = e.weekly_off_pattern_id
     LEFT JOIN holiday_calendars hc  ON hc.id  = e.holiday_calendar_id
-    LEFT JOIN users             u   ON u.employee_id = e.id AND u.deleted_at IS NULL
     WHERE e.org_id = ${ids.orgId} AND e.id = ${ids.employeeId}
   `,
 };
@@ -321,6 +320,39 @@ export const SUBJECT_PROFILE_SECTION: SubjectSection = {
  * what happened to them, then what was recorded about it.
  */
 export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
+  {
+    key: 'account',
+    /*
+     * `/employees/:id/access` gates the sign-in email, account status and last
+     * sign-in behind `roles.manage`, so this file must too. Two of these --
+     * password-changed and locked-until -- are exposed by no endpoint at all,
+     * which makes an ungated export the *only* way to read them.
+     *
+     * It is a section rather than the tail of the profile because the profile
+     * renders through `writer.facts` before the gated loop runs, so a `requires`
+     * declared there would never have been consulted.
+     */
+    requires: [PERMISSIONS.ROLES_MANAGE],
+    title: 'Sign-in account',
+    columns: columns(
+      ['accountEmail', 'Sign-in email'],
+      ['accountStatus', 'Account status'],
+      ['lastLoginAt', 'Last sign-in'],
+      ['passwordChangedAt', 'Password last changed'],
+      ['accountLockedUntil', 'Account locked until'],
+    ),
+    build: (ids) =>
+      ids.userId === null
+        ? null
+        : sql`
+            SELECT u.email AS "accountEmail", u.status AS "accountStatus",
+                   u.last_login_at AS "lastLoginAt",
+                   u.password_changed_at AS "passwordChangedAt",
+                   u.locked_until AS "accountLockedUntil"
+            FROM users u
+            WHERE u.org_id = ${ids.orgId} AND u.id = ${ids.userId}
+          `,
+  },
   {
     key: 'roles',
     requires: [PERMISSIONS.ROLES_MANAGE],
@@ -344,6 +376,8 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'devices',
+    // No permission family of its own; it answers to the route's key.
+    requires: [PERMISSIONS.EMPLOYEE_MANAGE],
     title: 'Devices',
     columns: columns(
       ['label', 'Label'],
@@ -364,6 +398,8 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'invitations',
+    // No permission family of its own; it answers to the route's key.
+    requires: [PERMISSIONS.EMPLOYEE_MANAGE],
     title: 'Invitations',
     columns: columns(
       ['email', 'Sent to'],
@@ -382,6 +418,8 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'consent',
+    // No permission family of its own; it answers to the route's key.
+    requires: [PERMISSIONS.EMPLOYEE_MANAGE],
     title: 'Consent',
     columns: columns(
       ['consentKey', 'Notice'],
@@ -699,9 +737,25 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
     key: 'approvals-raised',
     requires: [PERMISSIONS.LEAVE_APPROVE_ALL, PERMISSIONS.REGULARIZATION_APPROVE],
     title: 'Approvals raised',
+    /*
+     * No subject line here either, and for a reason the sibling section below
+     * does not have.
+     *
+     * `requester_user_id` is not reliably the person the request is about.
+     * `LeaveService.apply` and both regularization raise paths resolve it as
+     * `findUserIdForEmployee(employeeId) ?? principal.userId`, and that
+     * fallback is a first-class case: REQ-B-02 allows an employee record with
+     * no login, REQ-A-06 imports create them in bulk, and REQ-G-06 lets an
+     * approver apply on somebody's behalf. In all three the row lands on the
+     * *typist* while `subject_summary` describes the colleague -- so filtering
+     * on the requester does not make the summary theirs.
+     *
+     * Removing the column from the section below and leaving it here would have
+     * been the same leak one heading up. Type, status, step and date still say
+     * "you raised fourteen requests", which is the fact held about this person.
+     */
     columns: columns(
       ['approvalType', 'Type'],
-      ['subjectSummary', 'Subject'],
       ['requestStatus', 'Status'],
       ['currentStep', 'Current step'],
       ['escalatedAt', 'Escalated'],
@@ -711,7 +765,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
       ids.userId === null
         ? null
         : sql`
-            SELECT type AS "approvalType", subject_summary AS "subjectSummary",
+            SELECT type AS "approvalType",
                    status AS "requestStatus", current_step AS "currentStep",
                    escalated_at AS "escalatedAt", created_at AS "createdAt"
             FROM approval_requests
