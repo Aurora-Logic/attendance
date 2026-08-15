@@ -19,12 +19,19 @@ export default defineConfig({
     // clean in the other; the same pair, split so neither run touched the other's
     // file, passed both sides three times over.
     //
-    // So: do not run this suite twice at once. It cost two separate
-    // investigations, both of which first suspected the BullMQ queue prefix
-    // below -- which is a real hazard for the developer's own API, and not this
-    // one. Splitting the work by file is safe; running the same file twice is
-    // not, and no prefix or lock in this config can make it so.
+    // That is now enforced rather than written down. `globalSetup` below takes
+    // a Postgres advisory lock, so a second run refuses to start with a message
+    // naming this, instead of silently corrupting both. The note above stood
+    // for a day and three sessions still lost time to it -- twice to the queue
+    // prefix, once to a web-only change -- because a comment cannot fail a
+    // build.
     fileParallelism: false,
+    /*
+     * Holds the run lock for the whole suite. Session-scoped in Postgres, so a
+     * killed run releases it when its socket closes and there is nothing to
+     * clean up by hand.
+     */
+    globalSetup: ['./src/test-support/exclusive-run.ts'],
     // The integration tests boot the real application, which logs every
     // request through pino. Set before any module loads, so `env.ts` picks it
     // up: `process.loadEnvFile` does not overwrite a variable already present.
