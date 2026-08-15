@@ -18,6 +18,7 @@ import {
   type BulkApprovalSkip,
   type CreateDelegationInput,
   type Paginated,
+  type PermissionKey,
 } from '@vyuha/shared';
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 
@@ -748,7 +749,7 @@ export class ApprovalService {
       requesterUserId: request.requesterUserId,
       status: request.status,
       currentApproverUserId: current?.approverUserId ?? null,
-      delegatedFromUserIds: await this.liveDelegatorsTo(principal),
+      delegatedFromUserIds: await this.liveDelegatorsTo(principal, handler.actPermissions),
       hasApproveAll: hasAnyPermission(principal, handler.overridePermissions),
     });
 
@@ -853,8 +854,36 @@ export class ApprovalService {
     };
   }
 
-  /** Approvers with a live delegation to this caller today (REQ-I-04). */
-  private async liveDelegatorsTo(principal: Principal): Promise<string[]> {
+  /**
+   * Approvers with a live delegation to this caller today (REQ-I-04), narrowed
+   * to those who could have decided *this kind* of request themselves.
+   *
+   * A delegation transfers authority; it cannot create it. Without the
+   * permission join below it did: `evaluateDecision`'s delegation branch is a
+   * bare membership test, and `decideWithin` checks `actPermissions` against
+   * the *delegate*, so nothing anywhere asked whether the delegator was
+   * entitled.
+   *
+   * That was reachable. Routing is by reporting manager with no permission
+   * filter (`ApprovalRoutingService.managerChain`), so a manager holding only
+   * `regularization.approve` has their reports' leave requests routed to them
+   * and cannot decide them -- a test asserts exactly that. But they could
+   * delegate to any holder of a leave key, and that person would then decide
+   * requests they were never routed and whose employees are outside their
+   * scope, on the authority of somebody who had none. The widening of
+   * `APPROVAL_ACT_KEYS` is what let them reach the delegation endpoint to
+   * originate it.
+   *
+   * Checked at decision time rather than at delegation time on purpose: a
+   * delegator can lose the permission after writing the delegation, and the
+   * question that matters is whether they hold it when the decision is made.
+   */
+  private async liveDelegatorsTo(
+    principal: Principal,
+    actPermissions: readonly PermissionKey[],
+  ): Promise<string[]> {
+    if (actPermissions.length === 0) return [];
+
     const rows = await this.db
       .select({ fromUserId: approvalDelegations.fromUserId })
       .from(approvalDelegations)
@@ -864,6 +893,20 @@ export class ApprovalService {
           eq(approvalDelegations.toUserId, principal.userId),
           isNull(approvalDelegations.deletedAt),
           delegationLiveOn(this.orgTodaySql(principal.orgId)),
+          sql`EXISTS (
+            SELECT 1
+              FROM user_roles ur
+              JOIN roles r ON r.id = ur.role_id
+              JOIN role_permissions rp ON rp.role_id = ur.role_id
+              JOIN permissions p ON p.id = rp.permission_id
+             WHERE ur.user_id = ${approvalDelegations.fromUserId}
+               AND r.org_id = ${principal.orgId}
+               AND r.deleted_at IS NULL
+               AND p.key IN ${sql`(${sql.join(
+                 actPermissions.map((key) => sql`${key}`),
+                 sql`, `,
+               )})`}
+          )`,
         ),
       );
     return rows.map((row) => row.fromUserId);
@@ -881,9 +924,17 @@ export class ApprovalService {
       SELECT EXISTS (
         SELECT 1
           FROM user_roles ur
+          JOIN roles r ON r.id = ur.role_id
           JOIN role_permissions rp ON rp.role_id = ur.role_id
           JOIN permissions p ON p.id = rp.permission_id
          WHERE ur.user_id = u.id
+           -- Live roles in this organisation only, which is what loadGrants
+           -- and orgWideApprovers both already require. Without it a user whose
+           -- only approval role was soft-deleted still reports as able to
+           -- approve, and the delegation is accepted -- producing exactly the
+           -- silent dead cover the check below exists to prevent.
+           AND r.org_id = ${orgId}
+           AND r.deleted_at IS NULL
            AND p.key IN ${sql`(${sql.join(
              APPROVAL_ACT_KEYS.map((key) => sql`${key}`),
              sql`, `,

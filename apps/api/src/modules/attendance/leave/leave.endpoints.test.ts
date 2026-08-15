@@ -56,6 +56,7 @@ let runId: string;
 let employeeAId: string;
 let employeeBId: string;
 let managerEmployeeId: string;
+let managerUserId = '';
 let employeeRoleId: string;
 
 let employeeToken: string;
@@ -293,6 +294,7 @@ beforeAll(async () => {
 
   employeeToken = (await harness.login(userA.email, userA.password)).token;
   otherToken = (await harness.login(userB.email, userB.password)).token;
+  managerUserId = manager.id;
   managerToken = (await harness.login(manager.email, manager.password)).token;
   hrToken = (await harness.login(hrUser.email, hrUser.password)).token;
   strangerToken = (await harness.login(stranger.email, stranger.password)).token;
@@ -1597,6 +1599,89 @@ describe('the leave / approvals join (REQ-G-09, REQ-I-01, REQ-I-05)', () => {
     expect(await ledgerRowsFor(request.id)).toEqual([
       { movementType: 'AVAILED', days: '-1.00' },
     ]);
+  });
+
+  /**
+   * The same hole one step further out: a delegation cannot create authority
+   * its author never had.
+   *
+   * The test above proves a correction-only approver cannot decide leave
+   * themselves. This proves they cannot have somebody else decide it for them.
+   * `evaluateDecision`'s delegation branch is a bare membership test, and
+   * `decideWithin` checks `actPermissions` against the *delegate* -- so before
+   * the fix nothing anywhere asked whether the delegator was entitled, and the
+   * widened route guard is what let a correction-only holder reach
+   * `POST /approvals/delegations` to originate one.
+   *
+   * The delegate here holds a real leave key and would be perfectly entitled to
+   * decide a request routed to *them*. What must not happen is that Rohit's
+   * delegation hands them one that never was.
+   */
+  it('refuses a delegation from an approver who could not decide it themselves', async () => {
+    const correctorEmployeeId = await harness.createEmployee({
+      code: `LV-DA-${runId}`,
+      firstName: 'Rohit',
+      lastName: 'Delegator',
+    });
+    const subjectEmployeeId = await harness.createEmployee({
+      code: `LV-DS-${runId}`,
+      firstName: 'Sunita',
+      lastName: 'Rane',
+      reportingManagerId: correctorEmployeeId,
+      dateOfJoining: '2020-01-01',
+    });
+
+    const correctionOnlyRoleId = await harness.createRole(`Correction Delegator ${runId}`, [
+      'regularization.approve',
+    ]);
+    const corrector = await harness.createUser({
+      email: scopedEmail('leave-delegator'),
+      roleIds: [correctionOnlyRoleId],
+      employeeId: correctorEmployeeId,
+    });
+    const subject = await harness.createUser({
+      email: scopedEmail('leave-delegated-subject'),
+      roleIds: [employeeRoleId],
+      employeeId: subjectEmployeeId,
+    });
+    const correctorToken = (await harness.login(corrector.email, corrector.password)).token;
+    const subjectToken = (await harness.login(subject.email, subject.password)).token;
+
+    await grantDays(subjectEmployeeId, casualTypeId, 10);
+    const request = await applyFor(subjectToken);
+
+    // Routed to Rohit, who holds no leave key.
+    const detail = await harness.get<ApprovalRequestDetail>(
+      `/approvals/${String(request.approvalRequestId)}`,
+      { token: hrToken },
+    );
+    expect(detail.body.awaiting?.name).toContain('Rohit');
+
+    // The widened guard lets him reach the delegation endpoint at all, which is
+    // the step that used to be impossible. Creating it is allowed -- he may
+    // legitimately delegate the corrections he *can* decide.
+    const delegated = await harness.post<{ id: string } & ErrorBody>('/approvals/delegations', {
+      token: correctorToken,
+      body: {
+        toUserId: managerUserId,
+        fromDate: '2020-01-01',
+        toDate: '2030-12-31',
+        reason: 'Cover while I am away',
+      },
+    });
+    expect(delegated.status, delegated.text).toBe(201);
+
+    // Meera holds leave.approve.team and a live delegation from Rohit. She is
+    // still refused: the authority Rohit delegated was never his to give.
+    const refused = await harness.post<ErrorBody>(
+      `/approvals/${String(request.approvalRequestId)}/approve`,
+      { token: managerToken, body: { reason: 'Acting on the delegation' } },
+    );
+    expect(refused.status).toBe(403);
+
+    // The balance is the thing that must not have moved.
+    expect(await statusOf(request.id)).toBe('PENDING');
+    expect(await ledgerRowsFor(request.id)).toEqual([]);
   });
 });
 
