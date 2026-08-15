@@ -404,6 +404,7 @@ export class ReportAggregateRepository {
       leave_days: number;
       absent_days: number;
       absence_percent: number | null;
+      total_groups: number;
     }>(sql`
       SELECT "employees"."id" AS employee_id,
              "employees"."employee_code",
@@ -427,7 +428,19 @@ export class ReportAggregateRepository {
                    0
                  ),
                1
-             )::float8 AS absence_percent
+             )::float8 AS absence_percent,
+             /*
+              * The row count, taken from the same pass.
+              *
+              * This used to be a second count(*) over the identical GROUP BY,
+              * which meant scanning and grouping the whole period twice. At the
+              * size NFR-02 names -- 500 employees, 24 months -- each half cost
+              * about 850ms and the pair went over the 1.5s the requirement
+              * allows. A window over the grouped set is evaluated after GROUP BY
+              * and HAVING and before LIMIT, which is exactly the number the
+              * pager needs, for one scan instead of two.
+              */
+             count(*) OVER ()::int AS total_groups
        ${grouped}
        ${orderBy(sort, ABSENTEEISM_SORTS, 'month DESC, "employees"."employee_code" ASC')}
        LIMIT ${limit} OFFSET ${offset}
@@ -451,11 +464,8 @@ export class ReportAggregateRepository {
       absencePercent: row.absence_percent ?? 0,
     }));
 
-    const totals = await this.db.execute<{ value: number }>(sql`
-      SELECT count(*)::int AS value FROM (SELECT 1 AS one ${grouped}) AS vy_absent_groups
-    `);
-
-    return { rows, total: totals.rows[0]?.value ?? 0 };
+    // Zero rows means zero groups; the window produced no row to read it from.
+    return { rows, total: result.rows[0]?.total_groups ?? 0 };
   }
 
   // ---------------------------------------------------------- missing punch
