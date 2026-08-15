@@ -57,8 +57,9 @@ import {
  * registered at a time.
  *
  * The decision surface is deliberately not here. An approver goes to
- * Approvals, which is where `RegularizationDecisionsSection` renders — this
- * screen is what a person opens about their own days.
+ * Approvals, where a correction now arrives as a real approval request beside
+ * leave and everything else (REQ-I-01) — this screen is what a person opens
+ * about their own days.
  */
 
 function readPositiveInt(raw: string | null, fallback: number, max: number): number {

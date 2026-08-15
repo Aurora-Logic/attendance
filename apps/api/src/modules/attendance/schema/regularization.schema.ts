@@ -61,13 +61,21 @@ export const regularizations = pgTable(
     // REQ-F-02's per-month cap is counted over this.
     index('regularizations_org_date_idx').on(t.orgId, t.date),
     index('regularizations_status_idx').on(t.orgId, t.status),
-    // Migration 0014. The cap in REQ-F-02 is counted in the service and a
-    // count is not a lock -- two submissions a millisecond apart both read the
-    // same total and both pass. Scoped to PENDING so a rejected request does
-    // not block the corrected re-raise, which is the ordinary use.
+    // Migration 0016, widened by 0017. The cap in REQ-F-02 is counted in the
+    // service and a count is not a lock -- two submissions a millisecond apart
+    // both read the same total and both pass.
+    //
+    // Scoped to the *open* statuses so a rejected request does not block the
+    // corrected re-raise, which is the ordinary use. ESCALATED is one of them:
+    // REQ-G-09's timer moves an unanswered request up a level and it is still
+    // in somebody's inbox, so a second request for the same day would be a
+    // second live correction.
     uniqueIndex('regularizations_one_open_per_day_idx')
       .on(t.orgId, t.employeeId, t.date)
-      .where(sql`${t.status} = 'PENDING' AND ${t.deletedAt} IS NULL`),
+      .where(sql`${t.status} IN ('PENDING', 'ESCALATED') AND ${t.deletedAt} IS NULL`),
+    // Migration 0017. The decision path resolves a request from its approval
+    // and back again.
+    index('regularizations_approval_request_idx').on(t.orgId, t.approvalRequestId),
     check(
       'regularizations_decision_is_attributed',
       sql`(decided_at IS NULL) = (decided_by IS NULL)`,
@@ -143,6 +151,8 @@ export const onDutyRequests = pgTable(
   (t) => [
     index('on_duty_requests_range_idx').on(t.orgId, t.employeeId, t.fromDate, t.toDate),
     index('on_duty_requests_status_idx').on(t.orgId, t.status),
+    /** Migration 0017; see the note on `regularizations`. */
+    index('on_duty_requests_approval_request_idx').on(t.orgId, t.approvalRequestId),
     check('on_duty_requests_range_ordered', sql`to_date >= from_date`),
     check(
       'on_duty_requests_decision_is_attributed',

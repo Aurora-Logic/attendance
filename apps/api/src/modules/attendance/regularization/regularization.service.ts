@@ -5,6 +5,8 @@ import {
   PERMISSIONS,
   pageSlice,
   paginated,
+  type ApprovalDecision,
+  type KnownApprovalSubjectType,
   type OnDutyInput,
   type OnDutyQuery,
   type OnDutyRequest,
@@ -16,15 +18,24 @@ import {
   type RegularizationRefusal,
   type RegularizationRequest,
 } from '@vyuha/shared';
+import { sql } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
+import { AuditService } from '../../../platform/audit/audit.service.js';
 import { AppError, describeError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
 import { isUniqueViolation } from '../../../platform/db/pg-error.js';
+import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notification-events.js';
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { hasAnyPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
+import { ApprovalRoutingService } from '../approvals/approval-routing.service.js';
+import type {
+  ApprovalSubjectDecision,
+  ApprovalSubjectSettlement,
+} from '../approvals/approval-subject.registry.js';
+import { ApprovalService } from '../approvals/approval.service.js';
 import { addDays } from '../day-engine/calendar-date.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
 import { onDutyRequests, regularizations } from '../schema/index.js';
@@ -67,13 +78,21 @@ import {
  * reopened the month. REQ-E-09 says a locked period is not affected by a
  * regularization, and "not affected" has to include later.
  *
- * **It decides on its own endpoints.** REQ-I-01 wants one approval mechanism
- * for leave, regularization, on-duty, flagged punches and device rebinding,
- * and that join is deliberately supervised work (OPEN-QUESTIONS, "The leave /
- * approvals join, still unwired"). Until it lands, this is the decision point,
- * exactly as `LeaveService.approve` is for leave. `approval_request_id` is
- * already the foreign key for the join and stays null, so nothing written here
- * has to be unpicked when the framework starts creating rows.
+ * **It decides through the approval framework, not beside it.** REQ-I-01 wants
+ * one approval mechanism for leave, regularization, on-duty, flagged punches
+ * and device rebinding. Raising a request now raises an `approval_requests` row
+ * in the same transaction, so it reaches the inbox and REQ-G-09's escalation
+ * sweep can see it; deciding one goes through `ApprovalService.decide`, which
+ * is the single place REQ-I-05, delegation (REQ-I-04) and the step route are
+ * enforced. The framework then calls back into `applyApprovalDecision` /
+ * `applyOnDutyDecision` through `ApprovalSubjectRegistry`, and those two
+ * methods are the only writers of the adjustment row and the only callers of
+ * the recompute.
+ *
+ * The `/regularizations/:id/approve` endpoints are kept and are **not** a
+ * second path: they resolve the attached approval and hand it to the framework,
+ * so a correction decided in the inbox and one decided on its own screen run
+ * identical code and cannot produce different adjustments.
  */
 
 /** Who may see whose requests. The raise key is also the self key. */
@@ -84,6 +103,16 @@ export const REGULARIZATION_SCOPE_GRANTS: ScopeGrants = {
 
 const APPROVER_KEYS = [PERMISSIONS.REGULARIZATION_APPROVE] as const;
 
+/**
+ * REQ-I-01's polymorphic subjects, for the two kinds this slice owns.
+ *
+ * Typed against the shared contract's list rather than written as bare strings,
+ * so a typo is a compile error rather than an approval request nothing will
+ * ever pick up.
+ */
+export const REGULARIZATION_SUBJECT_TYPE: KnownApprovalSubjectType = 'regularization';
+export const ON_DUTY_SUBJECT_TYPE: KnownApprovalSubjectType = 'on_duty_request';
+
 @Injectable()
 export class RegularizationService {
   private readonly logger = new Logger(RegularizationService.name);
@@ -92,8 +121,11 @@ export class RegularizationService {
     @InjectDatabase() private readonly db: Database,
     private readonly scopes: ScopeService,
     private readonly auditContext: AuditContext,
+    private readonly audit: AuditService,
     private readonly notifications: NotificationDispatcher,
     private readonly dayEngine: DayEngineService,
+    private readonly approvals: ApprovalService,
+    private readonly routing: ApprovalRoutingService,
   ) {}
 
   // ------------------------------------------------------------ REQ-F-02
@@ -174,15 +206,52 @@ export class RegularizationService {
       existingIn,
     });
 
-    const id = await this.insertRegularization(repository, {
-      employeeId,
-      date: input.date,
-      kind: input.kind,
-      requestedIn: times.adjustedIn,
-      requestedOut: times.adjustedOut,
-      reason: input.reason,
-      attachmentFileId: input.attachmentFileId,
-      attempt,
+    const ctx = orgContextOf(principal);
+    // The person the correction is *about*, not whoever typed it in. An
+    // employee with no login falls back to the raiser, which is the only user
+    // account there is to name.
+    const requesterUserId =
+      (await repository.findUserIdForEmployee(employeeId)) ?? principal.userId;
+    const route = await this.routeFor(principal.orgId, requesterUserId);
+
+    // One transaction, because a correction and the approval that governs it
+    // are one fact. Raised second and linked back rather than first, because
+    // the approval's subject is the request's id -- and committed together,
+    // because a request whose raise then failed would be a row no inbox can
+    // show and nobody can decide.
+    const { id, approvalRequestId } = await repository.transaction(async (tx, executor) => {
+      const requestId = await this.insertRegularization(tx, {
+        employeeId,
+        date: input.date,
+        kind: input.kind,
+        requestedIn: times.adjustedIn,
+        requestedOut: times.adjustedOut,
+        reason: input.reason,
+        attachmentFileId: input.attachmentFileId,
+        attempt,
+      });
+
+      const approval = await this.approvals.raise(
+        ctx,
+        {
+          type: 'REGULARIZATION',
+          subjectType: REGULARIZATION_SUBJECT_TYPE,
+          subjectId: requestId,
+          subject: regularizationSubjectLine({
+            employeeName: employee.name,
+            date: input.date,
+            kind: input.kind,
+          }),
+          requesterUserId,
+          approverUserIds: route,
+        },
+        executor,
+      );
+
+      const linked = await tx.linkRegularizationApproval(requestId, approval.id);
+      if (!linked) throw AppError.notFound('Regularization', requestId);
+
+      return { id: requestId, approvalRequestId: approval.id };
     });
 
     const record = await this.readRegularization(principal, id);
@@ -201,10 +270,34 @@ export class RegularizationService {
         reason: input.reason,
         raisedThisMonth: raisedThisMonth + 1,
         maxPerMonth: limits.maxPerMonth,
+        approvalRequestId,
       },
     });
 
     return record;
+  }
+
+  /**
+   * Who a correction or an on-duty declaration routes to.
+   *
+   * The nearest reporting manager, one step, exactly as `LeaveService.routeFor`
+   * does for a leave type that is not two-step. Handing the framework its whole
+   * `defaultRoute` instead would write the manager, their manager and every
+   * org-wide approver as separate steps, and a missing punch would then need
+   * four approvals -- REQ-F-03 describes one.
+   *
+   * The org-wide tail is the fallback when there is no manager at all: somebody
+   * at the top of the tree, or whose manager has no login. Without it `raise`
+   * refuses, and raising a correction would fail for the people least able to
+   * do anything about it.
+   */
+  private async routeFor(orgId: string, requesterUserId: string): Promise<string[]> {
+    const [chain, orgWide] = await Promise.all([
+      this.routing.managerChain(orgId, requesterUserId),
+      this.routing.orgWideApprovers(orgId),
+    ]);
+    const nearest = chain[0];
+    return nearest === undefined ? orgWide : [nearest];
   }
 
   async list(
@@ -245,10 +338,144 @@ export class RegularizationService {
     id: string,
     reason: string | null,
   ): Promise<RegularizationRequest> {
-    const repository = this.repository(principal);
-    const request = await this.loadForDecision(repository, principal, id);
+    return this.decideThroughFramework(principal, id, 'APPROVE', reason);
+  }
 
-    if (await this.dayEngine.forOrg(orgContextOf(principal)).isLocked(request.employeeId, request.date)) {
+  /** REQ-F-05: "Rejection requires a reason. The employee is notified with it." */
+  async reject(principal: Principal, id: string, reason: string): Promise<RegularizationRequest> {
+    return this.decideThroughFramework(principal, id, 'REJECT', reason);
+  }
+
+  /**
+   * REQ-F-03 and REQ-F-05, through the framework rather than beside it.
+   *
+   * Not a second decision path. It resolves the approval attached to the
+   * correction and hands it to `ApprovalService.decide`, which is the one place
+   * REQ-I-05, delegation (REQ-I-04) and the step route are enforced; the
+   * framework then calls back into `applyApprovalDecision` below.
+   *
+   * What is still checked here is visibility: an id outside the caller's scope
+   * answers 404 rather than the framework's 403, so the id cannot be probed
+   * for. That is the same answer this endpoint has always given.
+   */
+  private async decideThroughFramework(
+    principal: Principal,
+    id: string,
+    action: ApprovalDecision,
+    reason: string | null,
+  ): Promise<RegularizationRequest> {
+    const repository = this.repository(principal);
+    const request = await repository.findRegularization(
+      id,
+      this.scopeFor(principal, regularizations.employeeId),
+    );
+    if (request === null) throw AppError.notFound('Regularization', id);
+
+    if (request.approvalRequestId === null) {
+      // Only reachable for a request written before this join existed: `raise`
+      // has raised an approval in the same transaction ever since, so a null
+      // here means there is no route, no step and nobody the framework could
+      // name as the approver. Refused rather than decided on the old terms,
+      // because a second way to write the adjustment row is exactly what this
+      // change removed.
+      throw AppError.conflict(
+        'This correction predates the approvals inbox and has no approval attached, so it cannot be decided. Ask the employee to raise it again.',
+        { regularizationId: id },
+      );
+    }
+
+    await this.approvals.decide(principal, request.approvalRequestId, action, reason);
+    return this.readRegularization(principal, id);
+  }
+
+  /**
+   * What a decision *means* for a correction (REQ-F-03, REQ-F-05).
+   *
+   * Called by the framework through `ApprovalSubjectRegistry`, inside the
+   * framework's transaction, and **deliberately without re-checking the
+   * approver**: by the time this runs the framework has established that this
+   * actor holds `regularization.approve` and may act on this step under
+   * REQ-I-05 and REQ-I-04, and a second opinion here is a second place that
+   * rule can be wrong.
+   *
+   * The adjustment row is written here and nowhere else, in the same
+   * transaction as the step that approved it -- REQ-F-03's "an adjusting record
+   * is written" and the approval that authorised it cannot be allowed to commit
+   * apart, because a request marked approved with no adjustment beside it is a
+   * correction the muster will never show and a retry cannot tell that state
+   * from a fresh one.
+   */
+  async applyApprovalDecision(
+    ctx: OrgContext,
+    decision: ApprovalSubjectDecision,
+    executor: Database,
+  ): Promise<ApprovalSubjectSettlement | null> {
+    const repository = new RegularizationRepository(executor, ctx);
+    // No scope predicate: the framework has already decided this actor may act
+    // on this request, and the handler's job is the record, not the reader.
+    const request = await repository.findRegularization(decision.subjectId, sql`true`);
+    if (request === null) throw AppError.notFound('Regularization', decision.subjectId);
+
+    if (request.status !== 'PENDING' && request.status !== 'ESCALATED') {
+      // The framework's compare-and-swap should have made this unreachable.
+      // Refused rather than trusted, because the cost of being wrong is a
+      // second adjustment on a day that already has one.
+      throw new AppError(
+        ERROR_CODES.APPROVAL_ALREADY_ACTIONED,
+        `This regularization is already ${request.status.toLowerCase()}.`,
+        { details: { status: request.status } },
+      );
+    }
+
+    if (decision.status === 'ESCALATED') {
+      const moved = await repository.escalateRegularization(decision.subjectId);
+      if (!moved) throw alreadyActionedError(decision.subjectId);
+      return async () => {
+        // Straight to the trail: escalation is the job's doing and there is no
+        // request for the audit interceptor to hang an entry on.
+        await this.audit.write({
+          orgId: ctx.orgId,
+          actorUserId: null,
+          action: 'regularization.escalated',
+          entityType: 'regularization',
+          entityId: decision.subjectId,
+          before: { status: request.status },
+          after: { status: 'ESCALATED', approvalRequestId: decision.approvalRequestId },
+        });
+      };
+    }
+
+    if (decision.status === 'REJECTED') {
+      // No adjustment and no recompute: a rejected correction changed nothing,
+      // which is why the adjustment is written on approval rather than on raise.
+      const moved = await repository.decideRegularization(decision.subjectId, {
+        status: 'REJECTED',
+        decidedAt: decision.at,
+        decidedBy: decision.decidedByUserId,
+        reason: decision.reason,
+      });
+      if (!moved) throw alreadyActionedError(decision.subjectId);
+
+      return async () => {
+        this.auditContext.record({
+          action: 'regularization.rejected',
+          entityType: 'regularization',
+          entityId: decision.subjectId,
+          orgId: ctx.orgId,
+          before: { status: request.status },
+          after: { status: 'REJECTED', reason: decision.reason },
+        });
+        await this.notifyDecision(ctx.orgId, request, 'rejected', decision.reason);
+      };
+    }
+
+    // REQ-E-09 asked *before* anything is written, not after. `computeDay`
+    // refuses a locked date on its own, which is enough for a caller that only
+    // recomputes; it is not enough here, because an adjustment stored against a
+    // locked month would sit inert and then apply itself the moment somebody
+    // reopened the month. Throwing rolls the framework's transaction back, so
+    // the step that approved it is unwritten too.
+    if (await this.dayEngine.forOrg(ctx).isLocked(request.employeeId, request.date)) {
       throw new AppError(
         ERROR_CODES.PERIOD_LOCKED,
         `Attendance for ${request.date} is in a locked period, so this correction cannot be applied. Unlock the period first.`,
@@ -256,79 +483,50 @@ export class RegularizationService {
       );
     }
 
-    const decidedAt = new Date();
-    const adjustmentId = await repository.transaction(async (tx) => {
-      const moved = await tx.decideRegularization(id, {
-        status: 'APPROVED',
-        decidedAt,
-        decidedBy: principal.userId,
-        reason,
+    const moved = await repository.decideRegularization(decision.subjectId, {
+      status: 'APPROVED',
+      decidedAt: decision.at,
+      decidedBy: decision.decidedByUserId,
+      reason: decision.reason,
+    });
+    if (!moved) throw alreadyActionedError(decision.subjectId);
+
+    const adjustmentId = await repository.insertAdjustment({
+      employeeId: request.employeeId,
+      attendanceDate: request.date,
+      regularizationId: decision.subjectId,
+      adjustedIn: request.requestedIn === null ? null : new Date(request.requestedIn),
+      adjustedOut: request.requestedOut === null ? null : new Date(request.requestedOut),
+      // The employee's own words, not the approver's. A report showing why a
+      // day was corrected wants the reason the correction was asked for.
+      reason: request.reason,
+      approvedBy: decision.decidedByUserId,
+    });
+
+    return async () => {
+      // After the commit, so the engine reads the adjustment that was written
+      // rather than one still inside an open transaction.
+      const recompute = await this.recomputeDates(ctx, request.employeeId, [request.date]);
+
+      this.auditContext.record({
+        action: 'regularization.approved',
+        entityType: 'regularization',
+        entityId: decision.subjectId,
+        orgId: ctx.orgId,
+        before: { status: request.status },
+        after: {
+          status: 'APPROVED',
+          adjustmentId,
+          date: request.date,
+          adjustedIn: request.requestedIn,
+          adjustedOut: request.requestedOut,
+          reason: decision.reason,
+          recompute,
+        },
       });
-      // False means somebody else decided it between the read above and this
-      // update. Raising here rolls the transaction back, so the adjustment
-      // that would have been the second one is never written.
-      if (!moved) throw alreadyActionedError(id);
 
-      return tx.insertAdjustment({
-        employeeId: request.employeeId,
-        attendanceDate: request.date,
-        regularizationId: id,
-        adjustedIn: request.requestedIn === null ? null : new Date(request.requestedIn),
-        adjustedOut: request.requestedOut === null ? null : new Date(request.requestedOut),
-        // The employee's own words, not the approver's. A report showing why a
-        // day was corrected wants the reason the correction was asked for.
-        reason: request.reason,
-        approvedBy: principal.userId,
-      });
-    });
-
-    const recompute = await this.recomputeDates(principal, request.employeeId, [request.date]);
-
-    this.auditContext.record({
-      action: 'regularization.approved',
-      entityType: 'regularization',
-      entityId: id,
-      before: { status: request.status },
-      after: {
-        status: 'APPROVED',
-        adjustmentId,
-        date: request.date,
-        adjustedIn: request.requestedIn,
-        adjustedOut: request.requestedOut,
-        reason,
-        recompute,
-      },
-    });
-
-    await this.notifyDecision(principal, request, 'approved', reason);
-    return this.readRegularization(principal, id);
-  }
-
-  /** REQ-F-05: "Rejection requires a reason. The employee is notified with it." */
-  async reject(principal: Principal, id: string, reason: string): Promise<RegularizationRequest> {
-    const repository = this.repository(principal);
-    const request = await this.loadForDecision(repository, principal, id);
-
-    // No adjustment and no recompute: a rejected correction changed nothing,
-    // which is why the adjustment is written on approval rather than on raise.
-    const moved = await repository.decideRegularization(id, {
-      status: 'REJECTED',
-      decidedAt: new Date(),
-      decidedBy: principal.userId,
-      reason,
-    });
-    if (!moved) throw alreadyActionedError(id);
-
-    this.auditContext.record({
-      action: 'regularization.rejected',
-      entityType: 'regularization',
-      entityId: id,
-      before: { status: request.status },
-      after: { status: 'REJECTED', reason },
-    });
-
-    await this.notifyDecision(principal, request, 'rejected', reason);
-    return this.readRegularization(principal, id);
+      await this.notifyDecision(ctx.orgId, request, 'approved', decision.reason);
+    };
   }
 
   // ------------------------------------------------------------ REQ-F-04
@@ -369,12 +567,44 @@ export class RegularizationService {
       );
     }
 
-    const id = await repository.insertOnDuty({
-      employeeId,
-      fromDate: input.fromDate,
-      toDate: input.toDate,
-      reason: input.reason,
-      siteName: input.siteName,
+    const ctx = orgContextOf(principal);
+    const requesterUserId =
+      (await repository.findUserIdForEmployee(employeeId)) ?? principal.userId;
+    const route = await this.routeFor(principal.orgId, requesterUserId);
+
+    // One transaction, for the reason `raise` gives above.
+    const { id, approvalRequestId } = await repository.transaction(async (tx, executor) => {
+      const requestId = await tx.insertOnDuty({
+        employeeId,
+        fromDate: input.fromDate,
+        toDate: input.toDate,
+        reason: input.reason,
+        siteName: input.siteName,
+      });
+
+      const approval = await this.approvals.raise(
+        ctx,
+        {
+          type: 'ON_DUTY',
+          subjectType: ON_DUTY_SUBJECT_TYPE,
+          subjectId: requestId,
+          subject: onDutySubjectLine({
+            employeeName: employee.name,
+            fromDate: input.fromDate,
+            toDate: input.toDate,
+            days: dates.length,
+            siteName: input.siteName,
+          }),
+          requesterUserId,
+          approverUserIds: route,
+        },
+        executor,
+      );
+
+      const linked = await tx.linkOnDutyApproval(requestId, approval.id);
+      if (!linked) throw AppError.notFound('On-duty request', requestId);
+
+      return { id: requestId, approvalRequestId: approval.id };
     });
 
     this.auditContext.record({
@@ -389,6 +619,7 @@ export class RegularizationService {
         reason: input.reason,
         siteName: input.siteName,
         days: dates.length,
+        approvalRequestId,
       },
     });
 
@@ -425,64 +656,132 @@ export class RegularizationService {
     id: string,
     reason: string | null,
   ): Promise<OnDutyRequest> {
-    const repository = this.repository(principal);
-    const request = await this.loadOnDutyForDecision(repository, principal, id);
-
-    const moved = await repository.decideOnDuty(id, {
-      status: 'APPROVED',
-      decidedAt: new Date(),
-      decidedBy: principal.userId,
-      reason,
-    });
-    if (!moved) throw alreadyActionedError(id);
-
-    const recompute = await this.recomputeDates(
-      principal,
-      request.employeeId,
-      datesBetween(request.fromDate, request.toDate),
-    );
-
-    this.auditContext.record({
-      action: 'on_duty.approved',
-      entityType: 'on_duty_request',
-      entityId: id,
-      before: { status: request.status },
-      after: {
-        status: 'APPROVED',
-        fromDate: request.fromDate,
-        toDate: request.toDate,
-        reason,
-        recompute,
-      },
-    });
-
-    await this.notifyOnDutyDecision(principal, request, 'approved', reason);
-    return this.readOnDuty(principal, id);
+    return this.decideOnDutyThroughFramework(principal, id, 'APPROVE', reason);
   }
 
   /** REQ-F-05, the on-duty half. */
   async rejectOnDuty(principal: Principal, id: string, reason: string): Promise<OnDutyRequest> {
+    return this.decideOnDutyThroughFramework(principal, id, 'REJECT', reason);
+  }
+
+  /** See `decideThroughFramework`; this is the same arrangement for REQ-F-04. */
+  private async decideOnDutyThroughFramework(
+    principal: Principal,
+    id: string,
+    action: ApprovalDecision,
+    reason: string | null,
+  ): Promise<OnDutyRequest> {
     const repository = this.repository(principal);
-    const request = await this.loadOnDutyForDecision(repository, principal, id);
+    const request = await repository.findOnDuty(
+      id,
+      this.scopeFor(principal, onDutyRequests.employeeId),
+    );
+    if (request === null) throw AppError.notFound('On-duty request', id);
 
-    const moved = await repository.decideOnDuty(id, {
-      status: 'REJECTED',
-      decidedAt: new Date(),
-      decidedBy: principal.userId,
-      reason,
-    });
-    if (!moved) throw alreadyActionedError(id);
+    if (request.approvalRequestId === null) {
+      throw AppError.conflict(
+        'This on-duty request predates the approvals inbox and has no approval attached, so it cannot be decided. Ask the employee to raise it again.',
+        { onDutyRequestId: id },
+      );
+    }
 
-    this.auditContext.record({
-      action: 'on_duty.rejected',
-      entityType: 'on_duty_request',
-      entityId: id,
-      before: { status: request.status },
-      after: { status: 'REJECTED', reason },
-    });
-
-    await this.notifyOnDutyDecision(principal, request, 'rejected', reason);
+    await this.approvals.decide(principal, request.approvalRequestId, action, reason);
     return this.readOnDuty(principal, id);
+  }
+
+  /**
+   * What a decision *means* for an on-duty request (REQ-F-04).
+   *
+   * There is no adjustment row here. The day engine reads `on_duty_requests`
+   * directly (`hasApprovedOnDuty`, step 4), so moving the status is the whole
+   * of the write and the recompute after the commit is what makes it visible.
+   *
+   * No lock check, unlike a correction: an on-duty request is raised *ahead* of
+   * the days it covers, so the ordinary case has no closed period to collide
+   * with, and `computeDay` answers `locked` without writing for any day that
+   * does -- counted and reported in the summary rather than refused. Refusing
+   * the whole request because one day of a fortnight sits in a closed month
+   * would lose the other thirteen.
+   */
+  async applyOnDutyDecision(
+    ctx: OrgContext,
+    decision: ApprovalSubjectDecision,
+    executor: Database,
+  ): Promise<ApprovalSubjectSettlement | null> {
+    const repository = new RegularizationRepository(executor, ctx);
+    const request = await repository.findOnDuty(decision.subjectId, sql`true`);
+    if (request === null) throw AppError.notFound('On-duty request', decision.subjectId);
+
+    if (request.status !== 'PENDING' && request.status !== 'ESCALATED') {
+      throw new AppError(
+        ERROR_CODES.APPROVAL_ALREADY_ACTIONED,
+        `This on-duty request is already ${request.status.toLowerCase()}.`,
+        { details: { status: request.status } },
+      );
+    }
+
+    if (decision.status === 'ESCALATED') {
+      const moved = await repository.escalateOnDuty(decision.subjectId);
+      if (!moved) throw alreadyActionedError(decision.subjectId);
+      return async () => {
+        await this.audit.write({
+          orgId: ctx.orgId,
+          actorUserId: null,
+          action: 'on_duty.escalated',
+          entityType: 'on_duty_request',
+          entityId: decision.subjectId,
+          before: { status: request.status },
+          after: { status: 'ESCALATED', approvalRequestId: decision.approvalRequestId },
+        });
+      };
+    }
+
+    const moved = await repository.decideOnDuty(decision.subjectId, {
+      status: decision.status,
+      decidedAt: decision.at,
+      decidedBy: decision.decidedByUserId,
+      reason: decision.reason,
+    });
+    if (!moved) throw alreadyActionedError(decision.subjectId);
+
+    if (decision.status === 'REJECTED') {
+      return async () => {
+        this.auditContext.record({
+          action: 'on_duty.rejected',
+          entityType: 'on_duty_request',
+          entityId: decision.subjectId,
+          orgId: ctx.orgId,
+          before: { status: request.status },
+          after: { status: 'REJECTED', reason: decision.reason },
+        });
+        await this.notifyOnDutyDecision(ctx.orgId, request, 'rejected', decision.reason);
+      };
+    }
+
+    return async () => {
+      const recompute = await this.recomputeDates(
+        ctx,
+        request.employeeId,
+        datesBetween(request.fromDate, request.toDate),
+      );
+
+      this.auditContext.record({
+        action: 'on_duty.approved',
+        entityType: 'on_duty_request',
+        entityId: decision.subjectId,
+        orgId: ctx.orgId,
+        before: { status: request.status },
+        after: {
+          status: 'APPROVED',
+          fromDate: request.fromDate,
+          toDate: request.toDate,
+          reason: decision.reason,
+          recompute,
+        },
+      });
+
+      await this.notifyOnDutyDecision(ctx.orgId, request, 'approved', decision.reason);
+    };
   }
 
   // ------------------------------------------------------------ internals
@@ -552,39 +851,6 @@ export class RegularizationService {
     return toOnDuty(row);
   }
 
-  /**
-   * The request an approver is about to act on, with REQ-I-05 applied.
-   *
-   * "An approver cannot approve their own request; it routes to the next level
-   * up." There is no next level to route to while this slice decides on its own
-   * endpoints, so the refusal is the whole of it and another approver has to
-   * act — which is what the framework will do properly when the join lands.
-   */
-  private async loadForDecision(
-    repository: RegularizationRepository,
-    principal: Principal,
-    id: string,
-  ): Promise<RegularizationRow> {
-    const row = await repository.findRegularization(
-      id,
-      this.scopeFor(principal, regularizations.employeeId),
-    );
-    if (row === null) throw AppError.notFound('Regularization', id);
-    assertDecidable(principal, row.employeeId, row.status, 'regularization');
-    return row;
-  }
-
-  private async loadOnDutyForDecision(
-    repository: RegularizationRepository,
-    principal: Principal,
-    id: string,
-  ): Promise<OnDutyRow> {
-    const row = await repository.findOnDuty(id, this.scopeFor(principal, onDutyRequests.employeeId));
-    if (row === null) throw AppError.notFound('On-duty request', id);
-    assertDecidable(principal, row.employeeId, row.status, 'on-duty request');
-    return row;
-  }
-
   private async insertRegularization(
     repository: RegularizationRepository,
     input: {
@@ -620,12 +886,12 @@ export class RegularizationService {
    * cause, and reported back.
    */
   private async recomputeDates(
-    principal: Principal,
+    ctx: OrgContext,
     employeeId: string,
     dates: readonly string[],
   ): Promise<RecomputeSummary> {
     const summary = { considered: 0, recomputed: 0, locked: 0, failed: 0 };
-    const engine = this.dayEngine.forOrg(orgContextOf(principal));
+    const engine = this.dayEngine.forOrg(ctx);
 
     for (const date of dates) {
       summary.considered += 1;
@@ -646,13 +912,13 @@ export class RegularizationService {
 
   /** REQ-K-03: "regularization outcome" is on the list of events that notify. */
   private async notifyDecision(
-    principal: Principal,
+    orgId: string,
     request: RegularizationRow,
     outcome: 'approved' | 'rejected',
     reason: string | null,
   ): Promise<void> {
     await this.notifications.emit({
-      orgId: principal.orgId,
+      orgId,
       type: NOTIFICATION_EVENTS.REGULARIZATION_DECIDED,
       audience: { kind: 'employees', employeeIds: [request.employeeId] },
       payload: {
@@ -667,13 +933,13 @@ export class RegularizationService {
   }
 
   private async notifyOnDutyDecision(
-    principal: Principal,
+    orgId: string,
     request: OnDutyRow,
     outcome: 'approved' | 'rejected',
     reason: string | null,
   ): Promise<void> {
     await this.notifications.emit({
-      orgId: principal.orgId,
+      orgId,
       type: NOTIFICATION_EVENTS.REGULARIZATION_DECIDED,
       audience: { kind: 'employees', employeeIds: [request.employeeId] },
       payload: {
@@ -692,31 +958,42 @@ export class RegularizationService {
 // ---------------------------------------------------------------- helpers
 
 /**
- * REQ-I-05, and the status check, in one place because both callers need both
- * and the order between them matters: an approver looking at their own already
- * decided request should be told it is theirs, which is the fact they can act
- * on by finding another approver.
+ * The sentence the inbox renders for a correction (REQ-I-01).
+ *
+ * Written here because the framework must not join five subject tables to find
+ * out what a request is about -- that is four inboxes wearing one URL. Times
+ * are deliberately absent: they are instants that need the employee's zone to
+ * render, and the detail screen behind the row has both.
  */
-function assertDecidable(
-  principal: Principal,
-  requesterEmployeeId: string,
-  status: string,
-  subject: string,
-): void {
-  if (principal.employeeId !== null && principal.employeeId === requesterEmployeeId) {
-    throw new AppError(
-      ERROR_CODES.APPROVER_IS_REQUESTER,
-      'You cannot decide your own request. Another approver has to.',
-      { details: { subject } },
-    );
-  }
-  if (status !== 'PENDING' && status !== 'ESCALATED') {
-    throw new AppError(
-      ERROR_CODES.APPROVAL_ALREADY_ACTIONED,
-      `This ${subject} is already ${status.toLowerCase()}.`,
-      { details: { status } },
-    );
-  }
+function regularizationSubjectLine(input: {
+  employeeName: string;
+  date: string;
+  kind: RegularizationInput['kind'];
+}): string {
+  return `${input.employeeName}, ${REGULARIZATION_SUBJECT_WORDS[input.kind]} on ${input.date}`;
+}
+
+/** Plain words for the inbox, not the enum. `REGULARIZATION_KIND_LABELS` is the
+ * client's copy of the same idea; this one has to read inside a sentence. */
+const REGULARIZATION_SUBJECT_WORDS: Record<RegularizationInput['kind'], string> = {
+  MISSING_IN: 'missing in punch',
+  MISSING_OUT: 'missing out punch',
+  WRONG_TIME: 'wrong punch time',
+  FORGOT_TO_PUNCH: 'forgot to punch',
+};
+
+function onDutySubjectLine(input: {
+  employeeName: string;
+  fromDate: string;
+  toDate: string;
+  days: number;
+  siteName: string | null;
+}): string {
+  const range =
+    input.fromDate === input.toDate
+      ? input.fromDate
+      : `${input.fromDate} to ${input.toDate}, ${String(input.days)} days`;
+  return `${input.employeeName}, on duty ${range}${input.siteName === null ? '' : ` at ${input.siteName}`}`;
 }
 
 function alreadyActionedError(id: string): AppError {

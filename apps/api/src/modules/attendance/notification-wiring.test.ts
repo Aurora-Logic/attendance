@@ -98,6 +98,8 @@ beforeAll(async () => {
   // a probe with a handler that only records.
   const probe: ApprovalSubjectHandler = {
     subjectType: ESCALATION_PROBE_SUBJECT,
+    actPermissions: [PERMISSIONS.LEAVE_APPROVE_TEAM, PERMISSIONS.LEAVE_APPROVE_ALL],
+    overridePermissions: [PERMISSIONS.LEAVE_APPROVE_ALL],
     applyDecision: () => Promise.resolve(null),
   };
   harness.resolve(ApprovalSubjectRegistry).register(probe);

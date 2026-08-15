@@ -25,13 +25,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { apiErrorCopy, actionErrorCopy } from '@/features/leave/api-error-copy';
 import { CheckboxRow } from '@/features/leave/control-row';
 import { SampleDataNotice } from '@/features/leave/sample-data-notice';
-import { RegularizationDecisionsSection } from '@/features/regularization';
 import { ApiError } from '@/lib/api/client';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
@@ -127,7 +125,6 @@ export function ApprovalsPage() {
   const canApproveTeam = usePermission(PERMISSIONS.LEAVE_APPROVE_TEAM);
   const canApproveAll = usePermission(PERMISSIONS.LEAVE_APPROVE_ALL);
   const canApprove = canApproveTeam || canApproveAll;
-  const canDecideRegularizations = usePermission(PERMISSIONS.REGULARIZATION_APPROVE);
 
   const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
   const pageSize = readPositiveInt(searchParams.get('pageSize'), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
@@ -375,24 +372,13 @@ export function ApprovalsPage() {
         }
       />
 
-      {/* Leave no longer appears here: it now raises a real approval request
-          and is decided in the inbox below, so its own band was deleted with
-          the join. Regularization and on-duty still decide on their own
-          endpoints, so they keep this arrangement until their handler lands
-          too (REQ-F-03, REQ-F-05). Gated on its own key -- an approver may
-          hold `leave.approve.team` and not `regularization.approve`. */}
-      {canDecideRegularizations && permissionsKnown ? (
-        <>
-          <RegularizationDecisionsSection />
-          <Separator />
-        </>
-      ) : null}
-
-
       <div className="flex flex-col gap-4">
-        {/* One list, of every kind (REQ-I-01). The leave band that used to sit
-            above this is gone: applying for leave now raises an approval
-            request, so leave arrives here with everything else. */}
+        {/* One list, of every kind (REQ-I-01). The two bands that used to sit
+            above this are gone: leave, corrections and on-duty declarations all
+            raise a real approval request now, so they arrive here with
+            everything else and there is one place an approver looks. Showing a
+            band as well would put the same request on the screen twice, with
+            two buttons that reach the same decision. */}
         <div className="flex flex-wrap items-center gap-2">
           <Select
             value={type ?? ALL}

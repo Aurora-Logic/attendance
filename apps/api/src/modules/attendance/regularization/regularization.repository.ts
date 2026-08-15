@@ -1,9 +1,10 @@
-import type { ApprovalStatus, RegularizationKind } from '@vyuha/shared';
-import { and, asc, count, desc, eq, gte, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import { OPEN_APPROVAL_STATUSES, type ApprovalStatus, type RegularizationKind } from '@vyuha/shared';
+import { and, asc, count, desc, eq, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 
 import type { Database } from '../../../platform/db/db.provider.js';
 import { employees, locations, organizations, settings, users } from '../../../platform/db/schema/index.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
+import { employeeNameSql } from '../../../platform/people/employee-name.js';
 import { attendanceAdjustments, onDutyRequests, punches, regularizations } from '../schema/index.js';
 
 /**
@@ -29,8 +30,27 @@ export const REGULARIZATION_SETTING_KEYS = {
   maxPerMonth: 'attendance.regularization_max_per_month',
 } as const;
 
+/**
+ * The statuses a request can still be decided from.
+ *
+ * Taken from the shared contract rather than restated, because the framework
+ * decides the same question about its own rows through `isOpenApprovalStatus`.
+ * Two lists spelled by hand would be two answers to "is this still open", and
+ * the day they disagreed a request would be open in one table and closed in
+ * the other. The spread is only to widen the readonly tuple into the mutable
+ * array Drizzle's `inArray` asks for.
+ */
+const OPEN_STATUSES: ApprovalStatus[] = [...OPEN_APPROVAL_STATUSES];
+
 /** UTC ISO-8601 with a literal Z, which `new Date` reads without ambiguity. */
 const INSTANT_FORMAT = sql.raw(`'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'`);
+
+/**
+ * Never hand-roll this: a plain concatenation is NULL for anyone without a
+ * surname, which is how this list once showed "null" as an employee's name.
+ * `employeeNameSql` carries the reason and the test.
+ */
+const employeeName = employeeNameSql(employees.firstName, employees.lastName);
 
 /** `to_char` on a nullable timestamp, for a column the wire sends as ISO text. */
 function instant(column: SQL): SQL<string | null> {
@@ -115,9 +135,19 @@ export class RegularizationRepository {
     return predicate;
   }
 
-  /** Runs `fn` against a repository bound to one transaction. */
-  async transaction<T>(fn: (repository: RegularizationRepository) => Promise<T>): Promise<T> {
-    return this.db.transaction(async (tx) => fn(new RegularizationRepository(tx, this.ctx)));
+  /**
+   * Runs `fn` against a repository bound to one transaction.
+   *
+   * The raw executor is handed over beside it because `ApprovalService.raise`
+   * takes one: a request row and the approval that governs it are one fact, and
+   * a raise committed apart from its subject leaves a record no inbox can show
+   * or a request nobody can decide. `LeaveRepository.transaction` has the same
+   * two-argument shape for the same reason.
+   */
+  async transaction<T>(
+    fn: (repository: RegularizationRepository, executor: Database) => Promise<T>,
+  ): Promise<T> {
+    return this.db.transaction(async (tx) => fn(new RegularizationRepository(tx, this.ctx), tx));
   }
 
   // ------------------------------------------------------------- settings
@@ -165,7 +195,7 @@ export class RegularizationRepository {
     const rows = await this.db
       .select({
         id: employees.id,
-        name: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
+        name: employeeName,
         employeeCode: employees.employeeCode,
         dateOfJoining: employees.dateOfJoining,
         dateOfLeaving: employees.dateOfLeaving,
@@ -184,6 +214,30 @@ export class RegularizationRepository {
       .limit(1);
 
     return rows[0] ?? null;
+  }
+
+  /**
+   * The login belonging to an employee, if there is one (REQ-B-02).
+   *
+   * An approval names a *user*, because that is who has an inbox, while a
+   * regularization names an employee. The oldest living active account wins, so
+   * an employee who was re-invited keeps the same requester across requests.
+   */
+  async findUserIdForEmployee(employeeId: string): Promise<string | null> {
+    const rows = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        this.orgScoped(
+          eq(users.orgId, this.ctx.orgId),
+          eq(users.employeeId, employeeId),
+          isNull(users.deletedAt),
+          eq(users.status, 'ACTIVE'),
+        ),
+      )
+      .orderBy(asc(users.createdAt))
+      .limit(1);
+    return rows[0]?.id ?? null;
   }
 
   /**
@@ -317,6 +371,15 @@ export class RegularizationRepository {
     return rows[0]?.total ?? 0;
   }
 
+  /**
+   * An open request for this day, meaning one still capable of being decided.
+   *
+   * `ESCALATED` counts. REQ-G-09's timer moves an unanswered request up a level
+   * and it stays decidable, so treating it as closed would let the same day be
+   * regularized a second time while the first is still in somebody's inbox --
+   * and the partial unique index behind this check covers both statuses for
+   * exactly that reason (migration 0017).
+   */
   async findOpenForDate(employeeId: string, date: string): Promise<string | null> {
     const rows = await this.db
       .select({ id: regularizations.id })
@@ -326,12 +389,43 @@ export class RegularizationRepository {
           eq(regularizations.orgId, this.ctx.orgId),
           eq(regularizations.employeeId, employeeId),
           eq(regularizations.date, date),
-          eq(regularizations.status, 'PENDING'),
+          inArray(regularizations.status, OPEN_STATUSES),
           isNull(regularizations.deletedAt),
         ),
       )
       .limit(1);
     return rows[0]?.id ?? null;
+  }
+
+  /** Ties a raised request to the approval that governs it (REQ-I-01). */
+  async linkRegularizationApproval(id: string, approvalRequestId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(regularizations)
+      .set({ approvalRequestId, updatedAt: new Date(), updatedBy: this.ctx.actorUserId })
+      .where(
+        this.orgScoped(
+          eq(regularizations.orgId, this.ctx.orgId),
+          eq(regularizations.id, id),
+          isNull(regularizations.deletedAt),
+        ),
+      )
+      .returning({ id: regularizations.id });
+    return rows.length > 0;
+  }
+
+  async linkOnDutyApproval(id: string, approvalRequestId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(onDutyRequests)
+      .set({ approvalRequestId, updatedAt: new Date(), updatedBy: this.ctx.actorUserId })
+      .where(
+        this.orgScoped(
+          eq(onDutyRequests.orgId, this.ctx.orgId),
+          eq(onDutyRequests.id, id),
+          isNull(onDutyRequests.deletedAt),
+        ),
+      )
+      .returning({ id: onDutyRequests.id });
+    return rows.length > 0;
   }
 
   async insertRegularization(input: {
@@ -369,7 +463,7 @@ export class RegularizationRepository {
       .select({
         id: regularizations.id,
         employeeId: regularizations.employeeId,
-        employeeName: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
+        employeeName,
         employeeCode: employees.employeeCode,
         date: regularizations.date,
         kind: regularizations.kind,
@@ -440,16 +534,20 @@ export class RegularizationRepository {
   }
 
   /**
-   * Moves a request out of PENDING, and only out of PENDING.
+   * Moves a request out of an open status, and only out of an open status.
    *
    * The status predicate is the lock: two approvers clicking at the same
    * moment both pass the service's status check, and exactly one of them
    * updates a row here. The other gets `false` and is told the request was
    * already actioned, rather than both writing an adjustment.
+   *
+   * `ESCALATED` is in the predicate because REQ-G-09's timer can put a request
+   * there while it waits, and a request the framework still considers open must
+   * stay decidable on this side too.
    */
   async decideRegularization(
     id: string,
-    input: { status: ApprovalStatus; decidedAt: Date; decidedBy: string; reason: string | null },
+    input: { status: ApprovalStatus; decidedAt: Date; decidedBy: string | null; reason: string | null },
   ): Promise<boolean> {
     const rows = await this.db
       .update(regularizations)
@@ -465,12 +563,53 @@ export class RegularizationRepository {
         this.orgScoped(
           eq(regularizations.orgId, this.ctx.orgId),
           eq(regularizations.id, id),
-          eq(regularizations.status, 'PENDING'),
+          inArray(regularizations.status, OPEN_STATUSES),
           isNull(regularizations.deletedAt),
         ),
       )
       .returning({ id: regularizations.id });
 
+    return rows.length > 0;
+  }
+
+  /**
+   * REQ-G-09's move, mirrored onto the subject.
+   *
+   * Deliberately not `decideRegularization('ESCALATED', ...)`: an escalation is
+   * not a decision and must not stamp `decided_at` / `decided_by`, which the
+   * `*_decision_is_attributed` check pairs and which a later real decision
+   * would then be unable to attribute to the person who made it.
+   */
+  async escalateRegularization(id: string): Promise<boolean> {
+    const rows = await this.db
+      .update(regularizations)
+      .set({ status: 'ESCALATED', updatedAt: new Date(), updatedBy: this.ctx.actorUserId })
+      .where(
+        this.orgScoped(
+          eq(regularizations.orgId, this.ctx.orgId),
+          eq(regularizations.id, id),
+          inArray(regularizations.status, OPEN_STATUSES),
+          isNull(regularizations.deletedAt),
+        ),
+      )
+      .returning({ id: regularizations.id });
+    return rows.length > 0;
+  }
+
+  /** See `escalateRegularization`. */
+  async escalateOnDuty(id: string): Promise<boolean> {
+    const rows = await this.db
+      .update(onDutyRequests)
+      .set({ status: 'ESCALATED', updatedAt: new Date(), updatedBy: this.ctx.actorUserId })
+      .where(
+        this.orgScoped(
+          eq(onDutyRequests.orgId, this.ctx.orgId),
+          eq(onDutyRequests.id, id),
+          inArray(onDutyRequests.status, OPEN_STATUSES),
+          isNull(onDutyRequests.deletedAt),
+        ),
+      )
+      .returning({ id: onDutyRequests.id });
     return rows.length > 0;
   }
 
@@ -484,7 +623,8 @@ export class RegularizationRepository {
     adjustedIn: Date | null;
     adjustedOut: Date | null;
     reason: string;
-    approvedBy: string;
+    /** Null when REQ-G-09's escalation timer, not a person, carried it. */
+    approvedBy: string | null;
   }): Promise<string> {
     const rows = await this.db
       .insert(attendanceAdjustments)
@@ -552,7 +692,10 @@ export class RegularizationRepository {
           // Two ranges overlap when each starts before the other ends.
           lte(onDutyRequests.fromDate, toDate),
           gte(onDutyRequests.toDate, fromDate),
-          sql`${onDutyRequests.status} IN ('PENDING', 'APPROVED')`,
+          // `ESCALATED` joins the list for the reason `findOpenForDate` gives:
+          // REQ-G-09's timer moves an unanswered request up a level and it is
+          // still live, so the days it claims are still claimed.
+          sql`${onDutyRequests.status} IN ('PENDING', 'ESCALATED', 'APPROVED')`,
         ),
       )
       .limit(1);
@@ -564,7 +707,7 @@ export class RegularizationRepository {
       .select({
         id: onDutyRequests.id,
         employeeId: onDutyRequests.employeeId,
-        employeeName: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
+        employeeName,
         employeeCode: employees.employeeCode,
         fromDate: onDutyRequests.fromDate,
         toDate: onDutyRequests.toDate,
@@ -631,7 +774,7 @@ export class RegularizationRepository {
   /** See `decideRegularization`: the status predicate is what serialises two clicks. */
   async decideOnDuty(
     id: string,
-    input: { status: ApprovalStatus; decidedAt: Date; decidedBy: string; reason: string | null },
+    input: { status: ApprovalStatus; decidedAt: Date; decidedBy: string | null; reason: string | null },
   ): Promise<boolean> {
     const rows = await this.db
       .update(onDutyRequests)
@@ -647,7 +790,7 @@ export class RegularizationRepository {
         this.orgScoped(
           eq(onDutyRequests.orgId, this.ctx.orgId),
           eq(onDutyRequests.id, id),
-          eq(onDutyRequests.status, 'PENDING'),
+          inArray(onDutyRequests.status, OPEN_STATUSES),
           isNull(onDutyRequests.deletedAt),
         ),
       )

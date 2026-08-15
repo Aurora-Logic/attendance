@@ -1,4 +1,5 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
+import { PERMISSIONS } from '@vyuha/shared';
 
 import type { Database } from '../../../platform/db/db.provider.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
@@ -30,6 +31,20 @@ import { LEAVE_REQUEST_SUBJECT_TYPE, LeaveService } from './leave.service.js';
 @Injectable()
 export class LeaveApprovalHandler implements ApprovalSubjectHandler, OnModuleInit {
   readonly subjectType = LEAVE_REQUEST_SUBJECT_TYPE;
+
+  /**
+   * PRD §2.1's two leave approval keys, and nothing else. A holder of
+   * `regularization.approve` is an approver of corrections; being routed a
+   * leave request because they happen to be somebody's reporting manager does
+   * not make them one of these.
+   */
+  readonly actPermissions = [
+    PERMISSIONS.LEAVE_APPROVE_TEAM,
+    PERMISSIONS.LEAVE_APPROVE_ALL,
+  ] as const;
+
+  /** REQ-G-09 escalates to HR, who hold the org-wide key. */
+  readonly overridePermissions = [PERMISSIONS.LEAVE_APPROVE_ALL] as const;
 
   constructor(
     private readonly leave: LeaveService,

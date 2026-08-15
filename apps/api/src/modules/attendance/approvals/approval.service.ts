@@ -28,7 +28,12 @@ import { InjectDatabase, type Database } from '../../../platform/db/db.provider.
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notification-events.js';
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
-import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
+import {
+  hasAnyPermission,
+  hasPermission,
+  orgContextOf,
+  type Principal,
+} from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { users } from '../../../platform/db/schema/index.js';
 import { approvalDelegations, delegationLiveOn } from '../schema/approval.schema.js';
@@ -82,10 +87,24 @@ export const APPROVAL_SCOPE_GRANTS: ScopeGrants = {
   all: PERMISSIONS.LEAVE_APPROVE_ALL,
 };
 
-/** Holding either is what the guard checks before any decision endpoint. */
+/**
+ * Holding any of these is what the route guard checks before a decision
+ * endpoint. It is deliberately the union across every subject type, and it is
+ * deliberately not the whole check.
+ *
+ * One inbox decides several kinds of request and they do not share a
+ * permission key: leave is approved with `leave.approve.*`, a correction with
+ * `regularization.approve`. A guard sees a request id and a token, never the
+ * subject type, so the most it can honestly ask is "does this caller approve
+ * anything at all". What narrows that to the request actually in front of them
+ * is `ApprovalSubjectHandler.actPermissions`, checked inside
+ * `decideWithin` -- the same two-layer arrangement `RegularizationController`
+ * already documents for the rules a decorator cannot express.
+ */
 export const APPROVAL_ACT_KEYS = [
   PERMISSIONS.LEAVE_APPROVE_TEAM,
   PERMISSIONS.LEAVE_APPROVE_ALL,
+  PERMISSIONS.REGULARIZATION_APPROVE,
 ] as const;
 
 /** `exclusion_violation`, Postgres error class 23. */
@@ -440,6 +459,13 @@ export class ApprovalService {
       // is refused by the route guard when they try to act, and the approver
       // who delegated would have no way to discover that their cover does not
       // work until a request went unanswered.
+      //
+      // "Anything" is the honest word now that the inbox carries more than one
+      // kind of request: holding an approval key is what this refuses on, and
+      // whether the delegate may decide any *particular* request is still the
+      // subject handler's `actPermissions` answer at decision time. A delegate
+      // who covers leave but not corrections is a working delegation with a
+      // hole in it, and that hole is the delegator's to know about.
       throw AppError.conflict(
         'That user cannot approve anything, so a delegation to them would do nothing. Give them leave.approve.team first.',
         { toUserId: input.toUserId },
@@ -700,6 +726,21 @@ export class ApprovalService {
       };
     }
 
+    // The key that authorises *this kind* of request, asked of the slice that
+    // owns it. The route guard could only ask whether the caller approves
+    // anything; see `APPROVAL_ACT_KEYS`. Placed before the eligibility check so
+    // somebody with no business deciding this kind of request is told that,
+    // rather than being told whose turn it is.
+    if (!hasAnyPermission(principal, handler.actPermissions)) {
+      return {
+        ok: false,
+        refusal: {
+          code: 'FORBIDDEN',
+          message: 'You do not hold the permission that decides this kind of request.',
+        },
+      };
+    }
+
     const current = await steps.at(id, request.currentStep);
 
     const eligibility = evaluateDecision({
@@ -708,7 +749,7 @@ export class ApprovalService {
       status: request.status,
       currentApproverUserId: current?.approverUserId ?? null,
       delegatedFromUserIds: await this.liveDelegatorsTo(principal),
-      hasApproveAll: hasPermission(principal, PERMISSIONS.LEAVE_APPROVE_ALL),
+      hasApproveAll: hasAnyPermission(principal, handler.overridePermissions),
     });
 
     if (!eligibility.ok) return { ok: false, refusal: eligibility.refusal };
@@ -843,7 +884,10 @@ export class ApprovalService {
           JOIN role_permissions rp ON rp.role_id = ur.role_id
           JOIN permissions p ON p.id = rp.permission_id
          WHERE ur.user_id = u.id
-           AND p.key IN (${PERMISSIONS.LEAVE_APPROVE_TEAM}, ${PERMISSIONS.LEAVE_APPROVE_ALL})
+           AND p.key IN ${sql`(${sql.join(
+             APPROVAL_ACT_KEYS.map((key) => sql`${key}`),
+             sql`, `,
+           )})`}
       ) AS can_approve
       FROM ${users} u
       WHERE u.id = ${userId}

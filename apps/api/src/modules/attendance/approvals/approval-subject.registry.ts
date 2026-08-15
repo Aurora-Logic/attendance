@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { PermissionKey } from '@vyuha/shared';
 
 import type { Database } from '../../../platform/db/db.provider.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
@@ -65,6 +66,37 @@ export type ApprovalSubjectSettlement = () => Promise<void>;
 export interface ApprovalSubjectHandler {
   /** `snake_case`; see `APPROVAL_SUBJECT_TYPES` in the shared contract. */
   readonly subjectType: string;
+
+  /**
+   * The permission keys that let a holder decide *this kind* of request.
+   *
+   * Declared by the slice rather than fixed in the framework, and that is the
+   * whole reason it exists. One inbox decides several kinds of request, and
+   * the keys that authorise them are not the same: leave is
+   * `leave.approve.team` / `leave.approve.all`, a correction is
+   * `regularization.approve`. Without this, routing a second subject type into
+   * the inbox would silently make the leave keys grant it -- PRD §2.1 gives
+   * `regularization.approve` its own existence precisely so that they are
+   * separable -- and a manager routed a leave request because they are the
+   * reporting manager, holding only `regularization.approve`, would be able to
+   * approve it. The route guard on `/approvals/:id/approve` can only ask
+   * whether the caller approves *something*; this is what narrows it to the
+   * request in front of them.
+   *
+   * Checked in `ApprovalService.decideWithin` and nowhere else, so the single
+   * and bulk paths cannot disagree.
+   */
+  readonly actPermissions: readonly PermissionKey[];
+
+  /**
+   * The keys that additionally let a holder act on a step never routed to them.
+   *
+   * REQ-G-09 escalates to HR, so an org-wide approver has to be able to answer
+   * a step somebody else was named on. Evaluated *after* REQ-I-05's
+   * self-approval refusal, never before -- see `evaluateDecision`, where the
+   * order is the requirement.
+   */
+  readonly overridePermissions: readonly PermissionKey[];
 
   /**
    * Applies the decision to the subject, inside the framework's transaction.

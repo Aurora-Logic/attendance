@@ -1,6 +1,8 @@
 import {
   SYSTEM_ROLES,
   uuidv7,
+  type ApprovalRequestDetail,
+  type ApprovalRequestSummary,
   type AttendanceDayDetail,
   type OnDutyRequest,
   type Paginated,
@@ -12,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { files, settings } from '../../../platform/db/schema/index.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import { ApprovalService } from '../approvals/approval.service.js';
 import { addDays } from '../day-engine/calendar-date.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
 import {
@@ -941,5 +944,392 @@ describe('on duty (REQ-F-04)', () => {
     );
     expect(decided.status).toBe(403);
     expect(decided.body.error.code).toBe('APPROVER_IS_REQUESTER');
+  });
+});
+
+// ------------------------------------------- the regularization / approvals join
+
+/**
+ * REQ-I-01, the half `leave.endpoints.test.ts` proves for leave.
+ *
+ * A correction and an on-duty declaration now reach the same inbox leave
+ * reaches, and the adjustment row is written by the framework's callback rather
+ * than by this slice's own endpoint. Two properties matter more than the rest
+ * and each has a test that fails alone if it stops holding:
+ *
+ *   - raising puts the request in the inbox, so REQ-G-09's escalation sweep
+ *     can see it. Before this it could not.
+ *   - the inbox and this slice's own endpoint produce the *same* adjustment,
+ *     because the second is now a thin caller of the first. Two paths that both
+ *     write an adjustment is exactly what the join removes.
+ */
+describe('the regularization / approvals join (REQ-I-01, REQ-F-03, REQ-F-04)', () => {
+  /**
+   * The request as the inbox actually lists it, found the way an approver
+   * would: by reading the inbox, not by fetching the id directly. A detail read
+   * would pass even if the row never appeared in any list.
+   */
+  async function inboxRow(
+    token: string,
+    approvalRequestId: string | null,
+  ): Promise<ApprovalRequestSummary | undefined> {
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>(
+      '/approvals?view=all&pageSize=100',
+      { token },
+    );
+    expect(inbox.status, inbox.text).toBe(200);
+    return inbox.body.data.find((row) => row.id === approvalRequestId);
+  }
+
+  async function adjustmentsFor(employeeId: string, date: string): Promise<number> {
+    const rows = await harness.db
+      .select({ id: attendanceAdjustments.id })
+      .from(attendanceAdjustments)
+      .where(
+        and(
+          eq(attendanceAdjustments.orgId, ORG_ID),
+          eq(attendanceAdjustments.employeeId, employeeId),
+          eq(attendanceAdjustments.attendanceDate, date),
+        ),
+      );
+    return rows.length;
+  }
+
+  it('raises an approval with the correction, and puts it in the approver inbox', async () => {
+    await clearRequests(employeeAId);
+    const raised = await raise(employeeToken, {
+      date: SECOND_DAY,
+      kind: 'MISSING_OUT',
+      requestedOut: '18:30',
+      reason: 'The out punch never went through on the gate.',
+    });
+    expect(raised.status, raised.text).toBe(201);
+    // The column that has been null since migration 0004.
+    expect(raised.body.approvalRequestId).not.toBeNull();
+
+    const row = await inboxRow(managerToken, raised.body.approvalRequestId);
+    expect(row).toBeDefined();
+    expect(row?.type).toBe('REGULARIZATION');
+    expect(row?.status).toBe('PENDING');
+    // REQ-I-01: the inbox renders a sentence the framework never had to join a
+    // subject table to produce.
+    expect(row?.subject).toContain('Asha');
+    expect(row?.subject).toContain(SECOND_DAY);
+
+    // Routed to the reporting manager, one step -- not to every org-wide
+    // approver as well, which would make one missing punch need two approvals.
+    const detail = await harness.get<ApprovalRequestDetail>(
+      `/approvals/${String(raised.body.approvalRequestId)}`,
+      { token: managerToken },
+    );
+    expect(detail.status, detail.text).toBe(200);
+    expect(detail.body.subjectType).toBe('regularization');
+    expect(detail.body.subjectId).toBe(raised.body.id);
+    expect(detail.body.steps).toHaveLength(1);
+    expect(detail.body.awaiting?.name).toContain('Meera');
+  });
+
+  it('approving in the inbox writes the adjustment and recomputes the day', async () => {
+    await clearRequests(employeeBId);
+    await insertPunch({
+      employeeId: employeeBId,
+      date: FOURTH_DAY,
+      type: 'IN',
+      at: at(FOURTH_DAY, '09:05'),
+    });
+    await computeDay(employeeBId, FOURTH_DAY);
+    expect((await readDay(managerToken, employeeBId, FOURTH_DAY)).status).toBe('PENDING');
+
+    const raised = await raise(otherToken, {
+      date: FOURTH_DAY,
+      kind: 'MISSING_OUT',
+      requestedOut: '18:30',
+      reason: 'Left at half six, no out punch.',
+    });
+    expect(raised.status, raised.text).toBe(201);
+    expect(await adjustmentsFor(employeeBId, FOURTH_DAY)).toBe(0);
+
+    // Decided on the framework's endpoint, never on this slice's.
+    const decided = await harness.post<ApprovalRequestDetail>(
+      `/approvals/${String(raised.body.approvalRequestId)}/approve`,
+      { token: managerToken, body: { reason: 'Confirmed with the site register.' } },
+    );
+    expect(decided.status, decided.text).toBe(201);
+    expect(decided.body.status).toBe('APPROVED');
+
+    // The subject moved with it, which is the failure the registry exists to
+    // prevent: an inbox saying approved while the record it was about did not.
+    const after = await harness.get<RegularizationRequest>(`/regularizations/${raised.body.id}`, {
+      token: managerToken,
+    });
+    expect(after.body.status).toBe('APPROVED');
+    expect(after.body.decisionReason).toBe('Confirmed with the site register.');
+
+    expect(await adjustmentsFor(employeeBId, FOURTH_DAY)).toBe(1);
+    const day = await readDay(managerToken, employeeBId, FOURTH_DAY);
+    expect(day.status).toBe('PRESENT');
+    expect(day.workedMinutes).toBe(505);
+    // REQ-F-03: the original punch is untouched and still visible.
+    expect(day.punches).toHaveLength(1);
+  });
+
+  it('rejecting in the inbox writes no adjustment and leaves the day alone', async () => {
+    await clearRequests(employeeAId);
+    await insertPunch({
+      employeeId: employeeAId,
+      date: THIRD_DAY,
+      type: 'IN',
+      at: at(THIRD_DAY, '09:05'),
+    });
+    await computeDay(employeeAId, THIRD_DAY);
+
+    const raised = await raise(employeeToken, {
+      date: THIRD_DAY,
+      kind: 'MISSING_OUT',
+      requestedOut: '23:30',
+      reason: 'I say I was here until half eleven.',
+    });
+    expect(raised.status, raised.text).toBe(201);
+
+    const decided = await harness.post<ApprovalRequestDetail>(
+      `/approvals/${String(raised.body.approvalRequestId)}/reject`,
+      { token: managerToken, body: { reason: 'The gate log shows you left at six.' } },
+    );
+    expect(decided.status, decided.text).toBe(201);
+    expect(decided.body.status).toBe('REJECTED');
+
+    const after = await harness.get<RegularizationRequest>(`/regularizations/${raised.body.id}`, {
+      token: employeeToken,
+    });
+    expect(after.body.status).toBe('REJECTED');
+    // REQ-F-05: the reason is where the employee can read it, not only in a
+    // notification that has already been and gone.
+    expect(after.body.decisionReason).toBe('The gate log shows you left at six.');
+
+    expect(await adjustmentsFor(employeeAId, THIRD_DAY)).toBe(0);
+    expect((await readDay(managerToken, employeeAId, THIRD_DAY)).status).toBe('PENDING');
+  });
+
+  /**
+   * The property the whole change exists for: one writer of the adjustment.
+   *
+   * Two corrections of the same shape, one decided in the inbox and one on this
+   * slice's own endpoint, have to land identically. If the old endpoint ever
+   * grows its own write again, the counts stay equal but the *audit action* and
+   * the recompute would not -- so the day itself is compared, not just the row
+   * count.
+   */
+  it('produces an identical outcome from the inbox and from the slice endpoint', async () => {
+    const dayOne = addDays(TODAY, -6);
+    const dayTwo = addDays(TODAY, -7);
+    // Cleared once, not per iteration: `clearRequests` deletes this employee's
+    // adjustments, so clearing inside the loop would erase the first outcome
+    // before the second was compared against it.
+    await clearRequests(employeeBId);
+    await withSetting(REGULARIZATION_SETTING_KEYS.windowDays, 14, async () => {
+      for (const [index, date] of [dayOne, dayTwo].entries()) {
+        await insertPunch({
+          employeeId: employeeBId,
+          date,
+          type: 'IN',
+          at: at(date, '09:05'),
+        });
+        await computeDay(employeeBId, date);
+
+        const raised = await raise(otherToken, {
+          date,
+          kind: 'MISSING_OUT',
+          requestedOut: '18:30',
+          reason: 'Same correction, decided two different ways.',
+        });
+        expect(raised.status, raised.text).toBe(201);
+
+        const url =
+          index === 0
+            ? `/approvals/${String(raised.body.approvalRequestId)}/approve`
+            : `/regularizations/${raised.body.id}/approve`;
+        const decided = await harness.post(url, { token: managerToken, body: { reason: 'Yes.' } });
+        expect(decided.status, decided.text).toBe(201);
+      }
+
+      for (const date of [dayOne, dayTwo]) {
+        expect(await adjustmentsFor(employeeBId, date)).toBe(1);
+        const day = await readDay(managerToken, employeeBId, date);
+        expect(day.status).toBe('PRESENT');
+        expect(day.workedMinutes).toBe(505);
+      }
+    });
+  });
+
+  it('refuses a second decision through the other surface, and writes nothing twice', async () => {
+    await clearRequests(employeeAId);
+    const raised = await raise(employeeToken, {
+      date: SECOND_DAY,
+      kind: 'WRONG_TIME',
+      requestedIn: '09:00',
+      requestedOut: '18:00',
+      reason: 'The reader recorded the wrong times.',
+    });
+    expect(raised.status, raised.text).toBe(201);
+
+    const first = await harness.post(`/regularizations/${raised.body.id}/approve`, {
+      token: managerToken,
+      body: { reason: 'Agreed.' },
+    });
+    expect(first.status, first.text).toBe(201);
+
+    // The framework's compare-and-swap, reached from the other side.
+    const second = await harness.post<ErrorBody>(
+      `/approvals/${String(raised.body.approvalRequestId)}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(second.status).toBe(409);
+    expect(second.body.error.code).toBe('APPROVAL_ALREADY_ACTIONED');
+    expect(await adjustmentsFor(employeeAId, SECOND_DAY)).toBe(1);
+  });
+
+  it('refuses deciding a correction in the inbox without regularization.approve', async () => {
+    await clearRequests(employeeAId);
+    const raised = await raise(employeeToken, {
+      date: SECOND_DAY,
+      kind: 'MISSING_OUT',
+      requestedOut: '18:30',
+      reason: 'Raised so a leave-only approver can be refused it.',
+    });
+    expect(raised.status, raised.text).toBe(201);
+
+    // Holds both leave keys and no correction key. Before the handler declared
+    // which permission decides its own subject type, routing a correction into
+    // the shared inbox would have made this account able to approve it -- the
+    // route guard on `/approvals/:id/approve` can only ask whether the caller
+    // approves *something*.
+    const leaveOnlyRoleId = await harness.createRole(`Leave Only ${runId}`, [
+      'leave.approve.team',
+      'leave.approve.all',
+    ]);
+    const leaveOnly = await harness.createUser({
+      email: scopedEmail('reg-leave-only'),
+      roleIds: [leaveOnlyRoleId],
+    });
+    const leaveOnlyToken = (await harness.login(leaveOnly.email, leaveOnly.password)).token;
+
+    const refused = await harness.post<ErrorBody>(
+      `/approvals/${String(raised.body.approvalRequestId)}/approve`,
+      { token: leaveOnlyToken, body: {} },
+    );
+    expect(refused.status).toBe(403);
+    expect(refused.body.error.message).toMatch(/permission that decides this kind/u);
+
+    const after = await harness.get<RegularizationRequest>(`/regularizations/${raised.body.id}`, {
+      token: managerToken,
+    });
+    expect(after.body.status).toBe('PENDING');
+    expect(await adjustmentsFor(employeeAId, SECOND_DAY)).toBe(0);
+  });
+
+  it('refuses to decide a correction raised before the join, and says what to do', async () => {
+    await clearRequests(employeeAId);
+    const raised = await raise(employeeToken, {
+      date: SECOND_DAY,
+      kind: 'MISSING_OUT',
+      requestedOut: '18:30',
+      reason: 'Stripped of its approval to look like an old row.',
+    });
+    expect(raised.status, raised.text).toBe(201);
+
+    // The shape a row written before this migration has: a request with no
+    // approval, and therefore no route, no step and nobody the framework could
+    // name as its approver.
+    await harness.db.execute(
+      sql`UPDATE regularizations SET approval_request_id = NULL WHERE id = ${raised.body.id}`,
+    );
+
+    const refused = await harness.post<ErrorBody>(`/regularizations/${raised.body.id}/approve`, {
+      token: managerToken,
+      body: {},
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toMatch(/predates the approvals inbox/u);
+    expect(await adjustmentsFor(employeeAId, SECOND_DAY)).toBe(0);
+  });
+
+  it('mirrors an escalation onto the correction and blocks a duplicate raise', async () => {
+    await clearRequests(employeeAId);
+    const raised = await raise(employeeToken, {
+      date: SECOND_DAY,
+      kind: 'MISSING_OUT',
+      requestedOut: '18:30',
+      reason: 'Left to go stale so the sweep moves it.',
+    });
+    expect(raised.status, raised.text).toBe(201);
+
+    await harness.db.execute(sql`
+      UPDATE approval_requests
+         SET current_step_started_at = now() - make_interval(days => 9), escalate_after_days = 1
+       WHERE id = ${String(raised.body.approvalRequestId)}
+    `);
+    await harness.resolve(ApprovalService).escalateStale(new Date());
+
+    const after = await harness.get<RegularizationRequest>(`/regularizations/${raised.body.id}`, {
+      token: managerToken,
+    });
+    // Two records agreeing about the same fact. Before the handler mirrored it,
+    // the correction would still read PENDING while its approval read ESCALATED.
+    expect(after.body.status).toBe('ESCALATED');
+
+    // And an escalated request is still open, so the same day cannot be
+    // regularized twice. Migration 0017 widened the partial unique index to say
+    // so; this is the service-side half of the same rule.
+    const duplicate = await raise(employeeToken, {
+      date: SECOND_DAY,
+      kind: 'MISSING_OUT',
+      requestedOut: '19:30',
+      reason: 'A second bite while the first is still live.',
+    });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.error.details?.['reason']).toBe('ALREADY_PENDING');
+
+    // Still decidable, which is what makes ESCALATED open rather than terminal
+    // -- and by the org-wide approver the sweep moved it to, who was not on the
+    // route when it was raised.
+    const decided = await harness.post<ApprovalRequestDetail>(
+      `/approvals/${String(raised.body.approvalRequestId)}/approve`,
+      { token: hrToken, body: { reason: 'Picked up after the escalation.' } },
+    );
+    expect(decided.status, decided.text).toBe(201);
+    expect(decided.body.status).toBe('APPROVED');
+  });
+
+  it('raises an approval with an on-duty request and decides it in the inbox', async () => {
+    const from = addDays(TODAY, 120);
+    const to = addDays(TODAY, 121);
+    const raised = await harness.post<OnDutyRequest & ErrorBody>('/on-duty-requests', {
+      token: employeeToken,
+      body: { fromDate: from, toDate: to, reason: 'Client site.', siteName: 'Pune plant' },
+    });
+    expect(raised.status, raised.text).toBe(201);
+    expect(raised.body.approvalRequestId).not.toBeNull();
+
+    const row = await inboxRow(managerToken, raised.body.approvalRequestId);
+    expect(row?.type).toBe('ON_DUTY');
+    expect(row?.subject).toContain('Pune plant');
+
+    const decided = await harness.post<ApprovalRequestDetail>(
+      `/approvals/${String(raised.body.approvalRequestId)}/approve`,
+      { token: managerToken, body: {} },
+    );
+    expect(decided.status, decided.text).toBe(201);
+    expect(decided.body.status).toBe('APPROVED');
+
+    const after = await harness.get<OnDutyRequest>(`/on-duty-requests/${raised.body.id}`, {
+      token: managerToken,
+    });
+    expect(after.body.status).toBe('APPROVED');
+
+    // REQ-F-04: "those days become ON_DUTY and count as present."
+    for (const date of [from, to]) {
+      const day = await readDay(managerToken, employeeAId, date);
+      expect(day.status).toBe('ON_DUTY');
+    }
   });
 });

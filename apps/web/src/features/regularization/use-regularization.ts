@@ -10,9 +10,7 @@ import { z } from 'zod';
 
 import {
   onDutyInputSchema,
-  regularizationDecisionSchema,
   regularizationInputSchema,
-  regularizationRejectionSchema,
   type ApprovalStatus,
   type OnDutyInput,
   type OnDutyRequest,
@@ -140,47 +138,6 @@ export function useOnDutyRequests(
 }
 
 /**
- * The approver's queue, for both kinds.
- *
- * Only PENDING is asked for: a request can only leave that status through
- * these very endpoints today, so ESCALATED cannot occur until the approvals
- * framework join lands and starts escalating.
- */
-export function usePendingRegularizations(
-  enabled: boolean,
-): UseQueryResult<Paginated<RegularizationRequest>, Error> {
-  return useQuery({
-    enabled,
-    queryKey: [...REGULARIZATION_QUERY_ROOT, 'decisions', 'regularizations'],
-    queryFn: async ({ signal }) =>
-      parseOrThrow(
-        regularizationListSchema,
-        // The working set an approver clears, not an archive: page one,
-        // largest page. The band states the total so nothing hides.
-        await apiRequest<unknown>('/regularizations?status=PENDING&pageSize=100', { signal }),
-        'pending regularizations',
-      ),
-    placeholderData: keepPreviousData,
-  });
-}
-
-export function usePendingOnDuty(
-  enabled: boolean,
-): UseQueryResult<Paginated<OnDutyRequest>, Error> {
-  return useQuery({
-    enabled,
-    queryKey: [...REGULARIZATION_QUERY_ROOT, 'decisions', 'on-duty'],
-    queryFn: async ({ signal }) =>
-      parseOrThrow(
-        onDutyListSchema,
-        await apiRequest<unknown>('/on-duty-requests?status=PENDING&pageSize=100', { signal }),
-        'pending on-duty requests',
-      ),
-    placeholderData: keepPreviousData,
-  });
-}
-
-/**
  * Everything an approved request can move, invalidated together.
  *
  * The muster is the one that matters and the one most easily forgotten: the
@@ -224,60 +181,6 @@ export function useRaiseOnDuty(): UseMutationResult<OnDutyRequest, Error, OnDuty
       const body = onDutyInputSchema.parse(input);
       const response = await apiRequest<unknown>('/on-duty-requests', { method: 'POST', body });
       return parseOrThrow(onDutyRequestSchema, response, 'on-duty request');
-    },
-    onSuccess: () => {
-      invalidateAfterWrite(queryClient);
-    },
-  });
-}
-
-export interface DecisionInput {
-  id: string;
-  action: 'APPROVE' | 'REJECT';
-  reason: string;
-}
-
-/**
- * REQ-F-03 / REQ-F-05, for both kinds.
- *
- * Both verbs parse their body with the same schema the server uses, so "a
- * rejection needs a reason of substance" fails here rather than as a 400.
- */
-function decisionBody(action: DecisionInput['action'], reason: string): unknown {
-  return action === 'REJECT'
-    ? regularizationRejectionSchema.parse({ reason })
-    : regularizationDecisionSchema.parse({ reason: reason || null });
-}
-
-export function useDecideRegularization(): UseMutationResult<
-  RegularizationRequest,
-  Error,
-  DecisionInput
-> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, action, reason }) => {
-      const response = await apiRequest<unknown>(
-        `/regularizations/${id}/${action === 'REJECT' ? 'reject' : 'approve'}`,
-        { method: 'POST', body: decisionBody(action, reason) },
-      );
-      return parseOrThrow(regularizationRequestSchema, response, 'regularization decision');
-    },
-    onSuccess: () => {
-      invalidateAfterWrite(queryClient);
-    },
-  });
-}
-
-export function useDecideOnDuty(): UseMutationResult<OnDutyRequest, Error, DecisionInput> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, action, reason }) => {
-      const response = await apiRequest<unknown>(
-        `/on-duty-requests/${id}/${action === 'REJECT' ? 'reject' : 'approve'}`,
-        { method: 'POST', body: decisionBody(action, reason) },
-      );
-      return parseOrThrow(onDutyRequestSchema, response, 'on-duty decision');
     },
     onSuccess: () => {
       invalidateAfterWrite(queryClient);

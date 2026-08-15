@@ -1,10 +1,12 @@
 import {
+  PERMISSIONS,
   SYSTEM_ROLES,
   type ApprovalDelegation,
   type ApprovalRequestDetail,
   type ApprovalRequestSummary,
   type BulkApprovalResult,
   type Paginated,
+  type PermissionKey,
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -57,13 +59,32 @@ const PROBE_SUBJECT = 'framework_probe';
 const OTHER_PROBE_SUBJECT = 'comp_off_request';
 /** Registered by nothing, so the guard has something to refuse. */
 const UNHANDLED_SUBJECT = 'unregistered_probe';
+/**
+ * A subject whose handler declares a key none of this file's approvers hold.
+ *
+ * One inbox decides several kinds of request and they do not share a permission
+ * key. This is the framework half of that rule -- the real one is exercised on
+ * a real subject in `regularization.endpoints.test.ts`.
+ */
+const NARROW_SUBJECT = 'device';
 
 /** Every decision this file's subjects were told about, in order. */
 const decisionsSeen: { subjectType: string; subjectId: string; status: string }[] = [];
 
-function probeHandler(subjectType: string): ApprovalSubjectHandler {
+function probeHandler(
+  subjectType: string,
+  actPermissions: readonly PermissionKey[] = [
+    PERMISSIONS.LEAVE_APPROVE_TEAM,
+    PERMISSIONS.LEAVE_APPROVE_ALL,
+  ],
+): ApprovalSubjectHandler {
   return {
     subjectType,
+    // The keys the framework narrows a decision to. Defaulted to the leave pair
+    // so every test below reads as it did before the handler started declaring
+    // them; `NARROW_SUBJECT` is the one that declares something else.
+    actPermissions,
+    overridePermissions: [PERMISSIONS.LEAVE_APPROVE_ALL],
     applyDecision: (_ctx, decision) => {
       decisionsSeen.push({ subjectType, subjectId: decision.subjectId, status: decision.status });
       return Promise.resolve(null);
@@ -137,6 +158,7 @@ beforeAll(async () => {
   const subjects = harness.resolve(ApprovalSubjectRegistry);
   subjects.register(probeHandler(PROBE_SUBJECT));
   subjects.register(probeHandler(OTHER_PROBE_SUBJECT));
+  subjects.register(probeHandler(NARROW_SUBJECT, [PERMISSIONS.SETTINGS_MANAGE]));
 
   const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
   const operationsRoleId = await harness.createSystemRole(SYSTEM_ROLES.OPERATIONS);
@@ -976,6 +998,41 @@ describe('the subject handler registry (REQ-I-01)', () => {
     expect(decisionsSeen.filter((entry) => entry.subjectId === created.subjectId)).toEqual([
       { subjectType: PROBE_SUBJECT, subjectId: created.subjectId, status: 'ESCALATED' },
     ]);
+  });
+
+  /**
+   * The narrowing that lets one inbox carry more than one kind of request.
+   *
+   * The route guard on `/approvals/:id/approve` holds the union of every
+   * approval key, because a guard sees an id and a token and never a subject
+   * type. Without the handler naming its own key, routing a second kind of
+   * request into this inbox would silently make every approver an approver of
+   * it -- which is precisely what happened to `regularization.approve` the
+   * moment corrections started arriving here.
+   */
+  it('refuses an approver who holds no key this subject type accepts', async () => {
+    const created = await raise({
+      requesterUserId: empUserId,
+      approverUserIds: [mgrUserId],
+      subjectType: NARROW_SUBJECT,
+    });
+
+    // The routed approver, and holder of both leave keys -- so this is refused
+    // on the subject type alone, not on whose turn it is.
+    const refused = await harness.post<ErrorBody>(`/approvals/${created.id}/approve`, {
+      token: mgrToken,
+      body: {},
+    });
+    expect(refused.status).toBe(403);
+    expect(refused.body.error.message).toMatch(/permission that decides this kind/u);
+
+    // Nothing moved, and the handler was never told.
+    expect(decisionsSeen.filter((entry) => entry.subjectId === created.subjectId)).toHaveLength(0);
+    const after = await harness.get<ApprovalRequestDetail>(`/approvals/${created.id}`, {
+      token: hrToken,
+    });
+    expect(after.body.status).toBe('PENDING');
+    expect(after.body.steps.every((step) => step.action === null)).toBe(true);
   });
 
   it('refuses a second handler for one subject type', () => {

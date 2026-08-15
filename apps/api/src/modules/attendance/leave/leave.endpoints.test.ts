@@ -1506,6 +1506,98 @@ describe('the leave / approvals join (REQ-G-09, REQ-I-01, REQ-I-05)', () => {
     expect(message).toMatch(/leave_ledger_request_movement_uq/u);
     expect(await ledgerRowsFor(request.id)).toHaveLength(1);
   });
+
+  /**
+   * The hole the widened route guard would have opened, tested from the side
+   * that could actually be exploited.
+   *
+   * `APPROVAL_ACT_KEYS` is the union of every approval key, because a guard is
+   * handed a request id and a token and never a subject type. So the moment
+   * `regularization.approve` joined that union, a holder of it alone stopped
+   * being refused at the door of `/approvals/:id/approve` -- and the only
+   * thing still standing between them and somebody's leave balance is the
+   * handler's `actPermissions`.
+   *
+   * The approver here is the requester's own reporting manager, deliberately.
+   * A stranger would be refused for not being on the step, which is a pass for
+   * the wrong reason and would keep passing with the narrowing deleted. Routed
+   * and eligible, the *only* thing that can refuse them is the subject type.
+   *
+   * No seeded role holds `regularization.approve` without a leave key today --
+   * Operations holds both -- but REQ-B-07 lets an administrator build this
+   * role in the UI, and `ROLE_PERMISSION_MATRIX` says in its own comment that
+   * it is a starting point the code may not rely on.
+   */
+  it('refuses a correction-only approver on leave, even as the routed manager', async () => {
+    const correctorEmployeeId = await harness.createEmployee({
+      code: `LV-RA-${runId}`,
+      firstName: 'Rohit',
+      lastName: 'Deshmukh',
+    });
+    const subjectEmployeeId = await harness.createEmployee({
+      code: `LV-RS-${runId}`,
+      firstName: 'Devi',
+      lastName: 'Kulkarni',
+      reportingManagerId: correctorEmployeeId,
+      dateOfJoining: '2020-01-01',
+    });
+
+    const correctionOnlyRoleId = await harness.createRole('Correction Approver Only', [
+      'regularization.approve',
+    ]);
+    const corrector = await harness.createUser({
+      email: scopedEmail('leave-corrector'),
+      roleIds: [correctionOnlyRoleId],
+      employeeId: correctorEmployeeId,
+    });
+    const subject = await harness.createUser({
+      email: scopedEmail('leave-subject'),
+      roleIds: [employeeRoleId],
+      employeeId: subjectEmployeeId,
+    });
+    const correctorToken = (await harness.login(corrector.email, corrector.password)).token;
+    const subjectToken = (await harness.login(subject.email, subject.password)).token;
+
+    await grantDays(subjectEmployeeId, casualTypeId, 10);
+    const request = await applyFor(subjectToken);
+
+    // Routed to Rohit, so the refusal below cannot be about whose turn it is.
+    const detail = await harness.get<ApprovalRequestDetail>(
+      `/approvals/${String(request.approvalRequestId)}`,
+      { token: hrToken },
+    );
+    expect(detail.status, detail.text).toBe(200);
+    expect(detail.body.awaiting?.name).toContain('Rohit');
+
+    const refused = await harness.post<ErrorBody>(
+      `/approvals/${String(request.approvalRequestId)}/approve`,
+      { token: correctorToken, body: { reason: 'Should never be applied' } },
+    );
+    expect(refused.status).toBe(403);
+    expect(refused.body.error.message).toMatch(/permission that decides this kind/u);
+
+    // The balance is the thing that must not have moved.
+    expect(await statusOf(request.id)).toBe('PENDING');
+    expect(await approvalStatusOf(String(request.approvalRequestId))).toBe('PENDING');
+    expect(await ledgerRowsFor(request.id)).toEqual([]);
+
+    // And the fixture is sound: the same person, on the same step, with the
+    // leave key added, decides it. Without this the test above would still
+    // pass if the request were unroutable or the token were junk.
+    await harness.db.execute(sql`
+      INSERT INTO role_permissions (role_id, permission_id)
+      SELECT ${correctionOnlyRoleId}::uuid, id FROM permissions WHERE key = 'leave.approve.team'
+    `);
+    const rearmed = (await harness.login(corrector.email, corrector.password)).token;
+    const allowed = await harness.post<ApprovalRequestDetail & ErrorBody>(
+      `/approvals/${String(request.approvalRequestId)}/approve`,
+      { token: rearmed, body: { reason: 'Now holds the key' } },
+    );
+    expect(allowed.status, allowed.text).toBe(201);
+    expect(await ledgerRowsFor(request.id)).toEqual([
+      { movementType: 'AVAILED', days: '-1.00' },
+    ]);
+  });
 });
 
 describe('scope (technical design §10)', () => {
