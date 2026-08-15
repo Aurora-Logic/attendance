@@ -19,6 +19,7 @@ import {
   locations,
 } from '../db/schema/index.js';
 import { ScopedRepository, type OrgContext } from '../db/scoped-repository.js';
+import { employeeNameSql } from './employee-name.js';
 
 /**
  * The employee read and write surface (REQ-A-03).
@@ -370,7 +371,7 @@ function searchPredicate(term: string): SQL {
     ${employees.employeeCode} ILIKE ${pattern}
     OR ${employees.firstName} ILIKE ${pattern}
     OR coalesce(${employees.lastName}, '') ILIKE ${pattern}
-    OR trim(${employees.firstName} || ' ' || coalesce(${employees.lastName}, '')) ILIKE ${pattern}
+    OR ${employeeNameSql(employees.firstName, employees.lastName)} ILIKE ${pattern}
   )`;
 }
 

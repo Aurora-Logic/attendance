@@ -17,6 +17,7 @@ import {
   users,
 } from '../../../platform/db/schema/index.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
+import { employeeNameSql } from '../../../platform/people/employee-name.js';
 import { parseWeeklyOffConfig, type WeeklyOffConfig } from '../day-engine/weekly-off.js';
 import {
   attendancePeriodLocks,
@@ -150,7 +151,7 @@ export interface CompOffCreditRow {
 }
 
 /** `employees.first_name` plus the surname when there is one. */
-const employeeName = sql<string>`trim(both ' ' from ${employees.firstName} || ' ' || coalesce(${employees.lastName}, ''))`;
+const employeeName = employeeNameSql(employees.firstName, employees.lastName);
 
 export class LeaveRepository {
   constructor(
@@ -876,7 +877,7 @@ export class LeaveRepository {
       // Resolved through the decider's own employee row when they have one;
       // an escalation decided by a job has neither and reads as null.
       decidedByName: sql<string | null>`(
-        SELECT trim(both ' ' from e.first_name || ' ' || coalesce(e.last_name, ''))
+        SELECT ${employeeNameSql(sql`e.first_name`, sql`e.last_name`)}
           FROM users u JOIN employees e ON e.id = u.employee_id
          WHERE u.id = ${leaveRequests.decidedBy} AND e.deleted_at IS NULL
       )`,
