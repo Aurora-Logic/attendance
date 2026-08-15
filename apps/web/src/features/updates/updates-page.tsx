@@ -129,7 +129,10 @@ export function UpdatesPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            armTour(entry.guideStep);
+                            // Scope 'all', not 'page': the step lives on a
+                            // different route than this one, so a page-scoped
+                            // run would compose a guide for Updates instead.
+                            armTour({ scope: 'all', fromStepId: entry.guideStep });
                           }}
                         >
                           <CompassIcon data-icon="inline-start" />

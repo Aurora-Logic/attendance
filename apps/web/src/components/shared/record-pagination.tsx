@@ -214,7 +214,10 @@ export function RecordPagination({ page, pageSize, total }: RecordPaginationProp
   const last = Math.min(page * pageSize, total);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+    <div
+      data-guide="screen.pagination"
+      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3"
+    >
       <p className="text-muted-foreground text-xs tabular-nums">
         {first === last
           ? `Record ${String(first)} of ${String(total)}`

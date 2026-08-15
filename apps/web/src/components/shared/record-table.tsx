@@ -73,7 +73,10 @@ export function RecordTable<T>({
   return (
     <>
       {/* Desktop and tablet */}
-      <div className="hidden overflow-x-auto border md:block">
+      {/* Both branches carry an anchor and both are always in the DOM — only
+          CSS decides which is visible. The guide picks between them by width,
+          the same way it chooses the sidebar or the bottom bar. */}
+      <div data-guide="screen.table" className="hidden overflow-x-auto border md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -139,7 +142,11 @@ export function RecordTable<T>({
 
           gap-0 because ItemGroup spaces its children by default, which left the
           separators floating in 10px of nothing instead of dividing flush rows. */}
-      <ItemGroup role="presentation" className="gap-0 border md:hidden">
+      <ItemGroup
+        role="presentation"
+        data-guide="screen.table-cards"
+        className="gap-0 border md:hidden"
+      >
         {rows.map((row, index) => (
           <Fragment key={rowKey(row)}>
             {index > 0 ? <ItemSeparator className="my-0" /> : null}

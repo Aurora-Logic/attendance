@@ -29,8 +29,35 @@ it on the first authenticated render. The post-sign-in invitation popover in
 §4.1 was not built — the offer lives at the door instead, which is what "start
 from the login screen" asked for and one fewer interruption.
 
-**Length.** One step per screen rather than the sub-steps in §4.1, so the real
-counts are lower than the table there:
+**Two scopes, and the page one is primary.** The first build was a single
+linear tour, which made the commonest question — "what is this screen for?" —
+cost ten steps to reach Approvals and sixteen to reach Settings. That is the
+wrong shape for every day after the first. The registry is now organised per
+screen and the whole-product tour is derived from it:
+
+| Scope | Length | Reached from |
+|---|---|---|
+| **This screen** | 1–4 steps | `Ctrl+F1` → "Walk me through this screen" |
+| **Whole product** | 8–21 steps | Account menu, and the sign-in offer |
+
+`Ctrl+F1` is where it belongs rather than new chrome: PRD §6.4 already calls
+that key "contextual help / shortcut sheet", and until now the dialog only did
+the second half.
+
+A page guide is composed by **looking at the page**, not from a per-route list
+that would go stale the first time a screen gained a table. The screen's intro
+comes from the registry; the rest is whatever of the shared kit is actually on
+screen — search, records, pagination. Measured live: Employees with data gives
+four steps, Approvals and Punch and Audit showing empty states give one each.
+Furniture never appears in the whole-product tour, because sixteen screens each
+repeating "this is the table" is what would make the long tour unbearable.
+
+That cost three attributes, not eighteen: `SearchField`, `RecordTable` and
+`RecordPagination` are shared components that 5, 23 and 10 screens respectively
+already use, so a screen earns its steps by being built out of the kit.
+
+**Length of the whole-product tour**, one step per screen rather than the
+sub-steps in §4.1:
 
 | Seeded role | Steps | On a phone |
 |---|---|---|
@@ -88,6 +115,16 @@ gentler behaviour is wanted.
 Enter, which was wrong: the dispatcher runs in the capture phase, so Enter on
 the Back button would have moved the tour forwards. Enter is also "drill down"
 in PRD §6.4 and is left alone.
+
+**A geometry bug only a screenshot found.** A records table is routinely taller
+than the window. The cutout took the element's own rectangle, so on Employees it
+covered the entire screen — dimming nothing, which defeats the point of a
+spotlight — and pushed the card off the bottom edge. The rectangle is now
+clamped twice: intersected with the viewport, so an anchor scrolled half out of
+view cannot drag the cutout off with it, and capped at 42% of viewport height,
+so a long table is highlighted by its header and first rows. The card is
+positioned against that same clamped rectangle rather than against the raw
+element, so the hole and the card can never disagree.
 
 **One bug worth recording.** The tour first ran with an empty permission set
 and froze a five-step list for an administrator entitled to twenty-one — every

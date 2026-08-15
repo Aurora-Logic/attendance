@@ -3,17 +3,23 @@ import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
 /**
  * The guided tour, as data.
  *
- * One list rather than steps declared inside each screen. A step declared in
- * `punch-page.tsx` would only exist once that route had mounted, so the run
- * could not know its own length, could not honestly say "step 4 of 13", and
- * could not skip a screen before navigating into it. One list also means the
- * whole tour is reviewable in one file.
+ * Organised **per screen**, and the whole-product tour is derived from that
+ * rather than the other way round. The first version was one flat list, which
+ * made the common question — "what is this screen for?" — cost sixteen steps
+ * to reach Approvals. A person asks that on the screen they are already
+ * looking at, so the screen is the unit and the full tour is the concatenation.
+ *
+ * Two scopes come out of one registry:
+ *
+ *   Page  — the intro for this route, plus whatever furniture the route
+ *           actually renders. Two to four steps. Reached from Ctrl+F1.
+ *   All   — the shell, then one intro per screen the session may open.
+ *           Twenty-one steps for an administrator. Reached from the account
+ *           menu and from the sign-in offer.
  *
  * Every `permission` is a real key from `ROLE_PERMISSION_MATRIX`, and it is the
  * same set the sidebar and the Go To palette filter on, so the tour cannot
- * point at a screen the person would be refused. That also makes the tour's
- * length a property of the session rather than a number written down here:
- * 8 steps for Employee, 13 for Operations, 17 for HR, 21 for Admin.
+ * point at a screen the person would be refused.
  */
 export interface GuideStep {
   id: string;
@@ -35,16 +41,23 @@ export interface GuideStep {
   shortcutAlias?: string;
   /** Skipped on a phone when there is no `mobileAnchor` to fall back to. */
   mobileBehaviour?: 'skip';
+  /**
+   * True for a step describing a piece of the shared kit rather than a screen.
+   * These appear only in the page scope: repeating "this is the table" on
+   * sixteen screens is what would make the full tour unbearable.
+   */
+  furniture?: boolean;
 }
 
 /**
  * Every anchor the registry can name.
  *
- * Deliberately small. Screen steps all point at `screen.header`, which lives on
- * the one shared `PageHeader` component every screen renders — so eighteen
- * screens cost one attribute rather than eighteen, and no screen can quietly
- * lose its anchor in a refactor without every screen losing it at once, which
- * is the kind of failure that gets noticed.
+ * Deliberately small, and deliberately on shared components rather than on
+ * individual screens. `screen.header` sits on the one `PageHeader` all
+ * twenty-nine screens render; `screen.table`, `screen.search` and
+ * `screen.pagination` sit on the shared kit those screens are built from. So a
+ * page guide gets real depth without eighteen screens each carrying their own
+ * attributes to lose in a refactor.
  */
 export const ANCHORS = {
   navGroups: 'nav.groups',
@@ -54,14 +67,35 @@ export const ANCHORS = {
   headerBreadcrumb: 'header.breadcrumb',
   headerAccount: 'header.account',
   screenHeader: 'screen.header',
+  screenSearch: 'screen.search',
+  screenTable: 'screen.table',
+  screenTableCards: 'screen.table-cards',
+  screenPagination: 'screen.pagination',
 } as const;
+
+/**
+ * The anchors that must resolve to exactly one element wherever the shell is
+ * rendered. The rest belong to screen furniture, which is legitimately absent
+ * on some routes and may legitimately appear more than once on others — a
+ * screen with two tables highlights the first, which is honest rather than
+ * wrong.
+ */
+export const SHELL_ANCHORS: readonly string[] = [
+  ANCHORS.navGroups,
+  ANCHORS.navBottomBar,
+  ANCHORS.headerGoto,
+  ANCHORS.headerShortcuts,
+  ANCHORS.headerBreadcrumb,
+  ANCHORS.headerAccount,
+  ANCHORS.screenHeader,
+];
 
 /**
  * Bumped when the shape of the tour changes enough that a stored resume point
  * is no longer meaningful. Adding copy does not count; removing or reordering
  * steps does.
  */
-export const REGISTRY_VERSION = 1;
+export const REGISTRY_VERSION = 2;
 
 /** Where everything is, and how to move around. Shown to everyone. */
 const SHELL_STEPS: GuideStep[] = [
@@ -90,8 +124,8 @@ const SHELL_STEPS: GuideStep[] = [
     // The control is desktop-only and there is no keyboard on a phone to hint
     // at, so this is skipped rather than re-anchored to something unrelated.
     mobileBehaviour: 'skip',
-    title: 'Every key, listed',
-    body: 'Keys match TallyPrime wherever the browser allows it. The sheet always shows what is active on the screen you are on.',
+    title: 'Every key, and this screen explained',
+    body: 'The shortcut sheet lists what is active here, and offers a walk through the screen you are on rather than the whole product.',
   },
   {
     id: 'shell.breadcrumb',
@@ -105,16 +139,17 @@ const SHELL_STEPS: GuideStep[] = [
     anchor: ANCHORS.headerAccount,
     side: 'bottom',
     title: 'Your account',
-    body: 'Theme, your profile, and the way out. This tour lives here too if you want it again.',
+    body: 'Theme, your profile, updates, and the way out. The full tour lives here too if you want it again.',
   },
 ];
 
 /**
- * One step per screen, in sidebar order so the tour and the navigation tell
- * the same story. Each navigates first, then points at the page header — the
- * screen itself is visible behind the scrim, which is what actually teaches.
+ * One intro per screen: what it is for, in a sentence or two.
+ *
+ * This is the step that appears in both scopes — first in a page guide, and as
+ * the screen's single entry in the whole-product tour.
  */
-const SCREEN_STEPS: GuideStep[] = [
+const SCREEN_INTROS: GuideStep[] = [
   {
     id: 'screen.punch',
     route: '/punch',
@@ -245,10 +280,68 @@ const SCREEN_STEPS: GuideStep[] = [
   },
 ];
 
-export const MAIN_TOUR: GuideStep[] = [...SHELL_STEPS, ...SCREEN_STEPS];
+/**
+ * The shared kit, described once and shown wherever it appears.
+ *
+ * Every screen in this product is built from the same handful of components,
+ * so these steps do not need writing per screen — they need including only
+ * when the screen in front of you actually renders them. Which is decided at
+ * run time by looking, not by a list somebody has to keep in step.
+ */
+const FURNITURE_STEPS: GuideStep[] = [
+  {
+    id: 'furniture.search',
+    anchor: ANCHORS.screenSearch,
+    furniture: true,
+    title: 'Search this screen',
+    body: 'Filters the list as you type. It searches the records behind the screen, not just the rows currently shown.',
+  },
+  {
+    id: 'furniture.table',
+    anchor: ANCHORS.screenTable,
+    // The desktop table and the phone's card list are both always in the DOM,
+    // with CSS deciding which is visible — so the guide has to choose by width
+    // rather than by presence, exactly as it does for the two navigations.
+    mobileAnchor: ANCHORS.screenTableCards,
+    furniture: true,
+    title: 'The records',
+    body: 'Sortable by column, and every row opens a detail panel. On a phone each row collapses to a card rather than scrolling sideways.',
+  },
+  {
+    id: 'furniture.pagination',
+    anchor: ANCHORS.screenPagination,
+    furniture: true,
+    title: 'Moving through the list',
+    body: 'Page Up and Page Down work here too, so a long register can be read without reaching for the mouse.',
+  },
+];
+
+/** Everything, in sidebar order. The whole-product tour. */
+export const MAIN_TOUR: GuideStep[] = [...SHELL_STEPS, ...SCREEN_INTROS];
+
+/** Every step the registry can produce, in either scope. */
+export const ALL_STEPS: GuideStep[] = [...SHELL_STEPS, ...SCREEN_INTROS, ...FURNITURE_STEPS];
+
+/** The intro for a route, if it has one. */
+export function introFor(route: string): GuideStep | undefined {
+  return SCREEN_INTROS.find((step) => step.route === route);
+}
+
+/** Every route the tour knows how to introduce. */
+export function guidedRoutes(): string[] {
+  return SCREEN_INTROS.map((step) => step.route).filter((r): r is string => Boolean(r));
+}
+
+function permitted(step: GuideStep, granted: ReadonlySet<PermissionKey>): boolean {
+  return !step.permission || granted.has(step.permission);
+}
+
+function usableAtWidth(step: GuideStep, isMobile: boolean): boolean {
+  return !(isMobile && step.mobileBehaviour === 'skip' && !step.mobileAnchor);
+}
 
 /**
- * The steps this session will actually walk.
+ * The whole-product tour, filtered to this session.
  *
  * Filtered rather than disabled: a step pointing at a screen the person cannot
  * open has nothing to say to them, and counting it would make the tour promise
@@ -258,11 +351,37 @@ export function resolveSteps(
   granted: ReadonlySet<PermissionKey>,
   isMobile: boolean,
 ): GuideStep[] {
-  return MAIN_TOUR.filter((step) => {
-    if (step.permission && !granted.has(step.permission)) return false;
-    if (isMobile && step.mobileBehaviour === 'skip' && !step.mobileAnchor) return false;
-    return true;
-  });
+  return MAIN_TOUR.filter((step) => permitted(step, granted) && usableAtWidth(step, isMobile));
+}
+
+/**
+ * The guide for one screen: its intro, then whatever furniture it renders.
+ *
+ * `isPresent` is injected rather than assumed so this stays a pure function —
+ * the caller passes a DOM probe in the app and a stub in a test. Furniture is
+ * decided by looking at the page rather than by a per-route list, because a
+ * list of "which screens have a table" is a second source of truth that would
+ * quietly go stale the first time a screen gained one.
+ *
+ * Returns an empty array for a route with no intro — the caller offers the
+ * whole tour instead of running a guide about nothing.
+ */
+export function resolvePageSteps(
+  route: string,
+  granted: ReadonlySet<PermissionKey>,
+  isMobile: boolean,
+  isPresent: (anchor: string) => boolean,
+): GuideStep[] {
+  const intro = introFor(route);
+  if (!intro || !permitted(intro, granted)) return [];
+
+  const furniture = FURNITURE_STEPS.filter(
+    (step) => usableAtWidth(step, isMobile) && isPresent(step.anchor),
+  );
+
+  // The intro keeps its route so a page guide started from elsewhere still
+  // navigates, but in the normal case the caller is already here.
+  return [intro, ...furniture];
 }
 
 /** The anchor a step wants at this width. */

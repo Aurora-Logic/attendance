@@ -112,11 +112,12 @@ function GuideKeys({
  */
 export function GuideOverlay() {
   const run = useGuideRun();
-  const { status, step, steps, index, rect, anchorEl, skippedCount, start, next, back, stop } = run;
+  const { status, step, steps, index, rect, skippedCount, scope, start, next, back, stop } = run;
 
   const sessionStatus = useSessionStore((s) => s.status);
   const armed = useGuideStore((s) => s.armed);
   const armedFromStepId = useGuideStore((s) => s.armedFromStepId);
+  const armedScope = useGuideStore((s) => s.armedScope);
   const consumeArmed = useGuideStore((s) => s.consumeArmed);
   const complete = useGuideStore((s) => s.complete);
   const dismiss = useGuideStore((s) => s.dismiss);
@@ -141,40 +142,62 @@ export function GuideOverlay() {
     // Read before consuming: consumeArmed clears both fields, and reading
     // afterwards would always start from the beginning.
     const fromStepId = armedFromStepId;
+    const requestedScope = armedScope ?? 'all';
     consumeArmed();
-    start(fromStepId ? { fromStepId } : undefined);
-  }, [armed, armedFromStepId, status, sessionStatus, consumeArmed, start]);
+    start({ scope: requestedScope, ...(fromStepId ? { fromStepId } : {}) });
+  }, [armed, armedFromStepId, armedScope, status, sessionStatus, consumeArmed, start]);
 
   if (status === 'idle') return null;
 
   if (status === 'finished') {
     const shown = steps.length - skippedCount;
+    const isPage = scope === 'page';
+    // Says what actually happened. A step whose anchor never turned up was not
+    // shown, and claiming otherwise would be a lie the reader cannot check.
+    const count =
+      skippedCount > 0
+        ? `You saw ${String(shown)} of ${String(steps.length)} steps.`
+        : `You saw all ${String(steps.length)} steps.`;
+
+    const finish = () => {
+      // Only a whole-product run counts as having taken the tour. Finishing a
+      // page guide must not silence the first-run offer for the rest of the
+      // product somebody has not seen yet.
+      if (!isPage) complete(REGISTRY_VERSION);
+      stop();
+    };
 
     return (
       <Dialog
         open
         onOpenChange={(open) => {
-          if (!open) {
-            complete(REGISTRY_VERSION);
-            stop();
-          }
+          if (!open) finish();
         }}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>That is the tour</DialogTitle>
+            <DialogTitle>{isPage ? 'That is this screen' : 'That is the tour'}</DialogTitle>
             <DialogDescription>
-              {/* Says what actually happened. A step whose anchor never turned
-                  up was not shown, and claiming otherwise would be a lie the
-                  reader has no way to check. */}
-              {skippedCount > 0
-                ? `You saw ${String(shown)} of ${String(steps.length)} steps.`
-                : `You saw all ${String(steps.length)} steps.`}{' '}
-              Alt+G gets you anywhere and Ctrl+F1 lists every key. The tour is in your account menu
-              whenever you want it again.
+              {count}{' '}
+              {isPage
+                ? 'Press Ctrl+F1 on any screen for the same walk through that one.'
+                : 'Alt+G gets you anywhere and Ctrl+F1 explains whichever screen you are on. The full tour is in your account menu whenever you want it again.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
+            {/* A page guide offers the whole thing; the whole thing has
+                nothing left to offer. */}
+            {isPage ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  stop();
+                  start({ scope: 'all' });
+                }}
+              >
+                See the whole product
+              </Button>
+            ) : null}
             <DialogClose render={<Button>Done</Button>} />
           </DialogFooter>
         </DialogContent>
@@ -198,7 +221,6 @@ export function GuideOverlay() {
       {rect ? <GuideScrim rect={rect} /> : null}
       <GuideBubble
         step={step}
-        anchorEl={anchorEl}
         rect={rect}
         index={index}
         total={steps.length}

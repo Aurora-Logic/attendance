@@ -11,8 +11,12 @@ import type { AnchorRect } from './use-guide-run';
 
 interface GuideBubbleProps {
   step: GuideStep;
-  anchorEl: HTMLElement | null;
-  /** The highlighted rectangle, so the phone's card can stay clear of it. */
+  /**
+   * The highlighted rectangle. The card is positioned against this rather than
+   * against the element itself, so that the two can never disagree: the rect is
+   * clamped to the viewport and capped in height, and a card anchored to the
+   * raw element would be placed below a table that is three screens tall.
+   */
   rect: AnchorRect | null;
   index: number;
   total: number;
@@ -64,7 +68,6 @@ function useBottomOfScreenAnchor(enabled: boolean, rect: AnchorRect | null): Vir
  */
 export function GuideBubble({
   step,
-  anchorEl,
   rect,
   index,
   total,
@@ -75,7 +78,14 @@ export function GuideBubble({
   const isMobile = useIsMobile();
   const bottomAnchor = useBottomOfScreenAnchor(isMobile, rect);
 
-  const anchor = isMobile ? bottomAnchor : anchorEl;
+  // The same rectangle the cutout draws, so the card and the hole always agree.
+  const spotlightAnchor = useMemo<VirtualAnchor | null>(() => {
+    if (!rect) return null;
+    const { top, left, width, height } = rect;
+    return { getBoundingClientRect: () => new DOMRect(left, top, width, height) };
+  }, [rect]);
+
+  const anchor = isMobile ? bottomAnchor : spotlightAnchor;
   const isLast = index === total - 1;
 
   return (

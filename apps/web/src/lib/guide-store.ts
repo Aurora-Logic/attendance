@@ -29,6 +29,11 @@ interface GuideState {
    * than from the sign-in screen. `null` means start at the beginning.
    */
   armedFromStepId: string | null;
+  /**
+   * How much the armed run should cover: this screen, or the whole product.
+   * `null` while nothing is armed.
+   */
+  armedScope: 'page' | 'all' | null;
   /** Newest changelog release this person has opened. Drives the unread dot. */
   seenVersion: string | null;
   /**
@@ -41,7 +46,7 @@ interface GuideState {
   /** Bumped when the registry changes shape enough to invalidate a resume. */
   registryVersion: number | null;
 
-  arm: (fromStepId?: string) => void;
+  arm: (options?: { fromStepId?: string; scope?: 'page' | 'all' }) => void;
   consumeArmed: () => void;
   markUpdatesSeen: (version: string) => void;
   dismiss: () => void;
@@ -60,6 +65,7 @@ const EMPTY = {
   dismissedAt: null,
   armed: false,
   armedFromStepId: null,
+  armedScope: null,
   seenVersion: null,
   lastStepId: null,
   lastStepAt: null,
@@ -71,23 +77,33 @@ export const useGuideStore = create<GuideState>()(
     (set) => ({
       ...EMPTY,
 
-      arm: (fromStepId) => {
-        set({ armed: true, armedFromStepId: fromStepId ?? null });
+      arm: (options) => {
+        set({
+          armed: true,
+          armedFromStepId: options?.fromStepId ?? null,
+          armedScope: options?.scope ?? 'all',
+        });
       },
       consumeArmed: () => {
-        set({ armed: false, armedFromStepId: null });
+        set({ armed: false, armedFromStepId: null, armedScope: null });
       },
       markUpdatesSeen: (version) => {
         set({ seenVersion: version });
       },
       dismiss: () => {
-        set({ dismissedAt: new Date().toISOString(), armed: false, armedFromStepId: null });
+        set({
+          dismissedAt: new Date().toISOString(),
+          armed: false,
+          armedFromStepId: null,
+          armedScope: null,
+        });
       },
       complete: (registryVersion) => {
         set({
           completedAt: new Date().toISOString(),
           armed: false,
           armedFromStepId: null,
+          armedScope: null,
           lastStepId: null,
           lastStepAt: null,
           registryVersion,

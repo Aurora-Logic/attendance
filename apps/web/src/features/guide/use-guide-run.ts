@@ -5,7 +5,13 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useGuideStore } from '@/lib/guide-store';
 import { usePermissions } from '@/lib/session/permissions';
 
-import { anchorFor, REGISTRY_VERSION, resolveSteps, type GuideStep } from './tour-steps';
+import {
+  anchorFor,
+  REGISTRY_VERSION,
+  resolvePageSteps,
+  resolveSteps,
+  type GuideStep,
+} from './tour-steps';
 
 /**
  * How long to wait for a step's anchor to turn up after navigating.
@@ -16,6 +22,20 @@ import { anchorFor, REGISTRY_VERSION, resolveSteps, type GuideStep } from './tou
 const ANCHOR_TIMEOUT_MS = 1500;
 
 export type GuideStatus = 'idle' | 'running' | 'finished';
+
+/**
+ * How much of the product a run covers.
+ *
+ * `page` is the common case and the one the shortcut sheet offers: somebody is
+ * looking at a screen and wants that screen explained, not a walk from the
+ * sidebar to the audit log. `all` is the first-run orientation.
+ */
+export type GuideScope = 'page' | 'all';
+
+export interface StartOptions {
+  scope?: GuideScope;
+  fromStepId?: string;
+}
 
 /** Viewport coordinates, so the scrim can be positioned fixed. */
 export interface AnchorRect {
@@ -34,7 +54,9 @@ export interface GuideRun {
   rect: AnchorRect | null;
   /** Steps whose anchor never appeared. Reported honestly on the closing card. */
   skippedCount: number;
-  start: (options?: { fromStepId?: string }) => void;
+  /** What the current run covers, for the closing card's wording. */
+  scope: GuideScope;
+  start: (options?: StartOptions) => void;
   next: () => void;
   back: () => void;
   stop: () => void;
@@ -86,9 +108,40 @@ function waitForAnchor(name: string, signal: AbortSignal): Promise<HTMLElement |
   });
 }
 
+/**
+ * The tallest a cutout may be, as a fraction of the viewport.
+ *
+ * A records table is routinely taller than the screen. Highlighting all of it
+ * dims nothing — the "spotlight" becomes the whole window — and leaves the
+ * card nowhere to sit, so it is pushed off the bottom of the screen. Found by
+ * looking at a screenshot of the Employees guide, not by reading the code.
+ */
+const MAX_CUTOUT_FRACTION = 0.42;
+
+/**
+ * The anchor's rectangle, clamped to something a spotlight can actually be.
+ *
+ * Two clamps, for two different failures. Intersecting with the viewport stops
+ * an anchor scrolled half out of view from dragging the cutout off with it.
+ * Capping the height keeps a long table from swallowing the screen — the top
+ * of a table is its header and first rows, which is the part that says "these
+ * are the records" anyway.
+ *
+ * For an ordinary control the clamps do nothing and the rectangle is the
+ * element's own.
+ */
 function rectOf(element: HTMLElement): AnchorRect {
   const r = element.getBoundingClientRect();
-  return { top: r.top, left: r.left, width: r.width, height: r.height };
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  const top = Math.max(0, r.top);
+  const left = Math.max(0, r.left);
+  const width = Math.max(0, Math.min(viewportWidth, r.right) - left);
+  const visibleHeight = Math.max(0, Math.min(viewportHeight, r.bottom) - top);
+  const height = Math.min(visibleHeight, Math.round(viewportHeight * MAX_CUTOUT_FRACTION));
+
+  return { top, left, width, height };
 }
 
 function sameRect(a: AnchorRect | null, b: AnchorRect | null): boolean {
@@ -132,6 +185,7 @@ export function useGuideRun(): GuideRun {
    * presses of Next.
    */
   const [frozenSteps, setFrozenSteps] = useState<GuideStep[] | null>(null);
+  const [scope, setScope] = useState<GuideScope>('all');
   const liveSteps = useMemo(() => resolveSteps(granted, isMobile), [granted, isMobile]);
   const steps = frozenSteps ?? liveSteps;
 
@@ -144,13 +198,31 @@ export function useGuideRun(): GuideRun {
   const rect = active?.rect ?? null;
 
   const start = useCallback(
-    (options?: { fromStepId?: string }) => {
-      const resolvedSteps = resolveSteps(granted, isMobile);
+    (options?: StartOptions) => {
+      const nextScope = options?.scope ?? 'all';
+
+      /*
+       * A page guide is composed by looking at the page.
+       *
+       * Furniture is included only when the screen actually renders it, which
+       * is a question the DOM can answer right now — we are already standing on
+       * the route. Deciding it from a per-route list instead would be a second
+       * source of truth that goes stale the first time a screen gains a table.
+       */
+      const resolvedSteps =
+        nextScope === 'page'
+          ? resolvePageSteps(window.location.pathname, granted, isMobile, (anchor) =>
+              document.querySelector(`[data-guide="${anchor}"]`) !== null,
+            )
+          : resolveSteps(granted, isMobile);
+
       if (resolvedSteps.length === 0) return;
 
       const from = options?.fromStepId
         ? resolvedSteps.findIndex((s) => s.id === options.fromStepId)
         : -1;
+
+      setScope(nextScope);
 
       setFrozenSteps(resolvedSteps);
       // A resume point that no longer exists in the registry starts over
@@ -281,6 +353,7 @@ export function useGuideRun(): GuideRun {
     anchorEl,
     rect,
     skippedCount,
+    scope,
     start,
     next,
     back,

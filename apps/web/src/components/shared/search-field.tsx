@@ -45,7 +45,13 @@ export function SearchField({
     // The 32px desktop density of PRD §6.3 is too small to hit on a phone, so
     // the field takes the 44px floor on a coarse pointer — the same rule the
     // global stylesheet applies to buttons, which does not cover inputs.
-    <InputGroup className={cn('pointer-coarse:h-11', className)}>
+    <InputGroup
+      // Anchor for the per-screen guide. On the shared component rather than
+      // on each screen that renders one, so a page guide gains a step by the
+      // screen simply using the kit (features/guide/tour-steps).
+      data-guide="screen.search"
+      className={cn('pointer-coarse:h-11', className)}
+    >
       <InputGroupAddon>
         <MagnifyingGlassIcon />
       </InputGroupAddon>

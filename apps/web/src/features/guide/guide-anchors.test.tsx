@@ -7,7 +7,14 @@ import { renderWithProviders } from '@/test-support/render-shell';
 import { setViewportMatches } from '@/test-support/setup';
 import { ROLE_PERMISSION_MATRIX, type SystemRoleName } from '@vyuha/shared';
 
-import { ANCHORS, MAIN_TOUR, resolveSteps } from './tour-steps';
+import {
+  ALL_STEPS,
+  ANCHORS,
+  anchorFor,
+  resolvePageSteps,
+  resolveSteps,
+  SHELL_ANCHORS,
+} from './tour-steps';
 
 /**
  * The guided tour finds its targets through `data-guide` attributes on
@@ -37,28 +44,43 @@ function countAnchor(name: string): number {
 }
 
 describe('guided tour anchors', () => {
-  it('resolves every anchor to exactly one element on a desktop shell', () => {
+  it('resolves every shell anchor to exactly one element on a desktop shell', () => {
     renderShell();
 
-    for (const anchor of Object.values(ANCHORS)) {
+    for (const anchor of SHELL_ANCHORS) {
       expect(countAnchor(anchor), `[data-guide="${anchor}"]`).toBe(1);
     }
   });
 
-  it('resolves every anchor to exactly one element on a phone', () => {
+  it('resolves every shell anchor to exactly one element on a phone', () => {
     // useIsMobile reads matchMedia, which swaps the account menu from a
     // dropdown to a sheet — two different elements carrying the same anchor,
     // and the one place a duplicate could plausibly appear.
     setViewportMatches(true);
     renderShell();
 
-    for (const anchor of Object.values(ANCHORS)) {
+    for (const anchor of SHELL_ANCHORS) {
       expect(countAnchor(anchor), `[data-guide="${anchor}"]`).toBe(1);
     }
   });
 
+  it('treats furniture anchors as optional rather than required', () => {
+    // A screen legitimately has no table, or two. The shell test above asserts
+    // singularity only for the anchors that are singular by construction; this
+    // records that the rest are deliberately not in that set, so nobody
+    // "fixes" the gap by adding them.
+    const furniture = Object.values(ANCHORS).filter((a) => !SHELL_ANCHORS.includes(a));
+
+    expect(furniture).toEqual([
+      'screen.search',
+      'screen.table',
+      'screen.table-cards',
+      'screen.pagination',
+    ]);
+  });
+
   it('names no anchor that the registry does not use', () => {
-    const used = new Set(MAIN_TOUR.flatMap((s) => [s.anchor, s.mobileAnchor].filter(Boolean)));
+    const used = new Set(ALL_STEPS.flatMap((s) => [s.anchor, s.mobileAnchor].filter(Boolean)));
 
     for (const anchor of Object.values(ANCHORS)) {
       expect(used.has(anchor), `${anchor} is declared but no step uses it`).toBe(true);
@@ -68,7 +90,7 @@ describe('guided tour anchors', () => {
   it('gives every step an anchor that is declared in ANCHORS', () => {
     const declared = new Set<string>(Object.values(ANCHORS));
 
-    for (const step of MAIN_TOUR) {
+    for (const step of ALL_STEPS) {
       expect(declared.has(step.anchor), `${step.id} -> ${step.anchor}`).toBe(true);
       if (step.mobileAnchor) {
         expect(declared.has(step.mobileAnchor), `${step.id} -> ${step.mobileAnchor}`).toBe(true);
@@ -125,5 +147,83 @@ describe('guided tour length', () => {
 
     expect(steps.every((s) => !s.permission)).toBe(true);
     expect(steps.length).toBeGreaterThan(0);
+  });
+});
+
+describe('the per-screen guide', () => {
+  const admin = new Set(ROLE_PERMISSION_MATRIX.Admin);
+  const present = (anchors: string[]) => (a: string) => anchors.includes(a);
+
+  it('answers "what is this screen" without walking the whole product', () => {
+    /*
+     * The complaint this scope exists to answer: reaching Approvals in the
+     * whole-product tour costs sixteen steps, and somebody standing on
+     * Approvals wanting to know what it does should pay none of them.
+     */
+    const whole = resolveSteps(admin, false);
+    const stepsToReachIt = whole.findIndex((s) => s.id === 'screen.approvals') + 1;
+    const page = resolvePageSteps('/approvals', admin, false, present([]));
+
+    // Asserted as a relationship rather than a literal, so adding a screen
+    // does not fail this for the wrong reason. Today it is 10 against 1.
+    expect(stepsToReachIt).toBeGreaterThan(5);
+    expect(page.length).toBeLessThan(stepsToReachIt);
+    expect(page[0]?.id).toBe('screen.approvals');
+  });
+
+  it('includes only the furniture the screen actually renders', () => {
+    const bare = resolvePageSteps('/approvals', admin, false, present([]));
+    const withTable = resolvePageSteps('/approvals', admin, false, present(['screen.table']));
+    const full = resolvePageSteps(
+      '/employees',
+      admin,
+      false,
+      present(['screen.search', 'screen.table', 'screen.pagination']),
+    );
+
+    expect(bare.map((s) => s.id)).toEqual(['screen.approvals']);
+    expect(withTable.map((s) => s.id)).toEqual(['screen.approvals', 'furniture.table']);
+    expect(full.map((s) => s.id)).toEqual([
+      'screen.employees',
+      'furniture.search',
+      'furniture.table',
+      'furniture.pagination',
+    ]);
+  });
+
+  it('keeps furniture out of the whole-product tour', () => {
+    // Sixteen screens each repeating "this is the table" is what would make
+    // the long tour unbearable, so furniture belongs to the page scope only.
+    expect(resolveSteps(admin, false).some((s) => s.furniture)).toBe(false);
+  });
+
+  it('gives nothing for a route the tour does not introduce', () => {
+    expect(resolvePageSteps('/profile', admin, false, present(['screen.table']))).toEqual([]);
+    expect(resolvePageSteps('/nonsense', admin, false, present([]))).toEqual([]);
+  });
+
+  it('refuses a screen the session cannot open', () => {
+    const employee = new Set(ROLE_PERMISSION_MATRIX.Employee);
+
+    expect(resolvePageSteps('/audit', employee, false, present(['screen.table']))).toEqual([]);
+    expect(resolvePageSteps('/punch', employee, false, present([])).map((s) => s.id)).toEqual([
+      'screen.punch',
+    ]);
+  });
+
+  it('points the table step at the card list on a phone', () => {
+    const desktop = resolvePageSteps('/employees', admin, false, present(['screen.table']));
+    const phone = resolvePageSteps('/employees', admin, true, present(['screen.table']));
+
+    const desktopTable = desktop.find((s) => s.id === 'furniture.table');
+    const phoneTable = phone.find((s) => s.id === 'furniture.table');
+
+    expect(desktopTable).toBeDefined();
+    expect(phoneTable).toBeDefined();
+    // The desktop table and the phone's card list are separate elements, both
+    // always in the DOM with CSS deciding which is visible — so the guide has
+    // to choose by width rather than by presence.
+    expect(desktopTable && anchorFor(desktopTable, false)).toBe('screen.table');
+    expect(phoneTable && anchorFor(phoneTable, true)).toBe('screen.table-cards');
   });
 });
