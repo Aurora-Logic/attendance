@@ -8,6 +8,22 @@ export default defineConfig({
     // files concurrently would let one file's cleanup delete rows another file
     // is still asserting on, which fails intermittently and looks like a bug in
     // the repository rather than in the test setup.
+    //
+    // This protects files within one run and cannot protect a run from another
+    // run. Each file pins its own org id as a constant -- `org-ids.test.ts`
+    // enforces that they are distinct -- so two `vitest` processes started at
+    // once execute the *same* file against the *same* org, and each one's
+    // `beforeAll` reset deletes rows the other is mid-assertion on. Reproduced:
+    // two concurrent runs of the same pair of job files failed four accrual and
+    // carry-forward tests in one run ("expected undefined to be 1") and passed
+    // clean in the other; the same pair, split so neither run touched the other's
+    // file, passed both sides three times over.
+    //
+    // So: do not run this suite twice at once. It cost two separate
+    // investigations, both of which first suspected the BullMQ queue prefix
+    // below -- which is a real hazard for the developer's own API, and not this
+    // one. Splitting the work by file is safe; running the same file twice is
+    // not, and no prefix or lock in this config can make it so.
     fileParallelism: false,
     // The integration tests boot the real application, which logs every
     // request through pino. Set before any module loads, so `env.ts` picks it
