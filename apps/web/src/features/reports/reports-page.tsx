@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  CaretDownIcon,
   ChartBarIcon,
   DownloadSimpleIcon,
   ImageIcon,
@@ -18,6 +19,7 @@ import { RecordTable, type RecordColumn } from '@/components/shared/record-table
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { ButtonGroup } from '@/components/ui/button-group';
 import {
   Command,
   CommandEmpty,
@@ -27,6 +29,12 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Empty,
   EmptyContent,
@@ -50,6 +58,7 @@ import {
   describeFilters,
   isReportKey,
   resolveColumns,
+  type ExportFormat,
   type ReportColumnSpec,
   type ReportDefinition,
   type ReportFilters,
@@ -400,7 +409,7 @@ export function ReportsPage() {
     ...(filters.punchType ? { punchType: filters.punchType as ReportFilters['punchType'] } : {}),
   };
 
-  function startExport() {
+  function startExport(format: ExportFormat) {
     if (!canExport) return;
     if (!period.from || !period.to) {
       toast.add({
@@ -416,7 +425,7 @@ export function ReportsPage() {
         filters: { ...exportFilters, from: toDateParam(period.from), to: toDateParam(period.to) },
         columns: visibleColumns,
         sort,
-        format: 'CSV',
+        format,
       },
       {
         onSuccess: (job) => {
@@ -440,7 +449,9 @@ export function ReportsPage() {
     label: 'Export',
     scope: 'screen',
     when: () => canExport,
-    run: startExport,
+    run: () => {
+      startExport('XLSX');
+    },
   });
 
   function applyView(view: SavedView) {
@@ -535,15 +546,54 @@ export function ReportsPage() {
               <ShortcutHint keys="ctrl+g" className="hidden md:inline-flex" />
             </Button>
 
-            <Button
-              className="gap-2"
-              disabled={!canExport || requestExport.isPending}
-              onClick={startExport}
-            >
-              <DownloadSimpleIcon data-icon="inline-start" />
-              Export
-              <ShortcutHint keys="alt+e" className="hidden md:inline-flex" />
-            </Button>
+            {/*
+              REQ-J-03 is titled "Excel export", so Excel is what the button
+              does and CSV is the alternative behind the caret -- rather than a
+              format Select the reader has to set before every export. Alt+E
+              takes the primary action, which is the whole point of a default.
+            */}
+            <ButtonGroup>
+              <Button
+                className="gap-2"
+                disabled={!canExport || requestExport.isPending}
+                onClick={() => {
+                  startExport('XLSX');
+                }}
+              >
+                <DownloadSimpleIcon data-icon="inline-start" />
+                Export
+                <ShortcutHint keys="alt+e" className="hidden md:inline-flex" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      aria-label="Choose an export format"
+                      disabled={!canExport || requestExport.isPending}
+                    >
+                      <CaretDownIcon />
+                    </Button>
+                  }
+                  nativeButton={false}
+                />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      startExport('XLSX');
+                    }}
+                  >
+                    Excel workbook (.xlsx)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      startExport('CSV');
+                    }}
+                  >
+                    Comma-separated (.csv)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </ButtonGroup>
           </>
         }
       />

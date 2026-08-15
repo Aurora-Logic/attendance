@@ -450,11 +450,15 @@ describe('the export request', () => {
     expect(reportRowQuerySchema.safeParse({}).success).toBe(true);
   });
 
-  it('refuses a format nothing can write yet', () => {
-    // XLSX is declared in the contract and is not offerable, so a client
-    // cannot ask for a file this build would produce as CSV under an .xlsx
-    // name.
-    expect(exportRequestSchema.safeParse({ ...valid, format: 'XLSX' }).success).toBe(false);
+  it('accepts both formats that have a writer, and refuses anything else', () => {
+    // Both are offerable now that `XlsxReportWriter` exists. The rule the two
+    // lists encode has not changed: `AVAILABLE_EXPORT_FORMATS` is what a client
+    // may ask for, and a format may sit in `EXPORT_FORMATS` long before
+    // anything can write it -- accepting one that cannot produces a job that
+    // fails after the requester has walked away.
+    expect(exportRequestSchema.safeParse({ ...valid, format: 'XLSX' }).success).toBe(true);
+    expect(exportRequestSchema.safeParse({ ...valid, format: 'CSV' }).success).toBe(true);
+    expect(exportRequestSchema.safeParse({ ...valid, format: 'PDF' }).success).toBe(false);
   });
 
   it('refuses an unknown report', () => {

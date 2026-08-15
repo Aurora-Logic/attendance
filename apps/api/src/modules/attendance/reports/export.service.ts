@@ -346,7 +346,7 @@ export class ExportService {
       }
     }
 
-    const bytes = writer.finish();
+    const bytes = await writer.finish();
     const stored = await this.filesService.storeDocument({
       orgId: row.orgId,
       createdBy: row.requestedBy,

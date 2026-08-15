@@ -1,3 +1,5 @@
+import ExcelJS from 'exceljs';
+
 import {
   MAX_EXPORT_RANGE_DAYS,
   PERMISSIONS,
@@ -89,6 +91,15 @@ async function waitForExport(token: string, id: string): Promise<ExportJobSummar
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+}
+
+/** The same download, as bytes, for a format that is not text. */
+async function downloadBytes(token: string, id: string): Promise<Buffer> {
+  const link = await harness.get<ExportDownload>(`/reports/exports/${id}/download`, { token });
+  expect(link.status).toBe(200);
+  const response = await fetch(link.body.url);
+  expect(response.status).toBe(200);
+  return Buffer.from(await response.arrayBuffer());
 }
 
 async function downloadText(token: string, id: string): Promise<string> {
@@ -548,8 +559,16 @@ describe('requesting an export', () => {
     expect(MAX_EXPORT_RANGE_DAYS).toBe(366);
   });
 
-  it('refuses a format nothing can write', async () => {
-    const refused = await harness.post('/reports/exports', {
+  /**
+   * REQ-J-03's Excel export, through the whole stack rather than at the writer.
+   *
+   * The unit tests build a workbook from a fixture; this proves the job, the
+   * file store, the signed URL and the download route all carry the bytes
+   * unaltered -- an xlsx is a zip, and a layer that helpfully re-encodes it as
+   * UTF-8 corrupts it in a way no text export would reveal.
+   */
+  it('produces a real Excel workbook, not a CSV wearing an .xlsx name', async () => {
+    const accepted = await harness.post<ExportJobSummary>('/reports/exports', {
       token: hrToken,
       body: {
         reportKey: 'attendance-register',
@@ -557,8 +576,27 @@ describe('requesting an export', () => {
         format: 'XLSX',
       },
     });
-    expect(refused.status).toBe(400);
-  });
+    expect(accepted.status).toBe(202);
+    createdExportIds.push(accepted.body.id);
+    expect(accepted.body.filename.endsWith('.xlsx')).toBe(true);
+
+    const finished = await waitForExport(hrToken, accepted.body.id);
+    expect(finished.status, finished.error ?? '').toBe('DONE');
+
+    const bytes = await downloadBytes(hrToken, accepted.body.id);
+    // The zip signature. This is the assertion that a renamed CSV fails.
+    expect(bytes.subarray(0, 2).toString('latin1')).toBe('PK');
+
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(bytes as unknown as ArrayBuffer);
+    const sheet = book.worksheets[0];
+    expect(sheet).toBeDefined();
+    // The formatting REQ-J-03 names, present in the delivered file and not
+    // only in the writer's unit test.
+    expect(sheet?.views[0]?.state).toBe('frozen');
+    expect(typeof sheet?.autoFilter).toBe('string');
+    expect(sheet?.getRow(1).getCell(1).text.length).toBeGreaterThan(0);
+  }, 120_000);
 });
 
 describe('an export, end to end', () => {

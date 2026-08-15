@@ -694,8 +694,16 @@ export const EXPORT_FORMATS = ['CSV', 'XLSX'] as const;
 
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
-/** What the API will actually produce today. The rest are declared, not offered. */
-export const AVAILABLE_EXPORT_FORMATS = ['CSV'] as const satisfies readonly ExportFormat[];
+/**
+ * What the API will actually produce today.
+ *
+ * Both formats now have a writer. This list stays separate from
+ * `EXPORT_FORMATS` because it is the one the request schema validates against:
+ * a format may be named in the contract long before anything can write it, and
+ * accepting a request for one that cannot be written produces a job that fails
+ * after the user has walked away.
+ */
+export const AVAILABLE_EXPORT_FORMATS = ['XLSX', 'CSV'] as const satisfies readonly ExportFormat[];
 
 export const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
   CSV: 'CSV',

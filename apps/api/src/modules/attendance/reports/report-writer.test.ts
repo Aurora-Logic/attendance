@@ -91,7 +91,7 @@ describe('the CSV writer', () => {
     { key: 'flags', header: 'Flags', type: 'flags' },
   ];
 
-  function write(): string {
+  async function write(): Promise<string> {
     const writer = new CsvReportWriter();
     writer.begin(
       {
@@ -110,11 +110,11 @@ describe('the CSV writer', () => {
     );
     writer.writeRow(['2026-08-01', 'Asha Menon', 492, ['late']]);
     writer.writeRow(['2026-08-02', 'O\'Brien, Sean', 0, []]);
-    return writer.finish().toString('utf8');
+    return (await writer.finish()).toString('utf8');
   }
 
-  it('opens with the REQ-J-03 header block: org, report, filters, generated, count', () => {
-    const lines = write().split('\r\n');
+  it('opens with the REQ-J-03 header block: org, report, filters, generated, count', async () => {
+    const lines = (await write()).split('\r\n');
 
     // Quoted, because the organisation's own name contains a comma. An
     // unquoted header line would split the name across two cells.
@@ -130,15 +130,15 @@ describe('the CSV writer', () => {
     expect(lines[7]).toBe('Date,Employee,Worked,Flags');
   });
 
-  it('writes the rows with the header block above them, formatted by column type', () => {
-    const lines = write().split('\r\n');
+  it('writes the rows with the header block above them, formatted by column type', async () => {
+    const lines = (await write()).split('\r\n');
     expect(lines[8]).toBe('01-08-2026,Asha Menon,08:12,late');
     // Zero worked minutes is an empty cell, not "00:00" on a weekly off.
     expect(lines[9]).toBe("02-08-2026,\"O'Brien, Sean\",,");
   });
 
-  it('starts with a BOM so Excel reads the file as UTF-8', () => {
-    expect(write().charCodeAt(0)).toBe(0xfeff);
+  it('starts with a BOM so Excel reads the file as UTF-8', async () => {
+    expect((await write()).charCodeAt(0)).toBe(0xfeff);
   });
 
   it('reports honestly that it cannot freeze a header or set column widths', () => {
@@ -147,7 +147,7 @@ describe('the CSV writer', () => {
     expect(new CsvReportWriter().supportsSheetFormatting).toBe(false);
   });
 
-  it('pads a row that is shorter than the column set instead of shifting cells', () => {
+  it('pads a row that is shorter than the column set instead of shifting cells', async () => {
     const writer = new CsvReportWriter();
     writer.begin(
       {
@@ -162,7 +162,7 @@ describe('the CSV writer', () => {
       columns,
     );
     writer.writeRow(['2026-08-01']);
-    const lines = writer.finish().toString('utf8').split('\r\n');
+    const lines = (await writer.finish()).toString('utf8').split('\r\n');
     expect(lines[lines.length - 2]).toBe('01-08-2026,,,');
   });
 });
@@ -173,7 +173,13 @@ describe('the writer factory', () => {
     expect(writerFor('CSV').extension).toBe('csv');
   });
 
-  it('refuses XLSX rather than quietly handing back a CSV named .xlsx', () => {
-    expect(() => writerFor('XLSX')).toThrow(/spreadsheet library/u);
+  it('produces an XLSX writer, which is the one that can format a sheet', () => {
+    const writer = writerFor('XLSX');
+    expect(writer.format).toBe('XLSX');
+    expect(writer.extension).toBe('xlsx');
+    // The flag REQ-J-03's frozen header and column widths hang off. CSV says
+    // false and says so honestly; this is the writer that has to say true.
+    expect(writer.supportsSheetFormatting).toBe(true);
+    expect(writerFor('CSV').supportsSheetFormatting).toBe(false);
   });
 });
