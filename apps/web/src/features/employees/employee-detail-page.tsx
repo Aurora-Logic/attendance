@@ -10,6 +10,7 @@ import {
 import { endOfMonth, isSameMonth, startOfMonth } from 'date-fns';
 import { Link, useParams } from 'react-router';
 
+import { EmployeeDataExportButton } from '@/components/shared/employee-data-export-button';
 import { PageHeader } from '@/components/shared/page-header';
 import { RowActions } from '@/components/shared/row-actions';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -506,6 +507,17 @@ export function EmployeeDetailPage() {
           onClick={() => {
             setHistoryOpen(true);
           }}
+        />
+      ) : null}
+      {/* REQ-M-05, beside the history button because they answer two halves of
+          the same question: what this product holds about one person, and who
+          has looked at it. The button hides itself without employee.manage, so
+          the guard here is only the loaded record -- requesting an export for
+          an id that is still unknown would produce a job for nobody. */}
+      {record !== null ? (
+        <EmployeeDataExportButton
+          employeeId={record.id}
+          employeeName={employeeDisplayName(record.firstName, record.lastName)}
         />
       ) : null}
       <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/employees" />}>

@@ -59,6 +59,23 @@ export interface JobPayloads {
   };
 
   /**
+   * REQ-M-05: everything the system holds about one employee, as a file.
+   *
+   * Same shape as `generate-report-export` and for the same reason -- only the
+   * `export_jobs` row id travels, so the tray and the worker can never disagree
+   * about who asked and about whom. A separate job name rather than a reserved
+   * `reportKey` on the report export: that handler refuses a key it does not
+   * recognise, and widening it would mean the attendance module owning a
+   * platform compliance obligation.
+   */
+  'export-employee-data': {
+    readonly orgId: string;
+    readonly exportJobId: string;
+    /** Only for the trail; the handler works from the row and the current clock. */
+    readonly requestedAt: string;
+  };
+
+  /**
    * REQ-G-09 / REQ-I-05: approvals nobody has touched for N days move up a
    * level. §11 lists it on the notification queue, next to `punch-reminders`.
    */
@@ -159,6 +176,7 @@ export type JobName = keyof JobPayloads;
 export const JOB_QUEUE: Record<JobName, QueueName> = {
   'purge-expired-files': QUEUES.MAINTENANCE,
   'generate-report-export': QUEUES.EXPORT,
+  'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-notification': QUEUES.NOTIFICATION,
   'deliver-password-reset': QUEUES.NOTIFICATION,
