@@ -31,7 +31,7 @@ import { JobRunner } from '../../../platform/jobs/job-runner.service.js';
 import { orgContextOf, hasPermission, type Principal } from '../../../platform/rbac/principal.js';
 import { PrincipalService } from '../../../platform/rbac/principal.service.js';
 import { ReportRepository } from './report.repository.js';
-import { writerFor } from './report-writer.js';
+import { formatCalendarDate, writerFor } from './report-writer.js';
 import { EXPORT_BATCH_ROWS, ReportService, cellsFor } from './report.service.js';
 
 /**
@@ -306,7 +306,11 @@ export class ExportService {
       {
         orgName: profile.name,
         reportLabel: REPORT_DEFINITIONS[reportKey].label,
-        captions: describeFilters(snapshot.filters, labels),
+        // REQ-L-01: the organisation's date format, so the period caption and
+        // the generated-at line below it are not written two different ways.
+        captions: describeFilters(snapshot.filters, labels, (iso) =>
+          formatCalendarDate(iso, profile.dateFormat),
+        ),
         generatedAt,
         timezone: profile.timezone,
         dateFormat: profile.dateFormat,

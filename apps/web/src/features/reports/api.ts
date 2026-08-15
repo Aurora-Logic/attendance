@@ -12,6 +12,8 @@ import { ApiError, apiRequest } from '@/lib/api/client';
 import type {
   ExportJobSummary,
   ExportRequest,
+  ReportSchedule,
+  ReportScheduleInput,
   Paginated,
   ReportDefinition,
   ReportFilters,
@@ -26,6 +28,8 @@ import {
   exportJobSchema,
   reportCatalogueSchema,
   reportPageEnvelopeSchema,
+  reportScheduleListSchema,
+  reportScheduleSchema,
   savedViewListSchema,
   savedViewSchema,
   signedPhotoSchema,
@@ -58,6 +62,7 @@ export const reportKeys = {
   rows: (reportKey: string, query: string) => ['reports', 'rows', reportKey, query] as const,
   views: (reportKey: string) => ['reports', 'views', reportKey] as const,
   exports: ['reports', 'exports'] as const,
+  schedules: ['reports', 'schedules'] as const,
   photo: (punchId: string, variant: string) => ['punches', 'photo', punchId, variant] as const,
 };
 
@@ -293,5 +298,72 @@ export function useLocationOptions(): UseQueryResult<{ id: string; name: string 
     // A missing masters endpoint must not take the whole report down: the
     // filter simply offers no options, which the control says out loud.
     retry: false,
+  });
+}
+
+// ------------------------------------------------------------------ schedules
+
+/**
+ * REQ-J-05. The list is not polled: a schedule changes when somebody changes
+ * it, and the file it produces shows up in the tray beside it, which is polled
+ * already while anything is running.
+ */
+export function useReportSchedules(enabled = true): UseQueryResult<ReportSchedule[], Error> {
+  return useQuery({
+    enabled,
+    queryKey: reportKeys.schedules,
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/reports/schedules', { signal });
+      return parse(reportScheduleListSchema, body, 'schedules');
+    },
+  });
+}
+
+export function useCreateSchedule(): UseMutationResult<
+  ReportSchedule,
+  Error,
+  ReportScheduleInput
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ReportScheduleInput) => {
+      const body = await apiRequest<unknown>('/reports/schedules', { method: 'POST', body: input });
+      return parse(reportScheduleSchema, body, 'schedule');
+    },
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: reportKeys.schedules });
+    },
+  });
+}
+
+export function useSetScheduleActive(): UseMutationResult<
+  ReportSchedule,
+  Error,
+  { id: string; isActive: boolean }
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, isActive }) => {
+      const body = await apiRequest<unknown>(`/reports/schedules/${id}/active`, {
+        method: 'POST',
+        body: { isActive },
+      });
+      return parse(reportScheduleSchema, body, 'schedule');
+    },
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: reportKeys.schedules });
+    },
+  });
+}
+
+export function useDeleteSchedule(): UseMutationResult<void, Error, string> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest<unknown>(`/reports/schedules/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: reportKeys.schedules });
+    },
   });
 }

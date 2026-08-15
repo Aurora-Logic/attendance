@@ -30,6 +30,7 @@ import { toast } from '@/components/ui/toast';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { EXPORT_STATUS_LABELS, PERMISSIONS, type ExportJobSummary } from '@vyuha/shared';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { SchedulesList } from '@/features/reports/schedules-list';
 import { usePermission } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
 
@@ -435,6 +436,11 @@ export function DownloadsPage() {
             </div>
           </section>
         ))}
+
+        {/* REQ-J-05, below the tray it delivers into. Somebody wondering why
+            yesterday's register has not arrived finds the timer beside the
+            files rather than two screens away. */}
+        <SchedulesList canExport={canExport} />
       </div>
     </>
   );

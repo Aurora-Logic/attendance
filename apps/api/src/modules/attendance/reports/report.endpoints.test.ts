@@ -311,6 +311,12 @@ afterAll(async () => {
   await harness.close();
 }, 60_000);
 
+/** REQ-L-01: how a `YYYY-MM-DD` appears in a file this organisation produces. */
+function asOrgDate(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${d}-${m}-${y}`;
+}
+
 describe('the report catalogue', () => {
   it('is served to a holder of report.view and refused to everyone else', async () => {
     const allowed = await harness.get<{ data: ReportDefinition[] }>('/reports', {
@@ -652,7 +658,8 @@ describe('an export, end to end', () => {
     // REQ-J-03's header block.
     expect(lines[0]).toContain('Vyuha Reports Test');
     expect(lines[1]).toBe('Attendance register');
-    expect(csv).toContain(`Period,${DAY_ONE} to ${DAY_TWO}`);
+    // REQ-L-01, matching the Generated line two rows below it.
+    expect(csv).toContain(`Period,${asOrgDate(DAY_ONE)} to ${asOrgDate(DAY_TWO)}`);
     expect(csv).toContain(`Department,Reporting ${RUN}`);
     expect(csv).toMatch(/Generated,\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2} \S+/u);
     expect(csv).toContain('Rows,2');

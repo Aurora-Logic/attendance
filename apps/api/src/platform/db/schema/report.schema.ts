@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -121,5 +122,90 @@ export const savedViews = pgTable(
     uniqueIndex('saved_views_name_unique_idx')
       .on(t.orgId, t.userId, t.reportKey, sql`lower(${t.name})`)
       .where(sql`deleted_at IS NULL`),
+  ],
+);
+
+export const reportScheduleCadenceEnum = pgEnum('report_schedule_cadence', [
+  'DAILY',
+  'WEEKLY',
+  'MONTHLY',
+]);
+
+/**
+ * REQ-J-05: a saved report configuration produced on a timer.
+ *
+ * The requirement says "emailed"; this product has no mail transport, so a run
+ * lands in the Downloads tray instead -- the same file, the same seven-day
+ * retention, the same signed URL. `packages/shared/src/reports.ts` carries the
+ * reasoning for that substitution.
+ *
+ * Platform rather than attendance, beside `export_jobs` and for the same
+ * reason: a schedule is a queued job that turns rows into a file, and the CRM
+ * and ERP modules will schedule through it unchanged. What the attendance
+ * module owns is which report exists and what a row of it looks like.
+ *
+ * There is deliberately no `from` or `to` in `filters`. The period a run covers
+ * is derived from the cadence at run time (`scheduleWindow`), because a stored
+ * range would export the same fortnight of August for ever while looking
+ * entirely healthy.
+ */
+export const reportSchedules = pgTable(
+  'report_schedules',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    /**
+     * Whose schedule it is, and whose tray the file lands in. `cascade`,
+     * unlike `export_jobs.requested_by`: a produced file is a record that has
+     * to survive its requester leaving, but a schedule with no owner is a timer
+     * nobody can see, edit or stop.
+     */
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    reportKey: text('report_key').notNull(),
+    name: text('name').notNull(),
+    filters: jsonb('filters').notNull(),
+    columns: jsonb('columns').notNull(),
+    sort: text('sort'),
+    /** Text with a check constraint, matching `export_jobs.format`. */
+    format: text('format').notNull().default('XLSX'),
+
+    cadence: reportScheduleCadenceEnum('cadence').notNull(),
+    /** On the organisation's wall clock (NFR-05), never the server's. */
+    hour: smallint('hour').notNull(),
+    minute: smallint('minute').notNull().default(0),
+    /** Weekly only. ISO-8601, so 1 is Monday and 7 is Sunday. */
+    weekday: smallint('weekday'),
+    /** Monthly only, capped at 28 so no month can skip a run. */
+    dayOfMonth: smallint('day_of_month'),
+
+    isActive: boolean('is_active').notNull().default(true),
+
+    /**
+     * The organisation-local date this last produced a file for, and the
+     * idempotency key the sweep tests. A date rather than an instant because
+     * the question is "has it run today", and the sweep asks it every fifteen
+     * minutes -- an instant would need a window comparison that is wrong twice
+     * a year wherever the clocks change.
+     */
+    lastRunOn: date('last_run_on'),
+    lastExportJobId: uuid('last_export_job_id').references(() => exportJobs.id, {
+      onDelete: 'set null',
+    }),
+
+    ...standardColumns(),
+  },
+  (t) => [
+    index('report_schedules_owner_idx').on(t.orgId, t.ownerUserId, t.createdAt.desc()),
+    // The sweep's own query: every active schedule in the organisation. Partial
+    // on `is_active` because a paused schedule is never a candidate and the
+    // index should not carry it.
+    index('report_schedules_due_idx')
+      .on(t.orgId, t.cadence)
+      .where(sql`is_active AND deleted_at IS NULL`),
   ],
 );

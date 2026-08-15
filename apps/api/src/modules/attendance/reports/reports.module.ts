@@ -5,6 +5,8 @@ import { ReportExportHandler } from './report-export.handler.js';
 import { ReportController } from './report.controller.js';
 import { ReportService } from './report.service.js';
 import { SavedViewService } from './saved-view.service.js';
+import { ScheduleSweepHandler } from './schedule-sweep.handler.js';
+import { ScheduleService } from './schedule.service.js';
 
 /**
  * Reports and Excel export (REQ-J-01 to REQ-J-06).
@@ -21,7 +23,14 @@ import { SavedViewService } from './saved-view.service.js';
  */
 @Module({
   controllers: [ReportController],
-  providers: [ReportService, ExportService, SavedViewService, ReportExportHandler],
+  providers: [
+    ReportService,
+    ExportService,
+    SavedViewService,
+    ScheduleService,
+    ReportExportHandler,
+    ScheduleSweepHandler,
+  ],
   exports: [ReportService],
 })
 export class ReportModule {}

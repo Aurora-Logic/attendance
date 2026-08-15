@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { ATTENDANCE_STATUSES, PUNCH_TYPES } from './enums.js';
+import type { NamedRef } from './people.js';
 import { pageQuerySchema } from './pagination.js';
 
 /**
@@ -645,6 +646,17 @@ export interface FilterCaption {
 export function describeFilters(
   filters: ReportFilters,
   names: Readonly<Record<string, string>> = {},
+  /**
+   * How a calendar date is written (REQ-L-01).
+   *
+   * Passed in rather than assumed, because the format is an organisation
+   * setting and this module has no way to read one. Identity by default, which
+   * is what a caller with no opinion gets -- but every caller that puts these
+   * captions in front of a person has an opinion, and a header block reading
+   * "Period 2026-08-01 to 2026-08-31" directly above "Generated 15-08-2026" is
+   * two date formats in four lines of the same file.
+   */
+  formatDate: (iso: string) => string = (iso) => iso,
 ): FilterCaption[] {
   const captions: FilterCaption[] = [];
   const named = (id: string): string => names[id] ?? id;
@@ -652,11 +664,13 @@ export function describeFilters(
   if (filters.from !== undefined && filters.from === filters.to) {
     // The daily muster's period is one day. "02-03-2026 to 02-03-2026" is true
     // and reads as a mistake, at the top of a file somebody prints.
-    captions.push({ label: 'Date', value: filters.from });
+    captions.push({ label: 'Date', value: formatDate(filters.from) });
   } else if (filters.from !== undefined || filters.to !== undefined) {
     captions.push({
       label: 'Period',
-      value: `${filters.from ?? 'any'} to ${filters.to ?? 'any'}`,
+      value: `${filters.from === undefined ? 'any' : formatDate(filters.from)} to ${
+        filters.to === undefined ? 'any' : formatDate(filters.to)
+      }`,
     });
   }
   if (filters.employeeId !== undefined) {
@@ -1371,4 +1385,228 @@ export function headcountCell(row: HeadcountSource, key: string): ReportCellValu
     default:
       return null;
   }
+}
+
+// ---------------------------------------------------------- scheduled exports
+
+/**
+ * REQ-J-05, delivered to the Downloads tray rather than to an inbox.
+ *
+ * The requirement as written says "emailed daily/weekly/monthly to a list of
+ * recipients". This product has no mail transport -- it was removed, because
+ * the pilot has no mail server and REQ-B-03's invitation link is handed over by
+ * the administrator instead. A schedule therefore produces exactly what the
+ * Export button produces, on a timer, into the same tray with the same seven
+ * day retention and the same signed download. Nothing about the file differs;
+ * only what started it.
+ *
+ * That substitution is deliberate and is the whole of the deviation. A schedule
+ * that emailed would need a transport, a recipient list, a bounce path and a
+ * decision about sending employee data to an address nobody in the product has
+ * verified. Landing it in the tray needs none of those, and the person who
+ * wanted the report still finds it waiting for them.
+ */
+export const SCHEDULE_CADENCES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
+
+export type ScheduleCadence = (typeof SCHEDULE_CADENCES)[number];
+
+export const SCHEDULE_CADENCE_LABELS: Record<ScheduleCadence, string> = {
+  DAILY: 'Every day',
+  WEEKLY: 'Every week',
+  MONTHLY: 'Every month',
+};
+
+/**
+ * The latest day of the month a schedule may name.
+ *
+ * 28 rather than 31, because a monthly schedule set to the 30th would not run
+ * in February at all and a schedule set to the 31st would skip five months a
+ * year -- silently, which is the worst way for a report to be missing. Anyone
+ * wanting the last day of the month wants the month that just ended, and that
+ * is what the 1st already gives them.
+ */
+export const MAX_SCHEDULE_DAY_OF_MONTH = 28;
+
+export const SCHEDULE_NAME_MAX = 80;
+
+/** ISO-8601 weekdays, so 1 is Monday and 7 is Sunday. */
+export const SCHEDULE_WEEKDAY_LABELS: Record<number, string> = {
+  1: 'Monday',
+  2: 'Tuesday',
+  3: 'Wednesday',
+  4: 'Thursday',
+  5: 'Friday',
+  6: 'Saturday',
+  7: 'Sunday',
+};
+
+export const reportScheduleInputSchema = z
+  .object({
+    reportKey: z.enum(REPORT_KEYS),
+    name: z.string().trim().min(1).max(SCHEDULE_NAME_MAX),
+    /**
+     * No `from` or `to`. The period a run covers is derived from the cadence --
+     * see `scheduleWindow` -- because a stored range would export the same
+     * fortnight of August for ever, and would look like it was working.
+     */
+    filters: reportFilterSchema.omit({ from: true, to: true }).default({}),
+    columns: z.array(z.string().max(64)).max(64).default([]),
+    sort: z.string().max(200).optional(),
+    format: z.enum(AVAILABLE_EXPORT_FORMATS).default('XLSX'),
+    cadence: z.enum(SCHEDULE_CADENCES),
+    /** On the organisation's wall clock (NFR-05), never the server's. */
+    hour: z.number().int().min(0).max(23),
+    minute: z.number().int().min(0).max(59).default(0),
+    /** Weekly only. ISO weekday, 1 = Monday. */
+    weekday: z.number().int().min(1).max(7).optional(),
+    /** Monthly only. */
+    dayOfMonth: z.number().int().min(1).max(MAX_SCHEDULE_DAY_OF_MONTH).optional(),
+    isActive: z.boolean().default(true),
+  })
+  .superRefine((value, ctx) => {
+    // Checked here rather than left to the runner, so a schedule that could
+    // never fire is refused at the point somebody can still fix it.
+    if (value.cadence === 'WEEKLY' && value.weekday === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['weekday'],
+        message: 'A weekly schedule needs the day of the week it runs on.',
+      });
+    }
+    if (value.cadence === 'MONTHLY' && value.dayOfMonth === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['dayOfMonth'],
+        message: 'A monthly schedule needs the day of the month it runs on.',
+      });
+    }
+  });
+
+export type ReportScheduleInput = z.infer<typeof reportScheduleInputSchema>;
+
+export interface ReportSchedule {
+  readonly id: string;
+  readonly reportKey: ReportKey;
+  readonly name: string;
+  readonly filters: ReportFilters;
+  readonly columns: readonly string[];
+  readonly sort: string | null;
+  readonly format: ExportFormat;
+  readonly cadence: ScheduleCadence;
+  readonly hour: number;
+  readonly minute: number;
+  readonly weekday: number | null;
+  readonly dayOfMonth: number | null;
+  readonly isActive: boolean;
+  readonly owner: NamedRef;
+  /** The organisation-local date it last produced a file for. */
+  readonly lastRunOn: string | null;
+  readonly lastExportJobId: string | null;
+  /** Null when the last run failed, so the list can say so without a join. */
+  readonly lastRunStatus: ExportStatus | null;
+  readonly createdAt: string;
+}
+
+/**
+ * When a schedule next fires, said in words, for the list and the form.
+ *
+ * Built from the same fields the runner reads, so the sentence on screen cannot
+ * describe a different schedule from the one that will run.
+ */
+export function describeSchedule(schedule: {
+  cadence: ScheduleCadence;
+  hour: number;
+  minute: number;
+  weekday?: number | null;
+  dayOfMonth?: number | null;
+}): string {
+  const clock = `${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')}`;
+  switch (schedule.cadence) {
+    case 'DAILY':
+      return `Every day at ${clock}`;
+    case 'WEEKLY':
+      return `Every ${SCHEDULE_WEEKDAY_LABELS[schedule.weekday ?? 1] ?? 'Monday'} at ${clock}`;
+    case 'MONTHLY': {
+      const day = schedule.dayOfMonth ?? 1;
+      return `On day ${String(day)} of each month at ${clock}`;
+    }
+    default:
+      return `At ${clock}`;
+  }
+}
+
+/**
+ * The period one run covers, derived from the cadence and never stored.
+ *
+ * Every window ends *yesterday*. A schedule that ran at 06:00 and included
+ * today would export a few hours of punches and call it a day's report, which
+ * is worse than not running: the number looks real. Ending on the last complete
+ * day means a daily report is yesterday, a weekly one is the seven days up to
+ * yesterday, and a monthly one is the calendar month that has finished.
+ *
+ * `today` is the organisation-local date the run happens on, as `YYYY-MM-DD`.
+ */
+export function scheduleWindow(
+  cadence: ScheduleCadence,
+  today: string,
+): { from: string; to: string } {
+  const [year = 0, month = 1, day = 1] = today.split('-').map(Number);
+  // UTC arithmetic on a date-only value, which has no timezone of its own. The
+  // caller has already resolved "what day is it there".
+  const cursor = new Date(Date.UTC(year, month - 1, day));
+  const iso = (date: Date): string => date.toISOString().slice(0, 10);
+
+  const yesterday = new Date(cursor);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+
+  switch (cadence) {
+    case 'DAILY':
+      return { from: iso(yesterday), to: iso(yesterday) };
+    case 'WEEKLY': {
+      const start = new Date(yesterday);
+      start.setUTCDate(start.getUTCDate() - 6);
+      return { from: iso(start), to: iso(yesterday) };
+    }
+    case 'MONTHLY': {
+      // The month that contains yesterday, which on the 1st is the month that
+      // has just ended -- the case a monthly schedule exists for.
+      const start = new Date(Date.UTC(yesterday.getUTCFullYear(), yesterday.getUTCMonth(), 1));
+      const end = new Date(Date.UTC(yesterday.getUTCFullYear(), yesterday.getUTCMonth() + 1, 0));
+      return { from: iso(start), to: iso(end) };
+    }
+    default:
+      return { from: iso(yesterday), to: iso(yesterday) };
+  }
+}
+
+/**
+ * Whether a schedule is due on this organisation-local date and time.
+ *
+ * `lastRunOn` is the idempotency key and it is a date, not an instant: the
+ * sweep runs every fifteen minutes, so without it a schedule set for 06:00
+ * would fire again at 06:15, 06:30 and every sweep after it until midnight.
+ */
+export function isScheduleDue(
+  schedule: {
+    cadence: ScheduleCadence;
+    hour: number;
+    minute: number;
+    weekday?: number | null;
+    dayOfMonth?: number | null;
+    isActive: boolean;
+    lastRunOn?: string | null;
+  },
+  local: { date: string; hour: number; minute: number; weekday: number; dayOfMonth: number },
+): boolean {
+  if (!schedule.isActive) return false;
+  if (schedule.lastRunOn === local.date) return false;
+
+  if (schedule.cadence === 'WEEKLY' && schedule.weekday !== local.weekday) return false;
+  if (schedule.cadence === 'MONTHLY' && schedule.dayOfMonth !== local.dayOfMonth) return false;
+
+  // At or after the appointed minute. A sweep that missed the exact slot --
+  // the server was down, the sweep was slow -- still runs, late, rather than
+  // skipping the day silently.
+  const due = schedule.hour * 60 + schedule.minute;
+  return local.hour * 60 + local.minute >= due;
 }

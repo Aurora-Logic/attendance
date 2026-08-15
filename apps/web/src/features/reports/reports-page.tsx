@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  CalendarPlusIcon,
   CaretDownIcon,
   ChartBarIcon,
   DownloadSimpleIcon,
@@ -47,7 +48,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
 import { usePermission } from '@/lib/session/permissions';
 import { useShortcut } from '@/lib/keyboard/registry';
-import { EMPTY_VALUE, humaniseEnum } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, humaniseEnum } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   DEFAULT_PAGE_SIZE,
@@ -80,6 +81,7 @@ import {
 import { ColumnChooser } from './column-chooser';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
 import { periodFor, periodModeOf } from './period';
+import { ScheduleDialog } from './schedule-dialog';
 import { isNumericColumn, renderCell } from './format';
 import { PunchPhotoSheet } from './punch-photo-sheet';
 import { SavedViews } from './saved-views';
@@ -203,6 +205,7 @@ export function ReportsPage() {
   const [periodOpen, setPeriodOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [selectedPunch, setSelectedPunch] = useState<PunchAuditRow | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const canExport = usePermission(PERMISSIONS.REPORT_EXPORT);
   const catalogue = useReportCatalogue();
@@ -526,7 +529,19 @@ export function ReportsPage() {
     filters.flags !== null ||
     filters.punchType !== null;
 
-  const captions = describeFilters(exportFilters);
+  /*
+   * REQ-J-05: the same filters without the period.
+   *
+   * Stripped here rather than left to the server's schema to drop. The request
+   * should say what it means, and a payload carrying 01-08 to 31-08 for a
+   * schedule that will never use those dates is a payload somebody debugging
+   * this will believe.
+   */
+  const { from: _from, to: _to, ...scheduleFilters } = exportFilters;
+
+  // REQ-L-01, the same formatting the exported file uses, so the caption bar on
+  // screen and the header block in the download agree about what a date is.
+  const captions = describeFilters(exportFilters, {}, formatDate);
 
   return (
     <>
@@ -574,7 +589,6 @@ export function ReportsPage() {
                       <CaretDownIcon />
                     </Button>
                   }
-                  nativeButton={false}
                 />
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
@@ -590,6 +604,17 @@ export function ReportsPage() {
                     }}
                   >
                     Comma-separated (.csv)
+                  </DropdownMenuItem>
+                  {/* REQ-J-05, in the export menu rather than as a third
+                      toolbar button: it is the same action on a timer, and a
+                      third button crowds the header at 360px. */}
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setScheduleOpen(true);
+                    }}
+                  >
+                    <CalendarPlusIcon data-icon="inline-start" />
+                    Schedule this report
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -820,6 +845,15 @@ export function ReportsPage() {
         open={switcherOpen}
         onOpenChange={setSwitcherOpen}
         onSelect={switchReport}
+      />
+
+      <ScheduleDialog
+        reportKey={reportKey}
+        filters={scheduleFilters}
+        columns={visibleColumns}
+        sort={sort}
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
       />
 
       <PunchPhotoSheet

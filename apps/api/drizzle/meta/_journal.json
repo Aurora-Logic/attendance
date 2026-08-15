@@ -127,6 +127,13 @@
       "when": 1786624000000,
       "tag": "0017_regularization_approval_join",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786626000000,
+      "tag": "0018_report_schedules",
+      "breakpoints": true
     }
   ]
 }

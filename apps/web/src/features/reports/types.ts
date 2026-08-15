@@ -7,6 +7,7 @@ import {
   REPORT_DEFINITIONS,
   REPORT_FILTER_NAMES,
   REPORT_KEYS,
+  SCHEDULE_CADENCES,
   absenteeismCell,
   attendanceExceptionCell,
   attendanceRegisterCell,
@@ -25,6 +26,7 @@ import {
   type ReportCellValue,
   type ReportDefinition,
   type ReportKey,
+  type ReportSchedule,
   type SavedView,
 } from '@vyuha/shared';
 
@@ -171,6 +173,36 @@ export const exportJobSchema = z.object({
 }) satisfies z.ZodType<ExportJobSummary>;
 
 export const exportJobListSchema = z.object({ data: z.array(exportJobSchema) });
+
+/**
+ * REQ-J-05, one scheduled export as the list reads it.
+ *
+ * Pinned to the shared `ReportSchedule` with `satisfies`, for the reason the
+ * attendance day wire row gives: a field the server stops sending is then a
+ * compile error here rather than an `undefined` that renders as a blank cell.
+ */
+export const reportScheduleSchema = z.object({
+  id: z.string(),
+  reportKey: z.enum(REPORT_KEYS),
+  name: z.string(),
+  filters: reportFilterSchema,
+  columns: z.array(z.string()),
+  sort: z.string().nullable(),
+  format: z.enum(EXPORT_FORMATS),
+  cadence: z.enum(SCHEDULE_CADENCES),
+  hour: z.number(),
+  minute: z.number(),
+  weekday: z.number().nullable(),
+  dayOfMonth: z.number().nullable(),
+  isActive: z.boolean(),
+  owner: z.object({ id: z.string(), name: z.string() }),
+  lastRunOn: z.string().nullable(),
+  lastExportJobId: z.string().nullable(),
+  lastRunStatus: z.enum(EXPORT_STATUSES).nullable(),
+  createdAt: z.string(),
+}) satisfies z.ZodType<ReportSchedule>;
+
+export const reportScheduleListSchema = z.array(reportScheduleSchema);
 
 export const exportDownloadSchema = z.object({
   url: z.url(),

@@ -18,6 +18,7 @@ import {
   type Paginated,
   type ReportDefinition,
   type ReportKey,
+  type ReportSchedule,
   type SavedView,
 } from '@vyuha/shared';
 
@@ -29,11 +30,14 @@ import {
   ExportListQueryDto,
   ExportRequestDto,
   ReportRowQueryDto,
+  ReportScheduleInputDto,
   SavedViewInputDto,
   SavedViewQueryDto,
+  SchedulePauseDto,
 } from './report.dto.js';
 import { ReportService, type ReportRow } from './report.service.js';
 import { SavedViewService } from './saved-view.service.js';
+import { ScheduleService } from './schedule.service.js';
 
 /**
  * `/api/v1/reports` (REQ-J-01 … REQ-J-06).
@@ -54,6 +58,7 @@ export class ReportController {
     private readonly reports: ReportService,
     private readonly exports: ExportService,
     private readonly views: SavedViewService,
+    private readonly schedules: ScheduleService,
   ) {}
 
   /**
@@ -142,6 +147,49 @@ export class ReportController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ExportDownload> {
     return this.exports.download(principal, id);
+  }
+
+  // ------------------------------------------------------------- schedules
+
+  /*
+   * REQ-J-05. Guarded on `report.export` rather than `report.view`: a schedule
+   * produces a file on a timer, which is the export risk and not the reading
+   * one. Declared before `:reportKey/rows` -- Express matches in registration
+   * order, and `schedules` would otherwise be read as a report key.
+   */
+  @Get('schedules')
+  @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  listSchedules(@CurrentUser() principal: Principal): Promise<ReportSchedule[]> {
+    return this.schedules.list(principal);
+  }
+
+  @Post('schedules')
+  @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  createSchedule(
+    @CurrentUser() principal: Principal,
+    @Body() body: ReportScheduleInputDto,
+  ): Promise<ReportSchedule> {
+    return this.schedules.create(principal, body);
+  }
+
+  @Post('schedules/:id/active')
+  @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  pauseSchedule(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SchedulePauseDto,
+  ): Promise<ReportSchedule> {
+    return this.schedules.setActive(principal, id, body.isActive);
+  }
+
+  @Delete('schedules/:id')
+  @RequirePermission(PERMISSIONS.REPORT_EXPORT)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteSchedule(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.schedules.remove(principal, id);
   }
 
   // ------------------------------------------------------------------ rows

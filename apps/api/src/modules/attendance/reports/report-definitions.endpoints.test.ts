@@ -434,6 +434,12 @@ afterAll(async () => {
   await harness.close();
 }, 60_000);
 
+/** REQ-L-01: how a `YYYY-MM-DD` appears in a file this organisation produces. */
+function asOrgDate(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${d}-${m}-${y}`;
+}
+
 describe('the catalogue', () => {
   it('offers every report REQ-J-01 names, and not the one the client dropped', () => {
     const keys = Object.keys(REPORT_DEFINITIONS);
@@ -961,8 +967,10 @@ describe('exporting a derived report', () => {
   it('states the single date rather than a range for the daily muster', async () => {
     const { csv } = await exportReport(hrToken, 'daily-muster');
     expect(csv).toContain('Daily muster');
-    expect(csv).toContain(`Date,${MONTH_TO}`);
-    expect(csv).not.toContain(`Period,${MONTH_FROM} to ${MONTH_TO}`);
+    // REQ-L-01: the caption is written the organisation's way, not ISO --
+    // the same way the Generated line below it is.
+    expect(csv).toContain(`Date,${asOrgDate(MONTH_TO)}`);
+    expect(csv).not.toContain(`Period,${asOrgDate(MONTH_FROM)} to ${asOrgDate(MONTH_TO)}`);
   }, 120_000);
 
   it('writes the exception summary as the screen renders it, durations and all', async () => {

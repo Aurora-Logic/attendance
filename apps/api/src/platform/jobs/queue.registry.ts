@@ -59,6 +59,22 @@ export interface JobPayloads {
   };
 
   /**
+   * REQ-J-05's sweep: every scheduled export that has come due.
+   *
+   * Carries no schedule id. One sweep reads the table and decides, rather than
+   * a job per schedule -- which would mean BullMQ schedulers created and torn
+   * down as people add and remove schedules, and a set of cron entries able to
+   * drift out of step with the rows they came from.
+   *
+   * `now` exists for the tests. The cron entry never sets it, and a run with it
+   * absent uses the clock; a run with it set can ask what is due at 06:05 in
+   * Asia/Kolkata without waiting for 06:05 in Asia/Kolkata.
+   */
+  'run-report-schedules': {
+    readonly now?: string;
+  };
+
+  /**
    * REQ-M-05: everything the system holds about one employee, as a file.
    *
    * Same shape as `generate-report-export` and for the same reason -- only the
@@ -176,6 +192,9 @@ export type JobName = keyof JobPayloads;
 export const JOB_QUEUE: Record<JobName, QueueName> = {
   'purge-expired-files': QUEUES.MAINTENANCE,
   'generate-report-export': QUEUES.EXPORT,
+  // On the export queue with the jobs it starts, so a backlog of exports also
+  // delays the sweep that would add to it rather than racing ahead of it.
+  'run-report-schedules': QUEUES.EXPORT,
   'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-notification': QUEUES.NOTIFICATION,
@@ -289,6 +308,11 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // REQ-G-11. Daily, because the warnings are at 7 and 2 days and a weekly
   // sweep would miss the 2-day one entirely.
   { schedulerId: 'leave:expire-comp-off', jobName: 'expire-comp-off', pattern: '30 3 * * *' },
+  // REQ-J-05. Every 15 minutes, which is the resolution a schedule gets: one
+  // set for 06:00 runs somewhere in 06:00-06:14. The sweep asks each
+  // organisation what time it is there, so the cron's own timezone decides
+  // nothing (NFR-05).
+  { schedulerId: 'reports:run-schedules', jobName: 'run-report-schedules', pattern: '*/15 * * * *' },
   // REQ-K-03. Every 15 minutes, because a reminder is only useful shortly
   // before the shift it names and shift start times are not on the hour. The
   // sweep costs one preference query per organisation when nobody has opted

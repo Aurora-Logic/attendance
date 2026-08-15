@@ -1,6 +1,7 @@
 import {
   exportRequestSchema,
   reportRowQuerySchema,
+  reportScheduleInputSchema,
   savedViewInputSchema,
   savedViewQuerySchema,
 } from '@vyuha/shared';
@@ -24,3 +25,9 @@ export class ExportRequestDto extends createZodDto(exportRequestSchema) {}
 export class ExportListQueryDto extends createZodDto(exportListQuerySchema) {}
 export class SavedViewInputDto extends createZodDto(savedViewInputSchema) {}
 export class SavedViewQueryDto extends createZodDto(savedViewQuerySchema) {}
+
+/** REQ-J-05. Pausing and resuming is the only edit a schedule takes. */
+export const schedulePauseSchema = z.object({ isActive: z.boolean() });
+
+export class ReportScheduleInputDto extends createZodDto(reportScheduleInputSchema) {}
+export class SchedulePauseDto extends createZodDto(schedulePauseSchema) {}
