@@ -13,6 +13,8 @@ import {
 import { format } from 'date-fns';
 
 import { Form } from '@/components/shared/form';
+import { DayStatePanel } from './day-state-panel';
+import { punchDayState } from './day-state';
 import { PageHeader } from '@/components/shared/page-header';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -554,6 +556,39 @@ export function PunchPage() {
   }
 
   const punchingIn = today.nextPunchType === 'IN';
+
+  // What kind of day this is, decided before anything else is drawn. A holiday
+  // is not a broken punch screen and must not look like one.
+  const dayState = punchDayState({
+    status: today.status,
+    nextPunchType: today.nextPunchType,
+    hasShift: today.shift !== null,
+    lastPunchAt: today.lastPunch?.at ?? null,
+  });
+
+  if (!dayState.canPunch) {
+    return (
+      <>
+        <PageHeader description="Punch in and out. A live photo is required every time." />
+        <div className="flex flex-col gap-4">
+          <StatusStrip
+            now={now}
+            date={today.date}
+            shiftName={today.shift?.name ?? '—'}
+            window={shiftWindow}
+            statusSlot={today.status ? <AttendanceStatusBadge status={today.status} /> : null}
+            lastPunch={
+              today.lastPunch
+                ? `${today.lastPunch.type === 'IN' ? 'In' : 'Out'} ${formatClock(today.lastPunch.at)}`
+                : 'None today'
+            }
+          />
+          <DayStatePanel state={dayState} />
+          {queuePanel}
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
