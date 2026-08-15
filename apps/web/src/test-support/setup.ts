@@ -82,6 +82,16 @@ Element.prototype.hasPointerCapture = vi.fn(() => false);
 Element.prototype.setPointerCapture = vi.fn();
 Element.prototype.releasePointerCapture = vi.fn();
 
+/*
+ * Base UI's ScrollArea asks its viewport what is animating, on a timer.
+ *
+ * jsdom has no Web Animations API, so the call throws from inside a `setTimeout`
+ * — outside any test's stack, which Vitest reports as an uncaught exception and
+ * a non-zero exit even though every assertion passed. Nothing is animating in
+ * jsdom, so an empty list is the honest answer rather than a convenient one.
+ */
+Element.prototype.getAnimations = vi.fn(() => []);
+
 afterEach(() => {
   cleanup();
   setViewportMatches(false);

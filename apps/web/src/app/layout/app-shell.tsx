@@ -1,4 +1,5 @@
 import {
+  CalculatorIcon,
   CompassIcon,
   InfoIcon,
   KeyboardIcon,
@@ -45,6 +46,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/toast';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { CalculatorButton, CalculatorPanel, useCalculatorStore } from '@/features/calculator';
 import { GuideOverlay } from '@/features/guide';
 import { NotificationBell } from '@/features/notifications';
 import { hasUnread } from '@/features/updates';
@@ -181,6 +183,9 @@ function UserMenu() {
    * item can reach a component beside it.
    */
   const startTour = useGuideStore((s) => s.arm);
+  // The action alone, which is a stable reference, so opening or closing the
+  // calculator never re-renders the header. Selecting the whole store would.
+  const openCalculator = useCalculatorStore((s) => s.openPanel);
   /*
    * The unread dot.
    *
@@ -297,6 +302,23 @@ function UserMenu() {
               >
                 <CompassIcon data-icon="inline-start" />
                 Take the tour
+              </Button>
+              {/* REQ-N-03 asks for the calculator on any screen, and on a phone
+                  this is the only way in: the header button that carries the
+                  shortcut hint is hidden below sm, and Ctrl+N needs a keyboard
+                  the device does not have. Without this row the panel would be
+                  built responsive and then be unreachable at the width the
+                  responsiveness was for. */}
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSheetOpen(false);
+                  openCalculator();
+                }}
+              >
+                <CalculatorIcon data-icon="inline-start" />
+                Calculator
               </Button>
             </div>
 
@@ -542,6 +564,13 @@ export function AppShell() {
                 somebody sees a dot. */}
             <NotificationBell />
 
+            {/* REQ-N-03, and the only place the shortcut is advertised: the
+                hint chip PRD §6.4 asks for rides on this button. Hidden below
+                sm because a phone has no keyboard to hint at and the header
+                has no room, not because the calculator is unavailable there --
+                it opens as a Sheet once something else summons it. */}
+            <CalculatorButton className="hidden sm:inline-flex" />
+
             <UserMenu />
           </div>
         </header>
@@ -594,6 +623,11 @@ export function AppShell() {
 
       <GoToPalette />
       <ShortcutDialog />
+      {/* REQ-N-03. Outside the screen's ShortcutLayer for the reason the tour
+          gives below: its own layer suspends the screen's keys while it is up,
+          so typing 7 into the calculator cannot also trigger whatever 7 means
+          on the screen behind it. */}
+      <CalculatorPanel />
       {/* Renders null unless a run is in progress, so the cost to somebody who
           never takes the tour is one mounted component doing nothing. Sits
           outside the screen's ShortcutLayer on purpose: it pushes a layer of
