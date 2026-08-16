@@ -19,40 +19,48 @@ at `c30941d` and contains none of this work.
 | REQ-O-01…O-04 module registry, Administration shell, sidebar 22 → 10 | `39373e4` | Driven in a browser; 400 web tests |
 | REQ-P-02 (5 of 8 files) → `platform/export` | `fe01a02` | 1598 tests |
 | REQ-P-03 union + widest scope asserted | `c375d97` | 4 tests, falsified by a first-role-only resolver |
+| OQ P2-3 role assignment endpoint and UI | `31f855f` | Pre-dated this branch — see below. 15 live checks + 29 API tests, 16 Aug |
 
 ## Next, in order
 
-1. **Role assignment endpoint and UI** — OPEN-QUESTIONS P2-3, and what actually
-   blocks D-15. `RbacAdminService.assignRoleToUser` and `removeRoleFromUser`
-   already exist **and already enforce the last-holder invariant**; only the
-   HTTP route and the screen are missing. `role.controller.ts` has GET, POST and
-   PATCH, but those are role CRUD, not granting a role to a person.
-   Prefer a *set* endpoint (replace the whole role set for a user) over
-   add/remove — multi-role means the set is the unit, and two round trips to
-   swap a role can leave a person briefly holding neither.
-
-2. **REQ-O-05 Go To as a record index.** `09` §6 calls this the real
+1. **REQ-O-05 Go To as a record index.** `09` §6 calls this the real
    navigation, and it is what makes REQ-O-04's cap stop mattering. Employees
    first; the index must be extensible without editing it per module.
 
-3. **REQ-P-02 remainder.** `export.service.ts` and `schedule.service.ts` are
+2. **REQ-P-02 remainder.** `export.service.ts` and `schedule.service.ts` are
    generic in shape but import attendance's `report.service` and
    `report.repository` to learn what a report *is*. Needs the same inversion
    `ApprovalSubjectRegistry` already demonstrates: the platform defines the
    interface, the module registers its definitions. **Phase 6d depends on this**
    — REQ-Y-06 puts every receivables screen under the report shell.
 
-4. **REQ-P-04 remainder.** `APPROVAL_ACT_KEYS`, `APPROVAL_READ_KEYS` and
+3. **REQ-P-04 remainder.** `APPROVAL_ACT_KEYS`, `APPROVAL_READ_KEYS` and
    `APPROVAL_SCOPE_GRANTS` still name leave keys. They feed
    `@RequirePermission(...)`, evaluated at class-definition time, so a runtime
    registry cannot supply them — they need a declared catalogue in
    `packages/shared`. Different shape of fix from the two already done.
 
-5. **Exit gate.** `/ultrareview` plus a full regression, per `10` §2.
+4. **Exit gate.** `/ultrareview` plus a full regression, per `10` §2.
 
-## Two places the documents are wrong
+## Three places the documents are wrong
 
 Found while building, not by reading.
+
+- **This file's own item 1 described work that already existed.** The role
+  assignment endpoint (`/employees/:id/access`, `employee-access.controller.ts`)
+  and the screen (`employee-access-section.tsx` on the employee record) landed
+  14 Aug in `31f855f` — hours *after* the OPEN-QUESTIONS P2-3 entry said they
+  were missing, and inside `v1.0.0-attendance`. The entry here copied P2-3
+  instead of checking the code. Verified live 16 Aug against the running stack:
+  grant, union with existing roles (D-15), idempotent regrant, unknown-role
+  404, revoke restoring the original set, audit rows for both writes, and the
+  section rendering — 15 checks, zero page exceptions, plus the 29 tests in
+  `employee-access.endpoints.test.ts`, `multi-role.test.ts` and
+  `rbac-admin.service.test.ts`. The *set*-endpoint preference written here is
+  withdrawn with the entry: what exists is add/remove, one role per request,
+  each with its own reason and audit row — a deliberate choice recorded in the
+  component — and the swap-leaves-neither worry it was guarding against is
+  answered by granting before revoking, which the UI's shape naturally does.
 
 - **D-15 says multi-role is "a small change to `user_roles`".** It needs no
   change. The table has always been many-to-many keyed `(user_id, role_id)`,
