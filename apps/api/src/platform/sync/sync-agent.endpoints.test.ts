@@ -233,6 +233,13 @@ describe('claiming work (REQ-Q-02, 09 §7)', () => {
   });
 
   it('claims the oldest queued job exactly once', async () => {
+    // Close whatever is open first: the one-open-job index (0022) refuses a
+    // second open pull per entity type, and the sweep may legitimately have
+    // enqueued one for this connection already.
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE', updated_at = now()
+       WHERE connection_id = ${connectionId} AND state IN ('QUEUED', 'CLAIMED')
+    `);
     await harness.db.execute(sql`
       INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type, payload)
       VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'party', '{"sinceAlterId": 0}'::jsonb)
@@ -381,6 +388,11 @@ describe('pull results become the projection (09 §3.2, REQ-R-01, REQ-T-03)', ()
     });
     expect(hb.status).toBe(200);
 
+    // Same closing move as the claim tests: the epoch owns its queue.
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE', updated_at = now()
+       WHERE connection_id = ${connectionId} AND state IN ('QUEUED', 'CLAIMED')
+    `);
     await harness.db.execute(sql`
       INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)
       VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'party')

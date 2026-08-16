@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   index,
@@ -97,7 +98,18 @@ export const syncJobs = pgTable(
   // `created_at` is in the index so the claim query walks the queue in order
   // and locks the first available head, instead of sorting every queued row
   // on every poll of a polled endpoint.
-  (t) => [index('sync_jobs_claim_idx').on(t.connectionId, t.state, t.createdAt)],
+  (t) => [
+    index('sync_jobs_claim_idx').on(t.connectionId, t.state, t.createdAt),
+    /*
+     * One open job per connection per entity type. The 15-minute sweep can
+     * then enqueue with ON CONFLICT DO NOTHING: an agent that was away for a
+     * day finds one waiting job, not ninety-six copies -- and the invariant
+     * is the schema's, not the sweep's discipline.
+     */
+    uniqueIndex('sync_jobs_one_open_uq')
+      .on(t.connectionId, t.entityType)
+      .where(sql`state IN ('QUEUED', 'CLAIMED')`),
+  ],
 );
 
 /**

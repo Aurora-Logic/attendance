@@ -8,8 +8,11 @@ import {
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
+import { z } from 'zod';
+
 import {
   PERMISSIONS,
+  SYNC_ENTITY_TYPES,
   createIntegrationConnectionSchema,
   type IntegrationConnectionView,
   type IntegrationListResponse,
@@ -19,9 +22,13 @@ import {
 import { createZodDto } from '../common/zod-validation.pipe.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
+import { SyncSchedulerService } from '../sync/sync-scheduler.service.js';
 import { IntegrationService } from './integration.service.js';
 
 class CreateIntegrationConnectionDto extends createZodDto(createIntegrationConnectionSchema) {}
+
+const manualPullSchema = z.object({ entityType: z.enum(SYNC_ENTITY_TYPES) });
+class ManualPullDto extends createZodDto(manualPullSchema) {}
 
 /**
  * `/api/v1/integrations` (technical design §14). PRD §2.1's `integration.manage`.
@@ -37,7 +44,10 @@ class CreateIntegrationConnectionDto extends createZodDto(createIntegrationConne
  */
 @Controller('integrations')
 export class IntegrationController {
-  constructor(private readonly integrations: IntegrationService) {}
+  constructor(
+    private readonly integrations: IntegrationService,
+    private readonly scheduler: SyncSchedulerService,
+  ) {}
 
   @Get()
   @RequirePermission(PERMISSIONS.INTEGRATION_MANAGE)
@@ -57,6 +67,25 @@ export class IntegrationController {
     @Body() body: CreateIntegrationConnectionDto,
   ): Promise<IntegrationConnectionView> {
     return this.integrations.create(principal, body);
+  }
+
+  /**
+   * REQ-R-07's on-demand pull (09 §5 spells it POST /sync/connections/:id/pull;
+   * it lives here because this is where the connection's admin surface is).
+   * Guarded by integration.manage for now — 08 §2.2's `tally.sync.run` key
+   * arrives with the Accounts role in the Phase 6-8 permission expansion, and
+   * widening a guard later is a one-line change; starting wide is not.
+   * 202: the pull is queued for the agent's next poll, not performed here.
+   */
+  @Post(':id/pull')
+  @RequirePermission(PERMISSIONS.INTEGRATION_MANAGE)
+  @HttpCode(HttpStatus.ACCEPTED)
+  requestPull(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ManualPullDto,
+  ): Promise<{ jobId: string; entityType: string; alreadyQueued: boolean }> {
+    return this.scheduler.enqueueManualPull(principal, id, body.entityType);
   }
 
   /**

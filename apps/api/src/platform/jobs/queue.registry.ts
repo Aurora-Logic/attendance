@@ -75,6 +75,17 @@ export interface JobPayloads {
   };
 
   /**
+   * REQ-R-07: masters sync runs on a schedule. One sweep enqueues a pull job
+   * per eligible connection per entity type with a writer, rather than a
+   * BullMQ entry per connection -- connections are rows, and cron entries
+   * that mirror rows drift from them. The real work happens when the agent
+   * claims the job; this only makes work exist.
+   */
+  'enqueue-sync-pulls': {
+    readonly now?: string;
+  };
+
+  /**
    * REQ-M-05: everything the system holds about one employee, as a file.
    *
    * Same shape as `generate-report-export` and for the same reason -- only the
@@ -195,6 +206,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   // On the export queue with the jobs it starts, so a backlog of exports also
   // delays the sweep that would add to it rather than racing ahead of it.
   'run-report-schedules': QUEUES.EXPORT,
+  'enqueue-sync-pulls': QUEUES.MAINTENANCE,
   'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-notification': QUEUES.NOTIFICATION,
@@ -313,6 +325,11 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // organisation what time it is there, so the cron's own timezone decides
   // nothing (NFR-05).
   { schedulerId: 'reports:run-schedules', jobName: 'run-report-schedules', pattern: '*/15 * * * *' },
+  // REQ-R-07's default cadence. The sweep is cheap when nothing is eligible
+  // -- one query -- and the one-open-job invariant on sync_jobs means an
+  // agent that has been away simply finds the same job still waiting, not
+  // fifteen copies of it.
+  { schedulerId: 'sync:enqueue-pulls', jobName: 'enqueue-sync-pulls', pattern: '*/15 * * * *' },
   // REQ-K-03. Every 15 minutes, because a reminder is only useful shortly
   // before the shift it names and shift start times are not on the hour. The
   // sweep costs one preference query per organisation when nobody has opted

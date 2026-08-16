@@ -4,6 +4,8 @@ import { AuthModule } from '../auth/auth.module.js';
 import { AgentAuthService } from './agent-auth.service.js';
 import { SyncAgentController } from './sync-agent.controller.js';
 import { SyncAgentService } from './sync-agent.service.js';
+import { SyncPullSweepHandler } from './sync-pull-sweep.handler.js';
+import { SyncSchedulerService } from './sync-scheduler.service.js';
 import { SyncWriterService } from './sync-writer.service.js';
 
 /**
@@ -21,7 +23,7 @@ import { SyncWriterService } from './sync-writer.service.js';
   // window machinery, in their own scope.
   imports: [AuthModule],
   controllers: [SyncAgentController],
-  providers: [AgentAuthService, SyncAgentService, SyncWriterService],
-  exports: [AgentAuthService],
+  providers: [AgentAuthService, SyncAgentService, SyncWriterService, SyncSchedulerService, SyncPullSweepHandler],
+  exports: [AgentAuthService, SyncSchedulerService],
 })
 export class SyncModule {}
