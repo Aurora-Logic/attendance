@@ -4,6 +4,8 @@ import {
   type AgentClaimInput,
   type AgentClaimResponse,
   type AgentCondition,
+  type AgentErrorAck,
+  type AgentErrorInput,
   type AgentHeartbeatAck,
   type AgentHeartbeatInput,
   type ClaimedSyncJob,
@@ -209,6 +211,74 @@ export class SyncAgentService {
       attempts: row.attempts,
     };
     return { job };
+  }
+
+  /**
+   * The agent's failure report (09 §5): one transaction that journals the
+   * exchange, fails the job this instance holds (if it named one), and
+   * raises the exception REQ-T-01 puts in front of a person.
+   *
+   * The job UPDATE carries the same ownership predicate the writer uses —
+   * this connection, this instance, still CLAIMED — so a report from a
+   * deposed agent cannot fail a job its successor is working. A report that
+   * matches no job still journals and still raises the exception: the error
+   * happened whether or not the queue remembers the work.
+   */
+  async reportError(agent: AgentPrincipal, input: AgentErrorInput): Promise<AgentErrorAck> {
+    const outcome = await this.db.transaction(async (tx) => {
+      // Pulls are the only direction until the push slices land; the journal
+      // needs a direction and PULL is the only one that can have produced an
+      // agent-side error today.
+      await tx.execute(sql`
+        INSERT INTO sync_journal
+          (org_id, connection_id, direction, entity_type, request_hash, response_hash,
+           request_body, response_body, result, error_code, error_text, duration_ms)
+        VALUES
+          (${agent.orgId}, ${agent.connectionId}, 'PULL', ${input.entityType ?? null},
+           ${input.requestHash ?? 'unrecorded'}, ${input.responseHash ?? null},
+           ${input.requestBody ?? null}, ${input.responseBody ?? null},
+           'error', ${input.errorCode ?? null}, ${input.errorText},
+           ${input.durationMs ?? null})
+      `);
+
+      let jobFailed = false;
+      if (input.jobId !== undefined) {
+        const failed = await tx.execute<{ id: string }>(sql`
+          UPDATE sync_jobs
+             SET state = 'FAILED', updated_at = now()
+           WHERE id = ${input.jobId}
+             AND connection_id = ${agent.connectionId}
+             AND state = 'CLAIMED'
+             AND claimed_by = ${input.agentInstanceId}
+           RETURNING id
+        `);
+        jobFailed = failed.rows.length > 0;
+      }
+
+      const exception = await tx.execute<{ id: string }>(sql`
+        INSERT INTO sync_exceptions
+          (org_id, connection_id, kind, entity_type, tally_error)
+        VALUES
+          (${agent.orgId}, ${agent.connectionId}, 'AGENT_ERROR',
+           ${input.entityType ?? null}, ${input.errorText})
+        RETURNING id
+      `);
+      const exceptionId = exception.rows[0]?.id;
+      if (exceptionId === undefined) throw new Error('Exception insert returned no row.');
+
+      return { exceptionId, jobFailed };
+    });
+
+    // Rare and material, unlike the heartbeat: this one keeps its audit row.
+    this.logger.warn({
+      msg: 'Agent reported an error',
+      connectionId: agent.connectionId,
+      entityType: input.entityType ?? null,
+      errorCode: input.errorCode ?? null,
+      jobFailed: outcome.jobFailed,
+    });
+
+    return outcome;
   }
 
   // ------------------------------------------------------------- internals

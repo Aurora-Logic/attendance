@@ -162,6 +162,13 @@
       "when": 1786891718703,
       "tag": "0022_one_open_pull",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786895763768,
+      "tag": "0023_sync_exceptions",
+      "breakpoints": true
     }
   ]
 }

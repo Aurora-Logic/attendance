@@ -42,6 +42,8 @@ export const syncJobStateEnum = pgEnum('sync_job_state', [
   'FAILED',
 ]);
 
+export const syncExceptionStateEnum = pgEnum('sync_exception_state', ['OPEN', 'RESOLVED']);
+
 /**
  * One row per company per entity type: the last AlterID durably committed.
  *
@@ -153,5 +155,45 @@ export const syncJournal = pgTable(
     index('sync_journal_connection_idx').on(t.connectionId, t.createdAt),
     // The 30-day sweep selects by age where bodies are still present.
     index('sync_journal_sweep_idx').on(t.createdAt),
+  ],
+);
+
+/**
+ * What a person must look at (REQ-T-01): every unresolved conflict,
+ * rejection or ambiguity, with Tally's own words attached.
+ *
+ * Mutable, unlike the journal, because resolution *is* its lifecycle — but
+ * the evidence never lives here. `tally_error` is a copy for the screen; the
+ * journal row is the proof, and resolving an exception rewrites nothing
+ * about what happened. `kind` is text, not an enum: conflict (REQ-T-02) and
+ * drift (REQ-T-08) arrive in later slices, and each producer names its own
+ * kind the way `entity_type` already works.
+ */
+export const syncExceptions = pgTable(
+  'sync_exceptions',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => integrationConnections.id, { onDelete: 'restrict' }),
+    kind: text('kind').notNull(),
+    entityType: text('entity_type'),
+    entityId: uuid('entity_id'),
+    /** Tally's verbatim words, because a paraphrase cannot be acted on. */
+    tallyError: text('tally_error').notNull(),
+    state: syncExceptionStateEnum('state').notNull().default('OPEN'),
+    resolvedBy: uuid('resolved_by'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolutionNote: text('resolution_note'),
+    ...auditColumns(),
+  },
+  // The screen reads "everything open, newest first" per org; the connection
+  // detail reads the same per connection.
+  (t) => [
+    index('sync_exceptions_org_state_idx').on(t.orgId, t.state, t.createdAt),
+    index('sync_exceptions_connection_idx').on(t.connectionId, t.state),
   ],
 );

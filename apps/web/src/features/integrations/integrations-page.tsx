@@ -45,8 +45,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
+import { Textarea } from '@/components/ui/textarea';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { EMPTY_VALUE } from '@/lib/format';
+import { EMPTY_VALUE, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -55,8 +56,16 @@ import {
   STATUS_VARIANT,
   statusExplanation,
   type IntegrationConnection,
+  type SyncException,
 } from './types';
-import { useCreateConnection, useIntegrations, useIssueToken, usePullNow } from './use-integrations';
+import {
+  useCreateConnection,
+  useIntegrations,
+  useIssueToken,
+  usePullNow,
+  useResolveException,
+  useSyncExceptions,
+} from './use-integrations';
 
 /**
  * Technical design §14 / PRD §5: the Tally seam, now with its two writes.
@@ -117,6 +126,12 @@ export function IntegrationsPage() {
   const [rotating, setRotating] = useState<IntegrationConnection | null>(null);
   const [issuedToken, setIssuedToken] = useState<string | null>(null);
 
+  /** The exception being resolved, and the operator's note about it. */
+  const exceptions = useSyncExceptions({ enabled: canManage });
+  const resolve = useResolveException();
+  const [resolving, setResolving] = useState<SyncException | null>(null);
+  const [resolutionNote, setResolutionNote] = useState('');
+
   function submitCreate() {
     create.mutate(
       {
@@ -158,6 +173,24 @@ export function IntegrationsPage() {
         // one composed here.
         onError: (error) => {
           toast.add({ type: 'error', title: 'The pull was not queued', description: error.message });
+        },
+      },
+    );
+  }
+
+  function submitResolution() {
+    if (resolving === null) return;
+    resolve.mutate(
+      { exceptionId: resolving.id, note: resolutionNote.trim() },
+      {
+        onSuccess: () => {
+          toast.add({
+            type: 'success',
+            title: 'Exception resolved',
+            description: 'It leaves this list; the journal keeps what happened.',
+          });
+          setResolving(null);
+          setResolutionNote('');
         },
       },
     );
@@ -365,6 +398,58 @@ export function IntegrationsPage() {
           </>
         ) : null}
 
+        {/* REQ-T-01: every unresolved conflict, rejection or ambiguity, with
+            Tally's verbatim words. Rendered only when there is something or
+            the fetch failed -- a permanent empty section would teach the
+            reader to stop looking at exactly the list that must be looked at. */}
+        {exceptions.isError ? (
+          <QueryErrorAlert
+            error={exceptions.error}
+            subject="sync exceptions"
+            onRetry={() => {
+              void exceptions.refetch();
+            }}
+          />
+        ) : null}
+        {exceptions.isSuccess && exceptions.data.data.length > 0 ? (
+          <div className="flex flex-col gap-3 border p-4">
+            <SectionHeading
+              title="Sync exceptions"
+              note="Each needs a person; resolving asks what was done."
+            />
+            <ul className="flex flex-col divide-y">
+              {exceptions.data.data.map((exception) => (
+                <li key={exception.id} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{exception.connectionName}</span>
+                    <Badge variant="outline">{exception.kind.replaceAll('_', ' ')}</Badge>
+                    {exception.entityType === null ? null : (
+                      <Badge variant="outline">{exception.entityType.replaceAll('_', ' ')}</Badge>
+                    )}
+                    <span className="text-muted-foreground text-xs">
+                      {formatRelativeAge(exception.createdAt)}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="pointer-coarse:min-h-11 ml-auto"
+                      onClick={() => {
+                        resolve.reset();
+                        setResolutionNote('');
+                        setResolving(exception);
+                      }}
+                    >
+                      Resolve
+                    </Button>
+                  </div>
+                  {/* Tally's words, not a paraphrase (REQ-T-01). */}
+                  <p className="text-muted-foreground text-sm break-words">{exception.tallyError}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-3 border p-4">
           <SectionHeading
             title="How the Tally agent connects"
@@ -509,6 +594,63 @@ export function IntegrationsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={resolving !== null}
+        onOpenChange={(next) => {
+          if (!next) setResolving(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Resolve this exception?</DialogTitle>
+            <DialogDescription>
+              Say what was done — the note is what stops the same problem returning in a month
+              with nobody remembering this round. The journal keeps the exchange either way.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <p className="text-muted-foreground border p-3 text-sm break-words">
+              {resolving?.tallyError}
+            </p>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="resolution-note">What was done</Label>
+              <Textarea
+                id="resolution-note"
+                value={resolutionNote}
+                onChange={(event) => {
+                  setResolutionNote(event.target.value);
+                }}
+                placeholder="Voucher corrected in Tally; re-pull queued"
+                maxLength={2000}
+                rows={3}
+              />
+            </div>
+            {resolve.isError ? (
+              <Alert variant="destructive">
+                <AlertTitle>The exception was not resolved</AlertTitle>
+                <AlertDescription>{resolve.error.message}</AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setResolving(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={resolutionNote.trim().length < 3 || resolve.isPending}
+              onClick={submitResolution}
+            >
+              {resolve.isPending ? 'Resolving' : 'Resolve exception'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={issuedToken !== null}

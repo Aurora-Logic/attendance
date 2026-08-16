@@ -7,16 +7,20 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import { z } from 'zod';
 
 import {
   PERMISSIONS,
   SYNC_ENTITY_TYPES,
+  SYNC_EXCEPTION_STATES,
   createIntegrationConnectionSchema,
+  resolveSyncExceptionSchema,
   type IntegrationConnectionView,
   type IntegrationListResponse,
   type IssuedAgentToken,
+  type SyncExceptionView,
 } from '@vyuha/shared';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
@@ -29,6 +33,12 @@ class CreateIntegrationConnectionDto extends createZodDto(createIntegrationConne
 
 const manualPullSchema = z.object({ entityType: z.enum(SYNC_ENTITY_TYPES) });
 class ManualPullDto extends createZodDto(manualPullSchema) {}
+
+const exceptionListQuerySchema = z.object({
+  state: z.enum(SYNC_EXCEPTION_STATES).default('OPEN'),
+});
+class ExceptionListQueryDto extends createZodDto(exceptionListQuerySchema) {}
+class ResolveExceptionDto extends createZodDto(resolveSyncExceptionSchema) {}
 
 /**
  * `/api/v1/integrations` (technical design §14). PRD §2.1's `integration.manage`.
@@ -67,6 +77,32 @@ export class IntegrationController {
     @Body() body: CreateIntegrationConnectionDto,
   ): Promise<IntegrationConnectionView> {
     return this.integrations.create(principal, body);
+  }
+
+  /**
+   * REQ-T-01's list (09 §5 spells it GET /sync/exceptions; it lives with the
+   * rest of the connection admin surface for the same reason the pull does).
+   * Declared before the `:id` routes so "exceptions" is never read as an id.
+   */
+  @Get('exceptions')
+  @RequirePermission(PERMISSIONS.INTEGRATION_MANAGE)
+  listExceptions(
+    @CurrentUser() principal: Principal,
+    @Query() query: ExceptionListQueryDto,
+  ): Promise<{ data: SyncExceptionView[] }> {
+    return this.integrations.listExceptions(principal, query.state);
+  }
+
+  /** The person's half of REQ-T-01: what was done about it, in their words. */
+  @Post('exceptions/:id/resolve')
+  @RequirePermission(PERMISSIONS.INTEGRATION_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  resolveException(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ResolveExceptionDto,
+  ): Promise<SyncExceptionView> {
+    return this.integrations.resolveException(principal, id, body.note);
   }
 
   /**

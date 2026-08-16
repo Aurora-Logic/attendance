@@ -10,7 +10,12 @@ import { z } from 'zod';
 import { parseOrThrow } from '@/lib/api/parse';
 import { apiRequest } from '@/lib/api/client';
 
-import { integrationsResponseSchema, type IntegrationsResponse } from './types';
+import {
+  integrationsResponseSchema,
+  syncExceptionsResponseSchema,
+  type IntegrationsResponse,
+  type SyncException,
+} from './types';
 
 /**
  * `GET /integrations` and its two writes (technical design §14, Phase 6b).
@@ -104,6 +109,39 @@ export function usePullNow(): UseMutationResult<QueuedPull, Error, { connectionI
         body: { entityType: 'party' },
       });
       return parseOrThrow(queuedPullSchema, body, 'queued pull');
+    },
+  });
+}
+
+/** REQ-T-01: what still owes a person a look. */
+export function useSyncExceptions(
+  options: { enabled?: boolean } = {},
+): UseQueryResult<{ data: SyncException[] }, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['integrations', 'exceptions'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/integrations/exceptions', { signal });
+      return parseOrThrow(syncExceptionsResponseSchema, body, 'sync exceptions');
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useResolveException(): UseMutationResult<
+  unknown,
+  Error,
+  { exceptionId: string; note: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ exceptionId, note }) =>
+      apiRequest<unknown>(`/integrations/exceptions/${exceptionId}/resolve`, {
+        method: 'POST',
+        body: { note },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['integrations', 'exceptions'] });
     },
   });
 }

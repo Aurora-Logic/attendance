@@ -1,6 +1,16 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
-import { agentClaimSchema, agentHeartbeatSchema, agentResultsSchema } from '@vyuha/shared';
-import type { AgentClaimResponse, AgentHeartbeatAck, AgentResultsAck } from '@vyuha/shared';
+import {
+  agentClaimSchema,
+  agentErrorSchema,
+  agentHeartbeatSchema,
+  agentResultsSchema,
+} from '@vyuha/shared';
+import type {
+  AgentClaimResponse,
+  AgentErrorAck,
+  AgentHeartbeatAck,
+  AgentResultsAck,
+} from '@vyuha/shared';
 
 import { AuditContext } from '../audit/audit-context.js';
 import { createZodDto } from '../common/zod-validation.pipe.js';
@@ -12,6 +22,7 @@ import { SyncWriterService } from './sync-writer.service.js';
 class AgentHeartbeatDto extends createZodDto(agentHeartbeatSchema) {}
 class AgentClaimDto extends createZodDto(agentClaimSchema) {}
 class AgentResultsDto extends createZodDto(agentResultsSchema) {}
+class AgentErrorDto extends createZodDto(agentErrorSchema) {}
 
 /**
  * `/api/v1/sync/agent/*` (09 §5) — the only routes an agent credential can
@@ -57,6 +68,23 @@ export class SyncAgentController {
     const ack = await this.writer.ingestParties(agent, body);
     this.auditContext.suppress();
     return ack;
+  }
+
+  /**
+   * The agent's failure report (09 §5, REQ-T-01): journal the exchange with
+   * Tally's verbatim words, fail the named job if this instance holds it,
+   * raise the exception a person will see. Nothing here refuses on company
+   * mismatch — the error being reported may be exactly that the wrong books
+   * are open.
+   */
+  @Post('errors')
+  @AgentRoute()
+  @HttpCode(HttpStatus.OK)
+  errors(
+    @CurrentAgent() agent: AgentPrincipal,
+    @Body() body: AgentErrorDto,
+  ): Promise<AgentErrorAck> {
+    return this.sync.reportError(agent, body);
   }
 
   /** REQ-Q-02: the agent polls for work; an empty queue answers null, not 404. */

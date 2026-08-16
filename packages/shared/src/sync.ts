@@ -172,6 +172,75 @@ export interface AgentResultsAck {
   readonly jobState: 'CLAIMED' | 'DONE';
 }
 
+// ------------------------------------------------------------- exceptions
+
+/**
+ * Who raised the exception, which decides what "resolve" can mean (REQ-T-01).
+ * An open set the way `entity_type` is: conflict (REQ-T-02) and drift
+ * (REQ-T-08) producers arrive in later slices and add their kinds here.
+ */
+export const SYNC_EXCEPTION_KINDS = ['AGENT_ERROR', 'CONFLICT', 'REJECTION', 'DRIFT'] as const;
+
+export type SyncExceptionKind = (typeof SYNC_EXCEPTION_KINDS)[number];
+
+export const SYNC_EXCEPTION_STATES = ['OPEN', 'RESOLVED'] as const;
+
+export type SyncExceptionState = (typeof SYNC_EXCEPTION_STATES)[number];
+
+/**
+ * The agent's failure report (09 §5). Deliberately *not* required to name the
+ * open company: the error being reported may be exactly that the wrong books
+ * are open, and a report the server refuses for describing the problem is a
+ * report that never arrives.
+ */
+export const agentErrorSchema = z.object({
+  agentInstanceId: agentInstanceIdSchema,
+  /** The job that failed, when there was one; an errored heartbeat has none. */
+  jobId: z.uuid().optional(),
+  entityType: z.enum(SYNC_ENTITY_TYPES).optional(),
+  /** The agent's own classification — HTTP status, Tally LINEERROR, timeout. */
+  errorCode: z.string().trim().min(1).max(80).optional(),
+  /** Tally's verbatim words. A paraphrase cannot be acted on (REQ-T-01). */
+  errorText: z.string().trim().min(1).max(8_000),
+  /** Same evidence rules as results: hashes prove, bodies expire (REQ-Q-06). */
+  requestHash: z.string().min(1).max(128).optional(),
+  responseHash: z.string().min(1).max(128).optional(),
+  requestBody: z.string().max(512_000).optional(),
+  responseBody: z.string().max(512_000).optional(),
+  durationMs: z.number().int().min(0).optional(),
+});
+
+export type AgentErrorInput = z.infer<typeof agentErrorSchema>;
+
+export interface AgentErrorAck {
+  readonly exceptionId: string;
+  /** Whether the named job was moved to FAILED by this report. */
+  readonly jobFailed: boolean;
+}
+
+export interface SyncExceptionView {
+  readonly id: string;
+  readonly connectionId: string;
+  readonly connectionName: string;
+  readonly kind: SyncExceptionKind;
+  readonly entityType: string | null;
+  readonly tallyError: string;
+  readonly state: SyncExceptionState;
+  readonly createdAt: string;
+  readonly resolvedAt: string | null;
+  readonly resolutionNote: string | null;
+}
+
+/**
+ * A resolution must say what was done. "Resolved" with no note is how the
+ * same exception returns in a month with nobody remembering the first round.
+ */
+export const resolveSyncExceptionSchema = z.object({
+  note: z.string().trim().min(3).max(2_000),
+});
+
+export type ResolveSyncExceptionInput = z.infer<typeof resolveSyncExceptionSchema>;
+
 // ---------------------------------------------------------- administration
 
 export const createIntegrationConnectionSchema = z.object({

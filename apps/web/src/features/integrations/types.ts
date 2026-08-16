@@ -2,6 +2,8 @@ import {
   AGENT_CONDITIONS,
   INTEGRATION_STATUSES,
   INTEGRATION_SYSTEMS,
+  SYNC_EXCEPTION_KINDS,
+  SYNC_EXCEPTION_STATES,
   type IntegrationStatus,
 } from '@vyuha/shared';
 import { z } from 'zod';
@@ -43,6 +45,27 @@ export const integrationsResponseSchema = z.object({
 });
 
 export type IntegrationsResponse = z.infer<typeof integrationsResponseSchema>;
+
+/** `GET /integrations/exceptions` (REQ-T-01), as this screen reads it. */
+export const syncExceptionSchema = z.object({
+  id: z.string(),
+  connectionId: z.string(),
+  connectionName: z.string(),
+  kind: z.enum(SYNC_EXCEPTION_KINDS),
+  entityType: z.string().nullable(),
+  /** Tally's verbatim words — shown as-is, never paraphrased. */
+  tallyError: z.string(),
+  state: z.enum(SYNC_EXCEPTION_STATES),
+  createdAt: z.string(),
+  resolvedAt: z.string().nullable(),
+  resolutionNote: z.string().nullable(),
+});
+
+export type SyncException = z.infer<typeof syncExceptionSchema>;
+
+export const syncExceptionsResponseSchema = z.object({
+  data: z.array(syncExceptionSchema),
+});
 
 export const STATUS_LABELS: Record<IntegrationStatus, string> = {
   DISCONNECTED: 'Never connected',
