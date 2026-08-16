@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
+  date,
   index,
   jsonb,
   pgEnum,
@@ -14,6 +16,20 @@ import { ALIVE, primaryId, standardColumns } from '../columns.js';
 import { organizations } from './organizations.schema.js';
 
 export const integrationSystemEnum = pgEnum('integration_system', ['TALLY']);
+
+/**
+ * Where a Vyuha-created document stands against Tally (08 §3 glossary).
+ * `voided_in_tally` rather than deletion, per REQ-T-04: history is not erased
+ * by a voucher disappearing from the books. Defined here beside the table
+ * that carries it; `sync.schema.ts` imports from this file, never back.
+ */
+export const tallySyncStateEnum = pgEnum('tally_sync_state', [
+  'draft',
+  'queued',
+  'pushed',
+  'failed',
+  'voided_in_tally',
+]);
 export const integrationStatusEnum = pgEnum('integration_status', [
   'DISCONNECTED',
   'CONNECTED',
@@ -42,6 +58,23 @@ export const integrationConnections = pgTable(
     agentTokenHash: text('agent_token_hash'),
     lastHeartbeatAt: timestamp('last_heartbeat_at', { withTimezone: true }),
     config: jsonb('config'),
+
+    /*
+     * Phase 6b (09 §4.2): a connection is one Tally *company*, not one
+     * installation — four financial years as four companies is four
+     * connections (REQ-Q-03). The company GUID is what the agent reports on
+     * every heartbeat, so a job for the wrong open company is refused rather
+     * than executed against the wrong books (09 §7).
+     */
+    companyGuid: text('company_guid'),
+    companyName: text('company_name'),
+    fyFrom: date('fy_from'),
+    fyTo: date('fy_to'),
+    /** REQ-Q-04: the heartbeat carries both versions; staleness alerts read them. */
+    agentVersion: text('agent_version'),
+    tallyVersion: text('tally_version'),
+    /** One agent per company, enforced by a lease (09 §3.4). Null means unheld. */
+    leaseHolder: text('lease_holder'),
     ...standardColumns(),
   },
   (t) => [uniqueIndex('integration_connections_uq').on(t.orgId, t.system, t.name).where(ALIVE)],
@@ -76,6 +109,31 @@ export const externalRefs = pgTable(
     internalId: uuid('internal_id').notNull(),
 
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+
+    /*
+     * Phase 6b (09 §4.1): the seam becomes a sync anchor. 09's sketch spells
+     * some of these differently — its `provider` is this table's `system`,
+     * its `remote_guid` and `remote_alter_id` are `external_guid` and
+     * `external_alter_id` above — and the existing Phase 0 names win, because
+     * renaming a live table's columns buys nothing but churn. All additive;
+     * Phase 0 rows simply carry nulls.
+     */
+    connectionId: uuid('connection_id').references(() => integrationConnections.id, {
+      onDelete: 'restrict',
+    }),
+    remoteVoucherNumber: text('remote_voucher_number'),
+    remoteVoucherType: text('remote_voucher_type'),
+    /** Never inferred, only reported by the agent (REQ-W-06). */
+    syncState: tallySyncStateEnum('sync_state'),
+    /**
+     * Carried in the voucher's remote narration field and queried before any
+     * retry, so a lost response cannot become a second voucher (09 §3.3) —
+     * the single most damaging failure this system could have.
+     */
+    idempotencyKey: text('idempotency_key'),
+    lastPushedAt: timestamp('last_pushed_at', { withTimezone: true }),
+    lastPulledAt: timestamp('last_pulled_at', { withTimezone: true }),
+    lastError: text('last_error'),
     ...standardColumns(),
   },
   (t) => [
@@ -88,5 +146,10 @@ export const externalRefs = pgTable(
       .on(t.orgId, t.system, t.internalType, t.internalId)
       .where(ALIVE),
     index('external_refs_alter_idx').on(t.orgId, t.system, t.entityType, t.externalAlterId),
+    // A reused idempotency key within one company would defeat the duplicate
+    // check it exists for. Partial: Phase 0 rows and pull-only rows carry none.
+    uniqueIndex('external_refs_idempotency_uq')
+      .on(t.connectionId, t.idempotencyKey)
+      .where(sql`connection_id IS NOT NULL AND idempotency_key IS NOT NULL AND deleted_at IS NULL`),
   ],
 );

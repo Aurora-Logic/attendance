@@ -134,6 +134,13 @@
       "when": 1786626000000,
       "tag": "0018_report_schedules",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786888126878,
+      "tag": "0019_sync_tables",
+      "breakpoints": true
     }
   ]
 }
