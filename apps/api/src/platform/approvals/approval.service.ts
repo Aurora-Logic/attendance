@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  APPROVAL_ACT_KEYS,
+  APPROVAL_SCOPE_KEYS,
   DEFAULT_APPROVAL_ESCALATION_DAYS,
   ERROR_CODES,
   MAX_APPROVAL_ESCALATION_DAYS,
@@ -75,38 +77,17 @@ import {
  */
 
 /**
- * The permission family for approvals, widest first.
+ * The permission family for approvals, widest first, derived from the
+ * REQ-P-04 catalogue rather than named here.
  *
- * `self` is `leave.apply.self` rather than an approval key of its own: PRD §5
- * gives a requester the right to see their own request, and every account that
- * can raise one holds that key. The two `approve` keys are what widen the view
- * beyond the caller's own row.
+ * `self` is the union of every subject type's raise keys: PRD §5 gives a
+ * requester the right to see their own request, whichever kind it is. The
+ * `team` and `all` bands are only the keys each subject *declared* as
+ * browse-widening — holding `regularization.approve` decides what is routed
+ * to you; it has never meant browsing the team's inbox, and deriving that
+ * from `act` would have quietly made it so.
  */
-export const APPROVAL_SCOPE_GRANTS: ScopeGrants = {
-  self: PERMISSIONS.LEAVE_APPLY_SELF,
-  team: PERMISSIONS.LEAVE_APPROVE_TEAM,
-  all: PERMISSIONS.LEAVE_APPROVE_ALL,
-};
-
-/**
- * Holding any of these is what the route guard checks before a decision
- * endpoint. It is deliberately the union across every subject type, and it is
- * deliberately not the whole check.
- *
- * One inbox decides several kinds of request and they do not share a
- * permission key: leave is approved with `leave.approve.*`, a correction with
- * `regularization.approve`. A guard sees a request id and a token, never the
- * subject type, so the most it can honestly ask is "does this caller approve
- * anything at all". What narrows that to the request actually in front of them
- * is `ApprovalSubjectHandler.actPermissions`, checked inside
- * `decideWithin` -- the same two-layer arrangement `RegularizationController`
- * already documents for the rules a decorator cannot express.
- */
-export const APPROVAL_ACT_KEYS = [
-  PERMISSIONS.LEAVE_APPROVE_TEAM,
-  PERMISSIONS.LEAVE_APPROVE_ALL,
-  PERMISSIONS.REGULARIZATION_APPROVE,
-] as const;
+export const APPROVAL_SCOPE_GRANTS: ScopeGrants = APPROVAL_SCOPE_KEYS;
 
 /** `exclusion_violation`, Postgres error class 23. */
 const EXCLUSION_VIOLATION = '23P01';

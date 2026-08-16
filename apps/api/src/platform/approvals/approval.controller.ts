@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import {
-  PERMISSIONS,
+  APPROVAL_ACT_KEYS,
+  APPROVAL_READ_KEYS,
   type ApprovalDelegation,
   type ApprovalRequestDetail,
   type ApprovalRequestSummary,
@@ -17,7 +18,7 @@ import {
   CreateDelegationDto,
   RejectRequestDto,
 } from './approval.dto.js';
-import { APPROVAL_ACT_KEYS, ApprovalService } from './approval.service.js';
+import { ApprovalService } from './approval.service.js';
 
 /**
  * `/api/v1/approvals` (technical design §6). REQ-I-01 … REQ-I-05.
@@ -27,17 +28,16 @@ import { APPROVAL_ACT_KEYS, ApprovalService } from './approval.service.js';
  * is in `ApprovalService` and `approval-policy.ts`, because a rule written in
  * a controller is a rule the bulk endpoint next to it does not get.
  *
- * The read keys are the whole family, deliberately. The guard's job is to keep
- * out an account holding none of them; `ScopeService` and the view decide how
- * much of the inbox the holder actually sees -- including a plain employee,
- * who sees the requests they raised and nothing else.
+ * Both key lists are derived from the REQ-P-04 catalogue in
+ * `@vyuha/shared/approval-keys` rather than named here: a decorator is
+ * evaluated at class definition, before any handler registers, and a
+ * hand-written list is how a later module's approvers get refused at the door
+ * by a guard that never heard of their key. The read set is the whole family
+ * -- act and raise sides -- because the guard's job is only to keep out an
+ * account holding none of it; `ScopeService` and the view decide how much of
+ * the inbox the holder actually sees, including a plain employee, who sees
+ * the requests they raised and nothing else.
  */
-const APPROVAL_READ_KEYS = [
-  PERMISSIONS.LEAVE_APPROVE_TEAM,
-  PERMISSIONS.LEAVE_APPROVE_ALL,
-  PERMISSIONS.LEAVE_APPLY_SELF,
-  PERMISSIONS.REGULARIZATION_RAISE,
-] as const;
 
 @Controller('approvals')
 export class ApprovalController {

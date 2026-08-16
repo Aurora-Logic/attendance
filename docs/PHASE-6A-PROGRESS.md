@@ -20,7 +20,9 @@ at `c30941d` and contains none of this work.
 | REQ-P-02 (5 of 8 files) → `platform/export` | `fe01a02` | 1598 tests |
 | REQ-P-03 union + widest scope asserted | `c375d97` | 4 tests, falsified by a first-role-only resolver |
 | OQ P2-3 role assignment endpoint and UI | `31f855f` | Pre-dated this branch — see below. 15 live checks + 29 API tests, 16 Aug |
-| REQ-O-05 Go To as a record index | (this commit) | 17 API + 10 web tests; 8-check live drive: Alt+G, typed code, Enter, landed on the employee |
+| REQ-O-05 Go To as a record index | `f8e23d2` | 17 API + 10 web tests; 8-check live drive: Alt+G, typed code, Enter, landed on the employee |
+| REQ-P-02 remainder → `platform/export` complete | `156af26` | `ReportSourceRegistry` inversion; boundary lint is the assertion; 1616 tests; shell driven live |
+| REQ-P-04 remainder: declared key catalogue | (this commit) | `approval-keys.ts` in shared; guards derive; registry refuses drift; 1618 tests |
 
 `platform/search/` holds the `GoToSourceRegistry` — the same self-registration
 shape as `ApprovalSubjectRegistry` and `JobRegistry`, so parties and vouchers
@@ -35,20 +37,7 @@ a palette test now pins them.
 
 ## Next, in order
 
-1. **REQ-P-02 remainder.** `export.service.ts` and `schedule.service.ts` are
-   generic in shape but import attendance's `report.service` and
-   `report.repository` to learn what a report *is*. Needs the same inversion
-   `ApprovalSubjectRegistry` already demonstrates: the platform defines the
-   interface, the module registers its definitions. **Phase 6d depends on this**
-   — REQ-Y-06 puts every receivables screen under the report shell.
-
-2. **REQ-P-04 remainder.** `APPROVAL_ACT_KEYS`, `APPROVAL_READ_KEYS` and
-   `APPROVAL_SCOPE_GRANTS` still name leave keys. They feed
-   `@RequirePermission(...)`, evaluated at class-definition time, so a runtime
-   registry cannot supply them — they need a declared catalogue in
-   `packages/shared`. Different shape of fix from the two already done.
-
-3. **Exit gate.** `/ultrareview` plus a full regression, per `10` §2.
+1. **Exit gate.** `/ultrareview` plus a full regression, per `10` §2.
 
 ## Three places the documents are wrong
 

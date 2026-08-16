@@ -1,5 +1,5 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
-import { PERMISSIONS } from '@vyuha/shared';
+import { declaredApprovalKeys } from '@vyuha/shared';
 
 import type { Database } from '../../../platform/db/db.provider.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
@@ -10,6 +10,8 @@ import {
   type ApprovalSubjectSettlement,
 } from '../../../platform/approvals/approval-subject.registry.js';
 import { LEAVE_REQUEST_SUBJECT_TYPE, LeaveService } from './leave.service.js';
+
+const LEAVE_APPROVAL_KEYS = declaredApprovalKeys(LEAVE_REQUEST_SUBJECT_TYPE);
 
 /**
  * What the approval framework calls when a leave request is decided
@@ -37,14 +39,15 @@ export class LeaveApprovalHandler implements ApprovalSubjectHandler, OnModuleIni
    * `regularization.approve` is an approver of corrections; being routed a
    * leave request because they happen to be somebody's reporting manager does
    * not make them one of these.
+   *
+   * Read from the REQ-P-04 catalogue rather than named here: the route guards
+   * are derived from the same entry, and the registry refuses a handler whose
+   * keys disagree with it, so there is exactly one place these can be wrong.
    */
-  readonly actPermissions = [
-    PERMISSIONS.LEAVE_APPROVE_TEAM,
-    PERMISSIONS.LEAVE_APPROVE_ALL,
-  ] as const;
+  readonly actPermissions = LEAVE_APPROVAL_KEYS.act;
 
   /** REQ-G-09 escalates to HR, who hold the org-wide key. */
-  readonly overridePermissions = [PERMISSIONS.LEAVE_APPROVE_ALL] as const;
+  readonly overridePermissions = LEAVE_APPROVAL_KEYS.override;
 
   constructor(
     private readonly leave: LeaveService,
