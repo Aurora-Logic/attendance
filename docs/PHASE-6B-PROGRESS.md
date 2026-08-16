@@ -28,7 +28,7 @@ Branch: **`phase-6a`** (6b work continues on it until 6a's gate closes).
 | Stock items + price lists: rows, writers, sweep order, read APIs, two screens — REQ-R-02, REQ-R-03 | `406b453` | Sync+masters 71/71 twice; full API 1689/1689; live drive: UI-issued token, agent protocol over HTTP, both screens render the paisa-exact figures |
 | Journal body sweep, nightly 02:45 — D-20 | `29a862e` | Ages real rows: 40-day bodies cleared, hash kept, fresh kept, repeat finds nothing; trigger side already held by `sync-journal.test.ts` |
 | Full re-pull + absent marking — REQ-R-05, REQ-R-06 | `ac6707f` | Watermark = job created_at (claimed_at moves per chunk); mark/unmark/incremental-never 32/32; CDP: confirm dialog queues 3 full jobs, cursors deleted. Vanishing price rates → OPEN-QUESTIONS P6b-1 |
-| Connector agent, loop half — REQ-Q-01, Q-02, Q-07 (`apps/agent`) | — | 5 loop tests vs a scripted server; **live run against the dev API**: UI-issued token, lease, 3 full jobs claimed in dependency order, chunks posted, absent marking landed from the real binary. Claim now carries `fromAlterId` (the server's cursor). Transport = seam + FixtureTransport; `TallyHttpTransport` and SEA packaging land with real fixtures (10 §8, D-05) |
+| Connector agent, loop half — REQ-Q-01, Q-02, Q-07 (`apps/agent`) | `a935690` | 5 loop tests vs a scripted server; **live run against the dev API**: UI-issued token, lease, 3 full jobs claimed in dependency order, chunks posted, absent marking landed from the real binary. Claim now carries `fromAlterId` (the server's cursor). Transport = seam + FixtureTransport; `TallyHttpTransport` and SEA packaging land with real fixtures (10 §8, D-05) |
 
 New permission: `masters.tally.view` (08 §2.2), granted to Admin; other
 holders arrive with their roles. OPEN-QUESTIONS I-1 closed: staleness = lease
@@ -84,9 +84,23 @@ takeover = 5 minutes, one constant.
 
 ## Next, in order
 
-1. **6b exit gate**: `/security-review` on `/sync/agent/*` and the credential
-   path. An agent token must not read an employee, a photo, or another
-   connection's data (the cross-connection test already covers the queue).
+Nothing buildable remains; see "Blocked, and on whom".
+
+### 6b exit gate — run, passed
+
+`/security-review` over the agent credential path and `/sync/agent/*`
+(2026-08-16): **zero findings above the confidence bar.** The reviewer
+verified structurally that the two credential worlds cannot meet (prefix +
+keyed HMAC vs jose JWT, four `@AgentRoute()` handlers, deny-by-default
+guard, `request.agent` never `request.principal`), that every cross-org and
+cross-connection predicate binds inside its own statement, that the
+adoption rule is unreachable while no API can soft-delete a connection, and
+that no new SQL concatenates input. Verified **live** as well: eleven user
+routes probed with a real issued agent token — employees, masters,
+integrations, reports, Go To, jobs, audit, notifications, and the punch
+photo route — every one answers 401 while the same token heartbeats 200 on
+its own surface. The gate's sentence holds: an agent credential cannot
+read an employee, a punch photo, or another connection's data.
 
 ## Blocked, and on whom
 
