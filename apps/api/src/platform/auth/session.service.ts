@@ -1,12 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ERROR_CODES } from '@vyuha/shared';
 import { and, eq, isNull, sql } from 'drizzle-orm';
+import type Redis from 'ioredis';
+import { z } from 'zod';
 
 import { AuditService } from '../audit/audit.service.js';
 import { env } from '../common/env.js';
-import { AppError } from '../common/errors.js';
+import { AppError, describeError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { sessions } from '../db/schema/index.js';
+import { InjectRedis } from '../redis/redis.provider.js';
 import { generateOpaqueToken, hashOpaqueToken, TOKEN_PURPOSES } from './opaque-token.js';
 
 /**
@@ -71,14 +74,56 @@ type RotationOutcome =
   | { readonly kind: 'revoked' }
   | { readonly kind: 'expired' };
 
+/**
+ * What the replay window stores, validated on the way out.
+ *
+ * Redis is a boundary like any other, and an entry written by a different
+ * build of this file must be treated as absent rather than trusted -- it is
+ * about to be handed back as a live credential.
+ */
+const replayEntrySchema = z.object({
+  sessionId: z.uuid(),
+  familyId: z.uuid(),
+  refreshToken: z.string().min(1),
+  expiresAt: z.iso.datetime(),
+  userId: z.uuid(),
+  orgId: z.uuid(),
+  previousSessionId: z.uuid(),
+});
+
 @Injectable()
 export class SessionService {
   private readonly logger = new Logger(SessionService.name);
 
   constructor(
     @InjectDatabase() private readonly db: Database,
+    @InjectRedis() private readonly redis: Redis,
     private readonly audit: AuditService,
   ) {}
+
+  /**
+   * Where a just-issued replacement is remembered, keyed by the token that
+   * produced it.
+   *
+   * The presented token's *hash*, never the token: this key is the same value
+   * already stored in `sessions.refresh_token_hash`, so a reader of Redis
+   * learns nothing they could not read from the database.
+   */
+  private replayKey(presentedToken: string): string {
+    return `auth:refresh:replay:${this.hash(presentedToken)}`;
+  }
+
+  /**
+   * The same key, for a test that needs to put itself outside the window.
+   *
+   * Exposed rather than letting the harness rebuild it: a test that hashed the
+   * token itself would keep passing if this service changed how it keys the
+   * window, and would then be asserting reuse detection against an entry
+   * nothing reads.
+   */
+  replayKeyForTest(presentedToken: string): string {
+    return this.replayKey(presentedToken);
+  }
 
   private hash(token: string): string {
     return hashOpaqueToken(TOKEN_PURPOSES.REFRESH, token, env.JWT_REFRESH_SECRET);
@@ -123,10 +168,29 @@ export class SessionService {
   }
 
   async rotate(presentedToken: string, context: SessionRequestContext): Promise<RotatedSession> {
+    /*
+     * The tolerance window, checked before anything else.
+     *
+     * Deliberately ahead of the transaction rather than inside `decide`: the
+     * rotation and reuse logic below is a security control and this must not
+     * change how it behaves. A cache entry exists only for a token that was
+     * successfully rotated within the last few seconds, so a hit means "this
+     * exact token was exchanged a moment ago, and here is what it produced" --
+     * not "trust this token". Outside the window there is no entry and every
+     * path below runs exactly as it did.
+     *
+     * Returning the *same* replacement is the point. Minting a second one
+     * would leave two tabs holding two different tokens and simply move the
+     * race; this way both converge on one.
+     */
+    const replayed = await this.replayOf(presentedToken);
+    if (replayed !== null) return replayed;
+
     const outcome = await this.db.transaction((tx) => this.decide(tx, presentedToken, context));
 
     switch (outcome.kind) {
       case 'rotated':
+        await this.rememberForReplay(presentedToken, outcome.session);
         return outcome.session;
 
       case 'reused':
@@ -238,6 +302,69 @@ export class SessionService {
         previousSessionId: row.id,
       },
     };
+  }
+
+  /**
+   * The replacement this token already produced, if it did so a moment ago.
+   *
+   * Null on a miss, and null whenever Redis is unreachable -- the caller then
+   * falls through to strict rotation, which refuses. A cache that cannot be
+   * read must not become a way to skip reuse detection, so the failure
+   * direction is the safe one: an outage costs a person a re-login, it does
+   * not cost the control.
+   */
+  private async replayOf(presentedToken: string): Promise<RotatedSession | null> {
+    if (env.AUTH_REFRESH_REPLAY_TOLERANCE_SECONDS <= 0) return null;
+
+    let raw: string | null;
+    try {
+      raw = await this.redis.get(this.replayKey(presentedToken));
+    } catch (error: unknown) {
+      this.logger.warn({
+        msg: 'The refresh replay window could not be read; falling back to strict rotation.',
+        reason: describeError(error),
+      });
+      return null;
+    }
+    if (raw === null) return null;
+
+    const parsed = replayEntrySchema.safeParse(JSON.parse(raw));
+    // A shape this build does not recognise is treated as absent rather than
+    // trusted. It can only have been written by another version of this file.
+    if (!parsed.success) return null;
+
+    return { ...parsed.data, expiresAt: new Date(parsed.data.expiresAt) };
+  }
+
+  /**
+   * Remembers a replacement for the length of the window.
+   *
+   * `PX` rather than a sweep: the entry has to disappear on its own, because
+   * the whole security argument is that the window is short and closes without
+   * anybody's help. A write failure is logged and swallowed -- the rotation
+   * already committed, and refusing the caller now would sign out the very
+   * person this feature exists to keep signed in.
+   */
+  private async rememberForReplay(
+    presentedToken: string,
+    session: RotatedSession,
+  ): Promise<void> {
+    const seconds = env.AUTH_REFRESH_REPLAY_TOLERANCE_SECONDS;
+    if (seconds <= 0) return;
+
+    try {
+      await this.redis.set(
+        this.replayKey(presentedToken),
+        JSON.stringify({ ...session, expiresAt: session.expiresAt.toISOString() }),
+        'PX',
+        seconds * 1000,
+      );
+    } catch (error: unknown) {
+      this.logger.warn({
+        msg: 'The refresh replay window could not be written; a concurrent tab may be signed out.',
+        reason: describeError(error),
+      });
+    }
   }
 
   /** REQ-B-06 / logout. Returns how many live rows were ended. */

@@ -108,7 +108,15 @@ describe('REQ-B-05: rotating refresh tokens', () => {
     // reason.
     expect(liveBefore.length).toBeGreaterThan(0);
 
-    // ---- the attack: replay the token that was already exchanged ----
+    /*
+     * ---- the attack: replay the token that was already exchanged ----
+     *
+     * Outside the rotation tolerance window first. Within it, a repeat of the
+     * same token is a booting second tab and is answered with the same
+     * replacement -- see "a second tab" below. Theft is what this test is
+     * about, and theft arrives minutes later, not milliseconds.
+     */
+    await harness.expireRefreshReplayWindow(firstToken ?? '');
     const replay = await harness.post<ErrorBody>('/auth/refresh', {
       cookieOverride: `${REFRESH_COOKIE_NAME}=${firstToken ?? ''}`,
     });
@@ -135,6 +143,76 @@ describe('REQ-B-05: rotating refresh tokens', () => {
     expect(await harness.waitForAuditAction('session.reuse_detected')).toBe(true);
   });
 
+  /**
+   * P1-6: two tabs must not sign the person out of everything.
+   *
+   * The access token is held in memory only, so every cold document load calls
+   * `/auth/refresh`. Two documents booting at once send the same cookie twice,
+   * and under strict rotation the second was theft: the family was revoked and
+   * the tab that *succeeded* died at its next refresh. Verified against the
+   * running API before this window existed.
+   *
+   * The fix returns the *same* replacement rather than minting a second one.
+   * That distinction is the test: two different tokens would leave the tabs
+   * diverged and simply move the race somewhere harder to see.
+   */
+  it('answers a second tab with the same replacement, not a revocation', async () => {
+    const jar = new CookieJar();
+    await harness.post('/auth/login', { body: { email, password }, withCookies: true }, jar);
+    const shared = jar.get(REFRESH_COOKIE_NAME) ?? '';
+
+    // Both tabs present the cookie they booted with. Sequential rather than
+    // concurrent on purpose: `FOR UPDATE` already serialises them, so this is
+    // the same situation with the timing removed.
+    const first = await harness.post<{ expiresAt: string }>('/auth/refresh', {
+      cookieOverride: `${REFRESH_COOKIE_NAME}=${shared}`,
+    });
+    const second = await harness.post<{ expiresAt: string }>('/auth/refresh', {
+      cookieOverride: `${REFRESH_COOKIE_NAME}=${shared}`,
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status, second.text).toBe(200);
+
+    // The same token, byte for byte -- not merely two that both work.
+    const tokenOf = (r: typeof first): string => {
+      const header = r.headers.getSetCookie().find((h) => h.startsWith(`${REFRESH_COOKIE_NAME}=`));
+      return header?.split(';')[0]?.split('=')[1] ?? '';
+    };
+    expect(tokenOf(second)).toBe(tokenOf(first));
+    expect(tokenOf(first)).not.toBe('');
+
+    // And it works: the replacement both tabs now hold is live.
+    const next = await harness.post('/auth/refresh', {
+      cookieOverride: `${REFRESH_COOKIE_NAME}=${tokenOf(first)}`,
+    });
+    expect(next.status).toBe(200);
+
+    // Nothing was revoked. This is the half that made the old behaviour so
+    // bad: it was not that a request failed, it was that the family died.
+    const userRows = await harness.db.execute<{ id: string }>(
+      sql`SELECT id FROM users WHERE lower(email) = ${email}`,
+    );
+    const rows = await familyRows(userRows.rows[0]?.id ?? '');
+    /*
+     * This sign-in's family only. Earlier tests in this file revoke families
+     * for the same user on purpose, so asking "has anything of theirs ever
+     * been revoked for reuse" answers yes for the wrong reason -- which is
+     * exactly what it did on the first run of this test.
+     */
+    const familyId = rows[rows.length - 1]?.familyId;
+    const family = rows.filter((row) => row.familyId === familyId);
+    expect(family.length).toBeGreaterThan(0);
+    expect(family.some((row) => row.revokedReason === 'refresh token reuse detected')).toBe(false);
+    expect(family.every((row) => row.revokedAt === null)).toBe(true);
+
+    // Two rotations across three requests: the shared token once, then the
+    // replacement once. The second tab consumed nothing, which is the point --
+    // the window returns what already exists rather than minting beside it.
+    expect(family.filter((row) => row.usedAt !== null).length).toBe(2);
+    expect(family.length).toBe(3);
+  });
+
   it('leaves other families alone when one is revoked for reuse', async () => {
     // Two independent sign-ins: a phone and a laptop. One being compromised
     // must not sign the other out, or the control becomes a denial of service
@@ -146,6 +224,7 @@ describe('REQ-B-05: rotating refresh tokens', () => {
 
     const stolen = phone.get(REFRESH_COOKIE_NAME);
     await harness.post('/auth/refresh', { withCookies: true }, phone);
+    await harness.expireRefreshReplayWindow(stolen ?? '');
     const replay = await harness.post<ErrorBody>('/auth/refresh', {
       cookieOverride: `${REFRESH_COOKIE_NAME}=${stolen ?? ''}`,
     });
@@ -160,6 +239,7 @@ describe('REQ-B-05: rotating refresh tokens', () => {
     await harness.post('/auth/login', { body: { email, password }, withCookies: true }, jar);
     const token = jar.get(REFRESH_COOKIE_NAME);
     await harness.post('/auth/refresh', { withCookies: true }, jar);
+    await harness.expireRefreshReplayWindow(token ?? '');
 
     const replay = await harness.post('/auth/refresh', {
       cookieOverride: `${REFRESH_COOKIE_NAME}=${token ?? ''}`,

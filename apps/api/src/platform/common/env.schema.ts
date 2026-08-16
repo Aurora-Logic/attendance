@@ -166,6 +166,28 @@ export const envSchema = z
     JWT_REFRESH_TTL_SECONDS: wholeNumber(300, 7_776_000),
 
     /**
+     * REQ-B-05's rotation tolerance, in seconds. Zero disables it.
+     *
+     * The access token is held in memory only, so every cold document load
+     * calls `/auth/refresh`. Two documents booting at once -- two tabs, a
+     * restored window, a quick double reload -- present the same cookie twice,
+     * and strict rotation calls the second one theft and revokes the family.
+     * The tab that *succeeded* then dies at its next refresh, so opening two
+     * tabs signs the person out of everything.
+     *
+     * Within this window a repeat of the same token returns the *same*
+     * replacement rather than being treated as reuse. Nothing new is minted,
+     * so the two tabs converge on one token instead of diverging. Outside it,
+     * detection is exactly what it was: genuine replays are separated from
+     * these races by minutes, not seconds.
+     *
+     * Capped at 60. A window long enough to be convenient is long enough to be
+     * a hole, and ten seconds already covers a browser restoring a window full
+     * of tabs.
+     */
+    AUTH_REFRESH_REPLAY_TOLERANCE_SECONDS: optionalWholeNumber(0, 60, 10),
+
+    /**
      * The whole SMTP block is optional, because mail is optional.
      *
      * These were required, which meant a deployment with no mail server could

@@ -22,6 +22,7 @@ import { env } from '../platform/common/env.js';
 import { DRIZZLE, type Database } from '../platform/db/db.provider.js';
 import { Mailer, type OutboundMail } from '../platform/mail/mailer.js';
 import { REDIS_CLIENT } from '../platform/redis/redis.provider.js';
+import { SessionService } from '../platform/auth/session.service.js';
 import {
   consentAcceptances,
   departments,
@@ -255,6 +256,25 @@ export class ApiHarness {
     await redis.del(
       ...['::1', '127.0.0.1', '::ffff:127.0.0.1'].map((ip) => passwordResetIpKey(ip)),
     );
+  }
+
+  /**
+   * Closes the refresh rotation tolerance window for one token.
+   *
+   * REQ-B-05 accepts a repeat of the same refresh token for a few seconds and
+   * returns the same replacement, so two tabs booting together do not look
+   * like theft. A test about *reuse* therefore has to put itself outside that
+   * window, and the honest way to do that without sleeping is to drop the
+   * entry the window is made of -- which is exactly what its expiry does a
+   * moment later.
+   *
+   * Takes the token, not the key, so the test never has to know how the key is
+   * built; hashing it the way the service does is the point.
+   */
+  async expireRefreshReplayWindow(refreshToken: string): Promise<void> {
+    const redis = this.app.get<Redis>(REDIS_CLIENT);
+    const service = this.app.get(SessionService);
+    await redis.del(service.replayKeyForTest(refreshToken));
   }
 
   /**
