@@ -35,6 +35,16 @@ import { runSeed, type SeedReport } from './seed.js';
  */
 
 const TEST_ORG_ID = '01900000-0000-7000-8000-0000000000b9';
+/**
+ * The password check below seeds a second, separate organisation. Named as a
+ * `…ORG_ID` const — not inlined — so the org-ids check counts it as a claim;
+ * an id that exists only inside a call expression is invisible to that scan,
+ * which is how this file's main id got claimed by another suite. It was
+ * `…b2` when it was inlined, which `job-resilience.test.ts` also owns — the
+ * same latent collision again, found the moment the scan could see this
+ * file. Moved rather than grandfathered.
+ */
+const PASSWORD_FIXTURE_ORG_ID = '01900000-0000-7000-8000-0000000000bb';
 const TEST_ADMIN_EMAIL = 'seed-test-admin@vyuha.test';
 
 let pool: Pool;
@@ -208,7 +218,7 @@ describe('seed', () => {
     // hashed. A mismatch here would hand the operator a credential that does
     // not sign in, and the seed would still look like it succeeded.
     const rerun = await runSeed(db, {
-      orgId: '01900000-0000-7000-8000-0000000000b2',
+      orgId: PASSWORD_FIXTURE_ORG_ID,
       orgName: 'Seed Password Fixture',
       adminEmail: 'seed-password-check@vyuha.test',
     });
