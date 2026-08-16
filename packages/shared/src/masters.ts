@@ -37,3 +37,46 @@ export const partyListQuerySchema = pageQuerySchema.extend({
 });
 
 export type PartyListQuery = z.infer<typeof partyListQuerySchema>;
+
+export interface StockItemView {
+  readonly id: string;
+  readonly connectionId: string;
+  readonly name: string;
+  readonly alias: string | null;
+  readonly unit: string;
+  readonly parentGroup: string;
+  /** GST percentage as exact decimal text, or null where none is set. */
+  readonly gstRate: string | null;
+  readonly absentInTally: boolean;
+  readonly lastPulledAt: string;
+}
+
+export const stockItemListQuerySchema = pageQuerySchema.extend({
+  /** Free text over name and alias. */
+  q: z.string().trim().min(1).max(80).optional(),
+  /** Filter to one stock group, verbatim. */
+  parentGroup: z.string().trim().min(1).max(120).optional(),
+});
+
+export type StockItemListQuery = z.infer<typeof stockItemListQuerySchema>;
+
+export interface PriceListEntryView {
+  readonly id: string;
+  readonly connectionId: string;
+  /** The projected item's name, joined for the screen; the rate means nothing without it. */
+  readonly stockItemName: string;
+  readonly priceLevel: string;
+  /** Exact decimal as text (D-01). */
+  readonly rate: string;
+  readonly unit: string | null;
+  readonly lastPulledAt: string;
+}
+
+export const priceListListQuerySchema = pageQuerySchema.extend({
+  /** Free text over the item name. */
+  q: z.string().trim().min(1).max(80).optional(),
+  /** One price level — the per-party-group list REQ-R-03 names. */
+  priceLevel: z.string().trim().min(1).max(120).optional(),
+});
+
+export type PriceListListQuery = z.infer<typeof priceListListQuerySchema>;

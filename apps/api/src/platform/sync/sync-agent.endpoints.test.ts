@@ -63,6 +63,8 @@ beforeAll(async () => {
   // replaced-connection rule -- carrying stale names into the count.
   await harness.db.execute(sql`DELETE FROM external_refs WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM parties WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM price_list_entries WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(
     sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${ORG_ID} AND deleted_at IS NULL`,
   );
@@ -528,5 +530,173 @@ describe('pull results become the projection (09 §3.2, REQ-R-01, REQ-T-03)', ()
     expect(rows.rows.length).toBeGreaterThanOrEqual(3);
     expect(rows.rows.map((r) => r.request_hash)).toContain('sha256:req2');
     expect(rows.rows.every((r) => r.result.startsWith('ok:'))).toBe(true);
+  });
+});
+
+describe('stock items and price lists repeat the pattern (REQ-R-02, REQ-R-03)', () => {
+  // Its own epoch, same reasoning as the party block above.
+  const AGENT_E = 'agent-instance-eeee';
+  let epochToken = '';
+  let itemJobId = '';
+  let priceJobId = '';
+
+  const post = (jobId: string, entityType: string, rows: unknown[], final: boolean) =>
+    agentPost<AgentResultsAck>('/sync/agent/results', epochToken, {
+      agentInstanceId: AGENT_E,
+      openCompanyGuid: COMPANY_GUID,
+      jobId,
+      entityType,
+      rows,
+      requestHash: `sha256:${entityType}-req`,
+      responseHash: `sha256:${entityType}-res`,
+      final,
+    });
+
+  const claimNext = async () => {
+    const claim = await agentPost<AgentClaimResponse>('/sync/agent/jobs/claim', epochToken, {
+      agentInstanceId: AGENT_E,
+      openCompanyGuid: COMPANY_GUID,
+    });
+    return claim.body.job;
+  };
+
+  it('sets up its epoch and receives jobs in dependency order: items before prices', async () => {
+    const reissued = await harness.post<IssuedAgentToken>(`/integrations/${connectionId}/token`, {
+      token: adminToken,
+    });
+    epochToken = reissued.body.token;
+    const hb = await agentPost<AgentHeartbeatAck>('/sync/agent/heartbeat', epochToken, {
+      agentInstanceId: AGENT_E,
+      agentVersion: '0.1.0',
+      openCompanyGuid: COMPANY_GUID,
+    });
+    expect(hb.status).toBe(200);
+
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE', updated_at = now()
+       WHERE connection_id = ${connectionId} AND state IN ('QUEUED', 'CLAIMED')
+    `);
+    // The order the sweep enqueues is the order the queue hands out
+    // (created_at ascending), which is what lets prices resolve their items.
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'stock_item')
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'price_list')
+    `);
+
+    const first = await claimNext();
+    expect(first?.entityType).toBe('stock_item');
+    itemJobId = first?.id ?? '';
+  });
+
+  it('ingests stock items: unit and GST rate land exactly (REQ-R-02)', async () => {
+    const response = await post(
+      itemJobId,
+      'stock_item',
+      [
+        {
+          guid: 'item-guid-cable',
+          alterId: 210,
+          name: 'Cat6 Cable Box',
+          alias: 'CAT6',
+          unit: 'Nos',
+          parentGroup: 'Networking',
+          gstRate: '18',
+        },
+        {
+          guid: 'item-guid-conduit',
+          alterId: 205,
+          name: 'PVC Conduit 20mm',
+          unit: 'Mtr',
+          parentGroup: 'Electrical',
+          gstRate: '2.5',
+        },
+      ],
+      true,
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.written).toBe(2);
+    expect(response.body.lastAlterId).toBe(210);
+
+    const stored = await harness.db.execute<{ name: string; unit: string; gst_rate: string }>(sql`
+      SELECT name, unit, gst_rate FROM stock_items WHERE org_id = ${ORG_ID} ORDER BY name
+    `);
+    expect(stored.rows.map((r) => r.name)).toEqual(['Cat6 Cable Box', 'PVC Conduit 20mm']);
+    // numeric held exactly: 2.5 percent stays 2.5, never 2.50000000001.
+    expect(stored.rows[1]?.gst_rate).toBe('2.5');
+  });
+
+  it('a chunk of items claiming to be parties fails validation at the door', async () => {
+    const response = await agentPost('/sync/agent/results', epochToken, {
+      agentInstanceId: AGENT_E,
+      openCompanyGuid: COMPANY_GUID,
+      jobId: itemJobId,
+      entityType: 'party',
+      // A stock-item shape: no parentGroup, which the party arm requires.
+      // Zod strips the unknown `unit` key, so the omission is what trips it.
+      rows: [{ guid: 'item-guid-cable', alterId: 1, name: 'X', unit: 'Nos' }],
+      requestHash: 'sha256:x',
+      responseHash: 'sha256:x',
+      final: false,
+    });
+    // The union's party arm requires party columns; the job check would also
+    // 409, but validation refuses first and that is the right door.
+    expect(response.status).toBe(400);
+  });
+
+  it('ingests price list entries keyed on (item, level), and re-posts overwrite (REQ-R-03)', async () => {
+    const next = await claimNext();
+    expect(next?.entityType).toBe('price_list');
+    priceJobId = next?.id ?? '';
+
+    const rate = {
+      alterId: 220,
+      stockItemGuid: 'item-guid-cable',
+      priceLevel: 'Wholesale',
+      rate: '4200.50',
+      unit: 'Nos',
+    };
+    const first = await post(priceJobId, 'price_list', [rate], false);
+    expect(first.status).toBe(200);
+
+    // Tally wins on the re-post: same key, new figure, one row.
+    const second = await post(priceJobId, 'price_list', [{ ...rate, rate: '4150.00' }], true);
+    expect(second.status).toBe(200);
+
+    const stored = await harness.db.execute<{ price_level: string; rate: string }>(sql`
+      SELECT e.price_level, e.rate FROM price_list_entries e
+       JOIN stock_items i ON i.id = e.stock_item_id
+       WHERE e.org_id = ${ORG_ID} AND i.name = 'Cat6 Cable Box'
+    `);
+    expect(stored.rows).toEqual([{ price_level: 'Wholesale', rate: '4150.00' }]);
+  });
+
+  it('refuses a rate for an item that has not arrived, naming the ordering', async () => {
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'price_list')
+    `);
+    const job = await claimNext();
+    const response = await agentPost<{ error: { message: string } }>(
+      '/sync/agent/results',
+      epochToken,
+      {
+        agentInstanceId: AGENT_E,
+        openCompanyGuid: COMPANY_GUID,
+        jobId: job?.id ?? '',
+        entityType: 'price_list',
+        rows: [
+          { alterId: 1, stockItemGuid: 'item-guid-never-pulled', priceLevel: 'Retail', rate: '10' },
+        ],
+        requestHash: 'sha256:orphan',
+        responseHash: 'sha256:orphan',
+        final: true,
+      },
+    );
+    expect(response.status).toBe(409);
+    expect(response.body.error.message).toContain('before the item itself');
   });
 });

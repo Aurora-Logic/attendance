@@ -1,4 +1,14 @@
-import { boolean, index, integer, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  index,
+  integer,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 import { primaryId } from '../columns.js';
 import { integrationConnections } from './integration.schema.js';
@@ -56,5 +66,71 @@ export const parties = pgTable(
     index('parties_connection_idx').on(t.connectionId, t.name),
     // The Go To source and the parties screen both search by name.
     index('parties_org_name_idx').on(t.orgId, t.name),
+  ],
+);
+
+/** REQ-R-02: name, alias, unit, group, GST rate — the PRD's list, no more. */
+export const stockItems = pgTable(
+  'stock_items',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => integrationConnections.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    alias: text('alias'),
+    /** The base unit, verbatim — "Nos", "Kg". */
+    unit: text('unit').notNull(),
+    /** The stock group, verbatim from the parent. */
+    parentGroup: text('parent_group').notNull(),
+    /** GST percentage as numeric: 2.5 stays 2.5 (D-01). */
+    gstRate: numeric('gst_rate'),
+    absentInTally: boolean('absent_in_tally').notNull().default(false),
+    lastPulledAt: timestamp('last_pulled_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('stock_items_connection_idx').on(t.connectionId, t.name),
+    index('stock_items_org_name_idx').on(t.orgId, t.name),
+  ],
+);
+
+/**
+ * REQ-R-03: rates per stock item per price level — the per-party-group list.
+ *
+ * No `external_refs` anchor, unlike the other projections: a rate has no
+ * GUID of its own in Tally. Its identity is (connection, item, level), held
+ * by the unique index the writer upserts against, and the item reference is
+ * the *projected row* — a rate for an item the pull has not delivered yet
+ * has nothing to hang from, and the agent orders item chunks first.
+ */
+export const priceListEntries = pgTable(
+  'price_list_entries',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => integrationConnections.id, { onDelete: 'restrict' }),
+    stockItemId: uuid('stock_item_id')
+      .notNull()
+      .references(() => stockItems.id, { onDelete: 'cascade' }),
+    priceLevel: text('price_level').notNull(),
+    /** Exact decimal, held not computed (D-01). */
+    rate: numeric('rate').notNull(),
+    unit: text('unit'),
+    lastPulledAt: timestamp('last_pulled_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('price_list_entries_uq').on(t.connectionId, t.stockItemId, t.priceLevel),
+    index('price_list_entries_org_level_idx').on(t.orgId, t.priceLevel),
   ],
 );

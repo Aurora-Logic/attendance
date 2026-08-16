@@ -238,11 +238,20 @@ export class ApiHarness {
    * Every form the local stack can report: Express sees `::1` over IPv6 and
    * `::ffff:127.0.0.1` when IPv6 accepts an IPv4 connection, and neither is
    * the address the test dialled.
+   *
+   * The agent scope is cleared alongside, and became necessary the day a
+   * successful agent resolve stopped clearing its address (it releases only
+   * its own slot now): every deliberate bad-token probe across the sync
+   * suites leaves a recorded failure for loopback, and twenty of them inside
+   * fifteen minutes would 429 the next suite's honest fixture.
    */
   async clearLoginRateLimit(): Promise<void> {
     const redis = this.app.get<Redis>(REDIS_CLIENT);
     await redis.del(
-      ...['::1', '127.0.0.1', '::ffff:127.0.0.1'].map((ip) => loginRateLimitKey(ip)),
+      ...['::1', '127.0.0.1', '::ffff:127.0.0.1'].flatMap((ip) => [
+        loginRateLimitKey(ip),
+        loginRateLimitKey(ip, 'agent'),
+      ]),
     );
   }
 

@@ -63,6 +63,8 @@ describe('GoToPalette', () => {
     // Parties entry vanished from this palette once already, the same way
     // the Administration screens had before it.
     expect(screen.getByText('Parties')).toBeTruthy();
+    expect(screen.getByText('Stock items')).toBeTruthy();
+    expect(screen.getByText('Price lists')).toBeTruthy();
   });
 
   it('hides what the account cannot reach', async () => {

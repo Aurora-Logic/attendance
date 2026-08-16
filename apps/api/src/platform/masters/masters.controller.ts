@@ -8,7 +8,16 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { PERMISSIONS, partyListQuerySchema, type Paginated, type PartyView } from '@vyuha/shared';
+import {
+  PERMISSIONS,
+  partyListQuerySchema,
+  priceListListQuerySchema,
+  stockItemListQuerySchema,
+  type Paginated,
+  type PartyView,
+  type PriceListEntryView,
+  type StockItemView,
+} from '@vyuha/shared';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
@@ -16,6 +25,8 @@ import { RequirePermission } from '../rbac/route-policy.js';
 import { MastersService } from './masters.service.js';
 
 class PartyListQueryDto extends createZodDto(partyListQuerySchema) {}
+class StockItemListQueryDto extends createZodDto(stockItemListQuerySchema) {}
+class PriceListListQueryDto extends createZodDto(priceListListQuerySchema) {}
 
 /**
  * `/api/v1/masters/*` (09 §5): the Tally masters projection, read-only —
@@ -47,6 +58,26 @@ export class MastersController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<PartyView> {
     return this.masters.findParty(principal, id);
+  }
+
+  /** REQ-R-02: `GET /masters/items` in 09 §5's spelling. */
+  @Get('items')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  listStockItems(
+    @CurrentUser() principal: Principal,
+    @Query() query: StockItemListQueryDto,
+  ): Promise<Paginated<StockItemView>> {
+    return this.masters.listStockItems(principal, query);
+  }
+
+  /** REQ-R-03: `GET /masters/price-lists`. */
+  @Get('price-lists')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  listPriceLists(
+    @CurrentUser() principal: Principal,
+    @Query() query: PriceListListQueryDto,
+  ): Promise<Paginated<PriceListEntryView>> {
+    return this.masters.listPriceListEntries(principal, query);
   }
 
   @Post('parties')

@@ -20,7 +20,10 @@ import { orgContextOf, type Principal } from '../rbac/principal.js';
  * grows a member per writer, because a job the agent can claim but whose
  * results the API refuses is a treadmill, not a queue.
  */
-export const PULL_ENTITY_TYPES: readonly SyncEntityType[] = ['party'];
+// Item chunks must land before price chunks — the price writer resolves
+// items through their GUID mappings — and the array order here is the order
+// both the sweep enqueues and the agent works.
+export const PULL_ENTITY_TYPES: readonly SyncEntityType[] = ['party', 'stock_item', 'price_list'];
 
 /**
  * A pull that five claims could not finish is not going to finish on the

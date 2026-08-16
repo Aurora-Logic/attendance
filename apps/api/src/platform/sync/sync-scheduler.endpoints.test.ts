@@ -79,22 +79,25 @@ afterAll(async () => {
   await harness.close();
 });
 
+// One open job per writable entity type: party, stock_item, price_list.
+const WRITABLE_TYPES = 3;
+
 describe('the fifteen-minute sweep (REQ-R-07)', () => {
-  it('enqueues one pull per eligible connection and skips the ineligible', async () => {
+  it('enqueues one pull per entity type per eligible connection, skips the ineligible', async () => {
     await scheduler.enqueueDuePulls();
 
-    expect(await openJobCount(eligibleId)).toBe(1);
+    expect(await openJobCount(eligibleId)).toBe(WRITABLE_TYPES);
     // Unbound: the claim path would refuse this connection's jobs anyway,
     // so the sweep does not create them.
     expect(await openJobCount(unboundId)).toBe(0);
   });
 
-  it('a second sweep adds nothing while the job is open', async () => {
+  it('a second sweep adds nothing while the jobs are open', async () => {
     const outcome = await scheduler.enqueueDuePulls();
     // Other tenants' connections may legitimately be enqueued by this sweep;
     // what must hold is this connection's count, guarded by the schema.
     expect(outcome.enqueued).toBeGreaterThanOrEqual(0);
-    expect(await openJobCount(eligibleId)).toBe(1);
+    expect(await openJobCount(eligibleId)).toBe(WRITABLE_TYPES);
   });
 
   it('requeues a claim whose agent went silent, and fails one past the attempt cap', async () => {
@@ -108,13 +111,13 @@ describe('the fifteen-minute sweep (REQ-R-07)', () => {
        WHERE connection_id = ${eligibleId} AND state = 'QUEUED'
     `);
     const outcome = await scheduler.enqueueDuePulls();
-    expect(outcome.requeued).toBeGreaterThanOrEqual(1);
+    expect(outcome.requeued).toBeGreaterThanOrEqual(WRITABLE_TYPES);
     const requeued = await harness.db.execute<{ state: string; claimed_by: string | null }>(sql`
       SELECT state, claimed_by FROM sync_jobs
        WHERE connection_id = ${eligibleId} AND state IN ('QUEUED', 'CLAIMED')
     `);
-    expect(requeued.rows[0]?.state).toBe('QUEUED');
-    expect(requeued.rows[0]?.claimed_by).toBeNull();
+    expect(requeued.rows.every((row) => row.state === 'QUEUED')).toBe(true);
+    expect(requeued.rows.every((row) => row.claimed_by === null)).toBe(true);
 
     // Five failed claims is a diagnosis, not bad luck: the job fails
     // visibly instead of cycling.
@@ -124,9 +127,9 @@ describe('the fifteen-minute sweep (REQ-R-07)', () => {
        WHERE connection_id = ${eligibleId} AND state = 'QUEUED'
     `);
     const second = await scheduler.enqueueDuePulls();
-    expect(second.failed).toBeGreaterThanOrEqual(1);
-    // And the freed slot is refilled in the same sweep.
-    expect(await openJobCount(eligibleId)).toBe(1);
+    expect(second.failed).toBeGreaterThanOrEqual(WRITABLE_TYPES);
+    // And the freed slots are refilled in the same sweep.
+    expect(await openJobCount(eligibleId)).toBe(WRITABLE_TYPES);
   });
 
   it('a completed job makes room for the next sweep', async () => {
@@ -135,7 +138,7 @@ describe('the fifteen-minute sweep (REQ-R-07)', () => {
        WHERE connection_id = ${eligibleId} AND state = 'QUEUED'
     `);
     await scheduler.enqueueDuePulls();
-    expect(await openJobCount(eligibleId)).toBe(1);
+    expect(await openJobCount(eligibleId)).toBe(WRITABLE_TYPES);
   });
 });
 
@@ -162,16 +165,25 @@ describe('the manual pull (POST /integrations/:id/pull)', () => {
       { token: adminToken, body: { entityType: 'party' } },
     );
     expect(second.body.jobId).toBe(first.body.jobId);
-    expect(await openJobCount(eligibleId)).toBe(1);
+    expect(await openJobCount(eligibleId)).toBe(WRITABLE_TYPES);
   });
 
-  it('refuses an entity type that has no writer yet, naming the reason', async () => {
-    const response = await harness.post<{ error: { message: string } }>(
+  it('queues the newly writable types too — stock items stopped being refusable', async () => {
+    // This asserted a 400 while stock_item had no writer; REQ-R-02 gave it
+    // one, so the press now finds the sweep's open job like any other type.
+    const response = await harness.post<{ jobId: string; alreadyQueued: boolean }>(
       `/integrations/${eligibleId}/pull`,
       { token: adminToken, body: { entityType: 'stock_item' } },
     );
+    expect(response.status).toBe(202);
+  });
+
+  it('refuses an entity type outside the contract vocabulary', async () => {
+    const response = await harness.post(`/integrations/${eligibleId}/pull`, {
+      token: adminToken,
+      body: { entityType: 'voucher' },
+    });
     expect(response.status).toBe(400);
-    expect(response.body.error.message).toContain('cannot pull');
   });
 
   it('refuses a connection that could never be claimed', async () => {

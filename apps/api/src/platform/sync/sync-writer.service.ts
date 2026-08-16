@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { AgentResultsAck, AgentResultsInput, PartyPullRow } from '@vyuha/shared';
+import type {
+  AgentResultsAck,
+  AgentResultsInput,
+  PartyPullRow,
+  PriceListPullRow,
+  StockItemPullRow,
+} from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
@@ -23,13 +29,23 @@ import { requireAgentCompany, type AgentPrincipal } from './agent-principal.js';
  * without ceremony because that is what "system of record" means
  * operationally.
  */
+
+/**
+ * What the mapping lookup decided about a GUID, once the ownership rules
+ * have been applied. `internalId` is null when the GUID is unmapped and an
+ * insert is the right move.
+ */
+interface MappingDecision {
+  readonly internalId: string | null;
+}
+
 @Injectable()
 export class SyncWriterService {
   private readonly logger = new Logger(SyncWriterService.name);
 
   constructor(@InjectDatabase() private readonly db: Database) {}
 
-  async ingestParties(agent: AgentPrincipal, input: AgentResultsInput): Promise<AgentResultsAck> {
+  async ingest(agent: AgentPrincipal, input: AgentResultsInput): Promise<AgentResultsAck> {
     requireAgentCompany(agent, input.openCompanyGuid);
 
     const written = await this.db.transaction(async (tx) => {
@@ -57,8 +73,14 @@ export class SyncWriterService {
         );
       }
 
-      for (const row of input.rows) {
-        await this.upsertParty(tx, agent, row);
+      // The discriminant narrows `rows`; a chunk of stock items claiming to
+      // be parties never got past validation.
+      if (input.entityType === 'party') {
+        for (const row of input.rows) await this.upsertParty(tx, agent, row);
+      } else if (input.entityType === 'stock_item') {
+        for (const row of input.rows) await this.upsertStockItem(tx, agent, row);
+      } else {
+        for (const row of input.rows) await this.upsertPriceEntry(tx, agent, row);
       }
 
       // REQ-Q-06: the exchange, hashed. `result` is the writer's outcome —
@@ -133,30 +155,25 @@ export class SyncWriterService {
     };
   }
 
-  /**
-   * Upsert keyed on the GUID mapping in `external_refs`, the same anchoring
-   * every synced entity uses. Two statements per row rather than a clever
-   * single one, because the mapping and the projection are different tables
-   * with different lifetimes — and at 500 rows per chunk, clarity wins.
+  /*
+   * One org-wide lookup, but the decision reads the mapping's OWNER.
+   * GUIDs are per-company in Tally, so a mapping held by a *living* other
+   * connection is a forgery (or two connections misconfigured onto one
+   * company) and refuses — an org-blind upsert here would let connection
+   * B's credential overwrite A's projection, the exact crossing the 6b
+   * exit gate forbids. A mapping whose owning connection is soft-deleted
+   * is different: it is the residue of a replaced connection for the same
+   * books, and refusing it would mean a recreated connection could never
+   * re-pull its own masters. Those are adopted — repointed to the caller
+   * — because the GUID, not the connection row, is the identity of the
+   * record (09 §4.1). Stated once, for every GUID-anchored entity type.
    */
-  private async upsertParty(
+  private async resolveMapping(
     tx: Transaction,
     agent: AgentPrincipal,
-    row: PartyPullRow,
-  ): Promise<void> {
-    /*
-     * One org-wide lookup, but the decision reads the mapping's OWNER.
-     * GUIDs are per-company in Tally, so a mapping held by a *living* other
-     * connection is a forgery (or two connections misconfigured onto one
-     * company) and refuses — an org-blind upsert here would let connection
-     * B's credential overwrite A's projection, the exact crossing the 6b
-     * exit gate forbids. A mapping whose owning connection is soft-deleted
-     * is different: it is the residue of a replaced connection for the same
-     * books, and refusing it would mean a recreated connection could never
-     * re-pull its own parties. Those are adopted — repointed to the caller
-     * — because the GUID, not the connection row, is the identity of the
-     * record (09 §4.1).
-     */
+    entityType: 'party' | 'stock_item',
+    guid: string,
+  ): Promise<MappingDecision> {
     const existing = await tx.execute<{
       internal_id: string;
       owner_alive: boolean;
@@ -169,21 +186,88 @@ export class SyncWriterService {
         LEFT JOIN integration_connections c ON c.id = x.connection_id
        WHERE x.org_id = ${agent.orgId}
          AND x.system = 'TALLY'
-         AND x.entity_type = 'party'
-         AND x.external_guid = ${row.guid}
+         AND x.entity_type = ${entityType}
+         AND x.external_guid = ${guid}
          AND x.deleted_at IS NULL
        LIMIT 1
     `);
 
     const mapped = existing.rows[0];
-    if (mapped !== undefined) {
-      if (!mapped.is_mine && mapped.owner_alive) {
+    if (mapped === undefined) return { internalId: null };
+    if (!mapped.is_mine && mapped.owner_alive) {
+      throw AppError.conflict(
+        `GUID ${guid} is already mapped under a different connection. One company, ` +
+          'one connection (REQ-Q-03); results cannot cross that line.',
+      );
+    }
+    return { internalId: mapped.internal_id };
+  }
+
+  /** Advances the mapping row alongside whichever projection row it anchors. */
+  private async touchMapping(
+    tx: Transaction,
+    agent: AgentPrincipal,
+    entityType: 'party' | 'stock_item',
+    guid: string,
+    alterId: number,
+  ): Promise<void> {
+    await tx.execute(sql`
+      UPDATE external_refs
+         SET external_alter_id = ${alterId},
+             connection_id = ${agent.connectionId},
+             last_pulled_at = now(),
+             updated_at = now()
+       WHERE org_id = ${agent.orgId}
+         AND system = 'TALLY'
+         AND entity_type = ${entityType}
+         AND external_guid = ${guid}
+         AND deleted_at IS NULL
+    `);
+  }
+
+  private async insertMapping(
+    tx: Transaction,
+    agent: AgentPrincipal,
+    entityType: 'party' | 'stock_item',
+    guid: string,
+    alterId: number,
+    internalId: string,
+  ): Promise<void> {
+    try {
+      await tx.execute(sql`
+        INSERT INTO external_refs
+          (org_id, system, entity_type, external_guid, external_alter_id,
+           internal_type, internal_id, connection_id, last_pulled_at)
+        VALUES
+          (${agent.orgId}, 'TALLY', ${entityType}, ${guid}, ${alterId},
+           ${entityType}, ${internalId}, ${agent.connectionId}, now())
+      `);
+    } catch (error: unknown) {
+      if (isUniqueViolation(error)) {
+        // A racing chunk mapped the GUID between our lookup and insert. The
+        // owner-liveness rule above still applies on the retry; refusing
+        // here keeps the race loud instead of absorbing it.
         throw AppError.conflict(
-          `GUID ${row.guid} is already mapped under a different connection. One company, ` +
-            'one connection (REQ-Q-03); results cannot cross that line.',
+          `GUID ${guid} was mapped concurrently. Retry the chunk; the upsert path will take it.`,
         );
       }
+      throw error;
+    }
+  }
 
+  /**
+   * Upsert keyed on the GUID mapping in `external_refs`, the same anchoring
+   * every synced entity uses. Two statements per row rather than a clever
+   * single one, because the mapping and the projection are different tables
+   * with different lifetimes — and at 500 rows per chunk, clarity wins.
+   */
+  private async upsertParty(
+    tx: Transaction,
+    agent: AgentPrincipal,
+    row: PartyPullRow,
+  ): Promise<void> {
+    const mapping = await this.resolveMapping(tx, agent, 'party', row.guid);
+    if (mapping.internalId !== null) {
       await tx.execute(sql`
         UPDATE parties
            SET name = ${row.name},
@@ -198,20 +282,9 @@ export class SyncWriterService {
                absent_in_tally = false,
                last_pulled_at = now(),
                updated_at = now()
-         WHERE id = ${mapped.internal_id}
+         WHERE id = ${mapping.internalId}
       `);
-      await tx.execute(sql`
-        UPDATE external_refs
-           SET external_alter_id = ${row.alterId},
-               connection_id = ${agent.connectionId},
-               last_pulled_at = now(),
-               updated_at = now()
-         WHERE org_id = ${agent.orgId}
-           AND system = 'TALLY'
-           AND entity_type = 'party'
-           AND external_guid = ${row.guid}
-           AND deleted_at IS NULL
-      `);
+      await this.touchMapping(tx, agent, 'party', row.guid, row.alterId);
       return;
     }
 
@@ -227,27 +300,80 @@ export class SyncWriterService {
     `);
     const partyId = inserted.rows[0]?.id;
     if (partyId === undefined) throw new Error('Party insert returned no row.');
-
-    try {
-      await tx.execute(sql`
-        INSERT INTO external_refs
-          (org_id, system, entity_type, external_guid, external_alter_id,
-           internal_type, internal_id, connection_id, last_pulled_at)
-        VALUES
-          (${agent.orgId}, 'TALLY', 'party', ${row.guid}, ${row.alterId},
-           'party', ${partyId}, ${agent.connectionId}, now())
-      `);
-    } catch (error: unknown) {
-      if (isUniqueViolation(error)) {
-        // A racing chunk mapped the GUID between our lookup and insert. The
-        // owner-liveness rule above still applies on the retry; refusing
-        // here keeps the race loud instead of absorbing it.
-        throw AppError.conflict(
-          `GUID ${row.guid} was mapped concurrently. Retry the chunk; the upsert path will take it.`,
-        );
-      }
-      throw error;
-    }
+    await this.insertMapping(tx, agent, 'party', row.guid, row.alterId, partyId);
   }
 
+  /** REQ-R-02, the same shape as parties: GUID-anchored, Tally wins. */
+  private async upsertStockItem(
+    tx: Transaction,
+    agent: AgentPrincipal,
+    row: StockItemPullRow,
+  ): Promise<void> {
+    const mapping = await this.resolveMapping(tx, agent, 'stock_item', row.guid);
+    if (mapping.internalId !== null) {
+      await tx.execute(sql`
+        UPDATE stock_items
+           SET name = ${row.name},
+               alias = ${row.alias ?? null},
+               unit = ${row.unit},
+               parent_group = ${row.parentGroup},
+               gst_rate = ${row.gstRate ?? null},
+               connection_id = ${agent.connectionId},
+               absent_in_tally = false,
+               last_pulled_at = now(),
+               updated_at = now()
+         WHERE id = ${mapping.internalId}
+      `);
+      await this.touchMapping(tx, agent, 'stock_item', row.guid, row.alterId);
+      return;
+    }
+
+    const inserted = await tx.execute<{ id: string }>(sql`
+      INSERT INTO stock_items
+        (org_id, connection_id, name, alias, unit, parent_group, gst_rate)
+      VALUES
+        (${agent.orgId}, ${agent.connectionId}, ${row.name}, ${row.alias ?? null},
+         ${row.unit}, ${row.parentGroup}, ${row.gstRate ?? null})
+      RETURNING id
+    `);
+    const itemId = inserted.rows[0]?.id;
+    if (itemId === undefined) throw new Error('Stock item insert returned no row.');
+    await this.insertMapping(tx, agent, 'stock_item', row.guid, row.alterId, itemId);
+  }
+
+  /**
+   * REQ-R-03. A rate has no GUID of its own; its identity is (connection,
+   * item, level), and the unique index makes the upsert one statement. The
+   * item is resolved through the same ownership rules as everything else —
+   * a rate cannot smuggle a reference to another connection's item — and a
+   * rate for an item this connection has not pulled yet refuses loudly:
+   * the agent orders item chunks before price chunks, so this firing means
+   * the ordering broke, not that the data did.
+   */
+  private async upsertPriceEntry(
+    tx: Transaction,
+    agent: AgentPrincipal,
+    row: PriceListPullRow,
+  ): Promise<void> {
+    const mapping = await this.resolveMapping(tx, agent, 'stock_item', row.stockItemGuid);
+    if (mapping.internalId === null) {
+      throw AppError.conflict(
+        `Price for stock item GUID ${row.stockItemGuid} arrived before the item itself. ` +
+          'Pull stock items before price lists.',
+      );
+    }
+
+    await tx.execute(sql`
+      INSERT INTO price_list_entries
+        (org_id, connection_id, stock_item_id, price_level, rate, unit)
+      VALUES
+        (${agent.orgId}, ${agent.connectionId}, ${mapping.internalId}, ${row.priceLevel},
+         ${row.rate}, ${row.unit ?? null})
+      ON CONFLICT (connection_id, stock_item_id, price_level)
+      DO UPDATE SET rate = EXCLUDED.rate,
+                    unit = EXCLUDED.unit,
+                    last_pulled_at = now(),
+                    updated_at = now()
+    `);
+  }
 }

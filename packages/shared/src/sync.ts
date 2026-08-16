@@ -138,21 +138,58 @@ export const partyPullRowSchema = z.object({
 
 export type PartyPullRow = z.infer<typeof partyPullRowSchema>;
 
+/**
+ * One stock item (REQ-R-02): name, alias, unit, group, and GST rate — the
+ * PRD's list exactly, no more. The GST rate is a percentage held as an exact
+ * decimal, because 2.5 must stay 2.5.
+ */
+export const stockItemPullRowSchema = z.object({
+  guid: z.string().min(1).max(80),
+  alterId: z.number().int().min(0),
+  name: z.string().min(1).max(200),
+  alias: z.string().min(1).max(200).optional(),
+  /** The base unit, verbatim — "Nos", "Kg", whatever Tally says. */
+  unit: z.string().min(1).max(40),
+  /** The stock group, verbatim from the parent. */
+  parentGroup: z.string().min(1).max(120),
+  gstRate: decimalString.optional(),
+});
+
+export type StockItemPullRow = z.infer<typeof stockItemPullRowSchema>;
+
+/**
+ * One price-list rate (REQ-R-03). Tally gives a price *level* (the per-party-
+ * group list this requirement exists for) and rates per stock item under it;
+ * the entry has no GUID of its own, so its identity is the pair — the writer
+ * upserts on (item, level) rather than through `external_refs`. `alterId`
+ * rides on the owning stock item's alteration, which is what moves when a
+ * rate is edited.
+ */
+export const priceListPullRowSchema = z.object({
+  alterId: z.number().int().min(0),
+  stockItemGuid: z.string().min(1).max(80),
+  priceLevel: z.string().min(1).max(120),
+  rate: decimalString,
+  /** The unit the rate is quoted per, when Tally states one. */
+  unit: z.string().min(1).max(40).optional(),
+});
+
+export type PriceListPullRow = z.infer<typeof priceListPullRowSchema>;
+
 /** Chunk bounds: small enough to commit fast, large enough not to chatter. */
 export const SYNC_CHUNK_MAX_ROWS = 500;
 
-export const agentResultsSchema = z.object({
+/**
+ * REQ-Q-06 fields shared by every results post: the journal keeps hashes of
+ * what was actually exchanged with Tally, computed by the agent over the raw
+ * XML. The hash is the evidence; the optional bodies are bulk the D-20
+ * sweep clears after 30 days.
+ */
+const resultsCommon = {
   agentInstanceId: agentInstanceIdSchema,
   /** Required on results: rows must come from the books they claim to. */
   openCompanyGuid: z.string().min(1).max(80),
   jobId: z.uuid(),
-  entityType: z.literal('party'),
-  rows: z.array(partyPullRowSchema).max(SYNC_CHUNK_MAX_ROWS),
-  /**
-   * REQ-Q-06: the journal keeps hashes of what was actually exchanged with
-   * Tally, computed by the agent over the raw XML. The hash is the evidence;
-   * the optional bodies are bulk the D-20 sweep clears after 30 days.
-   */
   requestHash: z.string().min(1).max(128),
   responseHash: z.string().min(1).max(128),
   requestBody: z.string().max(512_000).optional(),
@@ -160,7 +197,30 @@ export const agentResultsSchema = z.object({
   durationMs: z.number().int().min(0).optional(),
   /** True on the last chunk: the job completes and the cursor is final. */
   final: z.boolean(),
-});
+} as const;
+
+/**
+ * Discriminated on `entityType`, so a chunk of stock items claiming to be
+ * parties fails validation at the door instead of reaching a writer that
+ * would read `unit` where `parentGroup` should be.
+ */
+export const agentResultsSchema = z.discriminatedUnion('entityType', [
+  z.object({
+    ...resultsCommon,
+    entityType: z.literal('party'),
+    rows: z.array(partyPullRowSchema).max(SYNC_CHUNK_MAX_ROWS),
+  }),
+  z.object({
+    ...resultsCommon,
+    entityType: z.literal('stock_item'),
+    rows: z.array(stockItemPullRowSchema).max(SYNC_CHUNK_MAX_ROWS),
+  }),
+  z.object({
+    ...resultsCommon,
+    entityType: z.literal('price_list'),
+    rows: z.array(priceListPullRowSchema).max(SYNC_CHUNK_MAX_ROWS),
+  }),
+]);
 
 export type AgentResultsInput = z.infer<typeof agentResultsSchema>;
 

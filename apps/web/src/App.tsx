@@ -25,6 +25,8 @@ import { RolesPage } from '@/features/roles';
 import { SettingsPage } from '@/features/settings';
 import { NotificationsPage } from '@/features/notifications';
 import { PartiesPage } from '@/features/masters/parties-page';
+import { PriceListsPage } from '@/features/masters/price-lists-page';
+import { StockItemsPage } from '@/features/masters/stock-items-page';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { OrgMastersPage } from '@/features/org-masters';
 import { ProfilePage } from '@/features/profile/profile-page';
@@ -40,6 +42,8 @@ import { ALL_NAV_ITEMS } from '@/lib/nav';
  */
 const BUILT_ROUTES = new Set([
   '/masters/parties',
+  '/masters/items',
+  '/masters/price-lists',
   '/',
   '/employees',
   '/punch',
@@ -102,6 +106,8 @@ export default function App() {
               <Route path="roles" element={<RolesPage />} />
               <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="masters/parties" element={<PartiesPage />} />
+              <Route path="masters/items" element={<StockItemsPage />} />
+              <Route path="masters/price-lists" element={<PriceListsPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />

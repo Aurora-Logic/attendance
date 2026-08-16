@@ -21,7 +21,6 @@ import { SyncWriterService } from './sync-writer.service.js';
 
 class AgentHeartbeatDto extends createZodDto(agentHeartbeatSchema) {}
 class AgentClaimDto extends createZodDto(agentClaimSchema) {}
-class AgentResultsDto extends createZodDto(agentResultsSchema) {}
 class AgentErrorDto extends createZodDto(agentErrorSchema) {}
 
 /**
@@ -63,9 +62,15 @@ export class SyncAgentController {
   @HttpCode(HttpStatus.OK)
   async results(
     @CurrentAgent() agent: AgentPrincipal,
-    @Body() body: AgentResultsDto,
+    @Body() body: unknown,
   ): Promise<AgentResultsAck> {
-    const ack = await this.writer.ingestParties(agent, body);
+    // Parsed here rather than through a DTO class: the results contract is a
+    // discriminated union (one shape per entity type), and a class cannot
+    // have a union as its instance type, so the metatype-driven pipe cannot
+    // carry it. The same schema, the same raw ZodError, the same envelope
+    // from AppExceptionFilter -- only the call site is explicit.
+    const input = agentResultsSchema.parse(body);
+    const ack = await this.writer.ingest(agent, input);
     this.auditContext.suppress();
     return ack;
   }

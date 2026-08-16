@@ -5,12 +5,16 @@ import {
   type Paginated,
   type PartyListQuery,
   type PartyView,
+  type PriceListEntryView,
+  type PriceListListQuery,
+  type StockItemListQuery,
+  type StockItemView,
 } from '@vyuha/shared';
 import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
-import { parties } from '../db/schema/index.js';
+import { parties, priceListEntries, stockItems } from '../db/schema/index.js';
 import { masterSearch } from '../org/master-query.js';
 import { type Principal } from '../rbac/principal.js';
 
@@ -57,6 +61,117 @@ export class MastersService {
     // Cross-org and non-existent are one answer, as everywhere else.
     if (row === undefined) throw AppError.notFound('Party', id);
     return toView(row);
+  }
+
+  /** REQ-R-02, read side: same shape as parties, columns per the PRD's list. */
+  async listStockItems(
+    principal: Principal,
+    query: StockItemListQuery,
+  ): Promise<Paginated<StockItemView>> {
+    const { limit, offset } = pageSlice(query);
+
+    const parts: (SQL | undefined)[] = [eq(stockItems.orgId, principal.orgId)];
+    if (query.parentGroup !== undefined) {
+      parts.push(eq(stockItems.parentGroup, query.parentGroup));
+    }
+    if (query.q !== undefined) {
+      parts.push(masterSearch(query.q, [stockItems.name, stockItems.alias]));
+    }
+    const where = and(...parts);
+    if (where === undefined) {
+      throw new Error('Stock item predicate collapsed to undefined; refusing an unscoped query.');
+    }
+
+    const [rows, total] = await Promise.all([
+      this.db
+        .select()
+        .from(stockItems)
+        .where(where)
+        .orderBy(asc(stockItems.name), asc(stockItems.id))
+        .limit(limit)
+        .offset(offset),
+      this.db.select({ value: sql<number>`count(*)::int` }).from(stockItems).where(where),
+    ]);
+
+    return paginated(
+      rows.map((row) => ({
+        id: row.id,
+        connectionId: row.connectionId,
+        name: row.name,
+        alias: row.alias,
+        unit: row.unit,
+        parentGroup: row.parentGroup,
+        gstRate: row.gstRate,
+        absentInTally: row.absentInTally,
+        lastPulledAt: row.lastPulledAt.toISOString(),
+      })),
+      query,
+      total[0]?.value ?? 0,
+    );
+  }
+
+  /**
+   * REQ-R-03, read side. The item name is joined in because a rate without
+   * its item is a number without a noun; sorted by item then level so one
+   * item's levels read together.
+   */
+  async listPriceListEntries(
+    principal: Principal,
+    query: PriceListListQuery,
+  ): Promise<Paginated<PriceListEntryView>> {
+    const { limit, offset } = pageSlice(query);
+
+    const parts: (SQL | undefined)[] = [eq(priceListEntries.orgId, principal.orgId)];
+    if (query.priceLevel !== undefined) {
+      parts.push(eq(priceListEntries.priceLevel, query.priceLevel));
+    }
+    if (query.q !== undefined) {
+      parts.push(masterSearch(query.q, [stockItems.name]));
+    }
+    const where = and(...parts);
+    if (where === undefined) {
+      throw new Error('Price list predicate collapsed to undefined; refusing an unscoped query.');
+    }
+
+    const base = this.db
+      .select({
+        id: priceListEntries.id,
+        connectionId: priceListEntries.connectionId,
+        stockItemName: stockItems.name,
+        priceLevel: priceListEntries.priceLevel,
+        rate: priceListEntries.rate,
+        unit: priceListEntries.unit,
+        lastPulledAt: priceListEntries.lastPulledAt,
+      })
+      .from(priceListEntries)
+      .innerJoin(stockItems, eq(stockItems.id, priceListEntries.stockItemId));
+
+    const [rows, total] = await Promise.all([
+      base
+        .where(where)
+        .orderBy(asc(stockItems.name), asc(priceListEntries.priceLevel), asc(priceListEntries.id))
+        .limit(limit)
+        .offset(offset),
+      this.db
+        .select({ value: sql<number>`count(*)::int` })
+        .from(priceListEntries)
+        .innerJoin(stockItems, eq(stockItems.id, priceListEntries.stockItemId))
+        .where(where),
+    ]);
+
+    return paginated(
+      rows.map((row) => ({
+        id: row.id,
+        connectionId: row.connectionId,
+        stockItemName: row.stockItemName,
+        priceLevel: row.priceLevel,
+        rate: row.rate,
+        unit: row.unit,
+        lastPulledAt: row.lastPulledAt.toISOString(),
+      })),
+      query,
+      total[0]?.value ?? 0,
+    );
   }
 
   private partyPredicate(principal: Principal, query: PartyListQuery): SQL {
