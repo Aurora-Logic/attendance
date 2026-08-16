@@ -57,15 +57,22 @@ export const base = tseslint.config(
 );
 
 /**
- * Every module that will ever live under `src/modules/`. CRM and ERP are
- * listed before they exist because the boundary has to be enforced from the
+ * Every module that will ever live under `src/modules/`. The three that do not
+ * exist yet are listed anyway, because the boundary has to be enforced from the
  * first line of code, not retrofitted once there is something to separate.
  *
  * Adding a module means adding it here. That is deliberate: a new module is a
  * new boundary, and it should be a conscious act rather than a side effect of
  * creating a directory.
+ *
+ * `erp` was the original placeholder for one module. Technical design `09` §1
+ * splits that work across `sales` and `purchase` instead -- a purchase order
+ * and a sales order are different documents, owned by different roles, and
+ * `08` REQ-P-05 names the three paths individually. Naming them separately here
+ * is what stops `modules/sales` importing `modules/purchase` directly on the
+ * day both exist.
  */
-export const API_MODULES = ['attendance', 'crm', 'erp'];
+export const API_MODULES = ['attendance', 'crm', 'sales', 'purchase'];
 
 /**
  * Technical design §1: `modules/*` may import `platform/*`; `platform/*` must

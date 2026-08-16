@@ -10,6 +10,13 @@ Companion documents in `/docs`:
 | `01-product-requirements.md` | Before implementing any feature. It has the REQ IDs. |
 | `02-technical-design.md` | Before writing code, migrations, or APIs. |
 | `03-scope-and-delivery-plan.md` | Before starting or closing a phase. |
+| `08-product-requirements-phase-6-8.md` | Tally, CRM and sales/purchase. REQ IDs O–Z. |
+| `09-technical-design-phase-6-8.md` | The sync engine, projection tables, navigation shell. |
+| `10-scope-and-delivery-plan-phase-6-8.md` | Phases 6a–8b and their exit gates. |
+| `11-decisions-phase-6-8.md` | **Authority for Phase 6–8.** Overrides 08–10 wherever they disagree. |
+
+`01`–`03` are not superseded — they remain in force for attendance. `08`–`11`
+extend them for everything after it.
 
 ---
 
