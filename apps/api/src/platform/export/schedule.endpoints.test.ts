@@ -8,9 +8,9 @@ import {
 import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { exportJobs, files, reportSchedules } from '../../../platform/db/schema/index.js';
-import type { JobContext } from '../../../platform/jobs/job-handler.js';
-import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import { exportJobs, files, reportSchedules } from '../db/schema/index.js';
+import type { JobContext } from '../jobs/job-handler.js';
+import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { ScheduleSweepHandler } from './schedule-sweep.handler.js';
 
 /**

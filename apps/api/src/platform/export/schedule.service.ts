@@ -1,29 +1,29 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   PERMISSIONS,
-  REPORT_DEFINITIONS,
+  isReportKey,
   isScheduleDue,
   resolveColumns,
   scheduleWindow,
   type ExportFormat,
+  type ReportKey,
   type ReportSchedule,
   type ReportScheduleInput,
   type ScheduleCadence,
 } from '@vyuha/shared';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
-import { AuditContext } from '../../../platform/audit/audit-context.js';
-import { AuditService } from '../../../platform/audit/audit.service.js';
-import { AppError } from '../../../platform/common/errors.js';
-import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
-import { exportJobs, reportSchedules, users } from '../../../platform/db/schema/index.js';
-import { employeeNameSql } from '../../../platform/people/employee-name.js';
-import { employees } from '../../../platform/db/schema/index.js';
-import { hasPermission, type Principal } from '../../../platform/rbac/principal.js';
-import { PrincipalService } from '../../../platform/rbac/principal.service.js';
+import { AuditContext } from '../audit/audit-context.js';
+import { AuditService } from '../audit/audit.service.js';
+import { AppError } from '../common/errors.js';
+import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { employees, exportJobs, reportSchedules, users } from '../db/schema/index.js';
+import { employeeNameSql } from '../people/employee-name.js';
+import { hasPermission, type Principal } from '../rbac/principal.js';
+import { PrincipalService } from '../rbac/principal.service.js';
+import { ExportContextRepository } from './export-context.repository.js';
 import { ExportService } from './export.service.js';
-import { ReportRepository } from './report.repository.js';
-import { ReportService } from './report.service.js';
+import { ReportSourceRegistry } from './report-source.registry.js';
 
 /**
  * REQ-J-05: a saved report configuration produced on a timer.
@@ -74,6 +74,7 @@ export class ScheduleService {
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly exports: ExportService,
+    private readonly sources: ReportSourceRegistry,
     private readonly principals: PrincipalService,
     private readonly audit: AuditService,
     private readonly auditContext: AuditContext,
@@ -85,7 +86,7 @@ export class ScheduleService {
     // The same refusal the export endpoint gives, at the point somebody can
     // still fix it: a report that cannot answer for this filter set would
     // otherwise produce a schedule that fails silently every morning.
-    ReportService.assertFiltersUsable(input.reportKey, {
+    this.sources.require(input.reportKey).assertFiltersUsable(input.reportKey, {
       ...input.filters,
       ...scheduleWindow(input.cadence, this.todayIso()),
     });
@@ -425,7 +426,7 @@ export class ScheduleService {
       return false;
     }
 
-    if (!isReportKeyKnown(row.report_key)) {
+    if (!this.hasSource(row.report_key)) {
       this.logger.warn(`Schedule ${row.id} names report "${row.report_key}", which no longer exists.`);
       return false;
     }
@@ -489,7 +490,7 @@ export class ScheduleService {
     userId: string,
     scheduleId: string,
   ): Promise<Principal | null> {
-    const repository = new ReportRepository(this.db, { orgId, actorUserId: userId });
+    const repository = new ExportContextRepository(this.db, { orgId, actorUserId: userId });
     const owner = await repository.findRequester(userId);
     if (owner === null || owner.status !== 'ACTIVE') return null;
 
@@ -578,9 +579,13 @@ export class ScheduleService {
       createdAt: row.createdAt.toISOString(),
     }));
   }
-}
-
-/** Narrowing without importing the guard into a hot loop's type position. */
-function isReportKeyKnown(key: string): key is keyof typeof REPORT_DEFINITIONS {
-  return Object.hasOwn(REPORT_DEFINITIONS, key);
+  /**
+   * Known to the shared contract *and* registered by a module. The first half
+   * narrows the string; the second is what actually matters — a key whose
+   * module stopped registering it names a report this build cannot produce,
+   * whatever the contract says.
+   */
+  private hasSource(key: string): key is ReportKey {
+    return isReportKey(key) && this.sources.sourceFor(key) !== null;
+  }
 }

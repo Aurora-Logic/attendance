@@ -5,19 +5,20 @@ import {
   type JobContext,
   type JobHandler,
   type JobResult,
-} from '../../../platform/jobs/job-handler.js';
-import type { JobPayloads } from '../../../platform/jobs/queue.registry.js';
+} from '../jobs/job-handler.js';
+import type { JobPayloads } from '../jobs/queue.registry.js';
 import { ExportService } from './export.service.js';
 
 /**
  * REQ-J-03's background half.
  *
- * The handler lives in the attendance module rather than beside
- * `PurgeExpiredFilesHandler` in `platform/jobs/handlers/`, and it has to:
- * producing the rows means knowing what a report is, and technical design §1
- * forbids `platform/` from importing `modules/`. Registration is the same
- * either way -- the handler puts itself into the global `JobRegistry` during
- * `onModuleInit`, so `JobsModule` never grows an import for it.
+ * This lived in the attendance module because producing the rows meant
+ * knowing what a report is, and technical design §1 forbids `platform/` from
+ * importing `modules/`. `ReportSourceRegistry` removed that reason (REQ-P-02):
+ * the rows come from whichever module registered the report, so the handler
+ * sits with the framework it drives. Registration is unchanged -- it puts
+ * itself into the global `JobRegistry` during `onModuleInit`, so `JobsModule`
+ * never grows an import for it.
  *
  * The payload carries only the row id. Everything else -- filters, columns,
  * who asked -- is read from `export_jobs` at run time, which is what lets a

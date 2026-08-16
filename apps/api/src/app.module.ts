@@ -14,6 +14,7 @@ import { pinoParams } from './platform/common/logging.js';
 import { RequestIdMiddleware } from './platform/common/request-id.middleware.js';
 import { ZodValidationPipe } from './platform/common/zod-validation.pipe.js';
 import { DbModule } from './platform/db/db.module.js';
+import { ExportModule } from './platform/export/export.module.js';
 import { FileModule } from './platform/files/file.module.js';
 import { HealthModule } from './platform/health/health.module.js';
 import { IntegrationModule } from './platform/integration/integration.module.js';
@@ -67,6 +68,8 @@ import { StorageModule } from './platform/storage/storage.module.js';
     OrgModule,
     // Before PeopleModule, whose employee source registers into it on init.
     SearchModule,
+    // Before AttendanceModule, whose report source registers into it on init.
+    ExportModule,
     PeopleModule,
     SettingsModule,
     IntegrationModule,
