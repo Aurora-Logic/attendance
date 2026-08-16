@@ -589,6 +589,9 @@ describe('stock items and price lists repeat the pattern (REQ-R-02, REQ-R-03)', 
 
     const first = await claimNext();
     expect(first?.entityType).toBe('stock_item');
+    // Nothing pulled yet for this type: the server's watermark rides on the
+    // claim, and it starts at zero.
+    expect(first?.fromAlterId).toBe(0);
     itemJobId = first?.id ?? '';
   });
 
@@ -736,6 +739,8 @@ describe('stock items and price lists repeat the pattern (REQ-R-02, REQ-R-03)', 
       VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'stock_item')
     `);
     const job = await claimNext();
+    // The committed cursor from the full pull above (302) rides on the claim.
+    expect(job?.fromAlterId).toBe(302);
     const cableOnly = {
       guid: 'item-guid-cable',
       alterId: 310,

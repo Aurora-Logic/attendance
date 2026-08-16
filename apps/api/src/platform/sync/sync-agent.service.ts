@@ -163,6 +163,7 @@ export class SyncAgentService {
       entity_type: string;
       payload: unknown;
       attempts: number;
+      from_alter_id: number;
     }>(sql`
       UPDATE sync_jobs
          SET state = 'CLAIMED',
@@ -184,7 +185,12 @@ export class SyncAgentService {
           LIMIT 1
           FOR UPDATE OF j SKIP LOCKED
        )
-       RETURNING id, direction, entity_type, payload, attempts
+       RETURNING id, direction, entity_type, payload, attempts,
+         -- The server's watermark rides on the claim: the agent pulls above
+         -- this, and after a full re-pull (cursor deleted) it is zero.
+         (SELECT COALESCE(sc.last_alter_id, 0) FROM sync_cursors sc
+           WHERE sc.connection_id = sync_jobs.connection_id
+             AND sc.entity_type = sync_jobs.entity_type) AS from_alter_id
     `);
 
     // The claim is the audit trail here: sync_jobs carries claimed_by and
@@ -209,6 +215,7 @@ export class SyncAgentService {
       entityType: row.entity_type,
       payload: row.payload,
       attempts: row.attempts,
+      fromAlterId: Number(row.from_alter_id ?? 0),
     };
     return { job };
   }

@@ -88,6 +88,14 @@ export interface ClaimedSyncJob {
   readonly entityType: string;
   readonly payload: unknown;
   readonly attempts: number;
+  /**
+   * The server's cursor for this entity type: pull everything above it.
+   * Zero after a full re-pull (REQ-R-05 deletes the cursor) and on a first
+   * pull. Carried on the claim because the server owns the watermark — an
+   * agent that tracked its own could disagree with the one the writer
+   * actually committed, and the committed one is the only one that is true.
+   */
+  readonly fromAlterId: number;
 }
 
 export interface AgentClaimResponse {

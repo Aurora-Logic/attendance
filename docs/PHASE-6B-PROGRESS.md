@@ -27,7 +27,8 @@ Branch: **`phase-6a`** (6b work continues on it until 6a's gate closes).
 | Heartbeat staleness alert, edge-triggered with recovery — REQ-Q-04 | `53e3449` | 3 transition tests (once per silence, re-arms); full API 1683/1683; CDP: both events in the preferences grid |
 | Stock items + price lists: rows, writers, sweep order, read APIs, two screens — REQ-R-02, REQ-R-03 | `406b453` | Sync+masters 71/71 twice; full API 1689/1689; live drive: UI-issued token, agent protocol over HTTP, both screens render the paisa-exact figures |
 | Journal body sweep, nightly 02:45 — D-20 | `29a862e` | Ages real rows: 40-day bodies cleared, hash kept, fresh kept, repeat finds nothing; trigger side already held by `sync-journal.test.ts` |
-| Full re-pull + absent marking — REQ-R-05, REQ-R-06 | — | Watermark = job created_at (claimed_at moves per chunk); mark/unmark/incremental-never 32/32; CDP: confirm dialog queues 3 full jobs, cursors deleted. Vanishing price rates → OPEN-QUESTIONS P6b-1 |
+| Full re-pull + absent marking — REQ-R-05, REQ-R-06 | `ac6707f` | Watermark = job created_at (claimed_at moves per chunk); mark/unmark/incremental-never 32/32; CDP: confirm dialog queues 3 full jobs, cursors deleted. Vanishing price rates → OPEN-QUESTIONS P6b-1 |
+| Connector agent, loop half — REQ-Q-01, Q-02, Q-07 (`apps/agent`) | — | 5 loop tests vs a scripted server; **live run against the dev API**: UI-issued token, lease, 3 full jobs claimed in dependency order, chunks posted, absent marking landed from the real binary. Claim now carries `fromAlterId` (the server's cursor). Transport = seam + FixtureTransport; `TallyHttpTransport` and SEA packaging land with real fixtures (10 §8, D-05) |
 
 New permission: `masters.tally.view` (08 §2.2), granted to Admin; other
 holders arrive with their roles. OPEN-QUESTIONS I-1 closed: staleness = lease
@@ -83,11 +84,7 @@ takeover = 5 minutes, one constant.
 
 ## Next, in order
 
-1. **The connector agent binary** (REQ-Q-01, Q-07): TypeScript single binary.
-   The poll/heartbeat/claim/post loop is buildable against the shared
-   contract now; the Tally XML transport inside it is **fixture-gated** — the
-   Definition of Done forbids hand-written Tally XML.
-2. **6b exit gate**: `/security-review` on `/sync/agent/*` and the credential
+1. **6b exit gate**: `/security-review` on `/sync/agent/*` and the credential
    path. An agent token must not read an employee, a photo, or another
    connection's data (the cross-connection test already covers the queue).
 
