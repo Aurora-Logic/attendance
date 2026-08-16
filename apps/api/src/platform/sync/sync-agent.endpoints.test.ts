@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
-import { SYSTEM_ROLES, type AgentClaimResponse, type AgentHeartbeatAck, type IntegrationListResponse, type IssuedAgentToken } from '@vyuha/shared';
+import {
+  SYSTEM_ROLES,
+  type AgentClaimResponse,
+  type AgentHeartbeatAck,
+  type AgentResultsAck,
+  type IntegrationListResponse,
+  type IssuedAgentToken,
+} from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -320,5 +327,135 @@ describe('rotation revokes', () => {
       agentVersion: '0.2.0',
     });
     expect(fresh.status).toBe(200);
+  });
+});
+
+describe('pull results become the projection (09 §3.2, REQ-R-01, REQ-T-03)', () => {
+  // The rotation test above retired the old credential and freed the lease,
+  // so this block starts its own epoch: fresh token, fresh instance, fresh
+  // queued job. That independence is deliberate — these tests must not
+  // depend on which instance happened to win earlier scuffles.
+  const AGENT_D = 'agent-instance-dddd';
+  let epochToken = '';
+  let resultsJobId = '';
+
+  const chunk = (final: boolean, rows: unknown[], hashes = 'sha256:req1|sha256:res1') => ({
+    agentInstanceId: AGENT_D,
+    openCompanyGuid: COMPANY_GUID,
+    jobId: resultsJobId,
+    entityType: 'party',
+    rows,
+    requestHash: hashes.split('|')[0],
+    responseHash: hashes.split('|')[1],
+    final,
+  });
+
+  const ashaRow = {
+    guid: 'party-guid-asha',
+    alterId: 101,
+    name: 'Asha Traders',
+    parentGroup: 'Sundry Debtors',
+    gstin: '27AAAPL1234C1ZV',
+    creditLimit: '250000.00',
+    creditDays: 30,
+    openingBalance: '-12345.67',
+  };
+  const beharRow = {
+    guid: 'party-guid-behar',
+    alterId: 99,
+    name: 'Behar Supply Co',
+    parentGroup: 'Sundry Creditors',
+  };
+
+  it('sets up its epoch: rotated token, fresh lease, one queued job', async () => {
+    const reissued = await harness.post<IssuedAgentToken>(
+      `/integrations/${connectionId}/token`,
+      { token: adminToken },
+    );
+    epochToken = reissued.body.token;
+
+    const hb = await agentPost<AgentHeartbeatAck>('/sync/agent/heartbeat', epochToken, {
+      agentInstanceId: AGENT_D,
+      agentVersion: '0.1.0',
+      openCompanyGuid: COMPANY_GUID,
+    });
+    expect(hb.status).toBe(200);
+
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'party')
+    `);
+    const claim = await agentPost<AgentClaimResponse>('/sync/agent/jobs/claim', epochToken, {
+      agentInstanceId: AGENT_D,
+      openCompanyGuid: COMPANY_GUID,
+    });
+    expect(claim.body.job?.entityType).toBe('party');
+    resultsJobId = claim.body.job?.id ?? '';
+    expect(resultsJobId).not.toBe('');
+  });
+
+  it('ingests a chunk: rows land to the paisa, cursor advances, job stays claimed', async () => {
+    const response = await agentPost<AgentResultsAck>('/sync/agent/results', epochToken, chunk(false, [ashaRow, beharRow]));
+    expect(response.status).toBe(200);
+    expect(response.body.written).toBe(2);
+    expect(response.body.lastAlterId).toBe(101);
+    expect(response.body.jobState).toBe('CLAIMED');
+
+    const stored = await harness.db.execute<{ name: string; credit_limit: string | null; opening_balance: string | null }>(sql`
+      SELECT name, credit_limit, opening_balance FROM parties
+       WHERE org_id = ${ORG_ID} ORDER BY name
+    `);
+    expect(stored.rows.map((r) => r.name)).toEqual(['Asha Traders', 'Behar Supply Co']);
+    // numeric, not float: the projection holds Tally's figure exactly (D-01).
+    expect(stored.rows[0]?.credit_limit).toBe('250000.00');
+    expect(stored.rows[0]?.opening_balance).toBe('-12345.67');
+  });
+
+  it('a re-posted chunk upserts the same GUIDs — the retry is safe by construction', async () => {
+    const response = await agentPost<AgentResultsAck>('/sync/agent/results', epochToken, chunk(false, [ashaRow, beharRow]));
+    expect(response.status).toBe(200);
+
+    const count = await harness.db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM parties WHERE org_id = ${ORG_ID}
+    `);
+    expect(Number(count.rows[0]?.count)).toBe(2);
+  });
+
+  it('Tally wins on the final chunk: rename lands, cursor is the new max, job completes', async () => {
+    const renamed = { ...ashaRow, alterId: 150, name: 'Asha Trading Company' };
+    const response = await agentPost<AgentResultsAck>('/sync/agent/results', epochToken, chunk(true, [renamed], 'sha256:req2|sha256:res2'));
+    expect(response.status).toBe(200);
+    expect(response.body.lastAlterId).toBe(150);
+    expect(response.body.jobState).toBe('DONE');
+
+    const stored = await harness.db.execute<{ name: string }>(sql`
+      SELECT p.name FROM parties p
+       JOIN external_refs x ON x.internal_id = p.id AND x.entity_type = 'party'
+       WHERE x.external_guid = 'party-guid-asha'
+    `);
+    expect(stored.rows[0]?.name).toBe('Asha Trading Company');
+  });
+
+  it('refuses results for a job that is already done', async () => {
+    const response = await agentPost('/sync/agent/results', epochToken, chunk(false, [beharRow]));
+    expect(response.status).toBe(409);
+  });
+
+  it('refuses results claiming to come from the wrong books', async () => {
+    const response = await agentPost('/sync/agent/results', epochToken, {
+      ...chunk(false, [beharRow]),
+      openCompanyGuid: 'guid-not-ours',
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it('journalled every exchange with its hashes', async () => {
+    const rows = await harness.db.execute<{ request_hash: string; result: string }>(sql`
+      SELECT request_hash, result FROM sync_journal
+       WHERE connection_id = ${connectionId} ORDER BY created_at
+    `);
+    expect(rows.rows.length).toBeGreaterThanOrEqual(3);
+    expect(rows.rows.map((r) => r.request_hash)).toContain('sha256:req2');
+    expect(rows.rows.every((r) => r.result.startsWith('ok:'))).toBe(true);
   });
 });

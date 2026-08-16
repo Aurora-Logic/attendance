@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { AgentAuthService } from './agent-auth.service.js';
 import { SyncAgentController } from './sync-agent.controller.js';
 import { SyncAgentService } from './sync-agent.service.js';
+import { SyncWriterService } from './sync-writer.service.js';
 
 /**
  * The sync engine's platform module (09 §1: "integration, sync" in the shared
@@ -20,7 +21,7 @@ import { SyncAgentService } from './sync-agent.service.js';
   // window machinery, in their own scope.
   imports: [AuthModule],
   controllers: [SyncAgentController],
-  providers: [AgentAuthService, SyncAgentService],
+  providers: [AgentAuthService, SyncAgentService, SyncWriterService],
   exports: [AgentAuthService],
 })
 export class SyncModule {}

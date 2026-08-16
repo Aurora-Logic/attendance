@@ -95,6 +95,83 @@ export interface AgentClaimResponse {
   readonly job: ClaimedSyncJob | null;
 }
 
+// ------------------------------------------------------------ pull results
+
+/**
+ * What a pull job can be about. Free text on the wire and in the tables —
+ * the column is text so a later phase attaches without a migration — but a
+ * job the API enqueues names one of these, and the results endpoint only
+ * ingests kinds it has a writer for.
+ */
+export const SYNC_ENTITY_TYPES = ['party', 'stock_item', 'price_list'] as const;
+
+export type SyncEntityType = (typeof SYNC_ENTITY_TYPES)[number];
+
+/**
+ * An exact decimal as text. Credit limits and opening balances are Tally's
+ * figures held as a projection (D-01); a float would silently reshape them,
+ * and a figure that no longer matches Tally to the paisa is the trust
+ * failure REQ-S-05 reconciles against. Stored in `numeric` columns, never
+ * computed on.
+ */
+const decimalString = z.string().regex(/^-?\d{1,15}(\.\d{1,6})?$/u, 'an exact decimal number');
+
+/**
+ * One party, as the agent read it out of Tally (REQ-R-01). The agent owns
+ * the XML: it parses TallyPrime's export — malformed by strict standards,
+ * which is why parsing happens where `fast-xml-parser` is — and posts rows
+ * in this shape. The API never sees Tally XML on the pull path.
+ */
+export const partyPullRowSchema = z.object({
+  guid: z.string().min(1).max(80),
+  alterId: z.number().int().min(0),
+  name: z.string().min(1).max(200),
+  alias: z.string().min(1).max(200).optional(),
+  /** Sundry Debtors / Sundry Creditors, verbatim from the parent group. */
+  parentGroup: z.string().min(1).max(120),
+  gstin: z.string().min(1).max(20).optional(),
+  address: z.string().min(1).max(1000).optional(),
+  creditLimit: decimalString.optional(),
+  creditDays: z.number().int().min(0).max(3650).optional(),
+  openingBalance: decimalString.optional(),
+});
+
+export type PartyPullRow = z.infer<typeof partyPullRowSchema>;
+
+/** Chunk bounds: small enough to commit fast, large enough not to chatter. */
+export const SYNC_CHUNK_MAX_ROWS = 500;
+
+export const agentResultsSchema = z.object({
+  agentInstanceId: agentInstanceIdSchema,
+  /** Required on results: rows must come from the books they claim to. */
+  openCompanyGuid: z.string().min(1).max(80),
+  jobId: z.uuid(),
+  entityType: z.literal('party'),
+  rows: z.array(partyPullRowSchema).max(SYNC_CHUNK_MAX_ROWS),
+  /**
+   * REQ-Q-06: the journal keeps hashes of what was actually exchanged with
+   * Tally, computed by the agent over the raw XML. The hash is the evidence;
+   * the optional bodies are bulk the D-20 sweep clears after 30 days.
+   */
+  requestHash: z.string().min(1).max(128),
+  responseHash: z.string().min(1).max(128),
+  requestBody: z.string().max(512_000).optional(),
+  responseBody: z.string().max(512_000).optional(),
+  durationMs: z.number().int().min(0).optional(),
+  /** True on the last chunk: the job completes and the cursor is final. */
+  final: z.boolean(),
+});
+
+export type AgentResultsInput = z.infer<typeof agentResultsSchema>;
+
+export interface AgentResultsAck {
+  readonly jobId: string;
+  readonly written: number;
+  /** The cursor after this chunk committed — what the next pull filters above. */
+  readonly lastAlterId: number;
+  readonly jobState: 'CLAIMED' | 'DONE';
+}
+
 // ---------------------------------------------------------- administration
 
 export const createIntegrationConnectionSchema = z.object({

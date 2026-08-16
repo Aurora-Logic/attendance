@@ -148,6 +148,13 @@
       "when": 1786890478408,
       "tag": "0020_agent_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786891051507,
+      "tag": "0021_parties_projection",
+      "breakpoints": true
     }
   ]
 }
