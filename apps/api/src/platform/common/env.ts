@@ -16,12 +16,17 @@ export type { Env, EnvIssue } from './env.schema.js';
  */
 
 function loadDotEnvFile(): void {
-  const envFile = resolve(process.cwd(), '.env');
-  if (!existsSync(envFile)) return;
-  // Node leaves already-set variables alone, so a value injected by the
-  // container, CI, or a one-off shell prefix still wins over the file.
-  process.loadEnvFile(envFile);
+  const envCandidates = [
+    resolve(process.cwd(), '.env'),
+    resolve(process.cwd(), '../../.env'),
+  ];
+  for (const envPath of envCandidates) {
+    if (existsSync(envPath)) {
+      try { process.loadEnvFile(envPath); } catch {}
+    }
+  }
 }
+
 
 loadDotEnvFile();
 

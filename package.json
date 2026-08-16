@@ -7,17 +7,20 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --filter '@vyuha/*' --parallel dev",
-    "build": "pnpm --filter '@vyuha/*' build",
-    "typecheck": "pnpm --filter '@vyuha/*' typecheck",
-    "lint": "pnpm --filter '@vyuha/*' lint",
-    "test": "pnpm --filter '@vyuha/*' test",
+    "dev": "pnpm --filter \"@vyuha/*\" --parallel dev",
+    "dev:api": "pnpm --filter @vyuha/api dev",
+    "dev:web": "pnpm --filter @vyuha/web dev",
+    "build": "pnpm --filter \"@vyuha/*\" build",
+    "typecheck": "pnpm --filter \"@vyuha/*\" typecheck",
+    "lint": "pnpm --filter \"@vyuha/*\" lint",
+    "test": "pnpm --filter \"@vyuha/*\" test",
     "smoke": "node scripts/smoke.mjs",
     "infra:up": "docker compose -f docker/docker-compose.yml up -d --wait",
     "infra:down": "docker compose -f docker/docker-compose.yml down",
     "infra:reset": "docker compose -f docker/docker-compose.yml down -v",
     "infra:logs": "docker compose -f docker/docker-compose.yml logs -f"
   },
+
   "devDependencies": {
     "typescript": "5.9.3"
   },

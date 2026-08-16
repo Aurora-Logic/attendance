@@ -28,8 +28,16 @@ const FORCE_FLAG = '--force';
 const EXAMPLE_PEOPLE_FLAG = '--with-example-people';
 
 async function main(): Promise<void> {
-  const envFile = resolve(process.cwd(), '.env');
-  if (existsSync(envFile)) process.loadEnvFile(envFile);
+  const envCandidates = [
+    resolve(process.cwd(), '.env'),
+    resolve(process.cwd(), '../../.env'),
+  ];
+  for (const envPath of envCandidates) {
+    if (existsSync(envPath)) {
+      try { process.loadEnvFile(envPath); } catch {}
+    }
+  }
+
 
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
