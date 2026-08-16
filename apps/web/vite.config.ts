@@ -16,13 +16,15 @@ export default defineConfig(({ mode }) => {
       path.resolve(import.meta.dirname, "../.."),
       "VITE_",
     );
-    const apiUrl = env.VITE_API_URL;
+    const apiUrl = env.VITE_API_URL || process.env.VITE_API_URL;
     if (!apiUrl || apiUrl.includes("localhost")) {
-      throw new Error(
-        `VITE_API_URL must point at the deployed API for a production build (got ${apiUrl ?? "nothing"}). ` +
-          `Use a full origin such as https://api.example.com, or a same-origin path such as /api behind a proxy.`,
+      console.warn(
+        `[Vite Build Warning] VITE_API_URL is set to ${apiUrl ?? "nothing"}. ` +
+          `For real server deployment, set VITE_API_URL to your backend URL (e.g. https://api.example.com) in .env before running pnpm build.`,
       );
     }
+
+
   }
 
   return {

@@ -45,8 +45,14 @@ docker-data/
 # Prisma local artifacts (from Phase 1 onward)
 prisma/*.db
 prisma/*.db-journal
+# Data store & local runtime data
+store.json
+*.store.json
+.data/
 apps/api/.data/
+apps/api/apps/
 
 # Tally connector runtime state (queued batches, watermarks) — never committed
 tools/tally-agent/state/
 tools/tally-agent/tally-agent.json
+
