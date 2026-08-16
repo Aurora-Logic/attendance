@@ -339,15 +339,22 @@ export const TOP_BAR_ITEMS: NavItem[] = [
       },
 ];
 
+/**
+ * Named rather than inlined in `MODULES` so `findModuleForPath` has a typed
+ * fallback without an index into the array — a route no module owns (the
+ * workspace screens, /profile, a bad URL) still needs a sidebar behind it.
+ */
+const ATTENDANCE_MODULE: ModuleDef = {
+  id: 'attendance',
+  label: 'Attendance',
+  icon: CalendarDotsIcon,
+  home: '/',
+  groups: NAV_GROUPS,
+};
+
 /** REQ-O-01. One entry per module; the sidebar renders only the current one. */
 export const MODULES: ModuleDef[] = [
-  {
-    id: 'attendance',
-    label: 'Attendance',
-    icon: CalendarDotsIcon,
-    home: '/',
-    groups: NAV_GROUPS,
-  },
+  ATTENDANCE_MODULE,
   {
     id: 'masters',
     label: 'Masters',
@@ -372,6 +379,28 @@ export const MODULES: ModuleDef[] = [
     ],
   },
 ];
+
+/**
+ * The module that owns a route, so the sidebar can render that module's
+ * groups rather than always attendance's (REQ-O-01 — without this, a second
+ * module's screens exist in the palette and nowhere a mouse can find them).
+ *
+ * Prefix matching covers detail routes: /employees/42 belongs to whichever
+ * module owns /employees. Routes no module claims — the workspace screens,
+ * /profile, an unknown URL — fall back to attendance, which keeps the sidebar
+ * stable instead of blanking it on every administrative page.
+ */
+export function findModuleForPath(pathname: string): ModuleDef {
+  return (
+    MODULES.find((module) =>
+      module.groups.some((group) =>
+        group.items.some(
+          (item) => item.to === pathname || (item.to !== '/' && pathname.startsWith(`${item.to}/`)),
+        ),
+      ),
+    ) ?? ATTENDANCE_MODULE
+  );
+}
 
 /** Every destination that has a name, wherever it is reached from. */
 export const ALL_NAV_ITEMS: NavItem[] = [

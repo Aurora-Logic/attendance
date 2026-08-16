@@ -11,6 +11,7 @@ import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { parties } from '../db/schema/index.js';
+import { masterSearch } from '../org/master-query.js';
 import { type Principal } from '../rbac/principal.js';
 
 /**
@@ -30,18 +31,18 @@ export class MastersService {
     const { limit, offset } = pageSlice(query);
     const where = this.partyPredicate(principal, query);
 
-    const rows = await this.db
-      .select()
-      .from(parties)
-      .where(where)
-      .orderBy(asc(parties.name), asc(parties.id))
-      .limit(limit)
-      .offset(offset);
-
-    const total = await this.db
-      .select({ value: sql<number>`count(*)::int` })
-      .from(parties)
-      .where(where);
+    // Independent statements; paying two round trips in sequence would
+    // double the endpoint's latency for nothing.
+    const [rows, total] = await Promise.all([
+      this.db
+        .select()
+        .from(parties)
+        .where(where)
+        .orderBy(asc(parties.name), asc(parties.id))
+        .limit(limit)
+        .offset(offset),
+      this.db.select({ value: sql<number>`count(*)::int` }).from(parties).where(where),
+    ]);
 
     return paginated(rows.map(toView), query, total[0]?.value ?? 0);
   }
@@ -65,14 +66,10 @@ export class MastersService {
       parts.push(eq(parties.parentGroup, query.parentGroup));
     }
     if (query.q !== undefined) {
-      // Escaped like the employee search: a term of "%" must find nothing,
-      // not everything.
-      const pattern = `%${query.q.replace(/([\\%_])/gu, '\\$1')}%`;
-      parts.push(sql`(
-        ${parties.name} ILIKE ${pattern}
-        OR coalesce(${parties.alias}, '') ILIKE ${pattern}
-        OR coalesce(${parties.gstin}, '') ILIKE ${pattern}
-      )`);
+      // The one master-search helper, so the escaping rule cannot fork:
+      // NULL columns are simply not-ILIKE-matched, which is the same answer
+      // the coalesce dance gave at more length.
+      parts.push(masterSearch(query.q, [parties.name, parties.alias, parties.gstin]));
     }
 
     const predicate = and(...parts);

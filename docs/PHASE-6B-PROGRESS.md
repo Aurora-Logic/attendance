@@ -22,9 +22,57 @@ Branch: **`phase-6a`** (6b work continues on it until 6a's gate closes).
 | Masters read API: `/masters/parties`, 405s that teach — REQ-R-04 | `8e7d378` | 6b acceptance line asserted verbatim |
 | Masters UI + module switcher entry + party Go To source — REQ-O-05 proven extensible | `395ee91` | CDP 8/8: Ctrl+G offers Masters, Alt+G opens filtered register |
 
+| Review hardening batch (two `/code-review` rounds, ~40 findings triaged) | — | Sync suites 51/51 twice; full API 1669/1669; web 414/414; CDP drives below |
+
 New permission: `masters.tally.view` (08 §2.2), granted to Admin; other
 holders arrive with their roles. OPEN-QUESTIONS I-1 closed: staleness = lease
 takeover = 5 minutes, one constant.
+
+### What the review batch changed
+
+- **Cross-connection GUID absorption closed, with adoption semantics.** The
+  writer's mapping lookup reads the mapping's *owner*: a GUID held by a living
+  other connection is a 409 (one company, one connection); a mapping whose
+  owning connection was soft-deleted is adopted — repointed to the caller —
+  because a replaced connection for the same books must be able to re-pull its
+  own parties. The GUID, not the connection row, is the record's identity.
+- **`claimed_at` is a liveness mark.** The writer refreshes it per ingested
+  chunk, so the unstick sweep's "older than takeover" means the whole exchange
+  went silent — a healthy agent mid-way through a slow first backfill keeps
+  its claim instead of cycling claim→requeue→409 to FAILED.
+- **Agent limiter no longer resets per heartbeat.** A successful resolve
+  releases only its own slot (`release`), never the address (`clear`): an
+  agent authenticating every 60 s would otherwise wipe the NAT's brute-force
+  budget each minute.
+- **A claim over a non-empty queue that matches zero rows now names its
+  refusal** (lease moved, company rebound, connection dead) instead of
+  answering "queue empty" while a QUEUED job sits unclaimed.
+- **The sidebar renders the current module, with a switcher** (REQ-O-01). The
+  Masters module had existed only in the Alt+G palette; nothing rendered it.
+  `findModuleForPath` owns route→module; the switcher appears only when the
+  account can see more than one module. Pinned by `app-sidebar.test.tsx`.
+- **Manual pull is reachable** (REQ-R-07's second half): a Pull now control
+  per connection on Integrations — disabled with its reason until a token is
+  issued, distinct toasts for queued vs already-queued. The Parties empty
+  state's instruction is now true.
+- **Go To trims to the server's 80-char cap** (shared constant) instead of
+  rendering the validation 400 as "records unreachable".
+- Mechanical: two web build breakers from the parseOrThrow move, a nullable
+  Select value, sync fixtures now clean `parties`/`external_refs` so re-runs
+  cannot collide with their own history.
+
+### Deferred by design (review findings judged not worth their weight yet)
+
+- `SyncWriterRegistry` entity-type dispatch — one writer, one entity type
+  today; the registry lands with stock items (item 3 below).
+- Report `filterLabels` → `ReportSource`-owned captions; org-profile "home"
+  moving into `platform/org`; a credential-resolver registry — each is an
+  inversion whose second consumer does not exist yet.
+- Set-based party ingest and a `pg_trgm` index on `parties.name` — the
+  row-at-a-time loop is correct and the projection is thousands of rows, not
+  millions; revisit when a real backfill says otherwise.
+- Go To sources skipping `count(*)` — measured cost is negligible at this
+  size.
 
 ## Next, in order
 

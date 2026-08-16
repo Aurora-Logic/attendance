@@ -512,9 +512,19 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
 };
 
-export const ALL_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.map(
+/**
+ * The attendance module's reports — today, all of them. Named as a group so
+ * Phase 6d's receivables definitions can join `ALL_REPORTS` without the
+ * attendance source claiming their keys: each module's source claims its own
+ * group, and the registry's duplicate refusal stays a safety net instead of
+ * becoming a planned boot failure.
+ */
+export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.map(
   (key) => REPORT_DEFINITIONS[key],
 );
+
+/** Every module's reports. Grows by concatenation as modules add groups. */
+export const ALL_REPORTS: readonly ReportDefinition[] = ATTENDANCE_REPORTS;
 
 /** The columns a report shows before anyone touches the F12 chooser. */
 export function defaultVisibleColumns(reportKey: ReportKey): string[] {

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { ArrowsClockwiseIcon, BooksIcon, LockKeyIcon } from '@phosphor-icons/react';
-import { formatDistanceToNow, parseISO } from 'date-fns';
 import { useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -25,7 +24,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { EMPTY_VALUE } from '@/lib/format';
+import { EMPTY_VALUE, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -45,12 +44,6 @@ const ALL_GROUPS = '__all__';
 
 /** Tally's two party ledger sides (08 §3). */
 const LEDGER_SIDES = ['Sundry Debtors', 'Sundry Creditors'] as const;
-
-function pulledAge(value: string): string {
-  const parsed = parseISO(value);
-  if (Number.isNaN(parsed.getTime())) return EMPTY_VALUE;
-  return `${formatDistanceToNow(parsed)} ago`;
-}
 
 const COLUMNS: RecordColumn<Party>[] = [
   {
@@ -82,7 +75,7 @@ const COLUMNS: RecordColumn<Party>[] = [
   {
     key: 'pulled',
     header: 'As of',
-    cell: (row) => pulledAge(row.lastPulledAt),
+    cell: (row) => formatRelativeAge(row.lastPulledAt),
     className: 'tabular-nums',
     secondary: true,
   },
@@ -205,7 +198,7 @@ export function PartiesPage() {
               setSearchParams(
                 (current) => {
                   const next = new URLSearchParams(current);
-                  if (value === ALL_GROUPS) next.delete('group');
+                  if (value === null || value === ALL_GROUPS) next.delete('group');
                   else next.set('group', value);
                   next.delete('page');
                   return next;

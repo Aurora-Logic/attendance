@@ -7,7 +7,7 @@ import {
 } from '@tanstack/react-query';
 import { z } from 'zod';
 
-import { parseOrThrow } from '@/features/attendance/api';
+import { parseOrThrow } from '@/lib/api/parse';
 import { apiRequest } from '@/lib/api/client';
 
 import { integrationsResponseSchema, type IntegrationsResponse } from './types';
@@ -79,6 +79,31 @@ export function useIssueToken(): UseMutationResult<IssuedToken, Error, { connect
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['integrations'] });
+    },
+  });
+}
+
+const queuedPullSchema = z.object({
+  jobId: z.string(),
+  /** True when the press found an open job rather than creating one. */
+  alreadyQueued: z.boolean(),
+});
+
+export type QueuedPull = z.infer<typeof queuedPullSchema>;
+
+/**
+ * REQ-R-07's manual half. The server holds the one-open-job invariant, so a
+ * second press answers the existing job instead of erroring — the screen's
+ * only duty is to say which of the two happened.
+ */
+export function usePullNow(): UseMutationResult<QueuedPull, Error, { connectionId: string }> {
+  return useMutation({
+    mutationFn: async ({ connectionId }) => {
+      const body = await apiRequest<unknown>(`/integrations/${connectionId}/pull`, {
+        method: 'POST',
+        body: { entityType: 'party' },
+      });
+      return parseOrThrow(queuedPullSchema, body, 'queued pull');
     },
   });
 }

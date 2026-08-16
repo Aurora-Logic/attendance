@@ -93,6 +93,38 @@ describe('the fifteen-minute sweep (REQ-R-07)', () => {
     expect(await openJobCount(eligibleId)).toBe(1);
   });
 
+  it('requeues a claim whose agent went silent, and fails one past the attempt cap', async () => {
+    // A stale claim wedges the queue forever without this: CLAIMED counts as
+    // open, so the sweep could never replace it. Older than the takeover
+    // threshold means the claiming agent has been silent past the point a
+    // rival may seize its lease.
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'CLAIMED', claimed_by = 'dead-instance',
+             claimed_at = now() - interval '6 minutes', attempts = 1
+       WHERE connection_id = ${eligibleId} AND state = 'QUEUED'
+    `);
+    const outcome = await scheduler.enqueueDuePulls();
+    expect(outcome.requeued).toBeGreaterThanOrEqual(1);
+    const requeued = await harness.db.execute<{ state: string; claimed_by: string | null }>(sql`
+      SELECT state, claimed_by FROM sync_jobs
+       WHERE connection_id = ${eligibleId} AND state IN ('QUEUED', 'CLAIMED')
+    `);
+    expect(requeued.rows[0]?.state).toBe('QUEUED');
+    expect(requeued.rows[0]?.claimed_by).toBeNull();
+
+    // Five failed claims is a diagnosis, not bad luck: the job fails
+    // visibly instead of cycling.
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'CLAIMED', claimed_by = 'dead-instance',
+             claimed_at = now() - interval '6 minutes', attempts = 5
+       WHERE connection_id = ${eligibleId} AND state = 'QUEUED'
+    `);
+    const second = await scheduler.enqueueDuePulls();
+    expect(second.failed).toBeGreaterThanOrEqual(1);
+    // And the freed slot is refilled in the same sweep.
+    expect(await openJobCount(eligibleId)).toBe(1);
+  });
+
   it('a completed job makes room for the next sweep', async () => {
     await harness.db.execute(sql`
       UPDATE sync_jobs SET state = 'DONE', updated_at = now()

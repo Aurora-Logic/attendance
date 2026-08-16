@@ -62,8 +62,6 @@ import { InjectRedis } from '../redis/redis.provider.js';
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILURES_PER_IP = 20;
 
-const KEY_PREFIX = 'login:failures:';
-
 /**
  * What is being guessed. Each scope has its own budget per address, so an
  * attacker spraying agent tokens cannot spend the office's sign-in budget and
@@ -73,7 +71,9 @@ export type RateLimitScope = 'login' | 'agent';
 
 /** Exported so test support can clear an address without guessing the format. */
 export function loginRateLimitKey(ip: string, scope: RateLimitScope = 'login'): string {
-  return scope === 'login' ? `${KEY_PREFIX}${ip}` : `${scope}:failures:${ip}`;
+  // One template for every scope; 'login' produces the pre-scope key format
+  // byte for byte, so nothing stored under the old spelling is orphaned.
+  return `${scope}:failures:${ip}`;
 }
 
 /**

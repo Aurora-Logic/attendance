@@ -38,7 +38,9 @@ const AGENT_B = 'agent-instance-bbbb';
 const COMPANY_GUID = 'guid-gcc-2026-27';
 
 function agentPost<T>(path: string, token: string, body: Record<string, unknown>) {
-  return harness.post<T>(path, { headers: { authorization: `Bearer ${token}` }, body });
+  // The harness's own token option, so agent requests wear credentials the
+  // same way every other suite's do.
+  return harness.post<T>(path, { token, body });
 }
 
 beforeAll(async () => {
@@ -54,6 +56,13 @@ beforeAll(async () => {
   // and company GUIDs for the next run.
   await harness.db.execute(sql`DELETE FROM sync_jobs WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM sync_cursors WHERE org_id = ${ORG_ID}`);
+  // The projection and its mappings must go too, and hard: a previous run's
+  // parties would satisfy this run's list assertions with the wrong rows, and
+  // its orphaned external_refs (owned by connections the line below buried)
+  // would be adopted by this run's writer -- correctly, that is the writer's
+  // replaced-connection rule -- carrying stale names into the count.
+  await harness.db.execute(sql`DELETE FROM external_refs WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM parties WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(
     sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${ORG_ID} AND deleted_at IS NULL`,
   );
@@ -123,9 +132,7 @@ describe('the two credential worlds never meet', () => {
   });
 
   it('refuses an agent token on a user route', async () => {
-    const response = await harness.get('/integrations', {
-      headers: { authorization: `Bearer ${agentToken}` },
-    });
+    const response = await harness.get('/integrations', { token: agentToken });
     expect(response.status).toBe(401);
   });
 
@@ -459,6 +466,58 @@ describe('pull results become the projection (09 §3.2, REQ-R-01, REQ-T-03)', ()
       openCompanyGuid: 'guid-not-ours',
     });
     expect(response.status).toBe(409);
+  });
+
+  it("cannot absorb another connection's GUID mapping (6b exit gate)", async () => {
+    const other = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM integration_connections
+       WHERE org_id = ${ORG_ID} AND name = 'Other Company' AND deleted_at IS NULL LIMIT 1
+    `);
+    const otherId = other.rows[0]?.id ?? '';
+    const party = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group)
+      VALUES (${ORG_ID}, ${otherId}, 'Their Party', 'Sundry Debtors') RETURNING id
+    `);
+    const theirPartyId = party.rows[0]?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO external_refs (org_id, system, entity_type, external_guid, internal_type, internal_id, connection_id)
+      VALUES (${ORG_ID}, 'TALLY', 'party', 'guid-owned-elsewhere', 'party', ${theirPartyId}, ${otherId})
+      ON CONFLICT DO NOTHING
+    `);
+
+    // A fresh claimed job for OUR connection posting THEIR GUID: the
+    // connection-scoped lookup finds nothing, the insert hits the org-wide
+    // unique mapping, and the refusal names the rule instead of absorbing
+    // the row.
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE', updated_at = now()
+       WHERE connection_id = ${connectionId} AND state IN ('QUEUED', 'CLAIMED')
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'party')
+    `);
+    const reclaim = await agentPost<AgentClaimResponse>('/sync/agent/jobs/claim', epochToken, {
+      agentInstanceId: AGENT_D,
+      openCompanyGuid: COMPANY_GUID,
+    });
+    const forged = await agentPost<{ error: { message: string } }>('/sync/agent/results', epochToken, {
+      agentInstanceId: AGENT_D,
+      openCompanyGuid: COMPANY_GUID,
+      jobId: reclaim.body.job?.id ?? '',
+      entityType: 'party',
+      rows: [{ guid: 'guid-owned-elsewhere', alterId: 999, name: 'Hijacked Name', parentGroup: 'Sundry Debtors' }],
+      requestHash: 'sha256:forge',
+      responseHash: 'sha256:forge',
+      final: true,
+    });
+    expect(forged.status).toBe(409);
+    expect(forged.body.error.message).toContain('different connection');
+
+    const victim = await harness.db.execute<{ name: string }>(sql`
+      SELECT name FROM parties WHERE id = ${theirPartyId}
+    `);
+    expect(victim.rows[0]?.name).toBe('Their Party');
   });
 
   it('journalled every exchange with its hashes', async () => {

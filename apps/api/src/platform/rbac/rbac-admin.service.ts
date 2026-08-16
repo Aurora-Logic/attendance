@@ -7,7 +7,7 @@ import {
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
-import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { InjectDatabase, type Database, type Transaction } from '../db/db.provider.js';
 import {
   organizations,
   permissions,
@@ -31,8 +31,6 @@ import {
  * the membership rules twice -- once to apply them and once to simulate them --
  * and the simulation is the copy that drifts.
  */
-
-type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 @Injectable()
 export class RbacAdminService {

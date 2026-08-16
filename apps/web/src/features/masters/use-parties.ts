@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { z } from 'zod';
 
-import { parseOrThrow } from '@/features/attendance/api';
+import { parseOrThrow } from '@/lib/api/parse';
 import { apiRequest } from '@/lib/api/client';
 
 /**

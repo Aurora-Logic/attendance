@@ -1,7 +1,13 @@
-import { GearSixIcon } from '@phosphor-icons/react';
-import { NavLink, useLocation } from 'react-router';
+import { CaretUpDownIcon, CheckIcon, GearSixIcon } from '@phosphor-icons/react';
+import { NavLink, useLocation, useNavigate } from 'react-router';
 
 import { OrgBrand } from '@/components/shared/org-brand';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Sidebar,
   SidebarContent,
@@ -15,28 +21,87 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
-import { NAV_GROUPS, type NavItem } from '@/lib/nav';
+import { MODULES, findModuleForPath, type ModuleDef, type NavItem } from '@/lib/nav';
 import { usePermissions } from '@/lib/session/permissions';
 
 function isVisible(item: NavItem, granted: ReadonlySet<string>): boolean {
   return !item.permission || granted.has(item.permission);
 }
 
+function moduleVisible(module: ModuleDef, granted: ReadonlySet<string>): boolean {
+  return !module.permission || granted.has(module.permission);
+}
+
+/**
+ * REQ-O-01: one module's sidebar at a time, switched here.
+ *
+ * Rendered only when the account can see more than one module — for most
+ * employees "Attendance" is the whole product, and a switcher with one entry
+ * is furniture. Selection navigates to the module's home screen, because a
+ * module with none of your current context is not a filter, it is a place.
+ */
+function ModuleSwitcher({
+  current,
+  visible,
+}: {
+  current: ModuleDef;
+  visible: ModuleDef[];
+}) {
+  const navigate = useNavigate();
+
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <SidebarMenuButton className="pointer-coarse:min-h-11" aria-label="Switch module">
+                <current.icon />
+                <span className="font-medium">{current.label}</span>
+                <CaretUpDownIcon className="ml-auto size-4 opacity-60" />
+              </SidebarMenuButton>
+            }
+          />
+          <DropdownMenuContent align="start" className="w-56">
+            {visible.map((module) => (
+              <DropdownMenuItem
+                key={module.id}
+                className="pointer-coarse:min-h-11"
+                onClick={() => void navigate(module.home)}
+              >
+                <module.icon />
+                <span>{module.label}</span>
+                {module.id === current.id ? <CheckIcon className="ml-auto size-4" /> : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
+}
+
 export function AppSidebar() {
   const granted = usePermissions();
   const location = useLocation();
+
+  const module = findModuleForPath(location.pathname);
+  const visibleModules = MODULES.filter((candidate) => moduleVisible(candidate, granted));
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <OrgBrand />
+        {visibleModules.length > 1 ? (
+          <ModuleSwitcher current={module} visible={visibleModules} />
+        ) : null}
       </SidebarHeader>
 
       {/* Anchor for the guided tour's first step. On the content rather than
           on one group, because which groups exist depends on the permission
           set and a tour cannot point at a group that was filtered away. */}
       <SidebarContent data-guide="nav.groups">
-        {NAV_GROUPS.map((group) => {
+        {module.groups.map((group) => {
           const items = group.items.filter((item) => isVisible(item, granted));
           // A group whose every item is hidden by permission renders nothing
           // rather than an empty labelled section.

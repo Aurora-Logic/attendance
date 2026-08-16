@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   ArrowsClockwiseIcon,
+  CloudArrowDownIcon,
   KeyIcon,
   LockKeyIcon,
   PlugIcon,
@@ -55,7 +56,7 @@ import {
   statusExplanation,
   type IntegrationConnection,
 } from './types';
-import { useCreateConnection, useIntegrations, useIssueToken } from './use-integrations';
+import { useCreateConnection, useIntegrations, useIssueToken, usePullNow } from './use-integrations';
 
 /**
  * Technical design §14 / PRD §5: the Tally seam, now with its two writes.
@@ -105,6 +106,7 @@ export function IntegrationsPage() {
 
   const create = useCreateConnection();
   const issue = useIssueToken();
+  const pull = usePullNow();
 
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -133,6 +135,29 @@ export function IntegrationsPage() {
           setName('');
           setCompanyName('');
           setCompanyGuid('');
+        },
+      },
+    );
+  }
+
+  function runPull(connection: IntegrationConnection) {
+    pull.mutate(
+      { connectionId: connection.id },
+      {
+        onSuccess: (result) => {
+          toast.add({
+            type: 'success',
+            title: result.alreadyQueued ? 'A pull is already queued' : 'Pull queued',
+            description: result.alreadyQueued
+              ? `${connection.name} has an open pull; the agent takes it on its next poll.`
+              : `The agent picks it up on its next poll of ${connection.name}.`,
+          });
+        },
+        // The server names what is missing — an unbound company, an entity
+        // type without a writer — and its sentence is better than a generic
+        // one composed here.
+        onError: (error) => {
+          toast.add({ type: 'error', title: 'The pull was not queued', description: error.message });
         },
       },
     );
@@ -172,6 +197,27 @@ export function IntegrationsPage() {
       header: 'Last heartbeat',
       cell: (row) => heartbeatAge(row.lastHeartbeatAt),
       className: 'tabular-nums',
+    },
+    {
+      key: 'pull',
+      header: 'Sync',
+      cell: (row) => (
+        <Button
+          variant="outline"
+          size="sm"
+          className="pointer-coarse:min-h-11"
+          // Without a credential nothing could ever claim the job; the
+          // reason is stated where the button is, not discovered on press.
+          disabled={!row.tokenIssued || pull.isPending}
+          title={row.tokenIssued ? undefined : 'Issue the agent token first'}
+          onClick={() => {
+            runPull(row);
+          }}
+        >
+          <CloudArrowDownIcon data-icon="inline-start" />
+          Pull now
+        </Button>
+      ),
     },
     {
       key: 'token',
@@ -247,6 +293,17 @@ export function IntegrationsPage() {
       />
 
       <div className="flex flex-col gap-4">
+        {/* A failed fresh issue has no dialog to land in — the rotate
+            confirm renders its own error, but the first-time path calls the
+            endpoint directly, and a silent failure here means an admin
+            cannot tell whether a token was minted on a lost response. */}
+        {issue.isError && rotating === null && issuedToken === null ? (
+          <Alert variant="destructive">
+            <AlertTitle>The token was not issued</AlertTitle>
+            <AlertDescription>{issue.error.message}</AlertDescription>
+          </Alert>
+        ) : null}
+
         {query.isPending ? <ListSkeleton /> : null}
 
         {query.isError ? (

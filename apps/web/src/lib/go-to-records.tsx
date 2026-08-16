@@ -37,7 +37,9 @@ const GO_TO_RECORD_KINDS: Record<string, GoToRecordKind> = {
     // detail screen would show. Becomes /masters/parties/:id when that
     // screen ships.
     icon: BooksIcon,
-    route: (record) => `/masters/parties?q=${encodeURIComponent(record.title)}`,
+    // Capped at the list query's own max: a 200-char Tally name would
+    // otherwise 400 the very screen the palette promised.
+    route: (record) => `/masters/parties?q=${encodeURIComponent(record.title.slice(0, 80))}`,
   },
 };
 

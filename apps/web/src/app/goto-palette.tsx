@@ -14,7 +14,7 @@ import {
 import { filterScreenGroups } from '@/lib/go-to-filter';
 import { kindOf } from '@/lib/go-to-records';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
-import { ADMIN_GROUPS, NAV_GROUPS, TOP_BAR_ITEMS, type NavGroup } from '@/lib/nav';
+import { ADMIN_GROUPS, MODULES, TOP_BAR_ITEMS, type NavGroup } from '@/lib/nav';
 import { usePermissions } from '@/lib/session/permissions';
 import { useUiStore } from '@/lib/ui-store';
 import { GO_TO_QUERY_MIN_LENGTH, type GoToRecord } from '@vyuha/shared';
@@ -46,11 +46,15 @@ import { useGoToRecords } from './use-go-to-records';
  */
 
 /**
- * Everything with a name and a route, wherever it is reached from. Approvals
+ * Everything with a name and a route, wherever it is reached from — every
+ * module's groups, not a hand-picked list. The hand-picked version has now
+ * broken twice the same way: first when REQ-O-02 moved Administration out of
+ * `NAV_GROUPS`, then when the Masters module arrived and its screens were
+ * invisible here. Deriving from `MODULES` is what ends the class. Approvals
  * sits under "Inbox" because REQ-O-03's whole argument is that it is one.
  */
 const SCREEN_GROUPS: NavGroup[] = [
-  ...NAV_GROUPS,
+  ...MODULES.flatMap((module) => module.groups),
   { label: 'Inbox', items: TOP_BAR_ITEMS },
   ...ADMIN_GROUPS,
 ];
@@ -84,8 +88,15 @@ export function GoToPalette() {
   const screenGroups = filterScreenGroups(query, permitted);
 
   const records = useGoToRecords(query);
+  const term = query.trim();
+  const recordsExpected = term.length >= GO_TO_QUERY_MIN_LENGTH;
   const recordGroups = useMemo(() => {
     const groups = new Map<string, { record: GoToRecord; route: string; RecordIcon: Icon }[]>();
+    // keepPreviousData keeps the last answer alive while a NEW term fetches —
+    // which also means a query that dropped below the minimum still has data.
+    // Gating here is what stops a one-letter query, or a reopened palette,
+    // from wearing the previous search's records.
+    if (!recordsExpected) return [] as [string, { record: GoToRecord; route: string; RecordIcon: Icon }[]][];
     for (const record of records.data?.records ?? []) {
       const kind = kindOf(record);
       if (kind === null) continue;
@@ -95,7 +106,7 @@ export function GoToPalette() {
       else bucket.push(entry);
     }
     return [...groups.entries()];
-  }, [records.data]);
+  }, [records.data, recordsExpected]);
 
   /**
    * "Nothing matches that." must never show while the answer is still on its
@@ -104,8 +115,6 @@ export function GoToPalette() {
    * not for what is typed" is detectable without exposing the hook's debounce:
    * data for a different term means searching, whatever `isFetching` says.
    */
-  const term = query.trim();
-  const recordsExpected = term.length >= GO_TO_QUERY_MIN_LENGTH;
   const searching =
     recordsExpected &&
     recordGroups.length === 0 &&

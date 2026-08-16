@@ -1,5 +1,3 @@
-import { z } from 'zod';
-
 import { ApiError } from '@/lib/api/client';
 
 /**
@@ -68,13 +66,7 @@ export async function loadSamples(): Promise<SampleModule | null> {
  * A Zod failure here is a contract break, not a network problem, so it is
  * reported as one rather than as "could not reach the server".
  */
-export function parseOrThrow<T>(schema: z.ZodType<T>, body: unknown, what: string): T {
-  const parsed = schema.safeParse(body);
-  if (parsed.success) return parsed.data;
-  throw new ApiError({
-    code: 'INTERNAL_ERROR',
-    message: `The ${what} came back in a shape this screen cannot read.`,
-    status: 0,
-    details: { issues: z.treeifyError(parsed.error) },
-  });
-}
+// Moved to lib/api/parse.ts so the app shell can parse without importing a
+// feature; re-exported here because twenty call sites already spell this
+// path and a mass rename is churn without safety.
+export { parseOrThrow } from '@/lib/api/parse';

@@ -14,10 +14,6 @@ coverage/
 /uploads/
 /storage/
 apps/api/storage/
-*.png
-*.jpg
-*.jpeg
-*.webp
 *.xlsx
 !**/templates/*.xlsx
 

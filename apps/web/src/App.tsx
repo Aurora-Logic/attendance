@@ -39,6 +39,7 @@ import { ALL_NAV_ITEMS } from '@/lib/nav';
  * that would go stale the next time a screen ships.
  */
 const BUILT_ROUTES = new Set([
+  '/masters/parties',
   '/',
   '/employees',
   '/punch',

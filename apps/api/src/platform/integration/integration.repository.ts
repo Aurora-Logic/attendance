@@ -1,5 +1,5 @@
 import type { AgentCondition } from '@vyuha/shared';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { asc, sql } from 'drizzle-orm';
 
 import type { Database } from '../db/db.provider.js';
 import { integrationConnections } from '../db/schema/index.js';
@@ -59,14 +59,6 @@ export class IntegrationRepository extends ScopedRepository<typeof integrationCo
       .orderBy(asc(integrationConnections.name));
   }
 
-  async findRow(id: string): Promise<ConnectionRow | null> {
-    const rows = await this.db
-      .select(CONNECTION_COLUMNS)
-      .from(integrationConnections)
-      .where(and(this.scoped(), eq(integrationConnections.id, id)))
-      .limit(1);
-    return rows[0] ?? null;
-  }
 
   /**
    * Through the base class insert (ADR 0001: "the only sanctioned way to

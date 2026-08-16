@@ -59,6 +59,10 @@ describe('GoToPalette', () => {
     expect(await screen.findByText('Audit log')).toBeTruthy();
     expect(screen.getByText('Approvals')).toBeTruthy();
     expect(screen.getByText('Recycle bin')).toBeTruthy();
+    // Every module's screens, not only attendance's: the Masters module's
+    // Parties entry vanished from this palette once already, the same way
+    // the Administration screens had before it.
+    expect(screen.getByText('Parties')).toBeTruthy();
   });
 
   it('hides what the account cannot reach', async () => {

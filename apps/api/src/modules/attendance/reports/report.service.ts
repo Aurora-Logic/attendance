@@ -14,8 +14,6 @@ import {
   leaveYearOf,
   missingPunchCell,
   musterGridCell,
-  pageSlice,
-  paginated,
   parseAttendanceFlags,
   parseSort,
   punchAuditCell,
@@ -29,14 +27,12 @@ import {
   type LeaveLedgerSource,
   type MissingPunchSource,
   type MusterGridSource,
-  type Paginated,
   type PunchRecord,
   type ReportCellValue,
   type ReportColumnSpec,
   type ReportDefinition,
   type ReportFilters,
   type ReportKey,
-  type ReportRowQuery,
   type SortTerm,
 } from '@vyuha/shared';
 import { and, sql, type SQL } from 'drizzle-orm';
@@ -104,9 +100,6 @@ export type ReportPage =
   | { readonly kind: 'leave-availed'; readonly rows: LeaveAvailedSource[]; readonly total: number }
   | { readonly kind: 'headcount'; readonly rows: HeadcountSource[]; readonly total: number };
 
-/** Any row any report serves. The endpoint's element type. */
-export type ReportRow = ReportPage['rows'][number];
-
 /** The column of `attendance_days` each exception report measures. */
 const EXCEPTION_MEASURES: Partial<Record<ReportKey, ExceptionMeasure>> = {
   'late-arrivals': 'late_minutes',
@@ -173,16 +166,6 @@ export class ReportService {
     return ALL_REPORTS.filter(
       (report) => this.scopes.breadth(principal, grantsFor(report.key)) !== 'none',
     );
-  }
-
-  async list(
-    principal: Principal,
-    reportKey: ReportKey,
-    query: ReportRowQuery,
-  ): Promise<Paginated<ReportRow>> {
-    const { limit, offset } = pageSlice(query);
-    const page = await this.page(principal, reportKey, query, limit, offset);
-    return paginated<ReportRow>([...page.rows], query, page.total);
   }
 
   /**

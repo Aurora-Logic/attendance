@@ -212,8 +212,13 @@ export class ReportController {
   ): Promise<Paginated<unknown>> {
     const key = requireReportKey(reportKey);
     const source = this.sources.require(key);
+    // The contract promises a source its filters arrive asserted and
+    // narrowed. Attendance happens to re-assert inside page(); the first
+    // source written to the interface literally would otherwise serve
+    // un-narrowed reads while the export path correctly refused them.
+    const filters = source.assertFiltersUsable(key, query);
     const { limit, offset } = pageSlice(query);
-    const page = await source.page(principal, key, query, limit, offset);
+    const page = await source.page(principal, key, { ...filters, sort: query.sort }, limit, offset);
     return paginated<unknown>([...page.rows], query, page.total);
   }
 }

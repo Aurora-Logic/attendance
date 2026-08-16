@@ -13,6 +13,14 @@ import { z } from 'zod';
 /** Below this the server answers empty rather than searching. One character matches half the organisation. */
 export const GO_TO_QUERY_MIN_LENGTH = 2;
 
+/**
+ * Above this the server refuses with a validation error, so the client trims
+ * before asking. Nothing anyone searches for is longer — a pasted address is
+ * still findable by its first eighty characters — and an untrimmed client
+ * would render the 400 as "records are unreachable", which reads as an outage.
+ */
+export const GO_TO_QUERY_MAX_LENGTH = 80;
+
 /** Across all sources, after ranking. A palette is not a report; page two of one does not exist. */
 export const GO_TO_RESULT_CAP = 15;
 
@@ -23,7 +31,7 @@ export const GO_TO_RESULT_CAP = 15;
 export const GO_TO_SOURCE_CAP = 8;
 
 export const goToQuerySchema = z.object({
-  q: z.string().trim().max(80).default(''),
+  q: z.string().trim().max(GO_TO_QUERY_MAX_LENGTH).default(''),
 });
 
 export type GoToQuery = z.infer<typeof goToQuerySchema>;

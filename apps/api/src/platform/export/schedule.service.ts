@@ -427,6 +427,18 @@ export class ScheduleService {
     }
 
     if (!this.hasSource(row.report_key)) {
+      // The day is already claimed, so without a recorded refusal this run
+      // would simply vanish — the owner's tray stays quiet and the screen
+      // keeps showing the last good run. Same treatment as a lost
+      // permission: audited, not merely logged.
+      await this.audit.write({
+        orgId: row.org_id,
+        actorUserId: null,
+        action: 'report.schedule.refused',
+        entityType: 'report_schedule',
+        entityId: row.id,
+        after: { reason: `This build has no rows for the report "${row.report_key}".` },
+      });
       this.logger.warn(`Schedule ${row.id} names report "${row.report_key}", which no longer exists.`);
       return false;
     }
@@ -455,7 +467,20 @@ export class ScheduleService {
         action: 'report.schedule.ran',
         entityType: 'report_schedule',
         entityId: row.id,
-        after: { exportJobId: job.id, from: window.from, to: window.to, name: row.name },
+        // The full REQ-J-06 snapshot rides here: request() records its own
+        // entry through the request-scoped context, which a worker does not
+        // have, so for scheduled exports this row is the requested-side
+        // record an auditor diffs against report.export.completed.
+        after: {
+          exportJobId: job.id,
+          from: window.from,
+          to: window.to,
+          name: row.name,
+          reportKey: row.report_key,
+          filters,
+          columns,
+          format: row.format,
+        },
       });
       return true;
     } catch (error: unknown) {

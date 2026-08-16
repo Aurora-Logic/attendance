@@ -16,7 +16,19 @@ import { resolve } from 'node:path';
  * settings and you find out from whichever feature misbehaves first".
  */
 export function loadDotEnvFiles(): void {
-  for (const envPath of [resolve(process.cwd(), '.env'), resolve(process.cwd(), '../../.env')]) {
+  const candidates = [resolve(process.cwd(), '.env')];
+  /*
+   * The repo-root fallback, only when two levels up actually is this
+   * workspace's root. From the repo root itself, '../../.env' escapes the
+   * repository entirely — on this machine it would be the operator's home
+   * directory — and silently absorbing an unrelated file's variables (or
+   * crashing on its syntax) is worse than not looking.
+   */
+  const workspaceRoot = resolve(process.cwd(), '../..');
+  if (existsSync(resolve(workspaceRoot, 'pnpm-workspace.yaml'))) {
+    candidates.push(resolve(workspaceRoot, '.env'));
+  }
+  for (const envPath of candidates) {
     if (!existsSync(envPath)) continue;
     process.loadEnvFile(envPath);
   }

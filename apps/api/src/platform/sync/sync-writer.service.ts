@@ -3,10 +3,9 @@ import type { AgentResultsAck, AgentResultsInput, PartyPullRow } from '@vyuha/sh
 import { sql } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
-import { InjectDatabase, type Database } from '../db/db.provider.js';
-import type { AgentPrincipal } from './agent-principal.js';
-
-type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+import { isUniqueViolation } from '../db/pg-error.js';
+import { InjectDatabase, type Database, type Transaction } from '../db/db.provider.js';
+import { requireAgentCompany, type AgentPrincipal } from './agent-principal.js';
 
 /**
  * The only code that writes a projection table (09 §1.1, §3.2, REQ-T-03).
@@ -31,7 +30,7 @@ export class SyncWriterService {
   constructor(@InjectDatabase() private readonly db: Database) {}
 
   async ingestParties(agent: AgentPrincipal, input: AgentResultsInput): Promise<AgentResultsAck> {
-    this.requireRightCompany(agent, input.openCompanyGuid);
+    requireAgentCompany(agent, input.openCompanyGuid);
 
     const written = await this.db.transaction(async (tx) => {
       /*
@@ -83,43 +82,53 @@ export class SyncWriterService {
        * §3.2 names: a crash re-reads a chunk, it never skips one.
        */
       const maxAlterId = input.rows.reduce((max, row) => Math.max(max, row.alterId), 0);
+      let committedAlterId = 0;
       if (input.rows.length > 0) {
-        await tx.execute(sql`
+        const cursor = await tx.execute<{ last_alter_id: number }>(sql`
           INSERT INTO sync_cursors (org_id, connection_id, entity_type, last_alter_id, last_run_at)
           VALUES (${agent.orgId}, ${agent.connectionId}, ${input.entityType}, ${maxAlterId}, now())
           ON CONFLICT (connection_id, entity_type)
           DO UPDATE SET last_alter_id = GREATEST(sync_cursors.last_alter_id, EXCLUDED.last_alter_id),
                         last_run_at = now(),
                         updated_at = now()
+          RETURNING last_alter_id
         `);
+        committedAlterId = Number(cursor.rows[0]?.last_alter_id ?? maxAlterId);
       }
 
       if (input.final) {
         await tx.execute(sql`
           UPDATE sync_jobs SET state = 'DONE', updated_at = now() WHERE id = ${input.jobId}
         `);
+      } else {
+        // claimed_at doubles as the liveness mark the unstick sweep reads.
+        // Without this refresh, a first backfill slower than the takeover
+        // threshold is requeued out from under an agent that is actively
+        // posting — every chunk after the flip 409s, attempts climb to the
+        // cap, and a perfectly healthy large pull is declared FAILED.
+        await tx.execute(sql`
+          UPDATE sync_jobs SET claimed_at = now(), updated_at = now() WHERE id = ${input.jobId}
+        `);
       }
 
-      return input.rows.length;
+      return { written: input.rows.length, lastAlterId: committedAlterId };
     });
-
-    const cursor = await this.db.execute<{ last_alter_id: number }>(sql`
-      SELECT last_alter_id FROM sync_cursors
-       WHERE connection_id = ${agent.connectionId} AND entity_type = ${input.entityType}
-    `);
 
     this.logger.log({
       msg: 'Pull chunk ingested',
       connectionId: agent.connectionId,
       entityType: input.entityType,
-      rows: written,
+      rows: written.written,
       final: input.final,
     });
 
     return {
       jobId: input.jobId,
-      written,
-      lastAlterId: Number(cursor.rows[0]?.last_alter_id ?? 0),
+      written: written.written,
+      // The watermark THIS transaction committed, read inside it via
+      // RETURNING — a post-commit read could report a rival chunk's later
+      // cursor as if this chunk had established it.
+      lastAlterId: written.lastAlterId,
       jobState: input.final ? 'DONE' : 'CLAIMED',
     };
   }
@@ -135,18 +144,46 @@ export class SyncWriterService {
     agent: AgentPrincipal,
     row: PartyPullRow,
   ): Promise<void> {
-    const existing = await tx.execute<{ internal_id: string }>(sql`
-      SELECT internal_id FROM external_refs
-       WHERE org_id = ${agent.orgId}
-         AND system = 'TALLY'
-         AND entity_type = 'party'
-         AND external_guid = ${row.guid}
-         AND deleted_at IS NULL
+    /*
+     * One org-wide lookup, but the decision reads the mapping's OWNER.
+     * GUIDs are per-company in Tally, so a mapping held by a *living* other
+     * connection is a forgery (or two connections misconfigured onto one
+     * company) and refuses — an org-blind upsert here would let connection
+     * B's credential overwrite A's projection, the exact crossing the 6b
+     * exit gate forbids. A mapping whose owning connection is soft-deleted
+     * is different: it is the residue of a replaced connection for the same
+     * books, and refusing it would mean a recreated connection could never
+     * re-pull its own parties. Those are adopted — repointed to the caller
+     * — because the GUID, not the connection row, is the identity of the
+     * record (09 §4.1).
+     */
+    const existing = await tx.execute<{
+      internal_id: string;
+      owner_alive: boolean;
+      is_mine: boolean;
+    }>(sql`
+      SELECT x.internal_id,
+             (c.id IS NOT NULL AND c.deleted_at IS NULL) AS owner_alive,
+             (x.connection_id = ${agent.connectionId}) AS is_mine
+        FROM external_refs x
+        LEFT JOIN integration_connections c ON c.id = x.connection_id
+       WHERE x.org_id = ${agent.orgId}
+         AND x.system = 'TALLY'
+         AND x.entity_type = 'party'
+         AND x.external_guid = ${row.guid}
+         AND x.deleted_at IS NULL
        LIMIT 1
     `);
 
     const mapped = existing.rows[0];
     if (mapped !== undefined) {
+      if (!mapped.is_mine && mapped.owner_alive) {
+        throw AppError.conflict(
+          `GUID ${row.guid} is already mapped under a different connection. One company, ` +
+            'one connection (REQ-Q-03); results cannot cross that line.',
+        );
+      }
+
       await tx.execute(sql`
         UPDATE parties
            SET name = ${row.name},
@@ -157,6 +194,7 @@ export class SyncWriterService {
                credit_limit = ${row.creditLimit ?? null},
                credit_days = ${row.creditDays ?? null},
                opening_balance = ${row.openingBalance ?? null},
+               connection_id = ${agent.connectionId},
                absent_in_tally = false,
                last_pulled_at = now(),
                updated_at = now()
@@ -190,24 +228,26 @@ export class SyncWriterService {
     const partyId = inserted.rows[0]?.id;
     if (partyId === undefined) throw new Error('Party insert returned no row.');
 
-    await tx.execute(sql`
-      INSERT INTO external_refs
-        (org_id, system, entity_type, external_guid, external_alter_id,
-         internal_type, internal_id, connection_id, last_pulled_at)
-      VALUES
-        (${agent.orgId}, 'TALLY', 'party', ${row.guid}, ${row.alterId},
-         'party', ${partyId}, ${agent.connectionId}, now())
-    `);
-  }
-
-  /** The same refusal the claim makes, for the same reason (09 §7). */
-  private requireRightCompany(agent: AgentPrincipal, openCompanyGuid: string): void {
-    if (agent.companyGuid === null || openCompanyGuid !== agent.companyGuid) {
-      throw AppError.conflict(
-        'These results claim to come from a company this connection is not bound to. ' +
-          'Results for the wrong books are refused, never quarantined into the projection.',
-        { expectedCompanyGuid: agent.companyGuid },
-      );
+    try {
+      await tx.execute(sql`
+        INSERT INTO external_refs
+          (org_id, system, entity_type, external_guid, external_alter_id,
+           internal_type, internal_id, connection_id, last_pulled_at)
+        VALUES
+          (${agent.orgId}, 'TALLY', 'party', ${row.guid}, ${row.alterId},
+           'party', ${partyId}, ${agent.connectionId}, now())
+      `);
+    } catch (error: unknown) {
+      if (isUniqueViolation(error)) {
+        // A racing chunk mapped the GUID between our lookup and insert. The
+        // owner-liveness rule above still applies on the retry; refusing
+        // here keeps the race loud instead of absorbing it.
+        throw AppError.conflict(
+          `GUID ${row.guid} was mapped concurrently. Retry the chunk; the upsert path will take it.`,
+        );
+      }
+      throw error;
     }
   }
+
 }

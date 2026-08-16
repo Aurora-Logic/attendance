@@ -14,7 +14,7 @@ import { AuditContext } from '../audit/audit-context.js';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { integrationConnections } from '../db/schema/index.js';
-import type { AgentPrincipal } from './agent-principal.js';
+import { requireAgentCompany, type AgentPrincipal } from './agent-principal.js';
 
 /**
  * What the agent may do once its credential has resolved: say it is alive,
@@ -66,7 +66,10 @@ export class SyncAgentService {
         leaseHolder: input.agentInstanceId,
         lastHeartbeatAt: sql`now()`,
         agentVersion: input.agentVersion,
-        tallyVersion: input.tallyVersion ?? null,
+        // Preserved when omitted: the agent cannot read a version out of a
+        // Tally that is closed, and "what version was installed" is part of
+        // diagnosing exactly that condition (REQ-Q-04, Q-05).
+        ...(input.tallyVersion === undefined ? {} : { tallyVersion: input.tallyVersion }),
         status: condition === 'OK' ? 'CONNECTED' : 'ERROR',
         lastCondition: condition,
         updatedAt: sql`now()`,
@@ -150,7 +153,7 @@ export class SyncAgentService {
    */
   async claim(agent: AgentPrincipal, input: AgentClaimInput): Promise<AgentClaimResponse> {
     this.requireLease(agent, input.agentInstanceId);
-    this.requireRightCompany(agent, input.openCompanyGuid);
+    requireAgentCompany(agent, input.openCompanyGuid);
 
     const rows = await this.db.execute<{
       id: string;
@@ -187,7 +190,16 @@ export class SyncAgentService {
     this.auditContext.suppress();
 
     const row = rows.rows[0];
-    if (row === undefined) return { job: null };
+    if (row === undefined) {
+      // Zero rows has two readings and they demand opposite behaviour from
+      // the agent: an empty queue means sleep, a predicate refusal means the
+      // snapshot the app-side checks passed on has gone stale — a rival took
+      // the lease, an admin rebound the company — and the agent must
+      // heartbeat, not idle believing there is no work while a QUEUED job
+      // sits unclaimed. Diagnose before answering "empty".
+      await this.refuseIfDeposed(agent, input);
+      return { job: null };
+    }
 
     const job: ClaimedSyncJob = {
       id: row.id,
@@ -200,6 +212,49 @@ export class SyncAgentService {
   }
 
   // ------------------------------------------------------------- internals
+
+  /**
+   * Why did a claim over a non-empty queue match nothing? Read-only, and only
+   * reached on the zero-row path, so the common case — genuinely no work —
+   * costs one SELECT. A stale read here at worst repeats the old behaviour
+   * (null instead of a name), never the reverse.
+   */
+  private async refuseIfDeposed(agent: AgentPrincipal, input: AgentClaimInput): Promise<void> {
+    const queued = await this.db.execute<{ id: string }>(sql`
+      SELECT id FROM sync_jobs
+       WHERE connection_id = ${agent.connectionId} AND state = 'QUEUED'
+       LIMIT 1
+    `);
+    if (queued.rows[0] === undefined) return;
+
+    const fresh = await this.db.execute<{ lease_holder: string | null; company_guid: string | null }>(
+      sql`
+        SELECT lease_holder, company_guid FROM integration_connections
+         WHERE id = ${agent.connectionId} AND deleted_at IS NULL
+      `,
+    );
+    const connection = fresh.rows[0];
+    if (connection === undefined) {
+      throw AppError.conflict(
+        'This connection is no longer alive; its queued work will not be handed out.',
+      );
+    }
+    if (connection.lease_holder !== input.agentInstanceId) {
+      throw AppError.conflict(
+        'The connection lease moved to another instance between poll and claim. Heartbeat ' +
+          'first; only the current holder may claim.',
+      );
+    }
+    if (connection.company_guid !== (input.openCompanyGuid ?? null)) {
+      throw AppError.conflict(
+        'The bound company changed between poll and claim. Open the currently bound company ' +
+          'and heartbeat again.',
+        { expectedCompanyGuid: connection.company_guid },
+      );
+    }
+    // Lock contention from a racing poll, or the job was claimed mid-flight:
+    // nothing is wrong, and the next poll answers normally.
+  }
 
   /**
    * REQ-Q-05, the server's half: whatever the agent self-reports, a reported
@@ -227,28 +282,5 @@ export class SyncAgentService {
       'This instance does not hold the connection lease. Heartbeat first; if another ' +
         'instance is alive, only it may claim work.',
     );
-  }
-
-  /**
-   * 09 §7: jobs for a company the agent does not have open are refused rather
-   * than executed against the wrong books. Stated per claim rather than
-   * remembered from the last heartbeat, so a company switch between polls
-   * cannot slip a job through.
-   */
-  private requireRightCompany(agent: AgentPrincipal, openCompanyGuid: string | undefined): void {
-    if (agent.companyGuid === null) {
-      throw AppError.conflict(
-        'This connection is not yet bound to a Tally company, so no work can be claimed. ' +
-          'An administrator sets the company GUID on the connection first.',
-      );
-    }
-    if (openCompanyGuid !== agent.companyGuid) {
-      throw AppError.conflict(
-        `Tally has ${openCompanyGuid === undefined ? 'no company' : 'a different company'} open, ` +
-          'and a job executed against the wrong books is worse than one that waits. ' +
-          'Open the bound company and poll again.',
-        { expectedCompanyGuid: agent.companyGuid },
-      );
-    }
   }
 }

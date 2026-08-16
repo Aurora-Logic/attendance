@@ -1,6 +1,8 @@
 import { createParamDecorator, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 
+import { AppError } from '../common/errors.js';
+
 /**
  * Who is calling an `@AgentRoute()` — a connector agent, resolved from its
  * per-connection credential by `AccessGuard`.
@@ -49,3 +51,29 @@ export const CurrentAgent = createParamDecorator(
     return agent;
   },
 );
+
+/**
+ * 09 §7's one company rule, stated once for both call sites: the claim and
+ * the results post each require the caller's Tally to have the bound company
+ * open. Two hand-kept copies of a security predicate is how one path gets a
+ * rule change and the other keeps the hole.
+ */
+export function requireAgentCompany(
+  agent: AgentPrincipal,
+  openCompanyGuid: string | undefined,
+): void {
+  if (agent.companyGuid === null) {
+    throw AppError.conflict(
+      'This connection is not yet bound to a Tally company. An administrator sets the ' +
+        'company GUID on the connection first; until then no work runs.',
+    );
+  }
+  if (openCompanyGuid !== agent.companyGuid) {
+    throw AppError.conflict(
+      `Tally has ${openCompanyGuid === undefined ? 'no company' : 'a different company'} open, ` +
+        'and work against the wrong books is worse than work that waits. ' +
+        'Open the bound company and try again.',
+      { expectedCompanyGuid: agent.companyGuid },
+    );
+  }
+}

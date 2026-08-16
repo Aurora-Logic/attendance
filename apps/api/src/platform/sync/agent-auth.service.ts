@@ -60,13 +60,17 @@ export class AgentAuthService {
    * Guesses are throttled per address through the same sliding window that
    * guards sign-in, in its own scope: this is the product's other
    * unauthenticated credential check, and without a limiter it would be the
-   * one an attacker could drive freely. Successes clear the address, so an
-   * office NAT full of healthy agents never accumulates a budget.
+   * one an attacker could drive freely. A success releases only its own slot
+   * — not the address, which is what sign-in does. The difference matters
+   * here because an agent authenticates every sixty seconds forever: clearing
+   * the address on each heartbeat would hand an attacker on the same NAT a
+   * fresh budget every minute, which is the limiter switched off exactly
+   * where agents run.
    */
   async resolve(token: string, ip: string | null): Promise<AgentPrincipal> {
-    // The claim stands as a recorded failure unless the whole address is
-    // cleared on success below — the same accounting sign-in uses.
-    await this.limiter.claimAttempt(ip, Date.now(), 'agent');
+    // The claim stands as a recorded failure unless handed back on success
+    // below.
+    const claim = await this.limiter.claimAttempt(ip, Date.now(), 'agent');
 
     if (!token.startsWith(TOKEN_PREFIX) || !isWellFormedToken(token)) {
       throw new AppError(ERROR_CODES.TOKEN_INVALID, 'This route takes a connector agent token.');
@@ -95,7 +99,7 @@ export class AgentAuthService {
       throw new AppError(ERROR_CODES.TOKEN_INVALID, 'This agent credential is not recognised.');
     }
 
-    await this.limiter.clear(ip, 'agent');
+    await this.limiter.release(claim);
 
     return {
       connectionId: row.id,

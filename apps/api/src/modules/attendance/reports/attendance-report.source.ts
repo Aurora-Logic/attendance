@@ -1,6 +1,6 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import {
-  ALL_REPORTS,
+  ATTENDANCE_REPORTS,
   type ReportCellValue,
   type ReportColumnSpec,
   type ReportDefinition,
@@ -24,16 +24,13 @@ import { ReportService, cellsFor, type ReportPage } from './report.service.js';
  * this file. The framework pages, writes and schedules; what a row *is* stays
  * here, next to the queries that produce it.
  *
- * `keys` claims every definition in the shared catalogue, which is correct
- * exactly as long as every report in the product is an attendance report.
- * The Phase 6d receivables reports change that: their definitions join
- * `@vyuha/shared` grouped by owner, this claims only the attendance group,
- * and the registry's duplicate refusal is what turns an overlap into a boot
- * failure instead of a coin toss.
+ * `keys` claims `ATTENDANCE_REPORTS` — the module's own group in the shared
+ * catalogue, not `ALL_REPORTS` — so Phase 6d's receivables definitions can
+ * join the catalogue without this source claiming their keys.
  */
 @Injectable()
 export class AttendanceReportSource implements ReportSource, OnModuleInit {
-  readonly keys: readonly ReportKey[] = ALL_REPORTS.map((report) => report.key);
+  readonly keys: readonly ReportKey[] = ATTENDANCE_REPORTS.map((report) => report.key);
 
   constructor(
     private readonly registry: ReportSourceRegistry,

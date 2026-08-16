@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SYNC_ENTITY_TYPES, type SyncEntityType } from '@vyuha/shared';
+import { AGENT_LEASE_TAKEOVER_MINUTES, SYNC_ENTITY_TYPES, type SyncEntityType } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
@@ -14,6 +14,12 @@ import { orgContextOf, type Principal } from '../rbac/principal.js';
  * results the API refuses is a treadmill, not a queue.
  */
 export const PULL_ENTITY_TYPES: readonly SyncEntityType[] = ['party'];
+
+/**
+ * A pull that five claims could not finish is not going to finish on the
+ * sixth; it fails visibly instead of cycling the queue forever.
+ */
+const MAX_PULL_ATTEMPTS = 5;
 
 /**
  * Makes pull work exist (REQ-R-07): on the 15-minute sweep, and on demand.
@@ -44,7 +50,46 @@ export class SyncSchedulerService {
    * the ineligible would fill the queue with work whose refusal is already
    * known.
    */
-  async enqueueDuePulls(): Promise<{ enqueued: number }> {
+  async enqueueDuePulls(): Promise<{ enqueued: number; requeued: number; failed: number }> {
+    /*
+     * First, unstick. A claim whose agent died — crash, lease takeover,
+     * token rotation (which frees the lease but not the job) — would hold
+     * its CLAIMED state forever, and the one-open-job invariant would then
+     * refuse every future enqueue for that entity type: the queue wedges
+     * shut, permanently, with nothing on any screen saying why. claimed_at
+     * is a liveness mark, not a birth date: the writer refreshes it on every
+     * ingested chunk, so "older than the takeover threshold" means the whole
+     * exchange has been silent that long — a healthy agent mid-way through a
+     * slow first backfill keeps its claim. Then it requeues; the results
+     * path re-checks claimed_by, so a zombie's
+     * late post after requeue answers 409, never a double write. Attempts
+     * are counted at claim time; past five, the job fails instead of
+     * cycling forever, and the failure is visible in the row.
+     */
+    const requeued = await this.db.execute<{ id: string }>(sql`
+      UPDATE sync_jobs
+         SET state = 'QUEUED', claimed_by = NULL, claimed_at = NULL, updated_at = now()
+       WHERE state = 'CLAIMED'
+         AND claimed_at < now() - make_interval(mins => ${AGENT_LEASE_TAKEOVER_MINUTES})
+         AND attempts < ${MAX_PULL_ATTEMPTS}
+       RETURNING id
+    `);
+    const failed = await this.db.execute<{ id: string }>(sql`
+      UPDATE sync_jobs
+         SET state = 'FAILED', updated_at = now()
+       WHERE state = 'CLAIMED'
+         AND claimed_at < now() - make_interval(mins => ${AGENT_LEASE_TAKEOVER_MINUTES})
+         AND attempts >= ${MAX_PULL_ATTEMPTS}
+       RETURNING id
+    `);
+    if (requeued.rows.length > 0 || failed.rows.length > 0) {
+      this.logger.warn({
+        msg: 'Stale claimed pull jobs swept',
+        requeued: requeued.rows.length,
+        failed: failed.rows.length,
+      });
+    }
+
     let enqueued = 0;
     for (const entityType of PULL_ENTITY_TYPES) {
       const result = await this.db.execute<{ id: string }>(sql`
@@ -64,7 +109,7 @@ export class SyncSchedulerService {
     if (enqueued > 0) {
       this.logger.log({ msg: 'Pull jobs enqueued by sweep', enqueued });
     }
-    return { enqueued };
+    return { enqueued, requeued: requeued.rows.length, failed: failed.rows.length };
   }
 
   /**

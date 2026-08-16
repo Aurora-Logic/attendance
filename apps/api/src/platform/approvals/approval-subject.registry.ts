@@ -179,8 +179,12 @@ export class ApprovalSubjectRegistry {
       : undefined;
     if (declared === undefined) return;
 
-    const same = (a: readonly PermissionKey[], b: readonly PermissionKey[]): boolean =>
-      a.length === b.length && [...a].sort().every((key, i) => key === [...b].sort()[i]);
+    const same = (a: readonly PermissionKey[], b: readonly PermissionKey[]): boolean => {
+      if (a.length !== b.length) return false;
+      const sortedA = [...a].sort();
+      const sortedB = [...b].sort();
+      return sortedA.every((key, i) => key === sortedB[i]);
+    };
 
     if (!same(declared.act, handler.actPermissions)) {
       throw new Error(

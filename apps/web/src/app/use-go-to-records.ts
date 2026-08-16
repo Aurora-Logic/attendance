@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { GO_TO_QUERY_MIN_LENGTH } from '@vyuha/shared';
+import { GO_TO_QUERY_MAX_LENGTH, GO_TO_QUERY_MIN_LENGTH } from '@vyuha/shared';
 import { z } from 'zod';
 
-import { parseOrThrow } from '@/features/attendance/api';
+import { parseOrThrow } from '@/lib/api/parse';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { apiRequest } from '@/lib/api/client';
 
 /**
@@ -29,24 +29,14 @@ const goToResponseSchema = z.object({
 
 export type GoToResults = z.infer<typeof goToResponseSchema>;
 
-function useDebouncedValue(value: string, delayMs: number): string {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    if (value === debounced) return undefined;
-    const timer = window.setTimeout(() => {
-      setDebounced(value);
-    }, delayMs);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [value, debounced, delayMs]);
-  return debounced;
-}
 
 export function useGoToRecords(rawTerm: string): UseQueryResult<GoToResults, Error> {
   // 250ms: under the threshold where the palette feels laggy, over the rate a
   // fast typist emits keystrokes, so a query goes out per pause, not per key.
-  const term = useDebouncedValue(rawTerm.trim(), 250);
+  // Trimmed to the server's cap rather than sent verbatim: an over-long paste
+  // would otherwise 400 on validation, which the palette can only present as
+  // the records being unreachable.
+  const term = useDebouncedValue(rawTerm.trim().slice(0, GO_TO_QUERY_MAX_LENGTH), 250);
 
   return useQuery({
     enabled: term.length >= GO_TO_QUERY_MIN_LENGTH,
