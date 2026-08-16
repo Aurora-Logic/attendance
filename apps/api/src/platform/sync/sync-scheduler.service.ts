@@ -231,10 +231,19 @@ export class SyncSchedulerService {
    * the ask is already answered — the existing job is returned rather than
    * an error page.
    */
+  /**
+   * REQ-R-05's second sentence: a full re-pull is an explicit administrative
+   * action, not a fallback. `full` deletes the cursor -- the administrative
+   * re-pull action by definition -- and stamps the job's payload, which is
+   * what licenses the writer to mark what did not arrive (REQ-R-06). An
+   * incremental pull can never mark: a chunk above the cursor is a window,
+   * and absence from a window proves nothing.
+   */
   async enqueueManualPull(
     principal: Principal,
     connectionId: string,
     requested: string,
+    full = false,
   ): Promise<{ jobId: string; entityType: SyncEntityType; alreadyQueued: boolean }> {
     const entityType = PULL_ENTITY_TYPES.find((candidate) => candidate === requested);
     if (entityType === undefined) {
@@ -263,41 +272,90 @@ export class SyncSchedulerService {
       );
     }
 
-    const inserted = await this.db.execute<{ id: string }>(sql`
-      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type, created_by)
-      VALUES (${ctx.orgId}, ${connectionId}, 'PULL', ${entityType}, ${ctx.actorUserId})
-      ON CONFLICT (connection_id, entity_type) WHERE state IN ('QUEUED', 'CLAIMED')
-      DO NOTHING
-      RETURNING id
-    `);
+    const payload = full ? JSON.stringify({ full: true }) : null;
+    const insertedId = await this.db.transaction(async (tx) => {
+      const inserted = await tx.execute<{ id: string }>(sql`
+        INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type, payload, created_by)
+        VALUES (${ctx.orgId}, ${connectionId}, 'PULL', ${entityType}, ${payload}::jsonb, ${ctx.actorUserId})
+        ON CONFLICT (connection_id, entity_type) WHERE state IN ('QUEUED', 'CLAIMED')
+        DO NOTHING
+        RETURNING id
+      `);
+      const id = inserted.rows[0]?.id;
+      if (id !== undefined && full) {
+        // Deleting the cursor IS the re-pull (REQ-R-05): the next claim asks
+        // Tally for everything above zero. In the same transaction as the
+        // job, so a crash cannot leave a full job whose cursor still gates.
+        await tx.execute(sql`
+          DELETE FROM sync_cursors
+           WHERE connection_id = ${connectionId} AND entity_type = ${entityType}
+        `);
+      }
+      return id;
+    });
 
-    const insertedId = inserted.rows[0]?.id;
     if (insertedId !== undefined) {
       this.auditContext.record({
         action: 'sync.pull_requested',
         entityType: 'integration_connection',
         entityId: connectionId,
-        after: { syncEntityType: entityType, jobId: insertedId },
+        after: { syncEntityType: entityType, jobId: insertedId, full },
       });
       return { jobId: insertedId, entityType, alreadyQueued: false };
     }
 
     // The invariant answered: a job is already open. Saying which one keeps
     // the screen honest instead of making a second press look like a fault.
-    const open = await this.db.execute<{ id: string }>(sql`
-      SELECT id FROM sync_jobs
+    const open = await this.db.execute<{ id: string; state: string }>(sql`
+      SELECT id, state FROM sync_jobs
        WHERE connection_id = ${connectionId}
          AND entity_type = ${entityType}
          AND state IN ('QUEUED', 'CLAIMED')
        LIMIT 1
     `);
-    const openId = open.rows[0]?.id;
-    if (openId === undefined) {
+    const openRow = open.rows[0];
+    if (openRow === undefined) {
       // The conflict target vanished between statements — a claim completed
       // it in the gap. Trying once more would almost certainly succeed, but
       // the sweep is minutes away and a plain answer beats a loop here.
       throw AppError.conflict('The queue moved while enqueuing; try again.');
     }
-    return { jobId: openId, entityType, alreadyQueued: true };
+
+    if (full) {
+      /*
+       * An open job blocks a second one, but "make this one full" is still
+       * answerable while it is only QUEUED: the payload upgrade happens
+       * before any agent has read it. Once CLAIMED the agent is mid-flight
+       * on incremental semantics, and rewriting the meaning of work in an
+       * agent's hands is how a partial window gets treated as the whole
+       * truth -- refused instead.
+       */
+      const upgraded = await this.db.transaction(async (tx) => {
+        const marked = await tx.execute<{ id: string }>(sql`
+          UPDATE sync_jobs SET payload = '{"full": true}'::jsonb, updated_at = now()
+           WHERE id = ${openRow.id} AND state = 'QUEUED'
+           RETURNING id
+        `);
+        if (marked.rows[0] === undefined) return false;
+        await tx.execute(sql`
+          DELETE FROM sync_cursors
+           WHERE connection_id = ${connectionId} AND entity_type = ${entityType}
+        `);
+        return true;
+      });
+      if (!upgraded) {
+        throw AppError.conflict(
+          'A pull for this entity type is already running. Request the full re-pull again once it completes.',
+        );
+      }
+      this.auditContext.record({
+        action: 'sync.pull_requested',
+        entityType: 'integration_connection',
+        entityId: connectionId,
+        after: { syncEntityType: entityType, jobId: openRow.id, full: true, upgraded: true },
+      });
+    }
+
+    return { jobId: openRow.id, entityType, alreadyQueued: true };
   }
 }

@@ -191,3 +191,23 @@ also leaves headroom, which a cap sitting exactly at its limit does not.
 **Reverse it by saying so.** The alternative is to raise REQ-O-04 to 13, which
 costs nothing structurally; the cap exists to stop the sidebar becoming the
 navigation again, and 13 vs 11 does not decide that. REQ-O-05's Go To does.
+
+---
+
+## P6b-1 — What happens to a price rate that vanishes from Tally? (REQ-R-03, REQ-R-06)
+
+REQ-R-06 says a *master* that disappears is marked `absent_in_tally` and
+retained, and parties and stock items now do exactly that on a full re-pull.
+Price list entries are not masters and carry no absent flag: a rate whose
+(item, price level) pair stops arriving simply stays in the projection at its
+last value, forever, with only `last_pulled_at` betraying its age.
+
+**Recommended default:** on the final chunk of a *full* `price_list` pull,
+delete entries not touched since the job was created — the same watermark the
+absent marking uses. A rate is a derived row nothing references; the schema's
+own comment says deleting a projection row is what a re-pull is for, and a
+stale rate shown as current is worse than a gap. Incremental pulls would
+still never delete.
+
+Not implemented without a decision because it is the one place the sync
+engine would hard-delete data on its own initiative.

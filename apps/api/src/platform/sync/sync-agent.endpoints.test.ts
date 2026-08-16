@@ -674,6 +674,85 @@ describe('stock items and price lists repeat the pattern (REQ-R-02, REQ-R-03)', 
     expect(stored.rows).toEqual([{ price_level: 'Wholesale', rate: '4150.00' }]);
   });
 
+  it('a full pull marks what did not arrive, and only a full pull may (REQ-R-06)', async () => {
+    // Both items exist from the ingestion above. A FULL stock_item job whose
+    // final chunk carries only the cable: the conduit is gone from Tally.
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE', updated_at = now()
+       WHERE connection_id = ${connectionId} AND state IN ('QUEUED', 'CLAIMED')
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type, payload)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'stock_item', '{"full": true}'::jsonb)
+    `);
+    const fullJob = await claimNext();
+    const cableOnly = {
+      guid: 'item-guid-cable',
+      alterId: 300,
+      name: 'Cat6 Cable Box',
+      unit: 'Nos',
+      parentGroup: 'Networking',
+    };
+    const response = await post(fullJob?.id ?? '', 'stock_item', [cableOnly], true);
+    expect(response.status).toBe(200);
+
+    const after = await harness.db.execute<{ name: string; absent_in_tally: boolean }>(sql`
+      SELECT name, absent_in_tally FROM stock_items WHERE org_id = ${ORG_ID} ORDER BY name
+    `);
+    expect(after.rows).toEqual([
+      { name: 'Cat6 Cable Box', absent_in_tally: false },
+      { name: 'PVC Conduit 20mm', absent_in_tally: true },
+    ]);
+
+    // Marked, never deleted: the row and its price entry keep resolving.
+    const rates = await harness.db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM price_list_entries WHERE org_id = ${ORG_ID}
+    `);
+    expect(Number(rates.rows[0]?.count)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('reappearing in a later full pull clears the mark — Tally wins both ways', async () => {
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type, payload)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'stock_item', '{"full": true}'::jsonb)
+    `);
+    const job = await claimNext();
+    const both = [
+      { guid: 'item-guid-cable', alterId: 301, name: 'Cat6 Cable Box', unit: 'Nos', parentGroup: 'Networking' },
+      { guid: 'item-guid-conduit', alterId: 302, name: 'PVC Conduit 20mm', unit: 'Mtr', parentGroup: 'Electrical' },
+    ];
+    const response = await post(job?.id ?? '', 'stock_item', both, true);
+    expect(response.status).toBe(200);
+
+    const after = await harness.db.execute<{ absent_in_tally: boolean }>(sql`
+      SELECT absent_in_tally FROM stock_items WHERE org_id = ${ORG_ID}
+    `);
+    expect(after.rows.every((row) => !row.absent_in_tally)).toBe(true);
+  });
+
+  it('an incremental pull never marks: absence from a window proves nothing', async () => {
+    await harness.db.execute(sql`
+      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)
+      VALUES (${ORG_ID}, ${connectionId}, 'PULL', 'stock_item')
+    `);
+    const job = await claimNext();
+    const cableOnly = {
+      guid: 'item-guid-cable',
+      alterId: 310,
+      name: 'Cat6 Cable Box',
+      unit: 'Nos',
+      parentGroup: 'Networking',
+    };
+    const response = await post(job?.id ?? '', 'stock_item', [cableOnly], true);
+    expect(response.status).toBe(200);
+
+    const conduit = await harness.db.execute<{ absent_in_tally: boolean }>(sql`
+      SELECT absent_in_tally FROM stock_items
+       WHERE org_id = ${ORG_ID} AND name = 'PVC Conduit 20mm'
+    `);
+    expect(conduit.rows[0]?.absent_in_tally).toBe(false);
+  });
+
   it('refuses a rate for an item that has not arrived, naming the ordering', async () => {
     await harness.db.execute(sql`
       INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type)

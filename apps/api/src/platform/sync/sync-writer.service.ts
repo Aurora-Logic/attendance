@@ -57,8 +57,8 @@ export class SyncWriterService {
        * put in its own predicate, at results time, because a lease can have
        * moved between poll and post.
        */
-      const jobs = await tx.execute<{ id: string }>(sql`
-        SELECT id FROM sync_jobs
+      const jobs = await tx.execute<{ id: string; payload: unknown; created_at: Date }>(sql`
+        SELECT id, payload, created_at FROM sync_jobs
          WHERE id = ${input.jobId}
            AND connection_id = ${agent.connectionId}
            AND state = 'CLAIMED'
@@ -119,6 +119,25 @@ export class SyncWriterService {
       }
 
       if (input.final) {
+        /*
+         * REQ-R-06, licensed by the payload alone: only a full pull may say
+         * what is absent, because only a full pull saw everything. The
+         * watermark is the job's created_at, not claimed_at -- the liveness
+         * refresh moves claimed_at on every chunk, and the one-open-job
+         * invariant guarantees no rival same-entity pull touched mappings in
+         * between. Every row this job carried has last_pulled_at after the
+         * watermark; whatever does not is gone from Tally, and is marked,
+         * never deleted -- anything pointing at it keeps resolving.
+         */
+        const job = jobs.rows[0];
+        const isFull =
+          typeof job.payload === 'object' &&
+          job.payload !== null &&
+          (job.payload as { full?: unknown }).full === true;
+        if (isFull && (input.entityType === 'party' || input.entityType === 'stock_item')) {
+          await this.markAbsentees(tx, agent, input.entityType, new Date(job.created_at));
+        }
+
         await tx.execute(sql`
           UPDATE sync_jobs SET state = 'DONE', updated_at = now() WHERE id = ${input.jobId}
         `);
@@ -153,6 +172,59 @@ export class SyncWriterService {
       lastAlterId: written.lastAlterId,
       jobState: input.final ? 'DONE' : 'CLAIMED',
     };
+  }
+
+  /** REQ-R-06's marking half; see the final-chunk comment for the licence. */
+  private async markAbsentees(
+    tx: Transaction,
+    agent: AgentPrincipal,
+    entityType: 'party' | 'stock_item',
+    watermark: Date,
+  ): Promise<void> {
+    // Two branches rather than an interpolated table name: the projection
+    // tables are code, not data, and a fixed statement per table keeps this
+    // greppable next to the upserts it mirrors.
+    const marked =
+      entityType === 'party'
+        ? await tx.execute<{ id: string }>(sql`
+            UPDATE parties p
+               SET absent_in_tally = true, updated_at = now()
+              FROM external_refs x
+             WHERE x.internal_type = 'party' AND x.internal_id = p.id
+               AND x.org_id = ${agent.orgId}
+               AND x.system = 'TALLY'
+               AND x.entity_type = 'party'
+               AND x.connection_id = ${agent.connectionId}
+               AND x.deleted_at IS NULL
+               AND x.last_pulled_at < ${watermark}
+               AND p.connection_id = ${agent.connectionId}
+               AND p.absent_in_tally = false
+            RETURNING p.id
+          `)
+        : await tx.execute<{ id: string }>(sql`
+            UPDATE stock_items i
+               SET absent_in_tally = true, updated_at = now()
+              FROM external_refs x
+             WHERE x.internal_type = 'stock_item' AND x.internal_id = i.id
+               AND x.org_id = ${agent.orgId}
+               AND x.system = 'TALLY'
+               AND x.entity_type = 'stock_item'
+               AND x.connection_id = ${agent.connectionId}
+               AND x.deleted_at IS NULL
+               AND x.last_pulled_at < ${watermark}
+               AND i.connection_id = ${agent.connectionId}
+               AND i.absent_in_tally = false
+            RETURNING i.id
+          `);
+
+    if (marked.rows.length > 0) {
+      this.logger.warn({
+        msg: 'Masters absent after full pull (REQ-R-06)',
+        connectionId: agent.connectionId,
+        entityType,
+        marked: marked.rows.length,
+      });
+    }
   }
 
   /*

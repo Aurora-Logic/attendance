@@ -60,6 +60,7 @@ import {
 } from './types';
 import {
   useCreateConnection,
+  useFullRePull,
   useIntegrations,
   useIssueToken,
   usePullNow,
@@ -116,6 +117,10 @@ export function IntegrationsPage() {
   const create = useCreateConnection();
   const issue = useIssueToken();
   const pull = usePullNow();
+  const fullPull = useFullRePull();
+
+  /** The connection whose full re-pull is being confirmed (REQ-R-05). */
+  const [repulling, setRepulling] = useState<IntegrationConnection | null>(null);
 
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -196,6 +201,26 @@ export function IntegrationsPage() {
     );
   }
 
+  function runFullRePull() {
+    if (repulling === null) return;
+    const name = repulling.name;
+    fullPull.mutate(
+      { connectionId: repulling.id },
+      {
+        onSuccess: () => {
+          setRepulling(null);
+          toast.add({
+            type: 'success',
+            title: 'Full re-pull queued',
+            description: `${name} re-reads every master from the beginning on its next polls.`,
+          });
+        },
+        // Leaves the dialog open so the refusal (a pull mid-flight, an
+        // unbound company) is read where the decision was being made.
+      },
+    );
+  }
+
   function runIssue(connection: IntegrationConnection) {
     issue.mutate(
       { connectionId: connection.id },
@@ -249,6 +274,25 @@ export function IntegrationsPage() {
         >
           <CloudArrowDownIcon data-icon="inline-start" />
           Pull now
+        </Button>
+      ),
+    },
+    {
+      key: 'repull',
+      header: '',
+      cell: (row) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="pointer-coarse:min-h-11"
+          disabled={!row.tokenIssued}
+          title={row.tokenIssued ? undefined : 'Issue the agent token first'}
+          onClick={() => {
+            fullPull.reset();
+            setRepulling(row);
+          }}
+        >
+          Full re-pull
         </Button>
       ),
     },
@@ -590,6 +634,42 @@ export function IntegrationsPage() {
               }}
             >
               {issue.isPending ? 'Rotating' : 'Rotate token'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={repulling !== null}
+        onOpenChange={(next) => {
+          if (!next) setRepulling(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Full re-pull for {repulling?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Every master is re-read from the beginning (REQ-R-05), and masters that no longer
+              exist in Tally are marked absent — never deleted. Nothing in Tally changes; this
+              only rebuilds the copy here. The work runs on the agent's next polls.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {fullPull.isError ? (
+            <Alert variant="destructive">
+              <AlertTitle>The re-pull was not queued</AlertTitle>
+              <AlertDescription>{fullPull.error.message}</AlertDescription>
+            </Alert>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={fullPull.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                runFullRePull();
+              }}
+            >
+              {fullPull.isPending ? 'Queueing' : 'Re-pull everything'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

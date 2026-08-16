@@ -113,6 +113,34 @@ export function usePullNow(): UseMutationResult<QueuedPull, Error, { connectionI
   });
 }
 
+const FULL_PULL_TYPES = ['party', 'stock_item', 'price_list'] as const;
+
+/**
+ * REQ-R-05: the explicit administrative re-pull — every master entity type,
+ * from the beginning, with cursors reset server-side and REQ-R-06's absence
+ * marking licensed. Sequential rather than parallel so items still land
+ * before the prices that reference them.
+ */
+export function useFullRePull(): UseMutationResult<
+  { queued: number },
+  Error,
+  { connectionId: string }
+> {
+  return useMutation({
+    mutationFn: async ({ connectionId }) => {
+      let queued = 0;
+      for (const entityType of FULL_PULL_TYPES) {
+        await apiRequest<unknown>(`/integrations/${connectionId}/pull`, {
+          method: 'POST',
+          body: { entityType, full: true },
+        });
+        queued += 1;
+      }
+      return { queued };
+    },
+  });
+}
+
 /** REQ-T-01: what still owes a person a look. */
 export function useSyncExceptions(
   options: { enabled?: boolean } = {},

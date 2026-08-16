@@ -178,6 +178,76 @@ describe('the manual pull (POST /integrations/:id/pull)', () => {
     expect(response.status).toBe(202);
   });
 
+  it('a full re-pull stamps the payload and deletes the cursor (REQ-R-05)', async () => {
+    // A cursor to prove the reset against, and a clean queue so the press
+    // creates rather than finds.
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'DONE', updated_at = now()
+       WHERE connection_id = ${eligibleId} AND state IN ('QUEUED', 'CLAIMED')
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO sync_cursors (org_id, connection_id, entity_type, last_alter_id)
+      VALUES (${ORG_ID}, ${eligibleId}, 'party', 500)
+      ON CONFLICT (connection_id, entity_type)
+      DO UPDATE SET last_alter_id = 500
+    `);
+
+    const response = await harness.post<{ jobId: string; alreadyQueued: boolean }>(
+      `/integrations/${eligibleId}/pull`,
+      { token: adminToken, body: { entityType: 'party', full: true } },
+    );
+    expect(response.status).toBe(202);
+    expect(response.body.alreadyQueued).toBe(false);
+
+    const job = await harness.db.execute<{ payload: { full?: boolean } | null }>(sql`
+      SELECT payload FROM sync_jobs WHERE id = ${response.body.jobId}
+    `);
+    expect(job.rows[0]?.payload?.full).toBe(true);
+    const cursor = await harness.db.execute<{ id: string }>(sql`
+      SELECT id FROM sync_cursors WHERE connection_id = ${eligibleId} AND entity_type = 'party'
+    `);
+    // Deleting the cursor IS the re-pull: the next claim asks from zero.
+    expect(cursor.rows.length).toBe(0);
+  });
+
+  it('upgrades a QUEUED job to full, but refuses to rewrite one already claimed', async () => {
+    // The full job above is still QUEUED; an incremental press finds it.
+    const found = await harness.post<{ jobId: string; alreadyQueued: boolean }>(
+      `/integrations/${eligibleId}/pull`,
+      { token: adminToken, body: { entityType: 'party' } },
+    );
+    expect(found.body.alreadyQueued).toBe(true);
+
+    // Claimed mid-flight: the agent is working incremental semantics, and
+    // rewriting the meaning of work in an agent's hands is refused.
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'CLAIMED', claimed_by = 'mid-flight', claimed_at = now()
+       WHERE id = ${found.body.jobId}
+    `);
+    const refused = await harness.post<{ error: { message: string } }>(
+      `/integrations/${eligibleId}/pull`,
+      { token: adminToken, body: { entityType: 'party', full: true } },
+    );
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toContain('already running');
+
+    // Back to QUEUED: the upgrade is answerable before any agent has read it.
+    await harness.db.execute(sql`
+      UPDATE sync_jobs SET state = 'QUEUED', claimed_by = NULL, claimed_at = NULL, payload = NULL
+       WHERE id = ${found.body.jobId}
+    `);
+    const upgraded = await harness.post<{ jobId: string; alreadyQueued: boolean }>(
+      `/integrations/${eligibleId}/pull`,
+      { token: adminToken, body: { entityType: 'party', full: true } },
+    );
+    expect(upgraded.status).toBe(202);
+    expect(upgraded.body.jobId).toBe(found.body.jobId);
+    const job = await harness.db.execute<{ payload: { full?: boolean } | null }>(sql`
+      SELECT payload FROM sync_jobs WHERE id = ${found.body.jobId}
+    `);
+    expect(job.rows[0]?.payload?.full).toBe(true);
+  });
+
   it('refuses an entity type outside the contract vocabulary', async () => {
     const response = await harness.post(`/integrations/${eligibleId}/pull`, {
       token: adminToken,

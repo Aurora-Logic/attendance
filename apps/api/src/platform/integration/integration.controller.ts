@@ -31,7 +31,11 @@ import { IntegrationService } from './integration.service.js';
 
 class CreateIntegrationConnectionDto extends createZodDto(createIntegrationConnectionSchema) {}
 
-const manualPullSchema = z.object({ entityType: z.enum(SYNC_ENTITY_TYPES) });
+const manualPullSchema = z.object({
+  entityType: z.enum(SYNC_ENTITY_TYPES),
+  /** REQ-R-05: an explicit full re-pull — cursor reset, absences marked. */
+  full: z.boolean().optional(),
+});
 class ManualPullDto extends createZodDto(manualPullSchema) {}
 
 const exceptionListQuerySchema = z.object({
@@ -121,7 +125,7 @@ export class IntegrationController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: ManualPullDto,
   ): Promise<{ jobId: string; entityType: string; alreadyQueued: boolean }> {
-    return this.scheduler.enqueueManualPull(principal, id, body.entityType);
+    return this.scheduler.enqueueManualPull(principal, id, body.entityType, body.full ?? false);
   }
 
   /**
