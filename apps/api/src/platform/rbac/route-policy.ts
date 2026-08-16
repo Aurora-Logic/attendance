@@ -17,10 +17,22 @@ import type { PermissionKey } from '@vyuha/shared';
 
 export const ROUTE_POLICY_KEY = 'vyuha:route-policy';
 
+/**
+ * Every decorator, for error messages that enumerate the choices. One list
+ * beside the union it describes, because the guard and the boot audit each
+ * print it — two hand-maintained copies drifted the moment `@AgentRoute()`
+ * was added, and a message listing three decorators steers the author of an
+ * agent route to `@Authenticated()`, the exact credential-world crossing the
+ * fourth kind exists to prevent.
+ */
+export const ROUTE_POLICY_DECORATORS =
+  '@Public(), @Authenticated(), @RequirePermission(...), or @AgentRoute()';
+
 export type RoutePolicy =
   | { readonly kind: 'public' }
   | { readonly kind: 'authenticated' }
-  | { readonly kind: 'permission'; readonly keys: readonly PermissionKey[] };
+  | { readonly kind: 'permission'; readonly keys: readonly PermissionKey[] }
+  | { readonly kind: 'agent' };
 
 /**
  * No credentials required and none read. Reserved for the health probes and
@@ -39,6 +51,19 @@ export const Public = (): CustomDecorator<string> =>
  */
 export const Authenticated = (): CustomDecorator<string> =>
   SetMetadata<string, RoutePolicy>(ROUTE_POLICY_KEY, { kind: 'authenticated' });
+
+/**
+ * A connector-agent credential is required — and nothing else is accepted.
+ *
+ * The two credential worlds are deliberately disjoint (09 §5): an agent
+ * holds `sync.agent` in spirit and nothing in fact — no user, no roles, no
+ * permission set — so a route marked this way can never be reached with a
+ * user JWT, and an agent token can never satisfy `@Authenticated()` or
+ * `@RequirePermission(...)`, whose paths verify a JWT. A leaked agent
+ * credential is scoped to one connection's sync traffic, not to a person.
+ */
+export const AgentRoute = (): CustomDecorator<string> =>
+  SetMetadata<string, RoutePolicy>(ROUTE_POLICY_KEY, { kind: 'agent' });
 
 /**
  * Holding **any** of the listed keys grants access. The multi-key form exists

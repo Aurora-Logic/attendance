@@ -29,6 +29,7 @@ import { RecycleBinModule } from './platform/recycle-bin/recycle-bin.module.js';
 import { RedisModule } from './platform/redis/redis.module.js';
 import { SearchModule } from './platform/search/search.module.js';
 import { SettingsModule } from './platform/settings/settings.module.js';
+import { SyncModule } from './platform/sync/sync.module.js';
 import { StorageModule } from './platform/storage/storage.module.js';
 
 /**
@@ -72,6 +73,9 @@ import { StorageModule } from './platform/storage/storage.module.js';
     ExportModule,
     PeopleModule,
     SettingsModule,
+    // Before IntegrationModule, whose token issuance mints through it, and
+    // reachable by AccessGuard, which resolves agent credentials through it.
+    SyncModule,
     IntegrationModule,
     HealthModule,
     // The first `modules/` entry. Everything above it is the shared kernel;

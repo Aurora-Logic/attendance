@@ -2,7 +2,7 @@ import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common'
 import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
 import { PATH_METADATA } from '@nestjs/common/constants.js';
 
-import { ROUTE_POLICY_KEY, type RoutePolicy } from './route-policy.js';
+import { ROUTE_POLICY_DECORATORS, ROUTE_POLICY_KEY, type RoutePolicy } from './route-policy.js';
 
 /**
  * `AccessGuard` already denies a route that declares no policy. This turns the
@@ -37,9 +37,9 @@ export class RoutePolicyAudit implements OnApplicationBootstrap {
           `${String(offenders.length)} route handler(s) declare no access policy:`,
           ...offenders.map((name) => `  ${name}`),
           '',
-          'Every route must carry exactly one of @Public(), @Authenticated(), or',
-          '@RequirePermission(...). AccessGuard denies an unannotated route, so this',
-          'would be a 403 nobody can explain rather than an endpoint that works.',
+          `Every route must carry exactly one of ${ROUTE_POLICY_DECORATORS}.`,
+          'AccessGuard denies an unannotated route, so this would be a 403 nobody',
+          'can explain rather than an endpoint that works.',
         ].join('\n'),
       );
     }

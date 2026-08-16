@@ -1,13 +1,21 @@
 import { Injectable } from '@nestjs/common';
-import type {
-  IntegrationConnectionView,
-  IntegrationListResponse,
-  IntegrationStatus,
+import {
+  AGENT_LEASE_TAKEOVER_MINUTES,
+  type CreateIntegrationConnectionInput,
+  type IntegrationConnectionView,
+  type IntegrationListResponse,
+  type IntegrationStatus,
+  type IssuedAgentToken,
 } from '@vyuha/shared';
 
+import { AuditContext } from '../audit/audit-context.js';
+import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { isUniqueViolation } from '../db/pg-error.js';
 import { orgContextOf, type Principal } from '../rbac/principal.js';
+import { AgentAuthService } from '../sync/agent-auth.service.js';
 import { IntegrationRepository, type ConnectionRow } from './integration.repository.js';
+
 
 /**
  * Technical design §14, the read half.
@@ -30,18 +38,22 @@ import { IntegrationRepository, type ConnectionRow } from './integration.reposit
 /**
  * How long a silence lasts before a connection is called stale.
  *
- * Technical design §14.1 says "a stale heartbeat raises an admin notification"
- * and names no interval, so this is a default rather than an answer, recorded
- * in OPEN-QUESTIONS. Fifteen minutes is long enough to ride out a restart or a
- * flaky office connection and short enough that somebody finds out the same
- * morning. It decides a label and nothing else — no sync is blocked by it,
- * because there is no sync.
+ * Phase 0 defaulted this to fifteen minutes and recorded it as a question
+ * (OPEN-QUESTIONS I-1); Phase 6 has the answer. REQ-Q-04 names five minutes
+ * as when a missing heartbeat alerts, and the lease takeover threshold is
+ * the same number for the same reason — "when do we stop believing the
+ * agent is alive" must have one answer, or a connection can change hands
+ * while this screen still calls it healthy.
  */
-export const STALE_AFTER_MINUTES = 15;
+export const STALE_AFTER_MINUTES = AGENT_LEASE_TAKEOVER_MINUTES;
 
 @Injectable()
 export class IntegrationService {
-  constructor(@InjectDatabase() private readonly db: Database) {}
+  constructor(
+    @InjectDatabase() private readonly db: Database,
+    private readonly agentAuth: AgentAuthService,
+    private readonly auditContext: AuditContext,
+  ) {}
 
   async list(principal: Principal, now: Date = new Date()): Promise<IntegrationListResponse> {
     const rows = await new IntegrationRepository(this.db, orgContextOf(principal)).list();
@@ -50,6 +62,68 @@ export class IntegrationService {
       data: rows.map((row) => toView(row, now)),
       staleAfterMinutes: STALE_AFTER_MINUTES,
     };
+  }
+
+  /** One connection per Tally company (REQ-Q-03). The token is issued separately. */
+  async create(
+    principal: Principal,
+    input: CreateIntegrationConnectionInput,
+  ): Promise<IntegrationConnectionView> {
+    const repository = new IntegrationRepository(this.db, orgContextOf(principal));
+
+    let row: ConnectionRow;
+    try {
+      row = await repository.insertConnection({
+        name: input.name,
+        companyGuid: input.companyGuid ?? null,
+        companyName: input.companyName ?? null,
+      });
+    } catch (error: unknown) {
+      if (isUniqueViolation(error)) {
+        // Two live connections can collide on the name, or — REQ-Q-03 held
+        // by the schema — on the company GUID. Both mean "this already
+        // exists"; the details say which.
+        throw AppError.conflict(
+          `A connection with this name or Tally company already exists.`,
+          { name: input.name, companyGuid: input.companyGuid ?? null },
+        );
+      }
+      throw error;
+    }
+
+    this.auditContext.record({
+      action: 'integration.connection_created',
+      entityType: 'integration_connection',
+      entityId: row.id,
+      after: { name: input.name, companyGuid: input.companyGuid ?? null },
+    });
+
+    return toView(row, new Date());
+  }
+
+  /**
+   * Issues — or rotates — the agent credential. The token crosses this
+   * process exactly once, in this response; only its hash is stored, so
+   * there is no path that can show it again. Rotation is the revocation
+   * mechanism: the previous token stops resolving the moment the new hash
+   * lands, which is also why this is audited with a reason-free shape — the
+   * act itself is the fact an auditor wants.
+   */
+  async issueToken(principal: Principal, connectionId: string): Promise<IssuedAgentToken> {
+    const repository = new IntegrationRepository(this.db, orgContextOf(principal));
+
+    const { token, tokenHash } = this.agentAuth.mint();
+    const { found, rotated } = await repository.rotateTokenHash(connectionId, tokenHash);
+    if (!found) throw AppError.notFound('Connection', connectionId);
+
+    this.auditContext.record({
+      action: rotated ? 'integration.token_rotated' : 'integration.token_issued',
+      entityType: 'integration_connection',
+      entityId: connectionId,
+      after: { rotated },
+    });
+
+    return { connectionId, token };
   }
 }
 
@@ -61,6 +135,8 @@ function toView(row: ConnectionRow, now: Date): IntegrationConnectionView {
     status: statusOf(row, now),
     lastHeartbeatAt: row.lastHeartbeatAt?.toISOString() ?? null,
     tokenIssued: row.tokenIssued,
+    companyName: row.companyName,
+    lastCondition: row.lastCondition,
   };
 }
 

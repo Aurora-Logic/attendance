@@ -254,7 +254,7 @@ describe('per-IP failed login budget', () => {
     const stranded = new LoginRateLimiter(offline);
 
     await expect(stranded.claimAttempt('198.51.100.7')).resolves.toBeNull();
-    await expect(stranded.release({ ip: '198.51.100.7', member: 'x' })).resolves.toBeUndefined();
+    await expect(stranded.release({ ip: '198.51.100.7', member: 'x', scope: 'login' })).resolves.toBeUndefined();
 
     offline.disconnect();
   });

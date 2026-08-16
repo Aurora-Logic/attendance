@@ -27,6 +27,8 @@ export const TOKEN_PURPOSES = {
   REFRESH: 'refresh',
   INVITATION: 'invitation',
   PASSWORD_RESET: 'password-reset',
+  /** The connector agent's per-connection credential (09 §5). */
+  AGENT: 'agent',
 } as const;
 
 export type TokenPurpose = (typeof TOKEN_PURPOSES)[keyof typeof TOKEN_PURPOSES];

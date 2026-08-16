@@ -1,21 +1,39 @@
-import { Controller, Get } from '@nestjs/common';
-import { PERMISSIONS, type IntegrationListResponse } from '@vyuha/shared';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
+import {
+  PERMISSIONS,
+  createIntegrationConnectionSchema,
+  type IntegrationConnectionView,
+  type IntegrationListResponse,
+  type IssuedAgentToken,
+} from '@vyuha/shared';
 
+import { createZodDto } from '../common/zod-validation.pipe.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
 import { IntegrationService } from './integration.service.js';
 
+class CreateIntegrationConnectionDto extends createZodDto(createIntegrationConnectionSchema) {}
+
 /**
  * `/api/v1/integrations` (technical design §14). PRD §2.1's `integration.manage`.
  *
- * Read-only, and the absence of everything else is the design. Phase 0's scope
- * is "the tables and the interface exist so Phase 6 is additive"; a POST that
- * created a connection would have to mint an agent token, and there is nothing
- * behind that yet. The screen says so rather than offering a button that fails.
+ * Phase 0 shipped this read-only because a POST would have had to mint an
+ * agent credential and nothing existed behind that. Phase 6b built the
+ * credential machinery (`AgentAuthService`), so the two writes exist now:
+ * create a connection, issue or rotate its token.
  *
- * `integration.manage` to read, not a weaker key: a connection names the
- * machine that talks to the accounts system and whether a credential has been
- * issued for it, which is not a list to hand to anyone who asks.
+ * `integration.manage` throughout, not a weaker key: a connection names the
+ * machine that talks to the accounts system, and the token route hands out
+ * the credential that machine authenticates with.
  */
 @Controller('integrations')
 export class IntegrationController {
@@ -28,5 +46,31 @@ export class IntegrationController {
     // if it runs several offices. A page envelope on a list nobody will page is
     // a client handling a case that cannot happen.
     return this.integrations.list(principal);
+  }
+
+  /** REQ-Q-03: one connection per Tally company. */
+  @Post()
+  @RequirePermission(PERMISSIONS.INTEGRATION_MANAGE)
+  @HttpCode(HttpStatus.CREATED)
+  create(
+    @CurrentUser() principal: Principal,
+    @Body() body: CreateIntegrationConnectionDto,
+  ): Promise<IntegrationConnectionView> {
+    return this.integrations.create(principal, body);
+  }
+
+  /**
+   * The one response that ever carries the token. 200 rather than 201 on
+   * purpose: reissuing rotates, and "created" on a rotation would be a claim
+   * a retry could act on.
+   */
+  @Post(':id/token')
+  @RequirePermission(PERMISSIONS.INTEGRATION_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  issueToken(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<IssuedAgentToken> {
+    return this.integrations.issueToken(principal, id);
   }
 }

@@ -26,6 +26,6 @@ import { SessionService } from './session.service.js';
     PasswordResetRateLimiter,
     DeliverPasswordResetHandler,
   ],
-  exports: [SessionService],
+  exports: [SessionService, LoginRateLimiter],
 })
 export class AuthModule {}

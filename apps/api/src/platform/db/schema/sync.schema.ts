@@ -94,7 +94,10 @@ export const syncJobs = pgTable(
     claimedAt: timestamp('claimed_at', { withTimezone: true }),
     ...auditColumns(),
   },
-  (t) => [index('sync_jobs_claim_idx').on(t.connectionId, t.state)],
+  // `created_at` is in the index so the claim query walks the queue in order
+  // and locks the first available head, instead of sorting every queued row
+  // on every poll of a polled endpoint.
+  (t) => [index('sync_jobs_claim_idx').on(t.connectionId, t.state, t.createdAt)],
 );
 
 /**

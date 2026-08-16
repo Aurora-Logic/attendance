@@ -1,0 +1,26 @@
+import { Global, Module } from '@nestjs/common';
+
+import { AuthModule } from '../auth/auth.module.js';
+import { AgentAuthService } from './agent-auth.service.js';
+import { SyncAgentController } from './sync-agent.controller.js';
+import { SyncAgentService } from './sync-agent.service.js';
+
+/**
+ * The sync engine's platform module (09 §1: "integration, sync" in the shared
+ * kernel). Phase 6b builds it outward from here — agent auth and the poll
+ * surface first, transport and pull machinery once real Tally fixtures exist.
+ *
+ * `@Global()` because `AccessGuard` — provided at the application root —
+ * resolves agent credentials through `AgentAuthService`, and the guard's
+ * dependencies must be reachable without the rbac module importing sync.
+ */
+@Global()
+@Module({
+  // For LoginRateLimiter: agent credential guesses share sign-in's sliding
+  // window machinery, in their own scope.
+  imports: [AuthModule],
+  controllers: [SyncAgentController],
+  providers: [AgentAuthService, SyncAgentService],
+  exports: [AgentAuthService],
+})
+export class SyncModule {}

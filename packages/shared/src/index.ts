@@ -16,4 +16,5 @@ export * from './permissions.js';
 export * from './regularization.js';
 export * from './reports.js';
 export * from './shifts.js';
+export * from './sync.js';
 export * from './notifications.js';

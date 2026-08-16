@@ -1,3 +1,4 @@
+import type { AgentCondition } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -75,9 +76,33 @@ export const integrationConnections = pgTable(
     tallyVersion: text('tally_version'),
     /** One agent per company, enforced by a lease (09 §3.4). Null means unheld. */
     leaseHolder: text('lease_holder'),
+    /**
+     * REQ-Q-05: which specific problem the last heartbeat carried — reported
+     * by the agent or derived from a company-GUID mismatch. Stored so the
+     * Integrations screen can name the fix, not just say ERROR.
+     */
+    lastCondition: text('last_condition').$type<AgentCondition>(),
     ...standardColumns(),
   },
-  (t) => [uniqueIndex('integration_connections_uq').on(t.orgId, t.system, t.name).where(ALIVE)],
+  (t) => [
+    uniqueIndex('integration_connections_uq').on(t.orgId, t.system, t.name).where(ALIVE),
+    /*
+     * The hot auth lookup, and a guarantee in one: a credential can never
+     * resolve to two connections, however the issuance code evolves.
+     */
+    uniqueIndex('integration_connections_token_uq')
+      .on(t.agentTokenHash)
+      .where(sql`agent_token_hash IS NOT NULL AND deleted_at IS NULL`),
+    /*
+     * REQ-Q-03 held by the schema rather than by admin discipline: two live
+     * connections bound to one company would mean two leases, two cursors and
+     * two idempotency scopes legally syncing the same books — defeating both
+     * controls that presume this uniqueness.
+     */
+    uniqueIndex('integration_connections_company_uq')
+      .on(t.orgId, t.system, t.companyGuid)
+      .where(sql`company_guid IS NOT NULL AND deleted_at IS NULL`),
+  ],
 );
 
 /**
