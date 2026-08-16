@@ -1,10 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AGENT_LEASE_TAKEOVER_MINUTES, SYNC_ENTITY_TYPES, type SyncEntityType } from '@vyuha/shared';
+import {
+  AGENT_LEASE_TAKEOVER_MINUTES,
+  NOTIFICATION_EVENTS,
+  PERMISSIONS,
+  SYNC_ENTITY_TYPES,
+  type SyncEntityType,
+} from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { NotificationDispatcher } from '../notifications/notification.dispatcher.js';
 import { orgContextOf, type Principal } from '../rbac/principal.js';
 
 /**
@@ -39,7 +46,84 @@ export class SyncSchedulerService {
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly auditContext: AuditContext,
+    private readonly notifications: NotificationDispatcher,
   ) {}
+
+  /**
+   * REQ-Q-04: a heartbeat older than five minutes raises a notification —
+   * once, on the transition, with the recovery announced the same way.
+   *
+   * Both transitions are UPDATEs whose predicates are the edge itself
+   * (`stale_notified_at` null against not-null), so two sweeps racing cannot
+   * double-notify: the second one's UPDATE matches zero rows. Connections
+   * that never heartbeated stay silent here — DISCONNECTED-from-birth is the
+   * Integrations screen's business; this sweep is about an agent that *was*
+   * alive and stopped.
+   *
+   * Audience: `integration.manage` holders. 08 §2.2 names `tally.sync.run`,
+   * which arrives with the Accounts role in the permission expansion; the
+   * guard and this audience widen together.
+   */
+  async checkHeartbeatStaleness(): Promise<{ wentStale: number; recovered: number }> {
+    const wentStale = await this.db.execute<{
+      id: string;
+      org_id: string;
+      name: string;
+      last_heartbeat_at: Date;
+    }>(sql`
+      UPDATE integration_connections
+         SET stale_notified_at = now(), updated_at = now(), updated_by = NULL
+       WHERE deleted_at IS NULL
+         AND last_heartbeat_at IS NOT NULL
+         AND last_heartbeat_at < now() - make_interval(mins => ${AGENT_LEASE_TAKEOVER_MINUTES})
+         AND stale_notified_at IS NULL
+       RETURNING id, org_id, name, last_heartbeat_at
+    `);
+
+    for (const row of wentStale.rows) {
+      const lastBeat = new Date(row.last_heartbeat_at);
+      await this.notifications.emit({
+        orgId: row.org_id,
+        type: NOTIFICATION_EVENTS.SYNC_AGENT_STALE,
+        audience: { kind: 'permission', key: PERMISSIONS.INTEGRATION_MANAGE },
+        payload: {
+          connectionName: row.name,
+          lastHeartbeatAt: lastBeat.toISOString(),
+        },
+        // Keyed by which silence this is: the same connection going quiet
+        // again after recovering is a new fact and must notify again.
+        idempotencyKey: `sync-stale-${row.id}-${String(lastBeat.getTime())}`,
+      });
+    }
+
+    const recovered = await this.db.execute<{ id: string; org_id: string; name: string }>(sql`
+      UPDATE integration_connections
+         SET stale_notified_at = NULL, updated_at = now(), updated_by = NULL
+       WHERE deleted_at IS NULL
+         AND stale_notified_at IS NOT NULL
+         AND last_heartbeat_at >= now() - make_interval(mins => ${AGENT_LEASE_TAKEOVER_MINUTES})
+       RETURNING id, org_id, name
+    `);
+
+    for (const row of recovered.rows) {
+      await this.notifications.emit({
+        orgId: row.org_id,
+        type: NOTIFICATION_EVENTS.SYNC_AGENT_RECOVERED,
+        audience: { kind: 'permission', key: PERMISSIONS.INTEGRATION_MANAGE },
+        payload: { connectionName: row.name },
+      });
+    }
+
+    if (wentStale.rows.length > 0 || recovered.rows.length > 0) {
+      this.logger.warn({
+        msg: 'Agent staleness transitions',
+        wentStale: wentStale.rows.length,
+        recovered: recovered.rows.length,
+      });
+    }
+
+    return { wentStale: wentStale.rows.length, recovered: recovered.rows.length };
+  }
 
   /**
    * A pull job per eligible connection per writable entity type.

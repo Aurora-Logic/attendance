@@ -86,6 +86,15 @@ export interface JobPayloads {
   };
 
   /**
+   * REQ-Q-04: notice the agent that stopped heartbeating, once per silence,
+   * and the recovery. The transition state lives on the connection row
+   * (`stale_notified_at`), so the payload carries nothing.
+   */
+  'check-agent-heartbeats': {
+    readonly now?: string;
+  };
+
+  /**
    * REQ-M-05: everything the system holds about one employee, as a file.
    *
    * Same shape as `generate-report-export` and for the same reason -- only the
@@ -207,6 +216,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   // delays the sweep that would add to it rather than racing ahead of it.
   'run-report-schedules': QUEUES.EXPORT,
   'enqueue-sync-pulls': QUEUES.MAINTENANCE,
+  'check-agent-heartbeats': QUEUES.MAINTENANCE,
   'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-notification': QUEUES.NOTIFICATION,
@@ -330,6 +340,11 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // agent that has been away simply finds the same job still waiting, not
   // fifteen copies of it.
   { schedulerId: 'sync:enqueue-pulls', jobName: 'enqueue-sync-pulls', pattern: '*/15 * * * *' },
+  // REQ-Q-04 names five minutes of silence as the alert threshold; a
+  // two-minute cadence bounds the lag at ~seven, where a five-minute sweep
+  // would let the SLA read "five" while delivering ten. The check is one
+  // UPDATE over a table with a handful of rows.
+  { schedulerId: 'sync:check-heartbeats', jobName: 'check-agent-heartbeats', pattern: '*/2 * * * *' },
   // REQ-K-03. Every 15 minutes, because a reminder is only useful shortly
   // before the shift it names and shift start times are not on the hour. The
   // sweep costs one preference query per organisation when nobody has opted

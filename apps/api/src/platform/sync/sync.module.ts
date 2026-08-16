@@ -1,10 +1,12 @@
 import { Global, Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 import { AgentAuthService } from './agent-auth.service.js';
 import { SyncAgentController } from './sync-agent.controller.js';
 import { SyncAgentService } from './sync-agent.service.js';
 import { SyncPullSweepHandler } from './sync-pull-sweep.handler.js';
+import { SyncStalenessHandler } from './sync-staleness.handler.js';
 import { SyncSchedulerService } from './sync-scheduler.service.js';
 import { SyncWriterService } from './sync-writer.service.js';
 
@@ -19,11 +21,12 @@ import { SyncWriterService } from './sync-writer.service.js';
  */
 @Global()
 @Module({
-  // For LoginRateLimiter: agent credential guesses share sign-in's sliding
-  // window machinery, in their own scope.
-  imports: [AuthModule],
+  // AuthModule for LoginRateLimiter: agent credential guesses share
+  // sign-in's sliding window machinery, in their own scope. Notifications
+  // for REQ-Q-04: the staleness sweep announces transitions.
+  imports: [AuthModule, NotificationsModule],
   controllers: [SyncAgentController],
-  providers: [AgentAuthService, SyncAgentService, SyncWriterService, SyncSchedulerService, SyncPullSweepHandler],
+  providers: [AgentAuthService, SyncAgentService, SyncWriterService, SyncSchedulerService, SyncPullSweepHandler, SyncStalenessHandler],
   exports: [AgentAuthService, SyncSchedulerService],
 })
 export class SyncModule {}

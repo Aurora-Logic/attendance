@@ -1,6 +1,7 @@
 import {
   NOTIFICATION_EVENTS,
   NOTIFICATION_EVENT_ROUTES,
+  NOTIFICATION_EVENT_TYPES,
   SYSTEM_ROLES,
   type NotificationPreference,
   type NotificationReadResult,
@@ -298,8 +299,10 @@ describe('preferences (REQ-K-04)', () => {
       token: ashaToken,
     });
     expect(result.status).toBe(200);
-    // Thirteen events times the two channels this phase delivers on.
-    expect(result.body).toHaveLength(26);
+    // Every catalogue event times the two channels this phase delivers on —
+    // derived, so a new event (sync.agent_stale was the first) widens the
+    // grid instead of failing a hand-counted thirteen.
+    expect(result.body).toHaveLength(NOTIFICATION_EVENT_TYPES.length * 2);
     expect(result.body.every((row) => row.isDefault)).toBe(true);
 
     const reminder = result.body.filter(

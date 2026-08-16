@@ -1,8 +1,12 @@
-import { SYSTEM_ROLES } from '@vyuha/shared';
+import { PERMISSIONS, SYSTEM_ROLES } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import {
+  NotificationDispatcher,
+  type NotificationEvent,
+} from '../notifications/notification.dispatcher.js';
 import { SyncSchedulerService } from './sync-scheduler.service.js';
 
 /**
@@ -177,5 +181,89 @@ describe('the manual pull (POST /integrations/:id/pull)', () => {
     );
     expect(response.status).toBe(409);
     expect(response.body.error.message).toContain('bound to a Tally company');
+  });
+});
+
+describe('the heartbeat staleness alert (REQ-Q-04)', () => {
+  let staleId = '';
+  const emitted: NotificationEvent[] = [];
+
+  const staleEmits = () =>
+    emitted.filter(
+      (e) => e.type === 'sync.agent_stale' && e.payload?.connectionName === 'Stale Co',
+    );
+
+  beforeAll(async () => {
+    // The spy replaces the BullMQ enqueue: what this suite owns is the edge
+    // detection and who is addressed, not delivery — `notifications.test.ts`
+    // owns that. Workers are disabled under vitest, so nothing else consumes
+    // the transitions this fixture creates.
+    const dispatcher = harness.resolve(NotificationDispatcher);
+    vi.spyOn(dispatcher, 'emit').mockImplementation((event) => {
+      emitted.push(event);
+      return Promise.resolve('spied');
+    });
+
+    const inserted = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO integration_connections
+        (org_id, system, name, company_guid, agent_token_hash, last_heartbeat_at)
+      VALUES (${ORG_ID}, 'TALLY', 'Stale Co', 'guid-stale', 'hash-of-stale-token',
+              now() - interval '10 minutes')
+      RETURNING id
+    `);
+    staleId = inserted.rows[0]?.id ?? '';
+  });
+
+  afterAll(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('alerts on the transition to stale — once, however often the sweep runs', async () => {
+    const first = await scheduler.checkHeartbeatStaleness();
+    expect(first.wentStale).toBeGreaterThanOrEqual(1);
+    expect(staleEmits().length).toBe(1);
+    // The audience is the permission that guards the screen the alert opens.
+    expect(staleEmits()[0]?.audience).toEqual({
+      kind: 'permission',
+      key: PERMISSIONS.INTEGRATION_MANAGE,
+    });
+
+    await scheduler.checkHeartbeatStaleness();
+    expect(staleEmits().length).toBe(1);
+
+    const row = await harness.db.execute<{ stale_notified_at: Date | null }>(sql`
+      SELECT stale_notified_at FROM integration_connections WHERE id = ${staleId}
+    `);
+    expect(row.rows[0]?.stale_notified_at).not.toBeNull();
+  });
+
+  it('announces recovery, re-arms, and treats the next silence as a new fact', async () => {
+    await harness.db.execute(sql`
+      UPDATE integration_connections SET last_heartbeat_at = now() WHERE id = ${staleId}
+    `);
+    const outcome = await scheduler.checkHeartbeatStaleness();
+    expect(outcome.recovered).toBeGreaterThanOrEqual(1);
+    const recoveries = emitted.filter(
+      (e) => e.type === 'sync.agent_recovered' && e.payload?.connectionName === 'Stale Co',
+    );
+    expect(recoveries.length).toBe(1);
+
+    await harness.db.execute(sql`
+      UPDATE integration_connections SET last_heartbeat_at = now() - interval '10 minutes'
+       WHERE id = ${staleId}
+    `);
+    await scheduler.checkHeartbeatStaleness();
+    expect(staleEmits().length).toBe(2);
+  });
+
+  it('says nothing about a connection that never heartbeated', () => {
+    // DISCONNECTED-from-birth is the Integrations screen's business; the
+    // sweep is about an agent that was alive and stopped. The eligible and
+    // unbound fixtures above have never beaten and must never be named.
+    expect(
+      emitted.some(
+        (e) => e.payload?.connectionName === 'Eligible Co' || e.payload?.connectionName === 'Unbound Co',
+      ),
+    ).toBe(false);
   });
 });

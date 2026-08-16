@@ -1,0 +1,1 @@
+ALTER TABLE "integration_connections" ADD COLUMN "stale_notified_at" timestamp with time zone;

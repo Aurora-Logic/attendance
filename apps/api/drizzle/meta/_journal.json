@@ -169,6 +169,13 @@
       "when": 1786895763768,
       "tag": "0023_sync_exceptions",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786896756231,
+      "tag": "0024_stale_notified",
+      "breakpoints": true
     }
   ]
 }

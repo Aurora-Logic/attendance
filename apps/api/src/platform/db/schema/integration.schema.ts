@@ -82,6 +82,14 @@ export const integrationConnections = pgTable(
      * Integrations screen can name the fix, not just say ERROR.
      */
     lastCondition: text('last_condition').$type<AgentCondition>(),
+    /**
+     * REQ-Q-04's edge detector. Set when the staleness sweep alerts, cleared
+     * when heartbeats resume (which sends the recovery notice). The alert
+     * fires on the transition, not the state — without this, every sweep
+     * over a dead agent would notify again, and a bell that cries every two
+     * minutes about the same silence teaches people to silence the bell.
+     */
+    staleNotifiedAt: timestamp('stale_notified_at', { withTimezone: true }),
     ...standardColumns(),
   },
   (t) => [
