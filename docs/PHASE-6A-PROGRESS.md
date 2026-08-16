@@ -20,27 +20,35 @@ at `c30941d` and contains none of this work.
 | REQ-P-02 (5 of 8 files) → `platform/export` | `fe01a02` | 1598 tests |
 | REQ-P-03 union + widest scope asserted | `c375d97` | 4 tests, falsified by a first-role-only resolver |
 | OQ P2-3 role assignment endpoint and UI | `31f855f` | Pre-dated this branch — see below. 15 live checks + 29 API tests, 16 Aug |
+| REQ-O-05 Go To as a record index | (this commit) | 17 API + 10 web tests; 8-check live drive: Alt+G, typed code, Enter, landed on the employee |
+
+`platform/search/` holds the `GoToSourceRegistry` — the same self-registration
+shape as `ApprovalSubjectRegistry` and `JobRegistry`, so parties and vouchers
+join in 6b+ by registering a source, with no edit to the index or the palette.
+The employee source delegates to `EmployeeService.list`, so Go To finds exactly
+what the register shows the same caller (scope proven by test: a team-breadth
+manager searching a name shared by two people receives only their own report).
+Found on the way: when REQ-O-02 moved eight destinations to Administration, the
+palette — which read only `NAV_GROUPS` — silently stopped listing them, so
+Settings, Roles, Audit log and the rest were unreachable by Alt+G. Fixed here;
+a palette test now pins them.
 
 ## Next, in order
 
-1. **REQ-O-05 Go To as a record index.** `09` §6 calls this the real
-   navigation, and it is what makes REQ-O-04's cap stop mattering. Employees
-   first; the index must be extensible without editing it per module.
-
-2. **REQ-P-02 remainder.** `export.service.ts` and `schedule.service.ts` are
+1. **REQ-P-02 remainder.** `export.service.ts` and `schedule.service.ts` are
    generic in shape but import attendance's `report.service` and
    `report.repository` to learn what a report *is*. Needs the same inversion
    `ApprovalSubjectRegistry` already demonstrates: the platform defines the
    interface, the module registers its definitions. **Phase 6d depends on this**
    — REQ-Y-06 puts every receivables screen under the report shell.
 
-3. **REQ-P-04 remainder.** `APPROVAL_ACT_KEYS`, `APPROVAL_READ_KEYS` and
+2. **REQ-P-04 remainder.** `APPROVAL_ACT_KEYS`, `APPROVAL_READ_KEYS` and
    `APPROVAL_SCOPE_GRANTS` still name leave keys. They feed
    `@RequirePermission(...)`, evaluated at class-definition time, so a runtime
    registry cannot supply them — they need a declared catalogue in
    `packages/shared`. Different shape of fix from the two already done.
 
-4. **Exit gate.** `/ultrareview` plus a full regression, per `10` §2.
+3. **Exit gate.** `/ultrareview` plus a full regression, per `10` §2.
 
 ## Three places the documents are wrong
 

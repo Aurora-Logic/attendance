@@ -26,6 +26,7 @@ import { AccessGuard } from './platform/rbac/access.guard.js';
 import { RbacModule } from './platform/rbac/rbac.module.js';
 import { RecycleBinModule } from './platform/recycle-bin/recycle-bin.module.js';
 import { RedisModule } from './platform/redis/redis.module.js';
+import { SearchModule } from './platform/search/search.module.js';
 import { SettingsModule } from './platform/settings/settings.module.js';
 import { StorageModule } from './platform/storage/storage.module.js';
 
@@ -64,6 +65,8 @@ import { StorageModule } from './platform/storage/storage.module.js';
     AuthModule,
     ConsentModule,
     OrgModule,
+    // Before PeopleModule, whose employee source registers into it on init.
+    SearchModule,
     PeopleModule,
     SettingsModule,
     IntegrationModule,

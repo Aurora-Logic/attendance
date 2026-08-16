@@ -5,6 +5,7 @@ import { EmployeeAccessService } from './employee-access.service.js';
 import { EmployeeDataExportController } from './employee-data-export.controller.js';
 import { EmployeeDataExportHandler } from './employee-data-export.handler.js';
 import { EmployeeDataExportService } from './employee-data-export.service.js';
+import { EmployeeGoToSource } from './employee-goto.source.js';
 import { EmployeeController } from './employee.controller.js';
 import { EmployeeService } from './employee.service.js';
 
@@ -25,6 +26,7 @@ import { EmployeeService } from './employee.service.js';
     EmployeeAccessService,
     EmployeeDataExportService,
     EmployeeDataExportHandler,
+    EmployeeGoToSource,
   ],
   exports: [EmployeeService],
 })

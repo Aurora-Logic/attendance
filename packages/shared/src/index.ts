@@ -4,6 +4,7 @@ export * from './auth.js';
 export * from './consent.js';
 export * from './enums.js';
 export * from './errors.js';
+export * from './go-to.js';
 export * from './holidays.js';
 export * from './ids.js';
 export * from './leave.js';
