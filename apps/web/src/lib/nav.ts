@@ -49,8 +49,32 @@ export interface NavGroup {
 }
 
 /**
+ * A module owns a sidebar; the workspace owns everything else (REQ-O-01).
+ *
+ * Adding CRM is an entry in `MODULES` rather than an edit to the sidebar
+ * component, which is the point: `09` §6 says a module registers itself, and a
+ * component that grew a branch per module is how the nineteen-item sidebar
+ * happened in the first place.
+ */
+export interface ModuleDef {
+  id: string;
+  label: string;
+  icon: Icon;
+  /** Where `Ctrl+G` lands when this module is chosen. */
+  home: string;
+  /** Undefined means every signed-in account sees it. */
+  permission?: PermissionKey;
+  groups: NavGroup[];
+}
+
+/**
  * PRD §6.1 navigation model. Alt+G is the faster path and is advertised in the
  * UI, but the sidebar remains the discoverable one.
+ *
+ * This is the Attendance module's sidebar. It is no longer the whole
+ * navigation: REQ-O-02 pulled the workspace destinations into `ADMIN_GROUPS`
+ * and REQ-O-03 moved Approvals to the top bar, because one audit log and one
+ * approvals inbox serve every module and neither belongs inside one of them.
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
@@ -93,14 +117,6 @@ export const NAV_GROUPS: NavGroup[] = [
         reqs: 'REQ-E-02, J-01',
       },
       {
-        to: '/approvals',
-        label: 'Approvals',
-        icon: ClipboardTextIcon,
-        permission: PERMISSIONS.LEAVE_APPROVE_TEAM,
-        phase: 2,
-        reqs: 'REQ-I-03',
-      },
-      {
         to: '/regularizations',
         label: 'Corrections',
         shortLabel: 'Fix',
@@ -131,52 +147,12 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Records',
     items: [
       {
-        to: '/organisation',
-        label: 'Organisation',
-        shortLabel: 'Org',
-        icon: BuildingsIcon,
-        // employee.view, not a manage key: the three masters are what an
-        // employee list filters by, so anybody who can read the register needs
-        // to be able to see them. The screen splits the write keys the way the
-        // server does - departments and designations on employee.manage,
-        // locations on settings.manage, because a location carries the geofence
-        // and the IP allowlist (OPEN-QUESTIONS P1-1).
-        permission: PERMISSIONS.EMPLOYEE_VIEW,
-        phase: 1,
-        reqs: 'REQ-A-01, REQ-A-02',
-      },
-      {
         to: '/employees',
         label: 'Employees',
         icon: UsersIcon,
         permission: PERMISSIONS.EMPLOYEE_VIEW,
         phase: 1,
         reqs: 'REQ-A-03, A-06',
-      },
-      {
-        to: '/shifts',
-        label: 'Shifts and rosters',
-        shortLabel: 'Shifts',
-        icon: ClockIcon,
-        permission: PERMISSIONS.SHIFT_MANAGE,
-        phase: 1,
-        reqs: 'REQ-C-01…C-05',
-      },
-      {
-        to: '/leave-types',
-        label: 'Leave types',
-        icon: CalendarBlankIcon,
-        permission: PERMISSIONS.LEAVE_POLICY_MANAGE,
-        phase: 2,
-        reqs: 'REQ-G-01, G-03',
-      },
-      {
-        to: '/holidays',
-        label: 'Holidays',
-        icon: CalendarDotsIcon,
-        permission: PERMISSIONS.HOLIDAY_MANAGE,
-        phase: 2,
-        reqs: 'REQ-H-01…H-04',
       },
     ],
   },
@@ -203,16 +179,76 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 3,
         reqs: 'REQ-J-01',
       },
+    ],
+  },
+];
+
+
+/**
+ * The destinations REQ-O-02 pulls out of every module sidebar.
+ *
+ * There is one audit log for the whole system, one recycle bin and one set of
+ * roles -- CRM will not get copies of them. Reached from the organisation name
+ * in the header rather than from a module, because that is what they belong to.
+ *
+ * "Attendance setup" is the P6a-1 default recorded in `OPEN-QUESTIONS.md`:
+ * REQ-O-02's own list leaves 13 destinations against REQ-O-04's cap of 11, and
+ * these three are configuration somebody visits when a policy changes rather
+ * than work they do during a day. Reverse it by moving them back and raising
+ * the cap.
+ */
+export const ADMIN_GROUPS: NavGroup[] = [
+  {
+    label: 'Organisation',
+    items: [
       {
-        to: '/downloads',
-        label: 'Downloads',
-        icon: DownloadSimpleIcon,
-        permission: PERMISSIONS.REPORT_EXPORT,
-        phase: 3,
-        reqs: 'REQ-J-03',
+        to: '/organisation',
+        label: 'Organisation',
+        shortLabel: 'Org',
+        icon: BuildingsIcon,
+        // employee.view, not a manage key: the three masters are what an
+        // employee list filters by, so anybody who can read the register needs
+        // to be able to see them. The screen splits the write keys the way the
+        // server does - departments and designations on employee.manage,
+        // locations on settings.manage, because a location carries the geofence
+        // and the IP allowlist (OPEN-QUESTIONS P1-1).
+        permission: PERMISSIONS.EMPLOYEE_VIEW,
+        phase: 1,
+        reqs: 'REQ-A-01, REQ-A-02',
+      },
+    ],
+  },
+  {
+    label: 'Attendance setup',
+    items: [
+      {
+        to: '/shifts',
+        label: 'Shifts and rosters',
+        shortLabel: 'Shifts',
+        icon: ClockIcon,
+        permission: PERMISSIONS.SHIFT_MANAGE,
+        phase: 1,
+        reqs: 'REQ-C-01…C-05',
+      },
+      {
+        to: '/leave-types',
+        label: 'Leave types',
+        icon: CalendarBlankIcon,
+        permission: PERMISSIONS.LEAVE_POLICY_MANAGE,
+        phase: 2,
+        reqs: 'REQ-G-01, G-03',
+      },
+      {
+        to: '/holidays',
+        label: 'Holidays',
+        icon: CalendarDotsIcon,
+        permission: PERMISSIONS.HOLIDAY_MANAGE,
+        phase: 2,
+        reqs: 'REQ-H-01…H-04',
       },
       {
         to: '/period-lock',
+
         label: 'Period lock',
         shortLabel: 'Lock',
         icon: LockIcon,
@@ -223,8 +259,9 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'Setup',
+    label: 'Workspace',
     items: [
+
       {
         to: '/settings',
         label: 'Settings',
@@ -272,11 +309,52 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 4,
         reqs: 'REQ-M-04, REQ-B-09a',
       },
+      {
+        to: '/downloads',
+
+        label: 'Downloads',
+        icon: DownloadSimpleIcon,
+        permission: PERMISSIONS.REPORT_EXPORT,
+        phase: 3,
+        reqs: 'REQ-J-03',
+      },
     ],
   },
 ];
 
-export const ALL_NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
+/**
+ * REQ-O-03. One inbox across every approvable thing, so it sits above the
+ * modules rather than inside one -- a CRM discount and a leave request land in
+ * the same place, and `01` already promised that.
+ */
+export const TOP_BAR_ITEMS: NavItem[] = [
+      {
+        to: '/approvals',
+        label: 'Approvals',
+        icon: ClipboardTextIcon,
+        permission: PERMISSIONS.LEAVE_APPROVE_TEAM,
+        phase: 2,
+        reqs: 'REQ-I-03',
+      },
+];
+
+/** REQ-O-01. One entry per module; the sidebar renders only the current one. */
+export const MODULES: ModuleDef[] = [
+  {
+    id: 'attendance',
+    label: 'Attendance',
+    icon: CalendarDotsIcon,
+    home: '/',
+    groups: NAV_GROUPS,
+  },
+];
+
+/** Every destination that has a name, wherever it is reached from. */
+export const ALL_NAV_ITEMS: NavItem[] = [
+  ...NAV_GROUPS.flatMap((g) => g.items),
+  ...ADMIN_GROUPS.flatMap((g) => g.items),
+  ...TOP_BAR_ITEMS,
+];
 
 export function findNavItem(pathname: string): NavItem | undefined {
   return ALL_NAV_ITEMS.find((item) => item.to === pathname);
@@ -288,7 +366,9 @@ export function findNavItem(pathname: string): NavItem | undefined {
  * name and nothing else.
  */
 export function findNavGroup(pathname: string): string | undefined {
-  return NAV_GROUPS.find((group) => group.items.some((item) => item.to === pathname))?.label;
+  return [...NAV_GROUPS, ...ADMIN_GROUPS].find((group) =>
+    group.items.some((item) => item.to === pathname),
+  )?.label;
 }
 
 export interface Crumb {
@@ -311,6 +391,11 @@ export interface Crumb {
  */
 const OFF_NAV_LABELS: Record<string, string> = {
   '/profile': 'Profile',
+  /* REQ-O-02's landing screen. Reached from the sidebar footer rather than
+     being a destination inside a module, so it needs a name here for the same
+     reason the three below do -- without it the header announced the page as
+     "Not found" above a screen that was rendering perfectly. */
+  '/administration': 'Administration',
   /* Same reasoning as /profile: PRD §6.1 fixes the sidebar to Work, Records,
      Reports and Setup, and a changelog belongs to none of them. Reached from
      the account menu; named here so the breadcrumb does not call it

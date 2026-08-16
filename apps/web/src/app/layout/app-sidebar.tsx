@@ -1,3 +1,4 @@
+import { GearSixIcon } from '@phosphor-icons/react';
 import { NavLink, useLocation } from 'react-router';
 
 import { OrgBrand } from '@/components/shared/org-brand';
@@ -7,6 +8,7 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
+  SidebarFooter,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -63,6 +65,26 @@ export function AppSidebar() {
           );
         })}
       </SidebarContent>
+
+      {/*
+        REQ-O-02. The workspace's screens are reached from here rather than from
+        a group in the module's own list -- they outlive whichever module is
+        open, so they sit below the module rather than inside it.
+      */}
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              render={<NavLink to="/administration" />}
+              isActive={location.pathname === '/administration'}
+              tooltip="Administration"
+            >
+              <GearSixIcon />
+              <span>Administration</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
 
       <SidebarRail />
     </Sidebar>

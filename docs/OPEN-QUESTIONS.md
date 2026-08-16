@@ -162,3 +162,32 @@ exists for either surface; neither appears in the PRD or in
 | 12 | Photo retention period | Phase 1 | 12 months (REQ-L-03). |
 | 13 | Consequence rules — does 3 lates equal a half day? | Phase 1 | No such rule. Lates are counted and reported; no automatic deduction. Inventing one would be a policy decision, not a technical one. |
 | 14 | Regularization limits — days back, count per month | Phase 2 | 7 days back, 3 per month (REQ-F-02). |
+
+---
+
+## P6a-1 — REQ-O-02 and REQ-O-04 cannot both hold as written
+
+**Raised:** 16 August 2026, during Phase 6a.
+**Blocks:** nothing — a default is in force and the navigation ships with it.
+
+The attendance sidebar carries **22** destinations today. REQ-O-02 moves eight
+of them to Administration (Settings, Roles, Integrations, Audit log, Recycle
+bin, Period lock, Downloads, Organisation) and REQ-O-03 moves Approvals to the
+top bar. That is nine, leaving **13**. REQ-O-04 caps a module sidebar at
+**eleven** and says so as "a hard constraint on future work, not a target".
+
+`11-decisions` D-16 reads "nineteen items ... pulling them out drops the current
+sidebar to eleven", so the arithmetic there started from a smaller count than
+the sidebar actually has. The requirement is not wrong, but its list is two
+destinations short of its own cap.
+
+**Default in force:** Shifts and rosters, Leave types, and Holidays move into
+Administration under an "Attendance setup" section, giving **10**. They are
+configuration a person visits when a policy changes, not work they do during a
+day, which is the same line REQ-O-02 draws — its rationale is "these are
+workspace concerns", and a leave type is closer to that than to My leave. It
+also leaves headroom, which a cap sitting exactly at its limit does not.
+
+**Reverse it by saying so.** The alternative is to raise REQ-O-04 to 13, which
+costs nothing structurally; the cap exists to stop the sidebar becoming the
+navigation again, and 13 vs 11 does not decide that. REQ-O-05's Go To does.
