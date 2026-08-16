@@ -28,9 +28,6 @@ import { describeError } from '../common/errors.js';
 export const BUCKETS = { PHOTOS: 'photos', EXPORTS: 'exports' } as const;
 export type BucketName = (typeof BUCKETS)[keyof typeof BUCKETS];
 
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-
 @Injectable()
 export class ObjectStore implements OnApplicationShutdown {
   private readonly logger = new Logger(ObjectStore.name);
@@ -76,17 +73,9 @@ export class ObjectStore implements OnApplicationShutdown {
         }),
       );
     } catch (error: unknown) {
-      // Fallback to local disk storage when S3/MinIO is not running
-      const localPath = resolve(process.cwd(), 'storage', bucket, key);
-      try {
-        mkdirSync(dirname(localPath), { recursive: true });
-        writeFileSync(localPath, body);
-        this.logger.log({ msg: `S3 unreachable; saved object locally to ${localPath}` });
-      } catch (fsErr: unknown) {
-        throw new Error(`Could not write object ${bucket}/${key}: ${describeError(error)}`, {
-          cause: error,
-        });
-      }
+      throw new Error(`Could not write object ${bucket}/${key}: ${describeError(error)}`, {
+        cause: error,
+      });
     }
   }
 
@@ -100,11 +89,10 @@ export class ObjectStore implements OnApplicationShutdown {
       await this.client.send(
         new DeleteObjectCommand({ Bucket: this.bucketFor(bucket), Key: key }),
       );
-    } catch {
-      const localPath = resolve(process.cwd(), 'storage', bucket, key);
-      if (existsSync(localPath)) {
-        try { unlinkSync(localPath); } catch {}
-      }
+    } catch (error: unknown) {
+      throw new Error(`Could not delete object ${bucket}/${key}: ${describeError(error)}`, {
+        cause: error,
+      });
     }
   }
 
@@ -113,10 +101,13 @@ export class ObjectStore implements OnApplicationShutdown {
       await this.client.send(new HeadObjectCommand({ Bucket: this.bucketFor(bucket), Key: key }));
       return true;
     } catch (error: unknown) {
-      const localPath = resolve(process.cwd(), 'storage', bucket, key);
-      if (existsSync(localPath)) return true;
+      // A 404 is the answer, not a fault. Anything else is a real failure and
+      // must not be reported as "the object is not there", which would let the
+      // purge job mark a file gone that is still sitting in the bucket.
       if (isNotFound(error)) return false;
-      return false;
+      throw new Error(`Could not stat object ${bucket}/${key}: ${describeError(error)}`, {
+        cause: error,
+      });
     }
   }
 
@@ -125,22 +116,12 @@ export class ObjectStore implements OnApplicationShutdown {
    * `FileService`, which clamps it to `S3_SIGNED_URL_TTL_SECONDS` before
    * getting here.
    */
-  async signedUrl(bucket: BucketName, key: string, ttlSeconds: number): Promise<string> {
-    try {
-      return await getSignedUrl(
-        this.client,
-        new GetObjectCommand({ Bucket: this.bucketFor(bucket), Key: key }),
-        { expiresIn: ttlSeconds },
-      );
-    } catch {
-      const localPath = resolve(process.cwd(), 'storage', bucket, key);
-      if (existsSync(localPath)) {
-        const fileBuffer = readFileSync(localPath);
-        const mime = key.endsWith('.png') ? 'image/png' : 'image/jpeg';
-        return `data:${mime};base64,${fileBuffer.toString('base64')}`;
-      }
-      return `${env.API_BASE_URL}/storage/${bucket}/${key}`;
-    }
+  signedUrl(bucket: BucketName, key: string, ttlSeconds: number): Promise<string> {
+    return getSignedUrl(
+      this.client,
+      new GetObjectCommand({ Bucket: this.bucketFor(bucket), Key: key }),
+      { expiresIn: ttlSeconds },
+    );
   }
 
   onApplicationShutdown(): void {
