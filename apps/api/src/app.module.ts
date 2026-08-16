@@ -20,6 +20,7 @@ import { HealthModule } from './platform/health/health.module.js';
 import { IntegrationModule } from './platform/integration/integration.module.js';
 import { JobsModule } from './platform/jobs/jobs.module.js';
 import { MailModule } from './platform/mail/mail.module.js';
+import { MastersModule } from './platform/masters/masters.module.js';
 import { NotificationsModule } from './platform/notifications/notifications.module.js';
 import { OrgModule } from './platform/org/org.module.js';
 import { PeopleModule } from './platform/people/people.module.js';
@@ -71,6 +72,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     SearchModule,
     // Before AttendanceModule, whose report source registers into it on init.
     ExportModule,
+    MastersModule,
     PeopleModule,
     SettingsModule,
     // Before IntegrationModule, whose token issuance mints through it, and

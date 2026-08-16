@@ -9,6 +9,7 @@ export * from './go-to.js';
 export * from './holidays.js';
 export * from './ids.js';
 export * from './leave.js';
+export * from './masters.js';
 export * from './org.js';
 export * from './pagination.js';
 export * from './people.js';
