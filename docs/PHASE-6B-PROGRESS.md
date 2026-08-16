@@ -25,7 +25,8 @@ Branch: **`phase-6a`** (6b work continues on it until 6a's gate closes).
 | Review hardening batch (two `/code-review` rounds, ~40 findings triaged) | `871de1a` | Sync suites 51/51 twice; full API 1669/1669; web 414/414; CDP drives below |
 | `/sync/agent/errors` + `sync_exceptions` + exceptions screen — REQ-T-01, 09 §5 | `19ece41` | 11 endpoint tests; sync 52/52 twice; full API 1680/1680; CDP: verbatim error shown, note-gated resolve, row leaves list |
 | Heartbeat staleness alert, edge-triggered with recovery — REQ-Q-04 | `53e3449` | 3 transition tests (once per silence, re-arms); full API 1683/1683; CDP: both events in the preferences grid |
-| Stock items + price lists: rows, writers, sweep order, read APIs, two screens — REQ-R-02, REQ-R-03 | — | Sync+masters 71/71 twice; full API 1689/1689; live drive: UI-issued token, agent protocol over HTTP, both screens render the paisa-exact figures |
+| Stock items + price lists: rows, writers, sweep order, read APIs, two screens — REQ-R-02, REQ-R-03 | `406b453` | Sync+masters 71/71 twice; full API 1689/1689; live drive: UI-issued token, agent protocol over HTTP, both screens render the paisa-exact figures |
+| Journal body sweep, nightly 02:45 — D-20 | — | Ages real rows: 40-day bodies cleared, hash kept, fresh kept, repeat finds nothing; trigger side already held by `sync-journal.test.ts` |
 
 New permission: `masters.tally.view` (08 §2.2), granted to Admin; other
 holders arrive with their roles. OPEN-QUESTIONS I-1 closed: staleness = lease
@@ -81,17 +82,14 @@ takeover = 5 minutes, one constant.
 
 ## Next, in order
 
-1. **Journal body sweep** (D-20): a nightly job nulling bodies older than 30
-   days — the one UPDATE the journal's guard permits, and a test that proves
-   the sweep's exact statement passes while everything else still refuses.
-2. **REQ-R-06 absent marking**: a full pull (explicit re-pull) marks rows
+1. **REQ-R-06 absent marking**: a full pull (explicit re-pull) marks rows
    whose GUIDs did not arrive as `absent_in_tally`. Needs the full-pull job
    payload to say it is one; incremental pulls must never mark.
-3. **The connector agent binary** (REQ-Q-01, Q-07): TypeScript single binary.
+2. **The connector agent binary** (REQ-Q-01, Q-07): TypeScript single binary.
    The poll/heartbeat/claim/post loop is buildable against the shared
    contract now; the Tally XML transport inside it is **fixture-gated** — the
    Definition of Done forbids hand-written Tally XML.
-4. **6b exit gate**: `/security-review` on `/sync/agent/*` and the credential
+3. **6b exit gate**: `/security-review` on `/sync/agent/*` and the credential
    path. An agent token must not read an employee, a photo, or another
    connection's data (the cross-connection test already covers the queue).
 

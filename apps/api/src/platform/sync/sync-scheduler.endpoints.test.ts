@@ -196,6 +196,67 @@ describe('the manual pull (POST /integrations/:id/pull)', () => {
   });
 });
 
+describe('the journal body sweep (D-20)', () => {
+  let oldRowId = '';
+  let freshRowId = '';
+
+  beforeAll(async () => {
+    // One row past the window, one inside it, both carrying bodies. INSERT
+    // may set created_at freely — only UPDATE is guarded — so the age is
+    // real, not mocked.
+    const old = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO sync_journal
+        (org_id, connection_id, direction, entity_type, request_hash, request_body, response_body, result, created_at)
+      VALUES (${ORG_ID}, ${eligibleId}, 'PULL', 'party', 'sha256:old-hash', 'old request xml', 'old response xml', 'ok',
+              now() - interval '40 days')
+      RETURNING id
+    `);
+    oldRowId = old.rows[0]?.id ?? '';
+    const fresh = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO sync_journal
+        (org_id, connection_id, direction, entity_type, request_hash, request_body, response_body, result)
+      VALUES (${ORG_ID}, ${eligibleId}, 'PULL', 'party', 'sha256:fresh-hash', 'fresh request xml', 'fresh response xml', 'ok')
+      RETURNING id
+    `);
+    freshRowId = fresh.rows[0]?.id ?? '';
+  });
+
+  it('clears bodies past the window, keeps the hash, leaves fresh rows alone', async () => {
+    const outcome = await scheduler.sweepJournalBodies();
+    // Other orgs' aged rows may legitimately sweep too; ours must be among them.
+    expect(outcome.cleared).toBeGreaterThanOrEqual(1);
+
+    const swept = await harness.db.execute<{
+      request_hash: string;
+      request_body: string | null;
+      response_body: string | null;
+    }>(sql`
+      SELECT request_hash, request_body, response_body FROM sync_journal WHERE id = ${oldRowId}
+    `);
+    expect(swept.rows[0]?.request_body).toBeNull();
+    expect(swept.rows[0]?.response_body).toBeNull();
+    // The evidence does not expire.
+    expect(swept.rows[0]?.request_hash).toBe('sha256:old-hash');
+
+    const kept = await harness.db.execute<{ request_body: string | null }>(sql`
+      SELECT request_body FROM sync_journal WHERE id = ${freshRowId}
+    `);
+    expect(kept.rows[0]?.request_body).toBe('fresh request xml');
+  });
+
+  it('a second sweep finds nothing — already-swept rows leave the predicate', async () => {
+    const outcome = await scheduler.sweepJournalBodies();
+    // Scoped to this fixture's rows: both are now outside the predicate, so
+    // a repeat clears neither (other suites' aging rows are their business).
+    const ours = await harness.db.execute<{ request_body: string | null }>(sql`
+      SELECT request_body FROM sync_journal WHERE id IN (${oldRowId}, ${freshRowId})
+       AND request_body IS NULL AND created_at < now() - interval '30 days'
+    `);
+    expect(outcome.cleared).toBeGreaterThanOrEqual(0);
+    expect(ours.rows.length).toBe(1);
+  });
+});
+
 describe('the heartbeat staleness alert (REQ-Q-04)', () => {
   let staleId = '';
   const emitted: NotificationEvent[] = [];

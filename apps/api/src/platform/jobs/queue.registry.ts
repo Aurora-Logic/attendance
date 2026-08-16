@@ -95,6 +95,14 @@ export interface JobPayloads {
   };
 
   /**
+   * D-20: null journal bodies past the 30-day retention window. Hashes stay
+   * forever; the sweep is the one UPDATE the journal's guard permits.
+   */
+  'sweep-sync-journal-bodies': {
+    readonly now?: string;
+  };
+
+  /**
    * REQ-M-05: everything the system holds about one employee, as a file.
    *
    * Same shape as `generate-report-export` and for the same reason -- only the
@@ -217,6 +225,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'run-report-schedules': QUEUES.EXPORT,
   'enqueue-sync-pulls': QUEUES.MAINTENANCE,
   'check-agent-heartbeats': QUEUES.MAINTENANCE,
+  'sweep-sync-journal-bodies': QUEUES.MAINTENANCE,
   'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-notification': QUEUES.NOTIFICATION,
@@ -345,6 +354,9 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // would let the SLA read "five" while delivering ten. The check is one
   // UPDATE over a table with a handful of rows.
   { schedulerId: 'sync:check-heartbeats', jobName: 'check-agent-heartbeats', pattern: '*/2 * * * *' },
+  // D-20's retention. Nightly at 02:45, offset from the other overnight
+  // sweeps so the maintenance queue is never a convoy.
+  { schedulerId: 'sync:sweep-journal-bodies', jobName: 'sweep-sync-journal-bodies', pattern: '45 2 * * *' },
   // REQ-K-03. Every 15 minutes, because a reminder is only useful shortly
   // before the shift it names and shift start times are not on the hour. The
   // sweep costs one preference query per organisation when nobody has opted

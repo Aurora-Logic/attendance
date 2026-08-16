@@ -31,6 +31,9 @@ export const PULL_ENTITY_TYPES: readonly SyncEntityType[] = ['party', 'stock_ite
  */
 const MAX_PULL_ATTEMPTS = 5;
 
+/** D-20: bodies live thirty days; hashes are the evidence and never expire. */
+export const JOURNAL_BODY_RETENTION_DAYS = 30;
+
 /**
  * Makes pull work exist (REQ-R-07): on the 15-minute sweep, and on demand.
  *
@@ -126,6 +129,28 @@ export class SyncSchedulerService {
     }
 
     return { wentStale: wentStale.rows.length, recovered: recovered.rows.length };
+  }
+
+  /**
+   * D-20's nightly sweep: null bodies older than the retention window —
+   * the one UPDATE `vyuha_sync_journal_guard` permits, and the *only*
+   * write this service ever makes to the journal. The predicate skips rows
+   * already swept, so the nightly cost is proportional to one day's
+   * exchanges, not to history.
+   */
+  async sweepJournalBodies(): Promise<{ cleared: number }> {
+    const cleared = await this.db.execute<{ id: string }>(sql`
+      UPDATE sync_journal
+         SET request_body = NULL, response_body = NULL
+       WHERE created_at < now() - make_interval(days => ${JOURNAL_BODY_RETENTION_DAYS})
+         AND (request_body IS NOT NULL OR response_body IS NOT NULL)
+       RETURNING id
+    `);
+
+    if (cleared.rows.length > 0) {
+      this.logger.log({ msg: 'Journal bodies swept (D-20)', cleared: cleared.rows.length });
+    }
+    return { cleared: cleared.rows.length };
   }
 
   /**
