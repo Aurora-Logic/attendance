@@ -37,7 +37,30 @@ a palette test now pins them.
 
 ## Next, in order
 
-1. **Exit gate.** `/ultrareview` plus a full regression, per `10` §2.
+1. **Exit gate, second half: `/ultrareview`.** User-triggered and billed, so it
+   cannot be run by a session. The regression half ran 16 Aug, all green:
+   typecheck and lint clean across all three packages, shared 41, web 410,
+   API 1617 + 1 (`auth.timing.test.ts` failed under suite load and passed
+   alone in 2.5s — the documented flake, not a regression), production build
+   clean. Browser gate: `verify-ui.mjs` needs `VERIFY_PASSWORD`, unavailable
+   to the session; in its place every surface this phase changed was driven
+   over CDP with zero page exceptions — the palette (8-check acceptance
+   drive), the report shell (catalogue, rows, tray, schedules, views), the
+   approvals inbox and delegations, and the employee access section (15
+   checks). Run `/code-review ultra`, and re-run `verify-ui.mjs` if the
+   credential is at hand.
+
+## Every 10 §2 acceptance line, checked
+
+- No approval subject resolves to an attendance key: registry tests, plus the
+  catalogue enforcement in `18cd474` — a wrong-keyed declared handler now
+  refuses at boot.
+- Two roles union, wider scope wins, Sales+Employee-shaped fixture: `c375d97`.
+- Attendance sidebar ≤ 11, asserted over the registry in CI: `39373e4` (10).
+- `Ctrl+G` switches module, `Alt+F2` period survives: `39373e4`, browser-driven.
+- Typing an employee code in Go To opens that employee: `f8e23d2`, live drive.
+- All existing tests still pass: 2,069 imperative tests across the workspace
+  (1618 API + 410 web + 41 shared), against the 2,033 the plan quoted.
 
 ## Three places the documents are wrong
 
