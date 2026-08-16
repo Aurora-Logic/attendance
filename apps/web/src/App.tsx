@@ -24,6 +24,7 @@ import { AdministrationScreen } from '@/features/administration/administration-s
 import { RolesPage } from '@/features/roles';
 import { SettingsPage } from '@/features/settings';
 import { NotificationsPage } from '@/features/notifications';
+import { PartiesPage } from '@/features/masters/parties-page';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { OrgMastersPage } from '@/features/org-masters';
 import { ProfilePage } from '@/features/profile/profile-page';
@@ -99,6 +100,7 @@ export default function App() {
               <Route path="settings" element={<SettingsPage />} />
               <Route path="roles" element={<RolesPage />} />
               <Route path="integrations" element={<IntegrationsPage />} />
+              <Route path="masters/parties" element={<PartiesPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />

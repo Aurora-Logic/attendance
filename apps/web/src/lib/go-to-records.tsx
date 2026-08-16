@@ -1,4 +1,4 @@
-import { UserIcon, type Icon } from '@phosphor-icons/react';
+import { BooksIcon, UserIcon, type Icon } from '@phosphor-icons/react';
 
 import type { GoToRecord } from '@vyuha/shared';
 
@@ -29,6 +29,15 @@ const GO_TO_RECORD_KINDS: Record<string, GoToRecordKind> = {
     group: 'Employees',
     icon: UserIcon,
     route: (record) => `/employees/${record.id}`,
+  },
+  party: {
+    group: 'Parties',
+    // No party detail screen exists yet, so a selection opens the register
+    // filtered to the name -- one row, in context, with the same figures a
+    // detail screen would show. Becomes /masters/parties/:id when that
+    // screen ships.
+    icon: BooksIcon,
+    route: (record) => `/masters/parties?q=${encodeURIComponent(record.title)}`,
   },
 };
 

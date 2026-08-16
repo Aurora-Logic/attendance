@@ -1,4 +1,5 @@
 import {
+  BooksIcon,
   CalendarBlankIcon,
   CalendarDotsIcon,
   ChartBarIcon,
@@ -347,11 +348,36 @@ export const MODULES: ModuleDef[] = [
     home: '/',
     groups: NAV_GROUPS,
   },
+  {
+    id: 'masters',
+    label: 'Masters',
+    icon: BooksIcon,
+    home: '/masters/parties',
+    // 08 SS2.2's key: financial-adjacent data, not for every signed-in eye.
+    permission: PERMISSIONS.MASTERS_TALLY_VIEW,
+    groups: [
+      {
+        label: 'Masters',
+        items: [
+          {
+            to: '/masters/parties',
+            label: 'Parties',
+            icon: BooksIcon,
+            permission: PERMISSIONS.MASTERS_TALLY_VIEW,
+            phase: 6,
+            reqs: 'REQ-R-01, REQ-R-04',
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 /** Every destination that has a name, wherever it is reached from. */
 export const ALL_NAV_ITEMS: NavItem[] = [
-  ...NAV_GROUPS.flatMap((g) => g.items),
+  // Every module's destinations, not only attendance's: the breadcrumb and
+  // the palette must name a screen whichever module owns it.
+  ...MODULES.flatMap((m) => m.groups.flatMap((g) => g.items)),
   ...ADMIN_GROUPS.flatMap((g) => g.items),
   ...TOP_BAR_ITEMS,
 ];
@@ -366,7 +392,7 @@ export function findNavItem(pathname: string): NavItem | undefined {
  * name and nothing else.
  */
 export function findNavGroup(pathname: string): string | undefined {
-  return [...NAV_GROUPS, ...ADMIN_GROUPS].find((group) =>
+  return [...MODULES.flatMap((m) => m.groups), ...ADMIN_GROUPS].find((group) =>
     group.items.some((item) => item.to === pathname),
   )?.label;
 }

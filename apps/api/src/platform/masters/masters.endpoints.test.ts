@@ -153,3 +153,22 @@ describe('masters are read-only, and the refusal teaches (REQ-R-04)', () => {
     expect(deleted.body.error.message).toContain('not a master that supports delete');
   });
 });
+
+describe('parties join Go To (REQ-O-05)', () => {
+  it('a holder finds a party; the subtitle names the ledger side', async () => {
+    const response = await harness.get<{ records: { type: string; title: string; subtitle: string | null }[] }>(
+      '/go-to?q=asha',
+      { token: adminToken },
+    );
+    const party = response.body.records.find((r) => r.type === 'party');
+    expect(party?.title).toBe('Asha Traders');
+    expect(party?.subtitle).toContain('Sundry Debtors');
+  });
+
+  it('a non-holder gets no party records, before ranking ever sees them', async () => {
+    const response = await harness.get<{ records: { type: string }[] }>('/go-to?q=asha', {
+      token: employeeToken,
+    });
+    expect(response.body.records.some((r) => r.type === 'party')).toBe(false);
+  });
+});
