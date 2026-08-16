@@ -8,8 +8,8 @@ import {
   type Paginated,
 } from '@vyuha/shared';
 
-import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js';
-import { RequirePermission } from '../../../platform/rbac/route-policy.js';
+import { CurrentUser, type Principal } from '../rbac/principal.js';
+import { RequirePermission } from '../rbac/route-policy.js';
 import {
   ApprovalInboxQueryDto,
   ApproveRequestDto,

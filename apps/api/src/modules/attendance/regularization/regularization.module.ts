@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import { ApprovalModule } from '../approvals/approvals.module.js';
+import { ApprovalModule } from '../../../platform/approvals/approvals.module.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
 import {
   OnDutyApprovalHandler,

@@ -30,12 +30,12 @@ import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notificatio
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { hasAnyPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
-import { ApprovalRoutingService } from '../approvals/approval-routing.service.js';
+import { ApprovalRoutingService } from '../../../platform/approvals/approval-routing.service.js';
 import type {
   ApprovalSubjectDecision,
   ApprovalSubjectSettlement,
-} from '../approvals/approval-subject.registry.js';
-import { ApprovalService } from '../approvals/approval.service.js';
+} from '../../../platform/approvals/approval-subject.registry.js';
+import { ApprovalService } from '../../../platform/approvals/approval.service.js';
 import { addDays } from '../day-engine/calendar-date.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
 import { onDutyRequests, regularizations } from '../schema/index.js';

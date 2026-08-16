@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { ConsentModule } from '../../platform/consent/consent.module.js';
-import { ApprovalModule } from './approvals/approvals.module.js';
+import { ApprovalModule } from '../../platform/approvals/approvals.module.js';
 import { HolidayModule } from './holidays/holidays.module.js';
 import { LeaveModule } from './leave/leave.module.js';
 import { RegularizationModule } from './regularization/regularization.module.js';

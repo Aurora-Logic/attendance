@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PERMISSIONS } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
-import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
+import { InjectDatabase, type Database } from '../db/db.provider.js';
 
 /**
  * Who a request routes to, when nobody said.

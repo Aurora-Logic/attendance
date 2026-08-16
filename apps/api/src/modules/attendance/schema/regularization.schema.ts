@@ -13,7 +13,7 @@ import {
 
 import { primaryId, standardColumns } from '../../../platform/db/columns.js';
 import { employees, files, organizations, users } from '../../../platform/db/schema/index.js';
-import { approvalRequests, approvalStatusEnum } from './approval.schema.js';
+import { approvalRequests, approvalStatusEnum } from '../../../platform/db/schema/approval.schema.js';
 
 export const regularizationKindEnum = pgEnum('regularization_kind', [
   'MISSING_IN',

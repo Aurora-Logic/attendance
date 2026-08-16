@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { PermissionKey } from '@vyuha/shared';
 
-import type { Database } from '../../../platform/db/db.provider.js';
-import type { OrgContext } from '../../../platform/db/scoped-repository.js';
+import type { Database } from '../db/db.provider.js';
+import type { OrgContext } from '../db/scoped-repository.js';
 
 /**
  * How a slice attaches its own records to the approval framework (REQ-I-01).

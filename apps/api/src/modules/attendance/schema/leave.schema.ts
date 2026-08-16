@@ -16,7 +16,7 @@ import {
 
 import { ALIVE, primaryId, standardColumns } from '../../../platform/db/columns.js';
 import { employees, files, organizations } from '../../../platform/db/schema/index.js';
-import { approvalRequests, approvalStatusEnum } from './approval.schema.js';
+import { approvalRequests, approvalStatusEnum } from '../../../platform/db/schema/approval.schema.js';
 
 export const leaveAccrualMethodEnum = pgEnum('leave_accrual_method', [
   'NONE',

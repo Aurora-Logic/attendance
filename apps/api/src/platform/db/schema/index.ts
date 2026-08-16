@@ -8,6 +8,7 @@
  */
 export * from './organizations.schema.js';
 export * from './people.schema.js';
+export * from './approval.schema.js';
 export * from './identity.schema.js';
 export * from './audit.schema.js';
 export * from './deletion.schema.js';

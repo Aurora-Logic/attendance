@@ -5,8 +5,8 @@ import {
   type JobContext,
   type JobHandler,
   type JobResult,
-} from '../../../platform/jobs/job-handler.js';
-import type { JobPayloads } from '../../../platform/jobs/queue.registry.js';
+} from '../jobs/job-handler.js';
+import type { JobPayloads } from '../jobs/queue.registry.js';
 import { ApprovalService } from './approval.service.js';
 
 /**

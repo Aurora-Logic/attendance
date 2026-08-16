@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { files, settings } from '../../../platform/db/schema/index.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
-import { ApprovalService } from '../approvals/approval.service.js';
+import { ApprovalService } from '../../../platform/approvals/approval.service.js';
 import { addDays } from '../day-engine/calendar-date.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
 import {

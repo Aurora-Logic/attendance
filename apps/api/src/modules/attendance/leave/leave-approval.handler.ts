@@ -8,7 +8,7 @@ import {
   type ApprovalSubjectDecision,
   type ApprovalSubjectHandler,
   type ApprovalSubjectSettlement,
-} from '../approvals/approval-subject.registry.js';
+} from '../../../platform/approvals/approval-subject.registry.js';
 import { LEAVE_REQUEST_SUBJECT_TYPE, LeaveService } from './leave.service.js';
 
 /**

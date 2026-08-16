@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { env } from '../../../platform/common/env.js';
 import type { Database } from '../../../platform/db/db.provider.js';
-import { approvalStatusEnum, approvalTypeEnum } from './approval.schema.js';
+import { approvalStatusEnum, approvalTypeEnum } from '../../../platform/db/schema/approval.schema.js';
 import { attendanceStatusEnum } from './attendance-day.schema.js';
 import { leaveAccrualMethodEnum, leaveDayPortionEnum, leaveMovementTypeEnum } from './leave.schema.js';
 import { halfDayPartEnum, punchSourceEnum, punchTypeEnum } from './punch.schema.js';

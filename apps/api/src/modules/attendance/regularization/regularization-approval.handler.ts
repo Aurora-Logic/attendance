@@ -8,7 +8,7 @@ import {
   type ApprovalSubjectDecision,
   type ApprovalSubjectHandler,
   type ApprovalSubjectSettlement,
-} from '../approvals/approval-subject.registry.js';
+} from '../../../platform/approvals/approval-subject.registry.js';
 import {
   ON_DUTY_SUBJECT_TYPE,
   REGULARIZATION_SUBJECT_TYPE,

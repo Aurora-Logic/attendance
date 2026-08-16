@@ -9,11 +9,11 @@ import { notifications } from '../../platform/db/schema/index.js';
 import { JobRunner } from '../../platform/jobs/job-runner.service.js';
 import { QUEUES } from '../../platform/jobs/queue.registry.js';
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
-import { ApprovalService } from './approvals/approval.service.js';
+import { ApprovalService } from '../../platform/approvals/approval.service.js';
 import {
   ApprovalSubjectRegistry,
   type ApprovalSubjectHandler,
-} from './approvals/approval-subject.registry.js';
+} from '../../platform/approvals/approval-subject.registry.js';
 import { attendancePeriodLocks } from './schema/index.js';
 
 /**

@@ -22,22 +22,22 @@ import {
 } from '@vyuha/shared';
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 
-import { AuditContext } from '../../../platform/audit/audit-context.js';
-import { AuditService } from '../../../platform/audit/audit.service.js';
-import { AppError, describeError } from '../../../platform/common/errors.js';
-import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
-import type { OrgContext } from '../../../platform/db/scoped-repository.js';
-import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notification-events.js';
-import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
+import { AuditContext } from '../audit/audit-context.js';
+import { AuditService } from '../audit/audit.service.js';
+import { AppError, describeError } from '../common/errors.js';
+import { InjectDatabase, type Database } from '../db/db.provider.js';
+import type { OrgContext } from '../db/scoped-repository.js';
+import { NOTIFICATION_EVENTS } from '../notifications/notification-events.js';
+import { NotificationDispatcher } from '../notifications/notification.dispatcher.js';
 import {
   hasAnyPermission,
   hasPermission,
   orgContextOf,
   type Principal,
-} from '../../../platform/rbac/principal.js';
-import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
-import { users } from '../../../platform/db/schema/index.js';
-import { approvalDelegations, delegationLiveOn } from '../schema/approval.schema.js';
+} from '../rbac/principal.js';
+import { ScopeService, type ScopeGrants } from '../rbac/scope.service.js';
+import { users } from '../db/schema/index.js';
+import { approvalDelegations, delegationLiveOn } from '../db/schema/approval.schema.js';
 import { ApprovalRoutingService } from './approval-routing.service.js';
 import {
   ApprovalSubjectRegistry,

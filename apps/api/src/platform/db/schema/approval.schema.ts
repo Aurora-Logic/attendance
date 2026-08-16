@@ -11,8 +11,9 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { ALIVE, primaryId, standardColumns } from '../../../platform/db/columns.js';
-import { organizations, users } from '../../../platform/db/schema/index.js';
+import { ALIVE, primaryId, standardColumns } from '../columns.js';
+import { users } from './identity.schema.js';
+import { organizations } from './organizations.schema.js';
 
 export const approvalTypeEnum = pgEnum('approval_type', [
   'LEAVE',

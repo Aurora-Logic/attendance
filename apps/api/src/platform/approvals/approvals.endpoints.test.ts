@@ -11,10 +11,10 @@ import {
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { OrgContext } from '../../../platform/db/scoped-repository.js';
-import { JobRegistry } from '../../../platform/jobs/job-handler.js';
-import { JOB_QUEUE, QUEUES, SCHEDULED_JOBS } from '../../../platform/jobs/queue.registry.js';
-import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import type { OrgContext } from '../db/scoped-repository.js';
+import { JobRegistry } from '../jobs/job-handler.js';
+import { JOB_QUEUE, QUEUES, SCHEDULED_JOBS } from '../jobs/queue.registry.js';
+import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import {
   ApprovalSubjectRegistry,
   type ApprovalSubjectHandler,

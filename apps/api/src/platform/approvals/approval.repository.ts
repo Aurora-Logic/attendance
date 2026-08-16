@@ -12,15 +12,15 @@ import {
 import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
-import type { Database } from '../../../platform/db/db.provider.js';
-import { employees, organizations, users } from '../../../platform/db/schema/index.js';
-import { ScopedRepository, type OrgContext } from '../../../platform/db/scoped-repository.js';
+import type { Database } from '../db/db.provider.js';
+import { employees, organizations, users } from '../db/schema/index.js';
+import { ScopedRepository, type OrgContext } from '../db/scoped-repository.js';
 import {
   approvalDelegations,
   approvalRequests,
   approvalSteps,
   delegationLiveOn,
-} from '../schema/approval.schema.js';
+} from '../db/schema/approval.schema.js';
 
 /**
  * Every statement the approval framework runs (technical design §4.3, ADR

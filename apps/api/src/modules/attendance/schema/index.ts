@@ -6,7 +6,6 @@
  * that pulled these in would make that violation invisible. `drizzle.config.ts`
  * picks them up through its own `src/modules/**\/*.schema.ts` glob.
  */
-export * from './approval.schema.js';
 export * from './attendance-day.schema.js';
 export * from './holiday.schema.js';
 export * from './leave.schema.js';

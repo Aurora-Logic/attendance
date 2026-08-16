@@ -6,7 +6,7 @@ import {
   rejectRequestSchema,
 } from '@vyuha/shared';
 
-import { createZodDto } from '../../../platform/common/zod-validation.pipe.js';
+import { createZodDto } from '../common/zod-validation.pipe.js';
 
 /**
  * The Nest-facing wrappers. Every schema lives in `@vyuha/shared` so the web
