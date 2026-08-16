@@ -261,7 +261,7 @@ export class ApprovalService {
       );
     }
 
-    const requests = new ApprovalRepository(executor, ctx);
+    const requests = new ApprovalRepository(executor, ctx, this.subjects);
     const steps = new ApprovalStepRepository(executor, ctx);
 
     const request = await requests.insert({
@@ -308,7 +308,7 @@ export class ApprovalService {
     subjectType: string,
     subjectId: string,
   ): Promise<ApprovalRequestDetail | null> {
-    const row = await new ApprovalRepository(this.db, ctx).findBySubject(subjectType, subjectId);
+    const row = await new ApprovalRepository(this.db, ctx, this.subjects).findBySubject(subjectType, subjectId);
     return row === null ? null : this.buildDetail(ctx, row.id);
   }
 
@@ -324,7 +324,7 @@ export class ApprovalService {
     subjectId: string,
     reason: string,
   ): Promise<ApprovalRequestDetail | null> {
-    const requests = new ApprovalRepository(this.db, ctx);
+    const requests = new ApprovalRepository(this.db, ctx, this.subjects);
     const row = await requests.findBySubject(subjectType, subjectId);
     if (row === null || (row.status !== 'PENDING' && row.status !== 'ESCALATED')) return null;
 
@@ -357,7 +357,7 @@ export class ApprovalService {
     const { limit, offset } = pageSlice(query);
     const ctx = orgContextOf(principal);
 
-    const { rows, total } = await new ApprovalRepository(this.db, ctx).list({
+    const { rows, total } = await new ApprovalRepository(this.db, ctx, this.subjects).list({
       ...this.filtersFor(principal, query),
       limit,
       offset,
@@ -368,7 +368,7 @@ export class ApprovalService {
 
   async detail(principal: Principal, id: string): Promise<ApprovalRequestDetail> {
     const ctx = orgContextOf(principal);
-    const requests = new ApprovalRepository(this.db, ctx);
+    const requests = new ApprovalRepository(this.db, ctx, this.subjects);
 
     // Visibility is checked as its own predicate rather than by fetching and
     // comparing: out of scope and non-existent must answer identically, or a
@@ -700,7 +700,7 @@ export class ApprovalService {
     | { ok: true; settle: ApprovalSubjectSettlement | null }
     | { ok: false; refusal: DecisionRefusal }
   > {
-    const requests = new ApprovalRepository(tx, ctx);
+    const requests = new ApprovalRepository(tx, ctx, this.subjects);
     const steps = new ApprovalStepRepository(tx, ctx);
 
     const request = await requests.findRow(id);
@@ -971,7 +971,7 @@ export class ApprovalService {
     ctx: OrgContext,
     id: string,
   ): Promise<ApprovalSubjectSettlement | null> {
-    const requests = new ApprovalRepository(tx, ctx);
+    const requests = new ApprovalRepository(tx, ctx, this.subjects);
     const steps = new ApprovalStepRepository(tx, ctx);
 
     const request = await requests.findRow(id);
@@ -1106,7 +1106,7 @@ export class ApprovalService {
     id: string,
     executor: Database = this.db,
   ): Promise<ApprovalRequestDetail> {
-    const requests = new ApprovalRepository(executor, ctx);
+    const requests = new ApprovalRepository(executor, ctx, this.subjects);
     const steps = new ApprovalStepRepository(executor, ctx);
 
     const [summary, row, history] = await Promise.all([

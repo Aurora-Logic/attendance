@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { PERMISSIONS } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { ApprovalSubjectRegistry } from './approval-subject.registry.js';
 
 /**
  * Who a request routes to, when nobody said.
@@ -31,7 +31,10 @@ const MAX_CHAIN_DEPTH = 10;
 
 @Injectable()
 export class ApprovalRoutingService {
-  constructor(@InjectDatabase() private readonly db: Database) {}
+  constructor(
+    @InjectDatabase() private readonly db: Database,
+    private readonly subjects: ApprovalSubjectRegistry,
+  ) {}
 
   /**
    * The default route for a request raised by this user: their reporting line
@@ -102,13 +105,27 @@ export class ApprovalRoutingService {
   }
 
   /**
-   * Everyone in the organisation holding `leave.approve.all`.
+   * Everyone in the organisation who can answer a step they were never routed
+   * to -- the top of the escalation ladder (REQ-G-09).
    *
    * Resolved through the permission catalogue rather than by role name, for
    * the reason `route-policy.ts` states: PRD §2 says nothing in this codebase
    * may branch on a role name, and "HR" is a role somebody can rename.
+   *
+   * The keys come from the registry rather than being named here (REQ-P-04).
+   * This read `p.key = leave.approve.all` while attendance was the only module,
+   * where it was true by coincidence rather than by design: every handler
+   * happens to declare that key as its override. A CRM approval escalating to
+   * whoever approves leave is not an inconvenience, it is the wrong person
+   * holding a decision, so the set is now whatever the registered handlers
+   * actually declare.
    */
   async orgWideApprovers(orgId: string): Promise<string[]> {
+    const keys = this.subjects.orgWidePermissions();
+    // No registered handler means nothing can be escalated, and an empty `IN`
+    // is a syntax error rather than an empty result -- so answer it here.
+    if (keys.length === 0) return [];
+
     const rows = await this.db.execute<{ user_id: string }>(sql`
       SELECT DISTINCT u.id AS user_id, u.email
         FROM users u
@@ -119,7 +136,10 @@ export class ApprovalRoutingService {
        WHERE u.org_id = ${orgId}
          AND u.deleted_at IS NULL
          AND u.status = 'ACTIVE'
-         AND p.key = ${PERMISSIONS.LEAVE_APPROVE_ALL}
+         AND p.key IN ${sql`(${sql.join(
+           keys.map((key) => sql`${key}`),
+           sql`, `,
+         )})`}
        ORDER BY u.email
     `);
     return rows.rows.map((row) => row.user_id);

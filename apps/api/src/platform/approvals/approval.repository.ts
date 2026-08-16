@@ -1,5 +1,4 @@
 import {
-  PERMISSIONS,
   employeeDisplayName,
   type ApprovalAction,
   type ApprovalRequestSummary,
@@ -14,6 +13,7 @@ import { alias } from 'drizzle-orm/pg-core';
 
 import type { Database } from '../db/db.provider.js';
 import { employees, organizations, users } from '../db/schema/index.js';
+import type { ApprovalSubjectRegistry } from './approval-subject.registry.js';
 import { ScopedRepository, type OrgContext } from '../db/scoped-repository.js';
 import {
   approvalDelegations,
@@ -113,7 +113,19 @@ export interface ApprovalStepRow {
 }
 
 export class ApprovalRepository extends ScopedRepository<typeof approvalRequests> {
-  constructor(db: Database, ctx: OrgContext) {
+  /**
+   * The registry is required rather than optional (REQ-P-04).
+   *
+   * `delegatorIds` narrows the inbox on it, and an optional dependency that
+   * silently defaults would widen a read filter the moment a caller forgot to
+   * pass it -- which is the failure this rewiring exists to remove, reappearing
+   * one layer down.
+   */
+  constructor(
+    db: Database,
+    ctx: OrgContext,
+    private readonly subjects: ApprovalSubjectRegistry,
+  ) {
     super(db, approvalRequests, ctx);
   }
 
@@ -157,29 +169,58 @@ export class ApprovalRepository extends ScopedRepository<typeof approvalRequests
           * requester's name and the full step history. Being told "not yours to
           * decide" after reading it is not the control.
           *
-          * The key set is chosen by the request's own type, mirroring what the
-          * handlers declare. That mapping exists in two places now -- here in
-          * SQL and in each handler -- which is a real cost; the alternative is
-          * loading every delegator's permissions per row. The endpoints test
-          * asserts the inbox and the decision agree, so a divergence fails
-          * rather than quietly widening what can be read.
+          * The mapping now comes from the registry the handlers themselves
+          * populate (REQ-P-04), so it is declared once instead of restated here
+          * in SQL. What it replaced was a CASE reading "LEAVE gets the leave
+          * keys, everything else gets regularization.approve" -- and that ELSE
+          * was the defect: a CRM or purchase approval would have needed an
+          * attendance permission to reach the delegate it was addressed to.
+          *
+          * Keyed on subject_type rather than type, because the registry is, and
+          * because the two columns can disagree -- REGULARIZATION and ON_DUTY
+          * are separate types sharing one subject handler.
+          *
+          * No backticks in this comment: it sits inside a sql template literal,
+          * and a backtick here ends the template rather than quoting an
+          * identifier.
           */
-         AND EXISTS (
-           SELECT 1
-             FROM user_roles ur
-             JOIN roles r ON r.id = ur.role_id
-             JOIN role_permissions rp ON rp.role_id = ur.role_id
-             JOIN permissions p ON p.id = rp.permission_id
-            WHERE ur.user_id = ${approvalDelegations.fromUserId}
-              AND r.org_id = ${this.ctx.orgId}
-              AND r.deleted_at IS NULL
-              AND p.key IN (
-                CASE WHEN ${approvalRequests.type} = 'LEAVE'
-                     THEN ${PERMISSIONS.LEAVE_APPROVE_TEAM} ELSE ${PERMISSIONS.REGULARIZATION_APPROVE} END,
-                CASE WHEN ${approvalRequests.type} = 'LEAVE'
-                     THEN ${PERMISSIONS.LEAVE_APPROVE_ALL} ELSE ${PERMISSIONS.REGULARIZATION_APPROVE} END
-              )
-         )
+         AND ${this.delegatorHoldsDecidingKey()}
+    )`;
+  }
+
+  /**
+   * One `OR` branch per registered subject type, each naming that type's own
+   * deciding keys.
+   *
+   * A type with no handler contributes no branch and therefore matches nothing,
+   * so an approval raised before its module registered stays out of every
+   * delegate's inbox rather than falling through to somebody else's key. With
+   * no handlers registered at all this is `false`, which is the correct answer
+   * to "may this delegator read a kind of request nothing can decide".
+   */
+  private delegatorHoldsDecidingKey(): SQL {
+    const branches = this.subjects.decidingPermissionsBySubjectType().map(
+      ({ subjectType, permissions }) => sql`(
+        ${approvalRequests.subjectType} = ${subjectType}
+        AND p.key IN ${sql`(${sql.join(
+          permissions.map((key) => sql`${key}`),
+          sql`, `,
+        )})`}
+      )`,
+    );
+
+    if (branches.length === 0) return sql`false`;
+
+    return sql`EXISTS (
+      SELECT 1
+        FROM user_roles ur
+        JOIN roles r ON r.id = ur.role_id
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        JOIN permissions p ON p.id = rp.permission_id
+       WHERE ur.user_id = ${approvalDelegations.fromUserId}
+         AND r.org_id = ${this.ctx.orgId}
+         AND r.deleted_at IS NULL
+         AND (${sql.join(branches, sql` OR `)})
     )`;
   }
 

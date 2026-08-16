@@ -138,4 +138,44 @@ export class ApprovalSubjectRegistry {
   registeredSubjectTypes(): readonly string[] {
     return [...this.handlers.keys()];
   }
+
+  /**
+   * Per subject type, every key that lets a holder decide it (REQ-P-04).
+   *
+   * For SQL that has to narrow per row. The inbox's delegation filter used to
+   * carry its own `CASE` -- LEAVE to the leave keys, everything else to
+   * `regularization.approve` -- and its comment named the duplication as a real
+   * cost. It was worse than duplication: `ELSE` is not a default, it is a
+   * guess, and the guess was an attendance key. A CRM discount approval would
+   * have required `regularization.approve` to appear in a delegate's inbox,
+   * which no salesperson holds and no CRM role should ever be given.
+   *
+   * A subject type with no handler yields no entry, so a caller building a
+   * predicate from this matches nothing for it. That is the same fail-closed
+   * property `get` already gives the decision path: unregistered means
+   * undecidable, never "decidable by whoever was listed last".
+   */
+  decidingPermissionsBySubjectType(): ReadonlyArray<{
+    readonly subjectType: string;
+    readonly permissions: readonly PermissionKey[];
+  }> {
+    return [...this.handlers.values()].map((handler) => ({
+      subjectType: handler.subjectType,
+      permissions: [...new Set([...handler.actPermissions, ...handler.overridePermissions])],
+    }));
+  }
+
+  /**
+   * The keys that let a holder answer a step they were never routed to, across
+   * every registered subject type.
+   *
+   * This is what "approves for the whole organisation" means once more than one
+   * module raises approvals, and it is who REQ-G-09 escalates to when the
+   * reporting line runs out. Derived rather than declared so that a module
+   * added later is escalated to by its own key instead of silently routing to
+   * whoever holds `leave.approve.all`.
+   */
+  orgWidePermissions(): readonly PermissionKey[] {
+    return [...new Set([...this.handlers.values()].flatMap((h) => [...h.overridePermissions]))];
+  }
 }
