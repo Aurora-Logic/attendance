@@ -10,12 +10,25 @@ coverage/
 !.env.example
 !.env.production.example
 
-# Employee photographs and exports never belong in the repository.
-# See CLAUDE.md §6 — no real employee data, ever.
+# Employee photographs, storage, and exports never belong in the repository.
 /uploads/
 /storage/
+apps/api/storage/
+*.png
+*.jpg
+*.jpeg
+*.webp
 *.xlsx
 !**/templates/*.xlsx
+
+# Local JSON data store
+store.json
+*.store.json
+.data/
+apps/api/.data/
+apps/api/apps/
+
+
 
 *.log
 npm-debug.log*

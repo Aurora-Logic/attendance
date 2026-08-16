@@ -9,8 +9,8 @@ import { Job, Queue, Worker, type JobsOptions } from 'bullmq';
 
 import { env } from '../common/env.js';
 import { AppError, describeError } from '../common/errors.js';
-import { StartupError } from '../common/startup-error.js';
 import { bullConnectionOptions } from './bull-connection.js';
+
 import { JobRegistry, type JobResult } from './job-handler.js';
 import {
   DEFAULT_JOB_OPTIONS,
@@ -193,6 +193,7 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
    * it silently and for ever is not.
    */
   private async installSchedules(): Promise<void> {
+    if (!env.JOBS_WORKER_ENABLED) return;
     for (const scheduled of SCHEDULED_JOBS) {
       if (this.registry.get(scheduled.jobName) === null) {
         // A schedule with no handler would enqueue jobs nothing consumes,
@@ -203,21 +204,25 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
         continue;
       }
 
-      await this.withinDeadline(
-        this.queueFor(JOB_QUEUE[scheduled.jobName]).upsertJobScheduler(
-          scheduled.schedulerId,
-          { pattern: scheduled.pattern },
-          { name: scheduled.jobName, data: { requestedAt: new Date().toISOString() } },
-        ),
-        ENQUEUE_TIMEOUT_MS,
-        () =>
-          new StartupError(
-            `Redis did not accept the job scheduler "${scheduled.schedulerId}" within ${String(ENQUEUE_TIMEOUT_MS)}ms.`,
-            `REDIS_URL points at a server this process cannot reach. The API refuses to serve traffic it cannot queue background work from; fix Redis, or start this process with JOBS_WORKER_ENABLED=false only once Redis is reachable.`,
+      try {
+        await this.withinDeadline(
+          this.queueFor(JOB_QUEUE[scheduled.jobName]).upsertJobScheduler(
+            scheduled.schedulerId,
+            { pattern: scheduled.pattern },
+            { name: scheduled.jobName, data: { requestedAt: new Date().toISOString() } },
           ),
-      );
+          ENQUEUE_TIMEOUT_MS,
+          () => new Error(`Redis timeout for scheduler "${scheduled.schedulerId}"`),
+        );
+      } catch (error: unknown) {
+        this.logger.warn({
+          msg: `Skipping schedule "${scheduled.schedulerId}": Redis unreachable or timed out.`,
+          reason: describeError(error as Error),
+        });
+      }
     }
   }
+
 
   // -------------------------------------------------------------- consumer
 
