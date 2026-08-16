@@ -7,7 +7,7 @@ import {
 } from '@vyuha/shared';
 import { z } from 'zod';
 
-import { createZodDto } from '../../../platform/common/zod-validation.pipe.js';
+import { createZodDto } from '../common/zod-validation.pipe.js';
 
 /**
  * The Nest-facing wrappers. Every schema lives in `@vyuha/shared` so the report

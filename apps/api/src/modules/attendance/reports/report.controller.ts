@@ -34,9 +34,9 @@ import {
   SavedViewInputDto,
   SavedViewQueryDto,
   SchedulePauseDto,
-} from './report.dto.js';
+} from '../../../platform/export/report.dto.js';
 import { ReportService, type ReportRow } from './report.service.js';
-import { SavedViewService } from './saved-view.service.js';
+import { SavedViewService } from '../../../platform/export/saved-view.service.js';
 import { ScheduleService } from './schedule.service.js';
 
 /**

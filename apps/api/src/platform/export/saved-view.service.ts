@@ -8,12 +8,12 @@ import {
 } from '@vyuha/shared';
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 
-import { AuditContext } from '../../../platform/audit/audit-context.js';
-import { AppError } from '../../../platform/common/errors.js';
-import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
-import { savedViews } from '../../../platform/db/schema/index.js';
-import { ScopedRepository } from '../../../platform/db/scoped-repository.js';
-import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
+import { AuditContext } from '../audit/audit-context.js';
+import { AppError } from '../common/errors.js';
+import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { savedViews } from '../db/schema/index.js';
+import { ScopedRepository } from '../db/scoped-repository.js';
+import { orgContextOf, type Principal } from '../rbac/principal.js';
 
 /**
  * REQ-J-01's saved views.
