@@ -138,6 +138,14 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
     payload: JobPayloads[TName],
     options: EnqueueOptions = {},
   ): Promise<string> {
+    if (!env.JOBS_WORKER_ENABLED) {
+      this.logger.debug({
+        msg: 'JOBS_WORKER_ENABLED is false; skipping background enqueue.',
+        jobName,
+      });
+      return options.jobId ?? `noop-${Date.now()}`;
+    }
+
     const job = await this.withinDeadline(
       this.queueFor(JOB_QUEUE[jobName]).add(jobName, payload, {
         ...(options.jobId === undefined ? {} : { jobId: options.jobId }),

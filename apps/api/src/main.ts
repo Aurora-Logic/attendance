@@ -71,6 +71,13 @@ async function bootstrap(): Promise<void> {
   installShutdownWatchdog();
 
   await app.listen(env.PORT);
+
+  const logger = app.get(Logger);
+  logger.log({
+    msg: `🚀 API server is listening on ${env.API_BASE_URL}/${API_PREFIX}`,
+    port: env.PORT,
+    storage: env.STORAGE_DRIVER,
+  });
 }
 
 /**

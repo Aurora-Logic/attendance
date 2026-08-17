@@ -15,8 +15,6 @@ import { z } from 'zod';
  * sends the reader looking for a typo that is not there.
  */
 
-const text = z.string().min(1, 'must not be empty');
-
 const wholeNumber = (min: number, max: number) =>
   z
     .string()
@@ -29,10 +27,6 @@ const wholeNumber = (min: number, max: number) =>
         .min(min, `must be at least ${String(min)}`)
         .max(max, `must be at most ${String(max)}`),
     );
-
-const flag = z
-  .enum(['true', 'false'], { error: 'must be either "true" or "false"' })
-  .transform((value) => value === 'true');
 
 /** Empty string and unset mean the same thing for an optional variable. */
 const optionalText = z
@@ -147,17 +141,19 @@ export const envSchema = z
 
     DATABASE_URL: urlWithProtocol(['postgres:', 'postgresql:'], 'postgres:// or postgresql://'),
     REDIS_URL: urlWithProtocol(['redis:', 'rediss:'], 'redis:// or rediss://'),
+    STORAGE_DRIVER: optionalChoice(['s3', 'disk'], 'disk'),
+    STORAGE_DISK_PATH: optionalTextOr('./data/uploads'),
 
-    S3_ENDPOINT: httpUrl,
-    S3_REGION: text,
-    S3_ACCESS_KEY_ID: text,
-    S3_SECRET_ACCESS_KEY: text,
-    S3_BUCKET_PHOTOS: text,
-    S3_BUCKET_EXPORTS: text,
-    S3_FORCE_PATH_STYLE: flag,
+    S3_ENDPOINT: optionalTextOr('http://localhost:59000'),
+    S3_REGION: optionalTextOr('us-east-1'),
+    S3_ACCESS_KEY_ID: optionalTextOr('vyuha'),
+    S3_SECRET_ACCESS_KEY: optionalTextOr('vyuha_dev_only'),
+    S3_BUCKET_PHOTOS: optionalTextOr('vyuha-photos'),
+    S3_BUCKET_EXPORTS: optionalTextOr('vyuha-exports'),
+    S3_FORCE_PATH_STYLE: optionalFlag(true),
     // NFR-09: photo URLs are short-lived. A day-long TTL would make a leaked
     // link as good as a public bucket, so the upper bound is deliberate.
-    S3_SIGNED_URL_TTL_SECONDS: wholeNumber(30, 3600),
+    S3_SIGNED_URL_TTL_SECONDS: optionalWholeNumber(30, 3600, 300),
 
     JWT_ACCESS_SECRET: jwtSecret,
     JWT_REFRESH_SECRET: jwtSecret,

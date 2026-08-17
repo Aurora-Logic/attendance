@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 
 import { FileService } from './file.service.js';
+import { RawFilesController } from './raw-files.controller.js';
 
 /**
  * Global because the punch pipeline (Phase 1), the export worker (Phase 3),
@@ -9,6 +10,7 @@ import { FileService } from './file.service.js';
  */
 @Global()
 @Module({
+  controllers: [RawFilesController],
   providers: [FileService],
   exports: [FileService],
 })

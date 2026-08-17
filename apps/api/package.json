@@ -12,7 +12,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/platform/db/migrate.ts",
     "db:seed": "tsx seed/run-seed.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "user:manage": "tsx seed/manage-users.ts",
+    "user:password": "tsx seed/manage-users.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1108.0",

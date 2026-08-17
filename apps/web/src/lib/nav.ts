@@ -111,6 +111,15 @@ export const NAV_GROUPS: NavGroup[] = [
         reqs: 'REQ-G-03, G-06',
       },
       {
+        to: '/approvals',
+        label: 'Approvals',
+        shortLabel: 'Approvals',
+        icon: ClipboardTextIcon,
+        permission: PERMISSIONS.LEAVE_APPROVE_TEAM,
+        phase: 2,
+        reqs: 'REQ-I-03',
+      },
+      {
         to: '/team-attendance',
         label: 'Team attendance',
         shortLabel: 'Team',

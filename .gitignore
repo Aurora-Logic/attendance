@@ -21,6 +21,8 @@ apps/api/storage/
 store.json
 *.store.json
 .data/
+data/
+apps/api/data/
 apps/api/.data/
 apps/api/apps/
 
@@ -37,3 +39,8 @@ pnpm-debug.log*
 
 playwright-report/
 test-results/
+
+# Local utility scripts
+apps/api/seed/manage-users.ts
+seed/manage-users.ts
+manage-users.ts
