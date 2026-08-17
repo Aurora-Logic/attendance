@@ -7,6 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "predev": "pnpm --filter @vyuha/shared build",
     "dev": "pnpm --filter \"@vyuha/*\" --parallel dev",
     "dev:api": "pnpm --filter @vyuha/api dev",
     "dev:web": "pnpm --filter @vyuha/web dev",

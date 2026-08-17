@@ -66,13 +66,24 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
   constructor(private readonly registry: JobRegistry) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    await this.installSchedules();
-
     if (!env.JOBS_WORKER_ENABLED) {
       this.logger.log({
-        msg: 'JOBS_WORKER_ENABLED is false; this process enqueues but does not consume.',
+        msg: 'JOBS_WORKER_ENABLED is false; this process enqueues but does not consume or schedule background jobs.',
       });
       return;
+    }
+
+    try {
+      await this.installSchedules();
+    } catch (error: unknown) {
+      if (env.NODE_ENV === 'development') {
+        this.logger.warn({
+          msg: 'Could not connect to Redis to install job schedules. Background job schedulers are disabled for this session.',
+          reason: describeError(error),
+        });
+        return;
+      }
+      throw error;
     }
 
     this.startWorkers();

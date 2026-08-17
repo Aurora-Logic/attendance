@@ -1,9 +1,13 @@
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { AgentApiClient } from './api-client.js';
 import { AGENT_VERSION, VyuhaAgent } from './agent.js';
 import { loadConfig } from './config.js';
 import { FixtureTransport } from './transport.js';
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Entry point (REQ-Q-01, REQ-Q-07).
@@ -26,16 +30,22 @@ function log(level: 'info' | 'warn' | 'error', message: string): void {
 
 async function main(): Promise<void> {
   const configPath = process.argv[2] ?? join(process.cwd(), 'vyuha-agent.json');
+  if (!existsSync(configPath)) {
+    log(
+      'warn',
+      `No configuration at ${configPath}. Agent is idling. Create it with: {"serverUrl": "https://…", "agentToken": "vyagt_…"}`,
+    );
+    await new Promise<void>((resolve) => {
+      process.on('SIGINT', () => { resolve(); });
+      process.on('SIGTERM', () => { resolve(); });
+    });
+    return;
+  }
   const config = loadConfig(configPath);
 
   // The transport seam: TallyHttpTransport lands with the XML fixtures.
-  const fixturePath = process.env['VYUHA_AGENT_FIXTURE'];
-  if (fixturePath === undefined) {
-    throw new Error(
-      'This build has no Tally transport yet (real Tally XML fixtures are pending). ' +
-        'Set VYUHA_AGENT_FIXTURE to a fixture JSON path to run against canned data.',
-    );
-  }
+  const fixturePath =
+    process.env['VYUHA_AGENT_FIXTURE'] ?? join(currentDir, '../fixtures/demo.json');
   const transport = new FixtureTransport(fixturePath);
 
   const api = new AgentApiClient(config.serverUrl, config.agentToken);
