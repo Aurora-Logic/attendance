@@ -175,6 +175,19 @@ for tasks and so sees none) and P7-2 (which roles hold the task keys).
 Next in Phase 7: pipelines and deals with the won → party link (REQ-U-04…
 U-06), then activities through the audit interceptor (REQ-U-07).
 
+## Phase 6d on this branch — receivables and analysis (the part bill-wise allocations do not gate)
+
+| Deliverable | Commit | Proof |
+|---|---|---|
+| Customer statement (REQ-Y-01): every voucher for one party in the period with a running balance opening from what came before; debit/credit by voucher type, unclassified types shown and not summed; the shell asks for the party before it fetches (`requiredFilters`) | — | masters 19/19; live: Opening 0.00 → Sales 4150.50 → Receipt 0.00 for Live Drive Traders |
+| Credit cycle (REQ-Y-03): limit and days against exposure, headroom, over-limit flag, last invoice/receipt; overdue-by-bill deliberately absent until bill-wise (P6b) | — | live: Asha 250000.00 / 30 / 0.00 / 250000.00 within limit |
+| Sales analysis (REQ-Y-05): value by party / item / item group / month from invoiced inventory lines, share of total, quantity only when the unit agrees; salesperson absent (Tally's voucher carries none), margin absent (held cost is not a figure to compute on) | — | live: By item — Live Drive Cable 1 · 1 NOS · 4150.50 · 100.0; By month — 2026-08 |
+| All under the report shell (REQ-Y-06): party picker and group-by in the filter bar, saved views/export/Excel unchanged; every row stamped As of (REQ-Y-07) | — | web 420/420, no failing requests, 360px cards |
+
+Not buildable yet: ageing (REQ-Y-02) and payment analysis (REQ-Y-04) —
+both need bill-wise allocations, which the push-only source does not
+carry (P6b). A statement can be honest without them; an ageing cannot.
+
 ## Phase 8a on this branch (the part that needs no push transport)
 
 | Deliverable | Commit | Proof |

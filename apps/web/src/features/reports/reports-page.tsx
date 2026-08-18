@@ -15,6 +15,7 @@ import { useSearchParams } from 'react-router';
 import type { DateRange } from 'react-day-picker';
 
 import { PageHeader } from '@/components/shared/page-header';
+import type { PickerOption } from '@/components/shared/record-picker';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -78,6 +79,8 @@ import {
   useSaveView,
   type ReportRowsParams,
 } from './api';
+import { useParties } from '@/features/masters/use-parties';
+
 import { ColumnChooser } from './column-chooser';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
 import { periodFor, periodModeOf } from './period';
@@ -212,6 +215,7 @@ export function ReportsPage() {
   const departments = useDepartmentOptions();
   const locations = useLocationOptions();
 
+
   const reportParam = searchParams.get('report');
   const reportKey: ReportKey = isReportKey(reportParam ?? '')
     ? (reportParam as ReportKey)
@@ -223,6 +227,16 @@ export function ReportsPage() {
   // reading exactly like a quiet period. A client ahead of its server says so
   // instead.
   const definition = catalogue.data?.find((report) => report.key === reportKey);
+  // Phase 6d: only asked for when a report wants a party, and only by
+  // somebody who may read the masters — the picker is empty otherwise.
+  const canReadParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
+  const wantsParty = definition?.filters.includes('partyId') ?? false;
+  const parties = useParties({ page: 1 }, { enabled: canReadParties && wantsParty });
+  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((party) => ({
+    id: party.id,
+    label: party.name,
+    ...(party.gstin === null ? {} : { hint: party.gstin }),
+  }));
   const unknownReport = catalogue.isSuccess && definition === undefined;
 
   // --------------------------------------------------------------- state
@@ -241,6 +255,8 @@ export function ReportsPage() {
     status: searchParams.get('status'),
     flags: searchParams.get('flags'),
     punchType: searchParams.get('punchType'),
+    partyId: searchParams.get('partyId'),
+    groupBy: searchParams.get('groupBy'),
   };
 
   const sort = searchParams.get('sort') ?? definition?.defaultSort ?? '';
@@ -278,7 +294,7 @@ export function ReportsPage() {
         if (patch.period.to) params.set('to', toDateParam(patch.period.to));
         else params.delete('to');
       }
-      for (const key of ['departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType'] as const) {
+      for (const key of ['departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy'] as const) {
         if (!(key in patch)) continue;
         const value = patch[key];
         if (value === null || value === undefined) params.delete(key);
@@ -289,7 +305,7 @@ export function ReportsPage() {
 
   function clearFilters() {
     patchParams((params) => {
-      for (const key of ['from', 'to', 'departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType'] as const) {
+      for (const key of ['from', 'to', 'departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy'] as const) {
         params.delete(key);
       }
     });
@@ -388,9 +404,21 @@ export function ReportsPage() {
     ...(filters.status ? { status: filters.status as ReportFilters['status'] } : {}),
     ...(filters.flags ? { flags: filters.flags } : {}),
     ...(filters.punchType ? { punchType: filters.punchType as ReportFilters['punchType'] } : {}),
+    ...(filters.partyId ? { partyId: filters.partyId } : {}),
+    ...(filters.groupBy ? { groupBy: filters.groupBy as ReportFilters['groupBy'] } : {}),
   };
 
-  const active = useReportRows(reportKey, rowParams);
+  // A report that has no answer without a filter is not asked until it has
+  // one (customer statement: a party). The prompt below stands in for rows.
+  const missingRequired = (definition?.requiredFilters ?? []).filter((name) => {
+    if (name === 'partyId') return filters.partyId === null;
+    if (name === 'period') return !period.from;
+    return false;
+  });
+  // Not until the catalogue has said what the report needs: a statement asked
+  // for before its definition arrived would fetch a 400 for a party nobody
+  // had a chance to choose.
+  const active = useReportRows(reportKey, rowParams, { enabled: definition !== undefined && missingRequired.length === 0 });
 
   const savedViews = useSavedViews(reportKey);
   const saveView = useSaveView();
@@ -410,6 +438,8 @@ export function ReportsPage() {
     ...(filters.status ? { status: filters.status as ReportFilters['status'] } : {}),
     ...(filters.flags ? { flags: filters.flags } : {}),
     ...(filters.punchType ? { punchType: filters.punchType as ReportFilters['punchType'] } : {}),
+    ...(filters.partyId ? { partyId: filters.partyId } : {}),
+    ...(filters.groupBy ? { groupBy: filters.groupBy as ReportFilters['groupBy'] } : {}),
   };
 
   function startExport(format: ExportFormat) {
@@ -527,7 +557,9 @@ export function ReportsPage() {
     filters.employeeId !== null ||
     filters.status !== null ||
     filters.flags !== null ||
-    filters.punchType !== null;
+    filters.punchType !== null ||
+    filters.partyId !== null ||
+    filters.groupBy !== null;
 
   /*
    * REQ-J-05: the same filters without the period.
@@ -639,6 +671,8 @@ export function ReportsPage() {
             onChange={setFilters}
             departments={departments.data ?? []}
             locations={locations.data ?? []}
+            parties={partyOptions}
+            partiesLoading={parties.isPending}
             periodOpen={periodOpen}
             onPeriodOpenChange={setPeriodOpen}
             onClear={clearFilters}
@@ -750,7 +784,23 @@ export function ReportsPage() {
           </Alert>
         ) : null}
 
-        {active.isPending && !unknownReport ? <TableSkeleton /> : null}
+        {missingRequired.length > 0 ? (
+          <Empty className="border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <ChartBarIcon />
+              </EmptyMedia>
+              <EmptyTitle>{missingRequired.includes('partyId') ? 'Choose a party' : 'Choose a period'}</EmptyTitle>
+              <EmptyDescription>
+                {missingRequired.includes('partyId')
+                  ? 'A customer statement is for one party. Pick one in the filter bar to see every voucher and the running balance.'
+                  : 'This report needs a period.'}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : null}
+
+        {active.isPending && !unknownReport && missingRequired.length === 0 ? <TableSkeleton /> : null}
 
         {active.isError ? (
           <Alert variant="destructive">
