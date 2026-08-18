@@ -26,6 +26,7 @@ import { SettingsPage } from '@/features/settings';
 import { NotificationsPage } from '@/features/notifications';
 import { CompaniesPage } from '@/features/crm/companies-page';
 import { ContactsPage } from '@/features/crm/contacts-page';
+import { DealsPage } from '@/features/crm/deals-page';
 import { PartiesPage } from '@/features/masters/parties-page';
 import { TasksPage } from '@/features/tasks/tasks-page';
 import { PriceListsPage } from '@/features/masters/price-lists-page';
@@ -46,6 +47,7 @@ import { ALL_NAV_ITEMS } from '@/lib/nav';
  */
 const BUILT_ROUTES = new Set([
   '/tasks',
+  '/crm/deals',
   '/crm/contacts',
   '/crm/companies',
   '/masters/parties',
@@ -124,6 +126,8 @@ export default function App() {
               <Route path="crm/companies/:id" element={<CompaniesPage />} />
               <Route path="tasks" element={<TasksPage />} />
               <Route path="tasks/:id" element={<TasksPage />} />
+              <Route path="crm/deals" element={<DealsPage />} />
+              <Route path="crm/deals/:id" element={<DealsPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />

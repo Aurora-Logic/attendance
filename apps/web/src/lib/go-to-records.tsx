@@ -1,4 +1,4 @@
-import { AddressBookIcon, BooksIcon, BuildingsIcon, CheckSquareIcon, ReceiptIcon, UserIcon, type Icon } from '@phosphor-icons/react';
+import { AddressBookIcon, BooksIcon, BuildingsIcon, CheckSquareIcon, HandshakeIcon, ReceiptIcon, UserIcon, type Icon } from '@phosphor-icons/react';
 
 import type { GoToRecord } from '@vyuha/shared';
 
@@ -61,6 +61,11 @@ const GO_TO_RECORD_KINDS: Record<string, GoToRecordKind> = {
     group: 'Tasks',
     icon: CheckSquareIcon,
     route: (record) => `/tasks/${record.id}`,
+  },
+  deal: {
+    group: 'Deals',
+    icon: HandshakeIcon,
+    route: (record) => `/crm/deals/${record.id}`,
   },
 };
 

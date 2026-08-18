@@ -127,3 +127,101 @@ export function companyToDraft(company: Company): CompanyDraft {
     notes: company.notes ?? '',
   };
 }
+
+// ---------------------------------------------------------------- deals
+
+export const pipelineStageSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sortOrder: z.number(),
+  probability: z.number(),
+  isWon: z.boolean(),
+  isLost: z.boolean(),
+});
+export type PipelineStage = z.infer<typeof pipelineStageSchema>;
+
+export const pipelineSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  isDefault: z.boolean(),
+  stages: z.array(pipelineStageSchema),
+});
+export type Pipeline = z.infer<typeof pipelineSchema>;
+export const pipelinesSchema = z.array(pipelineSchema);
+
+export const dealSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  companyId: z.string().nullable(),
+  companyName: z.string().nullable(),
+  partyId: z.string().nullable(),
+  contactId: z.string().nullable(),
+  contactName: z.string().nullable(),
+  pipelineId: z.string(),
+  pipelineName: z.string(),
+  stageId: z.string(),
+  stageName: z.string(),
+  probability: z.number(),
+  value: z.string().nullable(),
+  expectedCloseDate: z.string().nullable(),
+  ownerId: z.string().nullable(),
+  ownerName: z.string().nullable(),
+  status: z.enum(['open', 'won', 'lost']),
+  closedAt: z.string().nullable(),
+  notes: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Deal = z.infer<typeof dealSchema>;
+
+export const dealsResponseSchema = z.object({ data: z.array(dealSchema), meta: pageMetaSchema });
+export type DealsResponse = z.infer<typeof dealsResponseSchema>;
+
+export const dealBoardSchema = z.object({
+  pipeline: pipelineSchema,
+  lanes: z.array(z.object({ stage: pipelineStageSchema, deals: z.array(dealSchema), total: z.number(), valueTotal: z.string() })),
+});
+export type DealBoard = z.infer<typeof dealBoardSchema>;
+
+export interface DealDraft {
+  id?: string;
+  name: string;
+  companyId: string | null;
+  contactId: string | null;
+  pipelineId: string | null;
+  stageId: string | null;
+  value: string;
+  expectedCloseDate: string | null;
+  ownerId: string | null;
+  notes: string;
+}
+
+export function emptyDealDraft(overrides: Partial<DealDraft> = {}): DealDraft {
+  return {
+    name: '',
+    companyId: null,
+    contactId: null,
+    pipelineId: null,
+    stageId: null,
+    value: '',
+    expectedCloseDate: null,
+    ownerId: null,
+    notes: '',
+    ...overrides,
+  };
+}
+
+export function dealToDraft(deal: Deal): DealDraft {
+  return {
+    id: deal.id,
+    name: deal.name,
+    companyId: deal.companyId,
+    contactId: deal.contactId,
+    pipelineId: deal.pipelineId,
+    stageId: deal.stageId,
+    value: deal.value ?? '',
+    expectedCloseDate: deal.expectedCloseDate,
+    ownerId: deal.ownerId,
+    notes: deal.notes ?? '',
+  };
+}

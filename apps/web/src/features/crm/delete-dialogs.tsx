@@ -18,6 +18,7 @@ import { toast } from '@/components/ui/toast';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 
 import { useDeleteCompany, useDeleteContact } from './use-crm';
+import { useDeleteDeal } from './use-deals';
 
 /**
  * The confirm step for a CRM delete. Same shape as the holiday dialog and for
@@ -92,6 +93,33 @@ export function DeleteCompanyDialog({ target, onOpenChange, onDeleted }: DeleteD
   );
 }
 
+export function DeleteDealDialog({ target, onOpenChange, onDeleted }: DeleteDialogProps) {
+  const remove = useDeleteDeal();
+  return (
+    <DeleteRecordDialog
+      kind="deal"
+      target={target}
+      description="It leaves the pipeline and every list. Marking it lost instead keeps the record — delete only what should never have existed."
+      pending={remove.isPending}
+      error={remove.error}
+      onOpenChange={(open) => {
+        if (!open) remove.reset();
+        onOpenChange(open);
+      }}
+      onConfirm={() => {
+        if (target === null) return;
+        remove.mutate(target.id, {
+          onSuccess: () => {
+            toast.add({ type: 'success', title: `${target.name} deleted` });
+            onDeleted?.();
+            onOpenChange(false);
+          },
+        });
+      }}
+    />
+  );
+}
+
 function DeleteRecordDialog({
   kind,
   target,
@@ -101,7 +129,7 @@ function DeleteRecordDialog({
   onOpenChange,
   onConfirm,
 }: {
-  kind: 'contact' | 'company';
+  kind: 'contact' | 'company' | 'deal';
   target: DeleteRecordTarget | null;
   description: string;
   pending: boolean;

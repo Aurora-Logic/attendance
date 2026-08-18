@@ -150,6 +150,13 @@ forgotten.
 | Tasks in the platform (D-17): `tasks`, `task_board_columns` (migration 0029), `TaskSubjectRegistry` (employee described by the platform, contact/company by CRM), one `filterPredicate` behind `GET /tasks` and `GET /tasks/board` (REQ-V-04), column config under `settings.manage` (REQ-V-03), moves audited as `task.moved` / `task.closed` / `task.reopened` (REQ-V-06), self/team scoping over assignee and owner, three notification events through the dispatcher + a daily reminder sweep (REQ-V-08), tasks in Go To | `37fd376` | tasks 15/15, jobs+notifications 49/49 |
 | My tasks screen (REQ-V-07 landing; CRM module home): list and board as two renderings of one filter set with a persisted default view (REQ-V-05), Alt+C create, Ctrl+A save, Alt+D done, keyboard Select for status and Command picker for assignee, native drag on the board → PATCH `columnId`, board columns sheet, `/tasks/:id` opens the sheet (notification links land there) | — | live drive: created by keyboard, assigned, closed with Alt+D, shown struck through under "Show closed", dragged Done → In progress ("Moved to In progress"), Go To opens it, columns added and removed, 360px cards without overflow, zero console errors. Web 416/416 |
 
+| Pipelines and deals (REQ-U-04, U-05; link half of REQ-U-03): `crm_pipelines`, `crm_pipeline_stages`, `crm_deals` (migration 0030); default pipeline on first read; stage move is one audited write, won/lost stages close (`crm.deal.won` / `.lost`); board = list by stage with a value total per lane; `PUT /crm/companies/:id/party` links a company to the Tally party by hand; deals in Go To | `0819766` | deals 10/10 |
+| Deals screen: list and board (shared `KanbanBoard`, also now behind the task board), Alt+C create with company → contact pickers, drag to Won opens the sheet with the party-link picker over the parties projection, stages sheet under `crm.pipeline.manage`, `/crm/deals/:id` | — | live drive: created with company and contact, value shown 1,25,000.50, dragged to Won ("Deal won"), party linked from the prompt ("Party linked", note shown), stage added and removed, Go To opens it, 360px cards, no failing requests |
+
+Not in this slice: REQ-U-06 (a won deal shows its estimate, sales order and
+invoice) — those documents are Phase 8's; the deal sheet gains a documents
+section when they exist.
+
 Open on this slice: P7-1 (an Admin with no employee record has no `.all`
 for tasks and so sees none) and P7-2 (which roles hold the task keys).
 

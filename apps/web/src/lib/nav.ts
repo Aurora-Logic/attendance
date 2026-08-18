@@ -450,6 +450,19 @@ export const MODULES: ModuleDef[] = [
         ],
       },
       {
+        label: 'Sales',
+        items: [
+          {
+            to: '/crm/deals',
+            label: 'Deals',
+            icon: HandshakeIcon,
+            permission: PERMISSIONS.CRM_DEAL_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-U-04, REQ-U-05, REQ-U-06',
+          },
+        ],
+      },
+      {
         label: 'People',
         items: [
           {
@@ -575,6 +588,7 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/crm\/contacts\/[^/]+$/u, parent: '/crm/contacts', label: 'Contact' },
   { pattern: /^\/crm\/companies\/[^/]+$/u, parent: '/crm/companies', label: 'Company' },
   { pattern: /^\/tasks\/[^/]+$/u, parent: '/tasks', label: 'Task' },
+  { pattern: /^\/crm\/deals\/[^/]+$/u, parent: '/crm/deals', label: 'Deal' },
 ];
 
 export function findBreadcrumbs(pathname: string): [Crumb, ...Crumb[]] {
