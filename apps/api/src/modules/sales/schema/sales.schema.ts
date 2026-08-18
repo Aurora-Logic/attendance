@@ -1,4 +1,4 @@
-import { date, index, integer, numeric, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { date, index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { ALIVE, primaryId, standardColumns } from '../../../platform/db/columns.js';
 import { employees, organizations, parties, stockItems } from '../../../platform/db/schema/index.js';
@@ -17,8 +17,11 @@ import { employees, organizations, parties, stockItems } from '../../../platform
  * link REQ-U-06 wants is read from this side by deal id.
  */
 
-export const salesDocumentTypeEnum = pgEnum('sales_document_type', ['ESTIMATE']);
-export const estimateStatusEnum = pgEnum('estimate_status', ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED']);
+export const salesDocumentTypeEnum = pgEnum('sales_document_type', ['ESTIMATE', 'SALES_ORDER']);
+/** One status enum for every document type; which values a type may hold is the service's table. */
+export const estimateStatusEnum = pgEnum('estimate_status', ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CONFIRMED', 'CANCELLED']);
+/** REQ-W-06: what the agent reported, never inferred. */
+export const documentSyncStateEnum = pgEnum('document_sync_state', ['NOT_PUSHED', 'QUEUED', 'PUSHED', 'FAILED']);
 
 export const salesDocuments = pgTable(
   'sales_documents',
@@ -44,10 +47,26 @@ export const salesDocuments = pgTable(
     discountTotal: numeric('discount_total', { precision: 16, scale: 2 }).notNull().default('0'),
     taxTotal: numeric('tax_total', { precision: 16, scale: 2 }).notNull().default('0'),
     grandTotal: numeric('grand_total', { precision: 16, scale: 2 }).notNull().default('0'),
+    /** REQ-W-03: the estimate this order was converted from. Same table, no FK cascade wanted. */
+    sourceDocumentId: uuid('source_document_id'),
+    /**
+     * REQ-W-06 / REQ-W-07. `remote_guid` is the voucher Tally created; an
+     * alter pushes against it and never creates a second (09 §3.3). The
+     * idempotency key rides in the voucher's narration and is what the agent
+     * queries for before any retry; it also lives in `external_refs`, which
+     * is the sync engine's own record of the same link.
+     */
+    syncState: documentSyncStateEnum('sync_state').notNull().default('NOT_PUSHED'),
+    remoteGuid: text('remote_guid'),
+    remoteVoucherNumber: text('remote_voucher_number'),
+    pushJobId: uuid('push_job_id'),
+    lastPushedAt: timestamp('last_pushed_at', { withTimezone: true }),
+    lastError: text('last_error'),
     ...standardColumns(),
   },
   (t) => [
     uniqueIndex('sales_documents_org_type_number_uq').on(t.orgId, t.docType, t.number),
+    index('sales_documents_org_sync_idx').on(t.orgId, t.docType, t.syncState).where(ALIVE),
     index('sales_documents_org_type_date_idx').on(t.orgId, t.docType, t.date).where(ALIVE),
     index('sales_documents_org_party_idx').on(t.orgId, t.partyId).where(ALIVE),
     index('sales_documents_org_company_idx').on(t.orgId, t.companyId).where(ALIVE),

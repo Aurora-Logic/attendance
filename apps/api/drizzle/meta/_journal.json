@@ -225,6 +225,13 @@
       "when": 1787040415246,
       "tag": "0031_sales_estimates",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1787044362225,
+      "tag": "0032_sales_orders_sync",
+      "breakpoints": true
     }
   ]
 }

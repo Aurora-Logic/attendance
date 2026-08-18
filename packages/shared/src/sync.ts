@@ -281,6 +281,22 @@ export const agentResultsSchema = z.discriminatedUnion('entityType', [
     entityType: z.literal('price_list'),
     rows: z.array(priceListPullRowSchema).max(SYNC_CHUNK_MAX_ROWS),
   }),
+  /**
+   * The outcome of one push (09 §3.3), reported by the agent and never
+   * inferred (REQ-W-06). `accepted` carries what Tally answered with;
+   * `rejected` carries LINEERROR verbatim (REQ-T-01); `landed_on_retry` is
+   * the idempotency case — the previous attempt timed out, the agent found
+   * the key in Tally, and no second voucher was created.
+   */
+  z.object({
+    ...resultsCommon,
+    entityType: z.literal('voucher_push'),
+    outcome: z.enum(['accepted', 'landed_on_retry', 'rejected']),
+    remoteGuid: z.string().min(1).max(80).optional(),
+    remoteVoucherNumber: z.string().max(80).optional(),
+    errorText: z.string().trim().min(1).max(8_000).optional(),
+    rows: z.array(z.never()).max(0).default([]),
+  }),
 ]);
 
 export type AgentResultsInput = z.infer<typeof agentResultsSchema>;

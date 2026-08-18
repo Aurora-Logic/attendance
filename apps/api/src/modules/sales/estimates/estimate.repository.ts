@@ -1,11 +1,14 @@
-import type {
-  EstimateStatus,
-  EstimateSummary,
-  EstimateView,
-  ItemHistoryEntry,
-  SalesLineInput,
-  SalesLineView,
-  SortTerm,
+import {
+  SALES_DOCUMENT_TYPE_PREFIX,
+  type DocumentSyncState,
+  type EstimateStatus,
+  type EstimateSummary,
+  type EstimateView,
+  type ItemHistoryEntry,
+  type SalesDocumentType,
+  type SalesLineInput,
+  type SalesLineView,
+  type SortTerm,
 } from '@vyuha/shared';
 import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
@@ -42,7 +45,8 @@ const SORT_COLUMNS = {
 
 export interface EstimateListFilters {
   readonly q?: string | undefined;
-  readonly status?: EstimateStatus | undefined;
+  readonly status?: string | undefined;
+  readonly syncState?: DocumentSyncState | undefined;
   readonly partyId?: string | undefined;
   readonly companyId?: string | undefined;
   readonly dealId?: string | undefined;
@@ -53,6 +57,9 @@ export interface EstimateListFilters {
 }
 
 export interface EstimateHeaderInput {
+  /** Only on create; the estimate's DRAFT or an order's DRAFT. */
+  status?: EstimateStatus | 'CONFIRMED' | 'CANCELLED';
+  sourceDocumentId?: string | null;
   date: string;
   validUntil: string | null;
   partyId: string | null;
@@ -65,7 +72,12 @@ export interface EstimateHeaderInput {
 }
 
 export class EstimateRepository extends ScopedRepository<typeof salesDocuments> {
-  constructor(db: Database, ctx: OrgContext) {
+  constructor(
+    db: Database,
+    ctx: OrgContext,
+    /** Which life the rows lead; one repository class, one table, one line editor. */
+    private readonly docType: SalesDocumentType = 'ESTIMATE',
+  ) {
     super(db, salesDocuments, ctx);
   }
 
@@ -89,6 +101,12 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       discountTotal: salesDocuments.discountTotal,
       taxTotal: salesDocuments.taxTotal,
       grandTotal: salesDocuments.grandTotal,
+      sourceDocumentId: salesDocuments.sourceDocumentId,
+      syncState: salesDocuments.syncState,
+      remoteGuid: salesDocuments.remoteGuid,
+      remoteVoucherNumber: salesDocuments.remoteVoucherNumber,
+      lastPushedAt: salesDocuments.lastPushedAt,
+      lastError: salesDocuments.lastError,
       createdAt: salesDocuments.createdAt,
       updatedAt: salesDocuments.updatedAt,
     };
@@ -100,9 +118,10 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
 
   private filterPredicate(filters: EstimateListFilters): SQL | undefined {
     return and(
-      eq(salesDocuments.docType, 'ESTIMATE'),
+      eq(salesDocuments.docType, this.docType),
       filters.q === undefined ? undefined : masterSearch(filters.q, [salesDocuments.number, salesDocuments.customerName]),
-      filters.status === undefined ? undefined : eq(salesDocuments.status, filters.status),
+      filters.status === undefined ? undefined : sql`${salesDocuments.status} = ${filters.status}`,
+      filters.syncState === undefined ? undefined : eq(salesDocuments.syncState, filters.syncState),
       filters.partyId === undefined ? undefined : eq(salesDocuments.partyId, filters.partyId),
       filters.companyId === undefined ? undefined : eq(salesDocuments.companyId, filters.companyId),
       filters.dealId === undefined ? undefined : eq(salesDocuments.dealId, filters.dealId),
@@ -121,7 +140,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
   }
 
   async view(scope: SQL, id: string): Promise<EstimateView | null> {
-    const rows = await this.headerQuery(this.scoped(scope, eq(salesDocuments.id, id), eq(salesDocuments.docType, 'ESTIMATE'))).limit(1);
+    const rows = await this.headerQuery(this.scoped(scope, eq(salesDocuments.id, id), eq(salesDocuments.docType, this.docType))).limit(1);
     const row = rows[0];
     if (row === undefined) return null;
     const lines = await this.db
@@ -143,9 +162,10 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
         .insert(salesDocuments)
         .values({
           orgId: this.ctx.orgId,
-          docType: 'ESTIMATE',
+          docType: this.docType,
           number,
-          status: 'DRAFT',
+          status: header.status ?? 'DRAFT',
+          sourceDocumentId: header.sourceDocumentId ?? null,
           date: header.date,
           validUntil: header.validUntil,
           partyId: header.partyId,
@@ -179,7 +199,27 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
     });
   }
 
-  async setStatus(id: string, status: EstimateStatus): Promise<boolean> {
+  /** REQ-W-06: what the agent reported, written by the results path. */
+  async setSync(
+    id: string,
+    patch: Partial<{ syncState: DocumentSyncState; remoteGuid: string | null; remoteVoucherNumber: string | null; pushJobId: string | null; lastPushedAt: Date | null; lastError: string | null }>,
+  ): Promise<boolean> {
+    const rows = await this.db
+      .update(salesDocuments)
+      .set({ ...patch, updatedAt: new Date(), updatedBy: this.ctx.actorUserId })
+      .where(this.scoped(eq(salesDocuments.id, id)))
+      .returning({ id: salesDocuments.id });
+    return rows.length > 0;
+  }
+
+  /** The document a push job belongs to — the results path's way back from a job id. */
+  async findByPushJob(jobId: string): Promise<{ id: string; docType: SalesDocumentType } | null> {
+    const rows = await this.findMany({ where: eq(salesDocuments.pushJobId, jobId), limit: 1 });
+    const row = rows[0];
+    return row === undefined ? null : { id: row.id, docType: row.docType };
+  }
+
+  async setStatus(id: string, status: EstimateStatus | 'CONFIRMED' | 'CANCELLED'): Promise<boolean> {
     const rows = await this.db
       .update(salesDocuments)
       .set({ status, updatedAt: new Date(), updatedBy: this.ctx.actorUserId })
@@ -191,16 +231,16 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
   private async nextNumber(tx: Transaction): Promise<string> {
     await tx
       .insert(salesDocumentSequences)
-      .values({ orgId: this.ctx.orgId, docType: 'ESTIMATE', lastNumber: 0 })
+      .values({ orgId: this.ctx.orgId, docType: this.docType, lastNumber: 0 })
       .onConflictDoNothing();
     const bumped = await tx
       .update(salesDocumentSequences)
       .set({ lastNumber: sql`${salesDocumentSequences.lastNumber} + 1` })
-      .where(and(eq(salesDocumentSequences.orgId, this.ctx.orgId), eq(salesDocumentSequences.docType, 'ESTIMATE')))
+      .where(and(eq(salesDocumentSequences.orgId, this.ctx.orgId), eq(salesDocumentSequences.docType, this.docType)))
       .returning({ lastNumber: salesDocumentSequences.lastNumber });
     const next = bumped[0]?.lastNumber;
-    if (next === undefined) throw new Error('Estimate sequence returned no row.');
-    return `EST-${String(next).padStart(4, '0')}`;
+    if (next === undefined) throw new Error('Document sequence returned no row.');
+    return `${SALES_DOCUMENT_TYPE_PREFIX[this.docType]}-${String(next).padStart(4, '0')}`;
   }
 
   /** Delete-then-insert inside the caller's transaction, then the header's totals from the new lines. */
@@ -360,9 +400,9 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
 
 interface HeaderRow {
   id: string;
-  docType: 'ESTIMATE';
+  docType: SalesDocumentType;
   number: string;
-  status: EstimateStatus;
+  status: EstimateStatus | 'CONFIRMED' | 'CANCELLED';
   date: string;
   validUntil: string | null;
   partyId: string | null;
@@ -377,6 +417,12 @@ interface HeaderRow {
   discountTotal: string;
   taxTotal: string;
   grandTotal: string;
+  sourceDocumentId: string | null;
+  syncState: DocumentSyncState;
+  remoteGuid: string | null;
+  remoteVoucherNumber: string | null;
+  lastPushedAt: Date | null;
+  lastError: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -401,6 +447,12 @@ function toSummary(row: HeaderRow): EstimateSummary {
     discountTotal: row.discountTotal,
     taxTotal: row.taxTotal,
     grandTotal: row.grandTotal,
+    sourceDocumentId: row.sourceDocumentId,
+    syncState: row.syncState,
+    remoteGuid: row.remoteGuid,
+    remoteVoucherNumber: row.remoteVoucherNumber,
+    lastPushedAt: row.lastPushedAt === null ? null : row.lastPushedAt.toISOString(),
+    lastError: row.lastError,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

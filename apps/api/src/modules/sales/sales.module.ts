@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { EstimateGoToSource } from './estimates/estimate-goto.source.js';
 import { EstimateController } from './estimates/estimate.controller.js';
 import { EstimateService } from './estimates/estimate.service.js';
+import { SalesOrderController } from './orders/sales-order.controller.js';
+import { SalesOrderService } from './orders/sales-order.service.js';
 
 /**
  * The sales module (08 Areas W and Y). Opens with the estimate (Phase 8a);
@@ -11,7 +13,7 @@ import { EstimateService } from './estimates/estimate.service.js';
  * ESLint keeps it from reaching into `modules/crm` or `modules/purchase`.
  */
 @Module({
-  controllers: [EstimateController],
-  providers: [EstimateService, EstimateGoToSource],
+  controllers: [EstimateController, SalesOrderController],
+  providers: [EstimateService, EstimateGoToSource, SalesOrderService],
 })
 export class SalesModule {}

@@ -13,13 +13,20 @@ import { pageQuerySchema } from './pagination.js';
  * save; the client shows what the server computed and never re-derives it.
  */
 
-export const SALES_DOCUMENT_TYPES = ['ESTIMATE'] as const;
+export const SALES_DOCUMENT_TYPES = ['ESTIMATE', 'SALES_ORDER'] as const;
 export type SalesDocumentType = (typeof SALES_DOCUMENT_TYPES)[number];
 
-export const SALES_DOCUMENT_TYPE_LABELS: Record<SalesDocumentType, string> = { ESTIMATE: 'Estimate' };
-export const SALES_DOCUMENT_TYPE_PREFIX: Record<SalesDocumentType, string> = { ESTIMATE: 'EST' };
+export const SALES_DOCUMENT_TYPE_LABELS: Record<SalesDocumentType, string> = { ESTIMATE: 'Estimate', SALES_ORDER: 'Sales order' };
+export const SALES_DOCUMENT_TYPE_PREFIX: Record<SalesDocumentType, string> = { ESTIMATE: 'EST', SALES_ORDER: 'SO' };
+/** The Tally voucher type a pushed document becomes (09 §3.1). Estimates have none: they are never pushed (D-04). */
+export const SALES_DOCUMENT_VOUCHER_TYPE: Record<SalesDocumentType, string | null> = { ESTIMATE: null, SALES_ORDER: 'Sales Order' };
 
-/** An estimate's life. Accepted is the state a sales order is raised from (REQ-W-03, later). */
+/**
+ * A document's life. Estimates: draft → sent → accepted / rejected / expired.
+ * Sales orders: draft → confirmed (queued for Tally) → the sync state says
+ * the rest; cancelled from draft. `ESTIMATE_STATUSES` keeps its old name for
+ * the callers that only ever meant estimates.
+ */
 export const ESTIMATE_STATUSES = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'] as const;
 export type EstimateStatus = (typeof ESTIMATE_STATUSES)[number];
 export const ESTIMATE_STATUS_LABELS: Record<EstimateStatus, string> = {
@@ -28,6 +35,40 @@ export const ESTIMATE_STATUS_LABELS: Record<EstimateStatus, string> = {
   ACCEPTED: 'Accepted',
   REJECTED: 'Rejected',
   EXPIRED: 'Expired',
+};
+
+export const SALES_ORDER_STATUSES = ['DRAFT', 'CONFIRMED', 'CANCELLED'] as const;
+export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
+export const SALES_ORDER_STATUS_LABELS: Record<SalesOrderStatus, string> = {
+  DRAFT: 'Draft',
+  CONFIRMED: 'Confirmed',
+  CANCELLED: 'Cancelled',
+};
+
+/** Labels across both lives, for a caller holding a row of either type. */
+export const SALES_DOCUMENT_STATUS_LABELS: Record<EstimateStatus | SalesOrderStatus, string> = {
+  ...ESTIMATE_STATUS_LABELS,
+  ...SALES_ORDER_STATUS_LABELS,
+};
+
+/** True when a status belongs to an estimate's life. */
+export function isEstimateStatus(status: string): status is EstimateStatus {
+  return (ESTIMATE_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * REQ-W-06: every pushed document carries a visible sync state, and it is
+ * never inferred — only what the agent reported. `NOT_PUSHED` is a draft;
+ * `QUEUED` is a job waiting for the agent; `PUSHED` and `FAILED` are the
+ * agent's word, with the GUID or Tally's verbatim error beside it.
+ */
+export const SYNC_STATES = ['NOT_PUSHED', 'QUEUED', 'PUSHED', 'FAILED'] as const;
+export type DocumentSyncState = (typeof SYNC_STATES)[number];
+export const SYNC_STATE_LABELS: Record<DocumentSyncState, string> = {
+  NOT_PUSHED: 'Not in Tally',
+  QUEUED: 'Queued for Tally',
+  PUSHED: 'In Tally',
+  FAILED: 'Rejected by Tally',
 };
 
 /**
@@ -82,11 +123,14 @@ export interface SalesLineView {
   readonly taxAmount: string;
 }
 
+/** Every status a document row may carry; which apply is decided by `docType`. */
+export type SalesDocumentStatus = EstimateStatus | SalesOrderStatus;
+
 export interface EstimateView {
   readonly id: string;
   readonly docType: SalesDocumentType;
   readonly number: string;
-  readonly status: EstimateStatus;
+  readonly status: SalesDocumentStatus;
   readonly date: string;
   readonly validUntil: string | null;
   /** The Tally party, when the customer is one. */
@@ -104,6 +148,15 @@ export interface EstimateView {
   readonly discountTotal: string;
   readonly taxTotal: string;
   readonly grandTotal: string;
+  /** The estimate a sales order was converted from (REQ-W-03), when it was. */
+  readonly sourceDocumentId: string | null;
+  /** REQ-W-06. Always `NOT_PUSHED` on an estimate. */
+  readonly syncState: DocumentSyncState;
+  readonly remoteGuid: string | null;
+  readonly remoteVoucherNumber: string | null;
+  readonly lastPushedAt: string | null;
+  /** Tally's verbatim words when the push was rejected (REQ-T-01). */
+  readonly lastError: string | null;
   readonly lines: readonly SalesLineView[];
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -112,10 +165,15 @@ export interface EstimateView {
 /** The list row: the header without its lines. */
 export type EstimateSummary = Omit<EstimateView, 'lines'>;
 
+/** A sales order is the same shape; the type says which life it leads. */
+export type SalesDocumentView = EstimateView;
+export type SalesDocumentSummary = EstimateSummary;
+
 export const estimateListQuerySchema = pageQuerySchema.extend({
   /** Free text over number and customer name. */
   q: z.string().trim().min(1).max(80).optional(),
   status: z.enum(ESTIMATE_STATUSES).optional(),
+  syncState: z.enum(SYNC_STATES).optional(),
   partyId: z.uuid().optional(),
   companyId: z.uuid().optional(),
   dealId: z.uuid().optional(),
@@ -200,3 +258,84 @@ export interface ItemHistoryView {
   /** REQ-Y-07 in miniature: how fresh the voucher side is. */
   readonly vouchersAsOf: string | null;
 }
+
+
+// ------------------------------------------------------------ sales orders
+
+export const salesOrderListQuerySchema = pageQuerySchema.extend({
+  q: z.string().trim().min(1).max(80).optional(),
+  status: z.enum(SALES_ORDER_STATUSES).optional(),
+  syncState: z.enum(SYNC_STATES).optional(),
+  partyId: z.uuid().optional(),
+  companyId: z.uuid().optional(),
+  dealId: z.uuid().optional(),
+  ownerId: z.uuid().optional(),
+  sort: z.string().max(200).optional(),
+});
+export type SalesOrderListQuery = z.infer<typeof salesOrderListQuerySchema>;
+
+/**
+ * REQ-W-03: created fresh, or converted from an accepted estimate carrying
+ * its lines. A sales order pushes to Tally, so its customer must be a Tally
+ * party — Tally has no ledger for a prospect (REQ-U-03), and an order for
+ * one cannot land anywhere.
+ */
+export const createSalesOrderSchema = z.object({
+  partyId: z.uuid(),
+  date: z.iso.date().optional(),
+  dealId: z.uuid().nullish(),
+  ownerId: z.uuid().nullish(),
+  notes: z.string().trim().max(4000).nullish(),
+  terms: z.string().trim().max(4000).nullish(),
+  lines: z.array(salesLineInputSchema).min(1).max(200),
+});
+export type CreateSalesOrderInput = z.infer<typeof createSalesOrderSchema>;
+
+export const updateSalesOrderSchema = z.object({
+  partyId: z.uuid().optional(),
+  date: z.iso.date().optional(),
+  dealId: z.uuid().nullish(),
+  ownerId: z.uuid().nullish(),
+  notes: z.string().trim().max(4000).nullish(),
+  terms: z.string().trim().max(4000).nullish(),
+  lines: z.array(salesLineInputSchema).min(1).max(200).optional(),
+});
+export type UpdateSalesOrderInput = z.infer<typeof updateSalesOrderSchema>;
+
+export const convertEstimateSchema = z.object({
+  /** The Tally party the order is for; required when the estimate was addressed to a prospect. */
+  partyId: z.uuid().optional(),
+});
+export type ConvertEstimateInput = z.infer<typeof convertEstimateSchema>;
+
+/**
+ * What the agent renders into Tally XML (09 §3.3: "agent … generates Tally
+ * XML"). The API never writes XML; it hands the agent the document as data
+ * and the agent owns the wire format on the push path as it does on the
+ * pull path. `idempotencyKey` travels in the voucher's narration, and is
+ * what the agent queries Tally for before any retry.
+ */
+export const voucherPushPayloadSchema = z.object({
+  documentId: z.uuid(),
+  docType: z.enum(SALES_DOCUMENT_TYPES),
+  voucherType: z.string().min(1).max(60),
+  /** Vyuha's document number, carried as the voucher's reference. */
+  reference: z.string().min(1).max(60),
+  date: z.iso.date(),
+  partyName: z.string().min(1).max(200),
+  narration: z.string().max(4000),
+  idempotencyKey: z.string().min(1).max(120),
+  /** Set on an alter (REQ-W-07): the agent alters this voucher and never creates a second. */
+  remoteGuid: z.string().min(1).max(80).nullable(),
+  lines: z.array(
+    z.object({
+      stockItemName: z.string().min(1).max(200),
+      quantity: z.string().min(1).max(40),
+      unit: z.string().max(20).nullable(),
+      rate: z.string().min(1).max(40),
+      discountPct: z.string().max(10),
+      amount: z.string().min(1).max(40),
+    }),
+  ).min(1),
+});
+export type VoucherPushPayload = z.infer<typeof voucherPushPayloadSchema>;

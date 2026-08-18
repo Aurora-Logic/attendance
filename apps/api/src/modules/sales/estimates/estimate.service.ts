@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import {
-  DATA_SCOPES,
   DEFAULT_ESTIMATE_SORT,
   ESTIMATE_SORT_FIELDS,
   ESTIMATE_TRANSITIONS,
   PERMISSIONS,
+  isEstimateStatus,
   pageSlice,
   paginated,
   parseSort,
@@ -16,18 +16,17 @@ import {
   type ItemHistoryQuery,
   type ItemHistoryView,
   type Paginated,
-  type SalesLineInput,
   type UpdateEstimateInput,
 } from '@vyuha/shared';
-import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
-import { employees, organizations, parties, stockItems } from '../../../platform/db/schema/index.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { salesDocuments } from '../schema/index.js';
+import { orgToday, resolveDocumentCustomer, resolveDocumentLines, resolveDocumentOwner } from './document-support.js';
 import { EstimateRepository, type EstimateHeaderInput } from './estimate.repository.js';
 
 /**
@@ -83,16 +82,16 @@ export class EstimateService {
 
   async create(principal: Principal, input: CreateEstimateInput): Promise<EstimateView> {
     const repository = this.repository(principal);
-    const customer = await this.resolveCustomer(principal, input.partyId ?? null, input.companyId ?? null, input.customerName ?? null);
-    const lines = await this.resolveLines(principal, input.lines);
+    const customer = await resolveDocumentCustomer(this.db, principal, input.partyId ?? null, input.companyId ?? null, input.customerName ?? null);
+    const lines = await resolveDocumentLines(this.db, principal, input.lines);
     const header: EstimateHeaderInput = {
-      date: input.date ?? (await this.today(principal.orgId)),
+      date: input.date ?? (await orgToday(this.db, principal.orgId)),
       validUntil: input.validUntil ?? null,
       partyId: customer.partyId,
       companyId: customer.companyId,
       dealId: input.dealId ?? null,
       customerName: customer.name,
-      ownerId: await this.resolveOwner(principal, input.ownerId),
+      ownerId: await resolveDocumentOwner(this.db, this.scopes, GRANTS, principal, input.ownerId),
       notes: input.notes ?? null,
       terms: input.terms ?? null,
     };
@@ -119,7 +118,8 @@ export class EstimateService {
     }
     const patch: Partial<EstimateHeaderInput> = {};
     if (input.partyId !== undefined || input.companyId !== undefined || input.customerName !== undefined) {
-      const customer = await this.resolveCustomer(
+      const customer = await resolveDocumentCustomer(
+        this.db,
         principal,
         input.partyId === undefined ? existing.partyId : input.partyId,
         input.companyId === undefined ? existing.companyId : input.companyId,
@@ -135,9 +135,9 @@ export class EstimateService {
     if (input.notes !== undefined) patch.notes = input.notes;
     if (input.terms !== undefined) patch.terms = input.terms;
     if (input.ownerId !== undefined && input.ownerId !== existing.ownerId) {
-      patch.ownerId = await this.resolveOwner(principal, input.ownerId);
+      patch.ownerId = await resolveDocumentOwner(this.db, this.scopes, GRANTS, principal, input.ownerId);
     }
-    const lines = input.lines === undefined ? undefined : await this.resolveLines(principal, input.lines);
+    const lines = input.lines === undefined ? undefined : await resolveDocumentLines(this.db, principal, input.lines);
     const updated = await repository.updateHeader(id, patch, lines);
     if (!updated) throw AppError.notFound('Estimate', id);
     const estimate = await repository.view(SQL_TRUE, id);
@@ -156,11 +156,12 @@ export class EstimateService {
     const repository = this.repository(principal);
     const existing = await this.find(principal, id);
     if (input.status === existing.status) return existing;
-    if (!ESTIMATE_TRANSITIONS[existing.status].includes(input.status)) {
+    const allowed = isEstimateStatus(existing.status) ? ESTIMATE_TRANSITIONS[existing.status] : [];
+    if (!allowed.includes(input.status)) {
       throw AppError.conflict(`${existing.number} cannot go from ${existing.status.toLowerCase()} to ${input.status.toLowerCase()}.`, {
         from: existing.status,
         to: input.status,
-        allowed: ESTIMATE_TRANSITIONS[existing.status],
+        allowed,
       });
     }
     if (input.status !== 'DRAFT' && existing.lines.length === 0) {
@@ -212,85 +213,6 @@ export class EstimateService {
 
   private scope(principal: Principal): SQL {
     return this.scopes.resolve(principal, GRANTS, salesDocuments.ownerId).where;
-  }
-
-  private async resolveOwner(principal: Principal, requested: string | null | undefined): Promise<string | null> {
-    if (requested === undefined || requested === null) return principal.employeeId;
-    if (requested === principal.employeeId) return requested;
-    if (this.scopes.breadth(principal, GRANTS) !== DATA_SCOPES.ALL) {
-      throw AppError.forbidden('Only a holder of sales.document.view.all may assign a document to somebody else.');
-    }
-    const rows = await this.db
-      .select({ id: employees.id })
-      .from(employees)
-      .where(and(eq(employees.orgId, principal.orgId), eq(employees.id, requested), isNull(employees.deletedAt)))
-      .limit(1);
-    if (rows.length === 0) throw AppError.validation('The owner must be a current employee.', { ownerId: requested });
-    return requested;
-  }
-
-  /** A party wins over a company when both are given: the party is who invoices go to. */
-  private async resolveCustomer(
-    principal: Principal,
-    partyId: string | null,
-    companyId: string | null,
-    customerName: string | null,
-  ): Promise<{ partyId: string | null; companyId: string | null; name: string }> {
-    let name = customerName;
-    if (partyId !== null) {
-      const rows = await this.db
-        .select({ name: parties.name })
-        .from(parties)
-        .where(and(eq(parties.orgId, principal.orgId), eq(parties.id, partyId)))
-        .limit(1);
-      const party = rows[0];
-      if (party === undefined) throw AppError.validation('The party was not found.', { partyId });
-      name ??= party.name;
-    }
-    if (companyId !== null) {
-      const rows = await this.db.execute<{ name: string; party_id: string | null }>(
-        sql`SELECT name, party_id FROM crm_companies WHERE org_id = ${principal.orgId} AND id = ${companyId} AND deleted_at IS NULL LIMIT 1`,
-      );
-      const company = rows.rows[0];
-      if (company === undefined) throw AppError.validation('The company was not found.', { companyId });
-      name ??= company.name;
-    }
-    if (name === null || name === '') throw AppError.validation('A party, a company, or a customer name is required.');
-    return { partyId, companyId, name };
-  }
-
-  /**
-   * Lines with a stock item take the item's name as description when none
-   * was typed, and its GST rate as tax when none was given; a free-text line
-   * stands as typed. An item id from another organisation is refused.
-   */
-  private async resolveLines(principal: Principal, lines: readonly SalesLineInput[]): Promise<SalesLineInput[]> {
-    const resolved: SalesLineInput[] = [];
-    for (const line of lines) {
-      if (line.stockItemId === undefined || line.stockItemId === null) {
-        resolved.push({ ...line, stockItemId: null });
-        continue;
-      }
-      const rows = await this.db
-        .select({ name: stockItems.name, unit: stockItems.unit, gstRate: stockItems.gstRate })
-        .from(stockItems)
-        .where(and(eq(stockItems.orgId, principal.orgId), eq(stockItems.id, line.stockItemId)))
-        .limit(1);
-      const item = rows[0];
-      if (item === undefined) throw AppError.validation('A line names a stock item that was not found.', { stockItemId: line.stockItemId });
-      resolved.push({
-        ...line,
-        description: line.description === '' ? item.name : line.description,
-        unit: line.unit ?? item.unit,
-        taxPct: line.taxPct === '0' && item.gstRate !== null ? String(Number(item.gstRate)) : line.taxPct,
-      });
-    }
-    return resolved;
-  }
-
-  private async today(orgId: string): Promise<string> {
-    const rows = await this.db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, orgId)).limit(1);
-    return new Intl.DateTimeFormat('en-CA', { timeZone: rows[0]?.timezone ?? 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   }
 
   private repository(principal: Principal): EstimateRepository {

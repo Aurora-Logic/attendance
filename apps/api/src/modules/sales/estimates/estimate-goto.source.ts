@@ -1,5 +1,5 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
-import { ESTIMATE_STATUS_LABELS, PERMISSIONS, type GoToRecord } from '@vyuha/shared';
+import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, type GoToRecord } from '@vyuha/shared';
 
 import type { Principal } from '../../../platform/rbac/principal.js';
 import { GoToSourceRegistry, type GoToSource } from '../../../platform/search/go-to-source.registry.js';
@@ -26,7 +26,7 @@ export class EstimateGoToSource implements GoToSource, OnModuleInit {
       type: this.recordType,
       id: estimate.id,
       title: `Estimate ${estimate.number}`,
-      subtitle: [estimate.customerName, ESTIMATE_STATUS_LABELS[estimate.status], estimate.grandTotal].join(' · '),
+      subtitle: [estimate.customerName, SALES_DOCUMENT_STATUS_LABELS[estimate.status], estimate.grandTotal].join(' · '),
       code: estimate.number,
     }));
   }

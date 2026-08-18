@@ -1,16 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type {
-  AgentResultsAck,
-  AgentResultsInput,
-  PartyPullRow,
-  PriceListPullRow,
-  StockItemPullRow,
-  VoucherPullRow,
+import {
+  voucherPushPayloadSchema,
+  type AgentResultsAck,
+  type AgentResultsInput,
+  type PartyPullRow,
+  type PriceListPullRow,
+  type StockItemPullRow,
+  type VoucherPullRow,
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
 import { isUniqueViolation } from '../db/pg-error.js';
+import { PushOutcomeRegistry, type PushOutcome } from './push-outcome.registry.js';
 import { InjectDatabase, type Database, type Transaction } from '../db/db.provider.js';
 import { requireAgentCompany, type AgentPrincipal } from './agent-principal.js';
 
@@ -58,7 +60,10 @@ export interface WriterScope {
 export class SyncWriterService {
   private readonly logger = new Logger(SyncWriterService.name);
 
-  constructor(@InjectDatabase() private readonly db: Database) {}
+  constructor(
+    @InjectDatabase() private readonly db: Database,
+    private readonly pushOutcomes: PushOutcomeRegistry,
+  ) {}
 
   async ingest(agent: AgentPrincipal, input: AgentResultsInput): Promise<AgentResultsAck> {
     requireAgentCompany(agent, input.openCompanyGuid);
@@ -72,20 +77,29 @@ export class SyncWriterService {
        * put in its own predicate, at results time, because a lease can have
        * moved between poll and post.
        */
+      // A push job's entity_type is `voucher_push:<document id>` — one open
+      // push per document, not one per connection — so the results match on
+      // the kind before the colon.
       const jobs = await tx.execute<{ id: string; payload: unknown; created_at: Date }>(sql`
         SELECT id, payload, created_at FROM sync_jobs
          WHERE id = ${input.jobId}
            AND connection_id = ${agent.connectionId}
            AND state = 'CLAIMED'
            AND claimed_by = ${input.agentInstanceId}
-           AND entity_type = ${input.entityType}
+           AND split_part(entity_type, ':', 1) = ${input.entityType}
            FOR UPDATE
       `);
-      if (jobs.rows[0] === undefined) {
+      const job = jobs.rows[0];
+      if (job === undefined) {
         throw AppError.conflict(
           'These results match no claimed job for this connection and instance. The job may ' +
             'have been completed, failed, or claimed over; poll again rather than re-posting.',
         );
+      }
+
+      if (input.entityType === 'voucher_push') {
+        await this.settlePush(tx, agent, job.id, job.payload, input);
+        return { written: 0, lastAlterId: 0, pushed: true };
       }
 
       // The discriminant narrows `rows`; a chunk of stock items claiming to
@@ -144,7 +158,6 @@ export class SyncWriterService {
          * watermark; whatever does not is gone from Tally, and is marked,
          * never deleted -- anything pointing at it keeps resolving.
          */
-        const job = jobs.rows[0];
         const isFull =
           typeof job.payload === 'object' &&
           job.payload !== null &&
@@ -167,8 +180,13 @@ export class SyncWriterService {
         `);
       }
 
-      return { written: input.rows.length, lastAlterId: committedAlterId };
+      return { written: input.rows.length, lastAlterId: committedAlterId, pushed: false };
     });
+
+    if (written.pushed) {
+      this.logger.log({ msg: 'Push outcome settled', connectionId: agent.connectionId, jobId: input.jobId });
+      return { jobId: input.jobId, written: 0, lastAlterId: 0, jobState: 'DONE' };
+    }
 
     this.logger.log({
       msg: 'Pull chunk ingested',
@@ -371,6 +389,86 @@ export class SyncWriterService {
    * single one, because the mapping and the projection are different tables
    * with different lifetimes — and at 500 rows per chunk, clarity wins.
    */
+  /**
+   * 09 §3.3's three outcomes, in one transaction with the job: the journal
+   * row (direction PUSH, Tally's words verbatim), the job DONE or FAILED,
+   * `external_refs` anchored on the GUID Tally answered with (with the
+   * idempotency key beside it, REQ-W-07's alter target), an exception when
+   * Tally refused (REQ-T-01), and the owning module told through the
+   * registry so its document shows the state (REQ-W-06).
+   */
+  private async settlePush(
+    tx: Transaction,
+    agent: WriterScope,
+    jobId: string,
+    rawPayload: unknown,
+    input: Extract<AgentResultsInput, { entityType: 'voucher_push' }>,
+  ): Promise<void> {
+    const payload = voucherPushPayloadSchema.parse(rawPayload);
+    const outcome: PushOutcome = {
+      outcome: input.outcome,
+      remoteGuid: input.remoteGuid ?? null,
+      remoteVoucherNumber: input.remoteVoucherNumber ?? null,
+      errorText: input.errorText ?? null,
+    };
+    if (outcome.outcome !== 'rejected' && outcome.remoteGuid === null) {
+      throw AppError.validation('An accepted push must carry the GUID Tally answered with.', {
+        fields: [{ path: 'remoteGuid', message: 'is required unless rejected' }],
+      });
+    }
+    if (outcome.outcome === 'rejected' && outcome.errorText === null) {
+      throw AppError.validation("A rejected push must carry Tally's error text.", {
+        fields: [{ path: 'errorText', message: 'is required when rejected' }],
+      });
+    }
+
+    await tx.execute(sql`
+      INSERT INTO sync_journal
+        (org_id, connection_id, direction, entity_type, request_hash, response_hash,
+         request_body, response_body, result, duration_ms)
+      VALUES
+        (${agent.orgId}, ${agent.connectionId}, 'PUSH', ${payload.docType},
+         ${input.requestHash}, ${input.responseHash},
+         ${input.requestBody ?? null}, ${input.responseBody ?? null},
+         ${outcome.outcome === 'rejected' ? `rejected: ${outcome.errorText ?? ''}` : `${outcome.outcome}: ${outcome.remoteGuid ?? ''}`},
+         ${input.durationMs ?? null})
+    `);
+
+    if (outcome.outcome === 'rejected') {
+      await tx.execute(sql`UPDATE sync_jobs SET state = 'FAILED', updated_at = now() WHERE id = ${jobId}`);
+      // REQ-T-01: Tally's verbatim words, against the document, for a person.
+      await tx.execute(sql`
+        INSERT INTO sync_exceptions (org_id, connection_id, kind, entity_type, entity_id, tally_error)
+        VALUES (${agent.orgId}, ${agent.connectionId}, 'REJECTION', ${payload.docType}, ${payload.documentId},
+                ${`${payload.reference}: ${outcome.errorText ?? ''}`})
+      `);
+    } else {
+      await tx.execute(sql`UPDATE sync_jobs SET state = 'DONE', updated_at = now() WHERE id = ${jobId}`);
+      await tx.execute(sql`
+        INSERT INTO external_refs
+          (org_id, system, entity_type, external_guid, internal_type, internal_id, connection_id,
+           remote_voucher_number, remote_voucher_type, sync_state, idempotency_key, last_pushed_at)
+        VALUES
+          (${agent.orgId}, 'TALLY', 'voucher', ${outcome.remoteGuid}, ${payload.docType}, ${payload.documentId},
+           ${agent.connectionId}, ${outcome.remoteVoucherNumber}, ${payload.voucherType}, 'pushed', ${payload.idempotencyKey}, now())
+        ON CONFLICT (org_id, system, internal_type, internal_id) WHERE deleted_at IS NULL
+        DO UPDATE SET external_guid = EXCLUDED.external_guid,
+                      remote_voucher_number = EXCLUDED.remote_voucher_number,
+                      sync_state = 'pushed',
+                      idempotency_key = EXCLUDED.idempotency_key,
+                      last_pushed_at = now(),
+                      last_error = NULL,
+                      updated_at = now()
+      `);
+    }
+
+    const handler = this.pushOutcomes.find(payload.docType);
+    if (handler === null) {
+      throw AppError.conflict(`No module handles push outcomes for ${payload.docType}.`);
+    }
+    await handler.onOutcome(tx, agent.orgId, payload, outcome);
+  }
+
   private async upsertParty(
     tx: Transaction,
     agent: WriterScope,
