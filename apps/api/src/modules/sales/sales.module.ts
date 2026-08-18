@@ -10,7 +10,9 @@ import { FulfilmentService } from './fulfilment/fulfilment.service.js';
 import { DispatchController } from './dispatch/dispatch.controller.js';
 import { DispatchService } from './dispatch/dispatch.service.js';
 import { SalesReportSource } from './reports/sales-report.source.js';
+import { ApprovalModule } from '../../platform/approvals/approvals.module.js';
 import { InvoiceController } from './invoices/invoice.controller.js';
+import { SalesOrderApprovalHandler } from './orders/sales-order-approval.handler.js';
 import { InvoiceService } from './invoices/invoice.service.js';
 
 /**
@@ -20,7 +22,8 @@ import { InvoiceService } from './invoices/invoice.service.js';
  * ESLint keeps it from reaching into `modules/crm` or `modules/purchase`.
  */
 @Module({
+  imports: [ApprovalModule],
   controllers: [EstimateController, SalesOrderController, FulfilmentController, DispatchController, InvoiceController],
-  providers: [EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, SalesReportSource, InvoiceService],
+  providers: [EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, SalesReportSource, InvoiceService, SalesOrderApprovalHandler],
 })
 export class SalesModule {}

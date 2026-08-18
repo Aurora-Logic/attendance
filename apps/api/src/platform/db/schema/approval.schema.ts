@@ -22,6 +22,7 @@ export const approvalTypeEnum = pgEnum('approval_type', [
   'FLAGGED_PUNCH',
   'DEVICE_REBIND',
   'PURCHASE_ORDER',
+  'SALES_DISCOUNT',
 ]);
 
 export const approvalStatusEnum = pgEnum('approval_status', [

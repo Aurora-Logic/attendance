@@ -187,7 +187,7 @@ export class PurchaseOrderService implements OnModuleInit {
     const existing = await this.find(principal, id);
     if (existing.status !== 'DRAFT') throw AppError.conflict(`${existing.number} is already ${existing.status.toLowerCase()}.`);
     if (existing.approvalRequired && !hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) {
-      const approvers = await this.approvers(principal.orgId);
+      const approvers = await this.approvers(principal.orgId, principal.userId);
       const ctx = orgContextOf(principal);
       await this.db.transaction(async (tx) => {
         const approval = await this.approvals.raise(
@@ -282,8 +282,8 @@ export class PurchaseOrderService implements OnModuleInit {
     `);
   }
 
-  /** Every active holder of purchase.document.approve; the framework drops the requester (REQ-I-05). */
-  private async approvers(orgId: string): Promise<string[]> {
+  /** The route for a PO approval: one level, the first holder of purchase.document.approve who is not the requester. */
+  private async approvers(orgId: string, requesterUserId: string): Promise<string[]> {
     const rows = await this.db.execute<{ user_id: string }>(sql`
       SELECT DISTINCT u.id AS user_id, u.email
         FROM users u
@@ -294,7 +294,11 @@ export class PurchaseOrderService implements OnModuleInit {
        WHERE u.org_id = ${orgId} AND u.deleted_at IS NULL AND u.status = 'ACTIVE' AND p.key = ${PERMISSIONS.PURCHASE_DOCUMENT_APPROVE}
        ORDER BY u.email
     `);
-    return rows.rows.map((r) => r.user_id);
+    // One level, not one per holder: the framework reads its route as a chain
+    // of levels, so listing every holder would make each approve in turn.
+    // The first holder who is not the requester is the level; every other
+    // holder acts through the override key and browses through scope.all.
+    return rows.rows.map((r) => r.user_id).filter((userId) => userId !== requesterUserId).slice(0, 1);
   }
 
   /** REQ-X-18 / REQ-AA-26: a person sent it and says so. */

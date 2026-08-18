@@ -1,6 +1,7 @@
 import {
   SYSTEM_ROLES,
   type AgentClaimResponse,
+  type ApprovalRequestSummary,
   type AwaitingInvoiceEntry,
   type DispatchView,
   type EstimateView,
@@ -616,6 +617,74 @@ describe('invoices raised here (D-38: both places, kept in sync)', () => {
     const cancel = await harness.post<ErrorBody>(`/sales/invoices/${invoiceId}/cancel`, { token: salesToken });
     expect(cancel.status).toBe(409);
     expect(await harness.waitForAuditAction('sales.invoice.confirmed')).toBe(true);
+  });
+});
+
+describe('discount approval through the inbox (08 REQ-W-08)', () => {
+  let discountedId = '';
+
+  it('the threshold is a sales setting; a discount past it waits in the inbox, and the salesperson cannot approve it', async () => {
+    const asSales = await harness.put<ErrorBody>('/sales/settings', { token: salesToken, body: { discountApprovalPct: 5 } });
+    expect(asSales.status).toBe(403);
+    const written = await harness.put<{ discountApprovalPct: number | null }>('/sales/settings', { token: managerToken, body: { discountApprovalPct: 5 } });
+    expect(written.body).toEqual({ discountApprovalPct: 5 });
+
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '2', rate: '4000', discountPct: '12' }] },
+    });
+    discountedId = created.body.id;
+    const confirmed = await harness.post<SalesDocumentView>(`/sales/orders/${discountedId}/confirm`, { token: salesToken });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.status).toBe('PENDING_APPROVAL');
+    expect(confirmed.body.syncState).toBe('NOT_PUSHED');
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: managerToken });
+    const request = inbox.body.data.find((r) => r.type === 'SALES_DISCOUNT' && r.subject.startsWith(created.body.number));
+    expect(request?.status).toBe('PENDING');
+    expect(request?.subject).toContain('12% off');
+    const self = await harness.post<ErrorBody>(`/sales/orders/${discountedId}/approve`, { token: salesToken });
+    expect(self.status).toBe(403);
+    // Editing while it waits is refused like any non-draft.
+    const edit = await harness.patch<ErrorBody>(`/sales/orders/${discountedId}`, { token: salesToken, body: { notes: 'x' } });
+    expect(edit.status).toBe(409);
+  });
+
+  it('the manager approves from the order; it confirms and queues; a manager confirming their own steep discount never waits', async () => {
+    const approved = await harness.post<SalesDocumentView>(`/sales/orders/${discountedId}/approve`, { token: managerToken });
+    expect(approved.status).toBe(200);
+    expect(approved.body.status).toBe('CONFIRMED');
+    expect(approved.body.syncState).toBe('QUEUED');
+    expect(await harness.waitForAuditAction('sales.order.discount_approved')).toBe(true);
+
+    const own = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: managerToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '4000', discountPct: '20' }] },
+    });
+    const straight = await harness.post<SalesDocumentView>(`/sales/orders/${own.body.id}/confirm`, { token: managerToken });
+    expect(straight.body.status).toBe('CONFIRMED');
+  });
+
+  it('a rejection in the inbox returns the order to draft; cancelling a waiting order withdraws its request', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '2', rate: '4000', discountPct: '9' }] },
+    });
+    await harness.post(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+    let inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: managerToken });
+    let request = inbox.body.data.find((r) => r.type === 'SALES_DISCOUNT' && r.status === 'PENDING');
+    const rejected = await harness.post(`/approvals/${request?.id ?? ''}/reject`, { token: managerToken, body: { reason: 'Nine percent is too deep for a two-box order' } });
+    expect(rejected.status).toBe(201);
+    const back = await harness.get<SalesDocumentView>(`/sales/orders/${created.body.id}`, { token: salesToken });
+    expect(back.body.status).toBe('DRAFT');
+
+    await harness.post(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+    const cancelled = await harness.post<SalesDocumentView>(`/sales/orders/${created.body.id}/cancel`, { token: salesToken });
+    expect(cancelled.body.status).toBe('CANCELLED');
+    inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: managerToken });
+    request = inbox.body.data.find((r) => r.type === 'SALES_DISCOUNT' && r.status === 'PENDING');
+    expect(request).toBeUndefined();
+    // Back to no threshold for the tests that follow.
+    await harness.put('/sales/settings', { token: managerToken, body: { discountApprovalPct: null } });
   });
 });
 

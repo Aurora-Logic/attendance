@@ -129,6 +129,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
   const act = useSalesOrderAction();
   const shortClose = useShortCloseOrder();
   const canAlter = usePermission(PERMISSIONS.SALES_DOCUMENT_ALTER);
+  const canApproveDiscount = usePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE);
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const canOverrideCredit = usePermission(PERMISSIONS.SALES_CREDIT_OVERRIDE);
   const canSeeMasters = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
@@ -189,7 +190,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
     });
   }
 
-  function run(action: 'confirm' | 'push' | 'cancel', creditOverrideReason?: string) {
+  function run(action: 'confirm' | 'approve' | 'push' | 'cancel', creditOverrideReason?: string) {
     if (initial.id === undefined) return;
     act.mutate(
       { id: initial.id, action, ...(creditOverrideReason === undefined ? {} : { body: { creditOverrideReason } }) },
@@ -200,10 +201,17 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
             title:
               action === 'cancel'
                 ? `${saved.number} cancelled`
-                : saved.syncState === 'QUEUED'
-                  ? `${saved.number} queued for Tally`
-                  : `${saved.number} confirmed`,
-            description: action !== 'cancel' && saved.syncState === 'NOT_PUSHED' ? 'No agent connection can carry it yet; push it when one is issued.' : undefined,
+                : saved.status === 'PENDING_APPROVAL'
+                  ? `${saved.number} sent for approval`
+                  : saved.syncState === 'QUEUED'
+                    ? `${saved.number} queued for Tally`
+                    : `${saved.number} confirmed`,
+            description:
+              saved.status === 'PENDING_APPROVAL'
+                ? 'The discount is past the threshold; a Sales manager decides it in the Approvals inbox (REQ-W-08).'
+                : action !== 'cancel' && saved.syncState === 'NOT_PUSHED'
+                  ? 'No agent connection can carry it yet; push it when one is issued.'
+                  : undefined,
           });
           onClose();
         },
@@ -240,7 +248,9 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
                 ? 'Queued: the agent will push it on its next poll and report back.'
                 : isDraft
                   ? 'A draft: edit freely, then confirm to queue it for Tally.'
-                  : `${SALES_DOCUMENT_STATUS_LABELS[draft.status]}.`}
+                  : draft.status === 'PENDING_APPROVAL'
+                    ? 'Awaiting approval: the discount is past the threshold. Decide it here or in the Approvals inbox (REQ-W-08).'
+                    : `${SALES_DOCUMENT_STATUS_LABELS[draft.status]}.`}
         </SheetDescription>
       </SheetHeader>
 
@@ -396,10 +406,21 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
       </Form>
 
       <SheetFooter className="shrink-0 flex-row flex-wrap justify-end gap-2 border-t">
-        {!isNew && isDraft ? (
+        {!isNew && (isDraft || draft.status === 'PENDING_APPROVAL') ? (
           <Button variant="outline" className="mr-auto" disabled={busy} onClick={() => { run('cancel'); }}>
             <XCircleIcon data-icon="inline-start" />
             Cancel order
+          </Button>
+        ) : null}
+        {!isNew && draft.status === 'PENDING_APPROVAL' && canApproveDiscount ? (
+          <Button variant="outline" disabled={busy} onClick={() => { run('approve'); }}>
+            <CheckIcon data-icon="inline-start" />
+            Approve discount
+          </Button>
+        ) : null}
+        {!isNew && draft.status === 'PENDING_APPROVAL' && !canApproveDiscount ? (
+          <Button variant="outline" disabled={busy} render={<Link to="/approvals" />}>
+            Open approvals
           </Button>
         ) : null}
         {!isNew && isDraft && !dirty ? (

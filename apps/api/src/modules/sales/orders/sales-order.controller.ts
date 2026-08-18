@@ -1,10 +1,12 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import {
   PERMISSIONS,
   confirmSalesOrderSchema,
   convertEstimateSchema,
   createSalesOrderSchema,
   salesOrderListQuerySchema,
+  salesSettingsSchema,
+  type SalesSettings,
   updateSalesOrderSchema,
   type Paginated,
   type SalesDocumentSummary,
@@ -22,6 +24,7 @@ class CreateSalesOrderDto extends createZodDto(createSalesOrderSchema) {}
 class UpdateSalesOrderDto extends createZodDto(updateSalesOrderSchema) {}
 class ConvertEstimateDto extends createZodDto(convertEstimateSchema) {}
 class ConfirmSalesOrderDto extends createZodDto(confirmSalesOrderSchema) {}
+class SalesSettingsDto extends createZodDto(salesSettingsSchema) {}
 
 const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL] as const;
 
@@ -75,6 +78,27 @@ export class SalesOrderController {
   @HttpCode(HttpStatus.OK)
   confirm(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() body: ConfirmSalesOrderDto): Promise<SalesDocumentView> {
     return this.orders.confirm(principal, id, body);
+  }
+
+  /** REQ-W-08: the button on the order decides the same inbox request. */
+  @Post('orders/:id/approve')
+  @RequirePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE)
+  @HttpCode(HttpStatus.OK)
+  approve(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<SalesDocumentView> {
+    return this.orders.approve(principal, id);
+  }
+
+  /** REQ-W-08: the discount threshold; read by anyone who may see orders, set by a discount approver. */
+  @Get('settings')
+  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL)
+  readSettings(@CurrentUser() principal: Principal): Promise<SalesSettings> {
+    return this.orders.readSettings(principal.orgId);
+  }
+
+  @Put('settings')
+  @RequirePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE)
+  writeSettings(@CurrentUser() principal: Principal, @Body() body: SalesSettingsDto): Promise<SalesSettings> {
+    return this.orders.writeSettings(principal, body);
   }
 
   /** REQ-W-09 / REQ-Y-03: the party's credit position, as the block would state it. */

@@ -20,7 +20,7 @@ import { employees, files, organizations, parties, stockItems, vouchers } from '
 
 export const salesDocumentTypeEnum = pgEnum('sales_document_type', ['ESTIMATE', 'SALES_ORDER', 'INVOICE']);
 /** One status enum for every document type; which values a type may hold is the service's table. */
-export const estimateStatusEnum = pgEnum('estimate_status', ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CONFIRMED', 'CANCELLED']);
+export const estimateStatusEnum = pgEnum('estimate_status', ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CONFIRMED', 'CANCELLED', 'PENDING_APPROVAL']);
 /** REQ-W-06: what the agent reported, never inferred. */
 export const documentSyncStateEnum = pgEnum('document_sync_state', ['NOT_PUSHED', 'QUEUED', 'PUSHED', 'FAILED']);
 
@@ -65,6 +65,8 @@ export const salesDocuments = pgTable(
     lastError: text('last_error'),
     /** REQ-AA-15: when accounts was told this order has waited too long; once per order. */
     invoiceReminderSentAt: timestamp('invoice_reminder_sent_at', { withTimezone: true }),
+    /** REQ-W-08: the approval request an over-threshold discount waits on, decided in the inbox. */
+    approvalRequestId: uuid('approval_request_id'),
     /** REQ-AA-05: the balance written off, by whom, why. Never silent. */
     shortClosedAt: timestamp('short_closed_at', { withTimezone: true }),
     shortCloseReason: text('short_close_reason'),

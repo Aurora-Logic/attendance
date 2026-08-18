@@ -84,6 +84,13 @@ export const APPROVAL_SUBJECT_KEYS: Partial<
     raise: [PERMISSIONS.PURCHASE_DOCUMENT_CREATE],
     scope: { all: [PERMISSIONS.PURCHASE_DOCUMENT_APPROVE] },
   },
+  // 08 REQ-W-08: a discount past the threshold is a Sales manager's call.
+  sales_order: {
+    act: [PERMISSIONS.SALES_DISCOUNT_APPROVE],
+    override: [PERMISSIONS.SALES_DISCOUNT_APPROVE],
+    raise: [PERMISSIONS.SALES_DOCUMENT_CREATE],
+    scope: { all: [PERMISSIONS.SALES_DISCOUNT_APPROVE] },
+  },
 };
 
 /**

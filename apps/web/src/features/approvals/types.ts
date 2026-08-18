@@ -66,6 +66,7 @@ export const APPROVAL_TYPE_LABELS: Record<ApprovalType, string> = {
   FLAGGED_PUNCH: 'Flagged punch',
   DEVICE_REBIND: 'Device rebind',
   PURCHASE_ORDER: 'Purchase order',
+  SALES_DISCOUNT: 'Sales discount',
 };
 
 export const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {

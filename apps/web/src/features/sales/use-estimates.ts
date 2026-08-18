@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
-import type { ConfirmSalesOrderInput, CreateEstimateInput, EstimateStatus, SalesLineInput, UpdateEstimateInput } from '@vyuha/shared';
+import { salesSettingsSchema, type ConfirmSalesOrderInput, type CreateEstimateInput, type EstimateStatus, type SalesLineInput, type SalesOrderStatus, type SalesSettings, type UpdateEstimateInput } from '@vyuha/shared';
 
 import { apiRequest } from '@/lib/api/client';
 import { parseOrThrow } from '@/lib/api/parse';
@@ -138,7 +138,7 @@ export function useDeleteEstimate(): UseMutationResult<void, Error, string> {
 export interface SalesOrderFilters {
   page: number;
   q?: string;
-  status?: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  status?: SalesOrderStatus;
   syncState?: 'NOT_PUSHED' | 'QUEUED' | 'PUSHED' | 'FAILED';
   dealId?: string;
   partyId?: string;
@@ -207,8 +207,8 @@ export function useSaveSalesOrder(): UseMutationResult<Estimate, Error, Estimate
   });
 }
 
-/** Confirm, push, cancel: one mutation, the action named. Confirm may carry the credit override (REQ-W-09). */
-export function useSalesOrderAction(): UseMutationResult<Estimate, Error, { id: string; action: 'confirm' | 'push' | 'cancel'; body?: ConfirmSalesOrderInput }> {
+/** Confirm, approve, push, cancel: one mutation, the action named. Confirm may carry the credit override (REQ-W-09); approve decides the discount request (REQ-W-08). */
+export function useSalesOrderAction(): UseMutationResult<Estimate, Error, { id: string; action: 'confirm' | 'approve' | 'push' | 'cancel'; body?: ConfirmSalesOrderInput }> {
   const invalidate = useInvalidateSales();
   return useMutation({
     mutationFn: async ({ id, action, body }) => {
@@ -244,5 +244,31 @@ export function useConvertEstimate(): UseMutationResult<Estimate, Error, { estim
       return parseOrThrow(estimateSchema, response, 'sales order');
     },
     onSuccess: invalidate,
+  });
+}
+
+/** REQ-W-08: the discount threshold, read beside the orders it decides. */
+export function useSalesSettings(options: { enabled?: boolean } = {}): UseQueryResult<SalesSettings, Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['sales', 'settings'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/sales/settings', { signal });
+      return parseOrThrow(salesSettingsSchema, body, 'sales settings');
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useSaveSalesSettings(): UseMutationResult<SalesSettings, Error, SalesSettings> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input) => {
+      const response = await apiRequest<unknown>('/sales/settings', { method: 'PUT', body: input });
+      return parseOrThrow(salesSettingsSchema, response, 'sales settings');
+    },
+    onSuccess: (saved) => {
+      client.setQueryData(['sales', 'settings'], saved);
+    },
   });
 }

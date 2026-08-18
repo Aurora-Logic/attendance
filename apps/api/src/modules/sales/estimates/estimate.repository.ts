@@ -59,7 +59,7 @@ export interface EstimateListFilters {
 
 export interface EstimateHeaderInput {
   /** Only on create; the estimate's DRAFT or an order's DRAFT. */
-  status?: EstimateStatus | 'CONFIRMED' | 'CANCELLED';
+  status?: EstimateStatus | 'PENDING_APPROVAL' | 'CONFIRMED' | 'CANCELLED';
   sourceDocumentId?: string | null;
   date: string;
   validUntil: string | null;
@@ -275,7 +275,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
     return row === undefined ? null : { id: row.id, docType: row.docType };
   }
 
-  async setStatus(id: string, status: EstimateStatus | 'CONFIRMED' | 'CANCELLED'): Promise<boolean> {
+  async setStatus(id: string, status: EstimateStatus | 'PENDING_APPROVAL' | 'CONFIRMED' | 'CANCELLED'): Promise<boolean> {
     const rows = await this.db
       .update(salesDocuments)
       .set({ status, updatedAt: new Date(), updatedBy: this.ctx.actorUserId })
@@ -458,7 +458,7 @@ interface HeaderRow {
   id: string;
   docType: SalesDocumentType;
   number: string;
-  status: EstimateStatus | 'CONFIRMED' | 'CANCELLED';
+  status: EstimateStatus | 'PENDING_APPROVAL' | 'CONFIRMED' | 'CANCELLED';
   date: string;
   validUntil: string | null;
   partyId: string | null;

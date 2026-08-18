@@ -1,8 +1,10 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import {
+  DEFAULT_SALES_SETTINGS,
   ERROR_CODES,
   type ConfirmSalesOrderInput,
   type CreditPosition,
+  type SalesSettings,
   DEFAULT_ESTIMATE_SORT,
   ESTIMATE_SORT_FIELDS,
   PERMISSIONS,
@@ -24,6 +26,9 @@ import { sql, type SQL } from 'drizzle-orm';
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database, type Transaction } from '../../../platform/db/db.provider.js';
+import { ApprovalService } from '../../../platform/approvals/approval.service.js';
+import type { ApprovalSubjectDecision, ApprovalSubjectSettlement } from '../../../platform/approvals/approval-subject.registry.js';
+import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { PushOutcomeRegistry, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
@@ -51,6 +56,9 @@ const GRANTS: ScopeGrants = {
 };
 
 const SQL_TRUE = sql`true`;
+const SETTING_DISCOUNT_PCT = 'sales.discountApprovalPct';
+/** `snake_case`, the approval framework's spelling (see APPROVAL_SUBJECT_TYPES). */
+export const SALES_ORDER_SUBJECT_TYPE = 'sales_order';
 const DOC_TYPE = 'SALES_ORDER' as const;
 
 @Injectable()
@@ -62,6 +70,7 @@ export class SalesOrderService implements OnModuleInit {
     private readonly pushOutcomes: PushOutcomeRegistry,
     private readonly pushQueue: PushQueueService,
     private readonly requirements: RequirementsService,
+    private readonly approvals: ApprovalService,
   ) {}
 
   onModuleInit(): void {
@@ -203,19 +212,129 @@ export class SalesOrderService implements OnModuleInit {
       }
       this.auditContext.record({ action: 'sales.order.credit_overridden', entityType: 'sales_document', entityId: id, before: { position }, after: { reason, orderTotal: existing.grandTotal } });
     }
+    // REQ-W-08: a discount past the threshold waits in the approvals inbox for
+    // sales.discount.approve, unless the confirmer holds the key themselves.
+    const settings = await this.readSettings(principal.orgId);
+    const steepest = Math.max(0, ...existing.lines.map((l) => Number(l.discountPct)));
+    if (settings.discountApprovalPct !== null && steepest > settings.discountApprovalPct && !hasPermission(principal, PERMISSIONS.SALES_DISCOUNT_APPROVE)) {
+      const approvers = await this.approvers(principal.orgId, principal.userId);
+      const ctx = orgContextOf(principal);
+      await this.db.transaction(async (tx) => {
+        const approval = await this.approvals.raise(
+          ctx,
+          {
+            type: 'SALES_DISCOUNT',
+            subjectType: SALES_ORDER_SUBJECT_TYPE,
+            subjectId: id,
+            subject: `${existing.number} · ${existing.customerName} · ${String(steepest)}% off · ${existing.grandTotal}`,
+            requesterUserId: principal.userId,
+            approverUserIds: approvers,
+          },
+          tx,
+        );
+        await tx.execute(sql`UPDATE sales_documents SET status = 'PENDING_APPROVAL', approval_request_id = ${approval.id}, updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
+      });
+      this.auditContext.record({ action: 'sales.order.submitted_for_approval', entityType: 'sales_document', entityId: id, before: auditView(existing), after: { steepestDiscountPct: steepest, threshold: settings.discountApprovalPct } });
+      return this.find(principal, id);
+    }
+    return this.release(principal, existing);
+  }
+
+  /** The order becomes confirmed and its voucher is queued — from confirm directly, or from the inbox's decision. */
+  private async release(principal: Principal, existing: SalesDocumentView): Promise<SalesDocumentView> {
     const repository = this.repository(principal);
-    await repository.setStatus(id, 'CONFIRMED');
+    await repository.setStatus(existing.id, 'CONFIRMED');
     const queued = await this.enqueuePush(principal, { ...existing, status: 'CONFIRMED' }, false);
-    const order = await repository.view(SQL_TRUE, id);
-    if (order === null) throw AppError.notFound('Sales order', id);
+    const order = await repository.view(SQL_TRUE, existing.id);
+    if (order === null) throw AppError.notFound('Sales order', existing.id);
     this.auditContext.record({
       action: 'sales.order.confirmed',
       entityType: 'sales_document',
-      entityId: id,
+      entityId: existing.id,
       before: auditView(existing),
       after: { ...auditView(order), queued },
     });
     return order;
+  }
+
+  /** The button on the order itself decides the inbox request, so the framework's rules hold whichever door the approver came through. */
+  async approve(principal: Principal, id: string): Promise<SalesDocumentView> {
+    if (!hasPermission(principal, PERMISSIONS.SALES_DISCOUNT_APPROVE)) throw AppError.forbidden('Approving a discount needs sales.discount.approve.');
+    const existing = await this.find(principal, id);
+    if (existing.status !== 'PENDING_APPROVAL') throw AppError.conflict(`${existing.number} is not awaiting approval.`);
+    const row = await this.db.execute<{ approval_request_id: string | null }>(sql`SELECT approval_request_id FROM sales_documents WHERE id = ${id}`);
+    const approvalRequestId = row.rows[0]?.approval_request_id ?? null;
+    if (approvalRequestId === null) return this.release(principal, existing);
+    await this.approvals.decide(principal, approvalRequestId, 'APPROVE', null);
+    return this.find(principal, id);
+  }
+
+  /** Called by the framework through the registry, inside its transaction. */
+  async applyApprovalDecision(ctx: OrgContext, decision: ApprovalSubjectDecision, tx: Database): Promise<ApprovalSubjectSettlement | null> {
+    const row = await tx.execute<{ id: string; status: string; number: string }>(sql`
+      SELECT id, status, number FROM sales_documents WHERE org_id = ${ctx.orgId} AND id = ${decision.subjectId} AND doc_type = 'SALES_ORDER' AND deleted_at IS NULL
+    `);
+    const order = row.rows[0];
+    if (order === undefined) throw AppError.notFound('Sales order', decision.subjectId);
+    if (decision.status === 'ESCALATED') return null;
+    if (order.status !== 'PENDING_APPROVAL') throw AppError.conflict(`${order.number} is ${order.status.toLowerCase()}, not awaiting approval.`);
+    if (decision.status === 'REJECTED') {
+      await tx.execute(sql`UPDATE sales_documents SET status = 'DRAFT', approval_request_id = NULL, updated_at = now(), updated_by = ${decision.decidedByUserId} WHERE id = ${order.id}`);
+      return () => {
+        this.auditContext.record({ action: 'sales.order.discount_rejected', entityType: 'sales_document', entityId: order.id, before: null, after: { reason: decision.reason } });
+        return Promise.resolve();
+      };
+    }
+    await tx.execute(sql`UPDATE sales_documents SET status = 'CONFIRMED', updated_at = now(), updated_by = ${decision.decidedByUserId} WHERE id = ${order.id}`);
+    return async () => {
+      // The push needs a principal-shaped actor for its audit; the decider is the actor.
+      const view = await new EstimateRepository(this.db, { orgId: ctx.orgId, actorUserId: decision.decidedByUserId }, 'SALES_ORDER').view(SQL_TRUE, order.id);
+      if (view !== null) await this.enqueuePush({ orgId: ctx.orgId, userId: decision.decidedByUserId } as Principal, view, false);
+      this.auditContext.record({ action: 'sales.order.discount_approved', entityType: 'sales_document', entityId: order.id, before: null, after: { approvalRequestId: decision.approvalRequestId } });
+    };
+  }
+
+  /** The route for a discount approval: one level, the first holder of sales.discount.approve who is not the requester. */
+  private async approvers(orgId: string, requesterUserId: string): Promise<string[]> {
+    const rows = await this.db.execute<{ user_id: string }>(sql`
+      SELECT DISTINCT u.id AS user_id, u.email
+        FROM users u
+        JOIN user_roles ur ON ur.user_id = u.id
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        JOIN permissions p ON p.id = rp.permission_id
+        JOIN roles r ON r.id = ur.role_id AND r.deleted_at IS NULL
+       WHERE u.org_id = ${orgId} AND u.deleted_at IS NULL AND u.status = 'ACTIVE' AND p.key = ${PERMISSIONS.SALES_DISCOUNT_APPROVE}
+       ORDER BY u.email
+    `);
+    // One level, not one per holder: the framework reads its route as a chain
+    // of levels, so listing every holder would make each approve in turn.
+    // The first holder who is not the requester is the level; every other
+    // holder acts through the override key and browses through scope.all.
+    return rows.rows.map((r) => r.user_id).filter((userId) => userId !== requesterUserId).slice(0, 1);
+  }
+
+  // ------------------------------------------------------------ settings
+
+  async readSettings(orgId: string): Promise<SalesSettings> {
+    const rows = await this.db.execute<{ value: unknown }>(sql`
+      SELECT value FROM settings WHERE org_id = ${orgId} AND scope = 'ORG' AND key = ${SETTING_DISCOUNT_PCT} AND deleted_at IS NULL LIMIT 1
+    `);
+    const raw = rows.rows[0]?.value;
+    const parsed = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : null;
+    return { discountApprovalPct: parsed === null || !Number.isFinite(parsed) ? DEFAULT_SALES_SETTINGS.discountApprovalPct : parsed };
+  }
+
+  async writeSettings(principal: Principal, input: SalesSettings): Promise<SalesSettings> {
+    const before = await this.readSettings(principal.orgId);
+    await this.db.execute(sql`
+      INSERT INTO settings (org_id, scope, scope_id, key, value, created_by, updated_by)
+      VALUES (${principal.orgId}, 'ORG', NULL, ${SETTING_DISCOUNT_PCT}, ${JSON.stringify(input.discountApprovalPct)}::jsonb, ${principal.userId}, ${principal.userId})
+      ON CONFLICT (org_id, scope, (coalesce(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)), key) WHERE deleted_at IS NULL
+      DO UPDATE SET value = EXCLUDED.value, updated_at = now(), updated_by = EXCLUDED.updated_by
+    `);
+    const after = await this.readSettings(principal.orgId);
+    this.auditContext.record({ action: 'sales.settings.updated', entityType: 'organization', entityId: principal.orgId, before: { ...before }, after: { ...after } });
+    return after;
   }
 
   /** Queue (or re-queue) the push for a confirmed order that is not in Tally. */
@@ -257,8 +376,13 @@ export class SalesOrderService implements OnModuleInit {
 
   async cancel(principal: Principal, id: string): Promise<SalesDocumentView> {
     const existing = await this.find(principal, id);
-    if (existing.status !== 'DRAFT') {
+    if (existing.status !== 'DRAFT' && existing.status !== 'PENDING_APPROVAL') {
       throw AppError.conflict(`${existing.number} is ${existing.status.toLowerCase()}; a confirmed order is cancelled in Tally, and the change arrives on the next pull.`);
+    }
+    if (existing.status === 'PENDING_APPROVAL') {
+      // The inbox request goes with it, or an approver decides an order that no longer exists.
+      await this.approvals.cancelForSubject(orgContextOf(principal), SALES_ORDER_SUBJECT_TYPE, id, `${existing.number} cancelled by its author.`);
+      await this.db.execute(sql`UPDATE sales_documents SET approval_request_id = NULL WHERE id = ${id}`);
     }
     const repository = this.repository(principal);
     await repository.setStatus(id, 'CANCELLED');

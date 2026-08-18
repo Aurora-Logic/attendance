@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileTextIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
+import { FileTextIcon, GearIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -20,6 +20,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
 import { SalesOrderSheet, SyncStateBadge } from './sales-order-sheet';
+import { SalesSettingsDialog } from './sales-settings-dialog';
 import { formatMoney } from './money';
 import { emptyEstimateDraft, estimateToDraft, type EstimateDraft, type EstimateSummary } from './types';
 import { useSalesOrder, useSalesOrders } from './use-estimates';
@@ -64,6 +65,8 @@ export function SalesOrdersPage() {
   const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
   const canView = canViewSelf || canViewAll;
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
+  const canApproveDiscount = usePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
@@ -172,12 +175,29 @@ export function SalesOrdersPage() {
       <PageHeader
         description="Confirmed orders push to Tally as Sales Order vouchers, one voucher per request. The Tally column is the agent's word, never inferred."
         action={
-          canCreate ? (
-            <Button size="sm" onClick={startNew}>
-              <PlusIcon data-icon="inline-start" />
-              New sales order
-              <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
-            </Button>
+          canCreate || canApproveDiscount ? (
+            <>
+              {canApproveDiscount ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-label="Sales settings"
+                  onClick={() => {
+                    setSettingsOpen(true);
+                  }}
+                >
+                  <GearIcon data-icon="inline-start" />
+                  <span className="hidden sm:inline">Settings</span>
+                </Button>
+              ) : null}
+              {canCreate ? (
+                <Button size="sm" onClick={startNew}>
+                  <PlusIcon data-icon="inline-start" />
+                  New sales order
+                  <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
+                </Button>
+              ) : null}
+            </>
           ) : null
         }
       />
@@ -299,6 +319,8 @@ export function SalesOrdersPage() {
           }}
         />
       ) : null}
+
+      <SalesSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
       <SalesOrderSheet
         draft={sheetDraft}

@@ -37,13 +37,22 @@ export const ESTIMATE_STATUS_LABELS: Record<EstimateStatus, string> = {
   EXPIRED: 'Expired',
 };
 
-export const SALES_ORDER_STATUSES = ['DRAFT', 'CONFIRMED', 'CANCELLED'] as const;
+/** REQ-W-08: an order whose discount crosses the threshold waits in the approvals inbox as PENDING_APPROVAL. */
+export const SALES_ORDER_STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'CONFIRMED', 'CANCELLED'] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
 export const SALES_ORDER_STATUS_LABELS: Record<SalesOrderStatus, string> = {
   DRAFT: 'Draft',
+  PENDING_APPROVAL: 'Awaiting approval',
   CONFIRMED: 'Confirmed',
   CANCELLED: 'Cancelled',
 };
+
+/** REQ-W-08: the discount percentage above which an order waits for `sales.discount.approve`; null means never. */
+export const salesSettingsSchema = z.object({
+  discountApprovalPct: z.number().min(0).max(100).nullable(),
+});
+export type SalesSettings = z.infer<typeof salesSettingsSchema>;
+export const DEFAULT_SALES_SETTINGS: SalesSettings = { discountApprovalPct: null };
 
 /** Labels across both lives, for a caller holding a row of either type. */
 export const SALES_DOCUMENT_STATUS_LABELS: Record<EstimateStatus | SalesOrderStatus, string> = {
