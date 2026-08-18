@@ -1,7 +1,7 @@
 import { SYSTEM_ROLES, type AccessWindow } from '@vyuha/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { ApiHarness, CookieJar, scopedEmail } from '../../test-support/api-harness.js';
 
 /**
  * 12 Area AB, end to end: a window that is closed *now* (set to cover the
@@ -22,6 +22,7 @@ let adminToken = '';
 let admin: { email: string; password: string };
 let employee: { email: string; password: string };
 let employeeToken = '';
+let employeeJar: CookieJar | undefined;
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'Window Fixture Org');
@@ -31,7 +32,9 @@ beforeAll(async () => {
   admin = await harness.createUser({ email: scopedEmail('win-admin'), roleIds: [adminRoleId] });
   employee = await harness.createUser({ email: scopedEmail('win-employee'), roleIds: [employeeRoleId], employeeId });
   adminToken = (await harness.login(admin.email, admin.password)).token;
-  employeeToken = (await harness.login(employee.email, employee.password)).token;
+  const login = await harness.login(employee.email, employee.password);
+  employeeToken = login.token;
+  employeeJar = login.jar;
 });
 
 afterAll(async () => {
@@ -67,8 +70,15 @@ describe('the access window (12 Area AB)', () => {
   it('an employee’s existing session is not terminated: punch context answers, everything else is refused per request', async () => {
     const context = await harness.get('/me/today', { token: employeeToken });
     expect(context.status).toBe(200);
-    const me = await harness.get('/auth/me', { token: employeeToken });
+    const me = await harness.get<{ accessWindow: { closesInMinutes: number | null; exempt: boolean } }>('/auth/me', { token: employeeToken });
     expect(me.status).toBe(200);
+    expect(me.body.accessWindow).toEqual({ closesInMinutes: null, exempt: false });
+    const adminMe = await harness.get<{ accessWindow: { exempt: boolean } }>('/auth/me', { token: adminToken });
+    expect(adminMe.body.accessWindow.exempt).toBe(true);
+    // REQ-AB-05: the refresh is refused after the cutoff, before the cookie is burnt, so the session simply runs out.
+    const refused = await harness.post<ErrorBody>('/auth/refresh', { withCookies: true }, employeeJar);
+    expect(refused.status).toBe(403);
+    expect(refused.body.error.code).toBe('ACCESS_WINDOW_CLOSED');
     const leave = await harness.get<ErrorBody>('/leave-types', { token: employeeToken });
     expect([403, 404]).toContain(leave.status);
     if (leave.status === 403) expect(leave.body.error.code).toBe('ACCESS_WINDOW_CLOSED');

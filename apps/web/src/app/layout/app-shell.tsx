@@ -11,7 +11,7 @@ import {
   SunIcon,
   UserCircleIcon,
 } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import { BreadcrumbTrail } from '@/components/shared/breadcrumb-trail';
@@ -44,7 +44,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from '@/components/ui/sidebar';
-import { Toaster } from '@/components/ui/toast';
+import { Toaster, toast } from '@/components/ui/toast';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CalculatorButton, CalculatorPanel, useCalculatorStore } from '@/features/calculator';
 import { GuideOverlay } from '@/features/guide';
@@ -633,9 +633,44 @@ export function AppShell() {
           outside the screen's ShortcutLayer on purpose: it pushes a layer of
           its own, which suspends the screen's keys while the tour is up. */}
       <GuideOverlay />
+      <AccessWindowWarning />
       {/* Base UI's viewport owns its placement (bottom-right above sm, full
           width on a phone), so there is no position prop to pass. */}
       <Toaster />
     </SidebarProvider>
   );
+}
+
+/**
+ * 12 REQ-AB-05: the window does not throw anybody out at 19:30 — refresh is
+ * refused after the cutoff and the session simply runs out — but a person
+ * mid-form deserves to hear that fifteen minutes ahead. `/me` says how many
+ * minutes remain when the shell mounts; the timer counts down from there.
+ * Exempt holders (Admin) are never warned: nothing changes for them.
+ */
+const WARN_MINUTES_BEFORE = 15;
+
+function AccessWindowWarning() {
+  const { data: me } = useMe();
+  const closesInMinutes = me?.accessWindow?.closesInMinutes ?? null;
+  const exempt = me?.accessWindow?.exempt ?? true;
+  useEffect(() => {
+    if (exempt || closesInMinutes === null) return undefined;
+    const warnInMs = Math.max(0, (closesInMinutes - WARN_MINUTES_BEFORE) * 60_000);
+    // Already inside the last fifteen minutes: say so now rather than never.
+    const closesAt = new Date(Date.now() + closesInMinutes * 60_000);
+    const label = closesAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timer = window.setTimeout(() => {
+      toast.add({
+        type: 'warning',
+        title: `Sign-in closes at ${label}`,
+        description: 'Your session ends when it expires; save what you are working on. Punch stays open.',
+        timeout: 0,
+      });
+    }, warnInMs);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [closesInMinutes, exempt]);
+  return null;
 }

@@ -17,8 +17,10 @@ const SETTING_KEY = 'access.window';
 
 export interface WindowVerdict {
   readonly closed: boolean;
-  /** ISO instant sign-in reopens, when closed. */
+  /** The local time sign-in reopens ("09:00", "09:00 tomorrow"), when closed. */
   readonly reopensAt: string | null;
+  /** REQ-AB-05: minutes until today's close, when open and today applies; null when it does not close today. */
+  readonly closesInMinutes: number | null;
 }
 
 @Injectable()
@@ -46,6 +48,22 @@ export class AccessWindowService {
   async verdict(orgId: string, at: Date = new Date()): Promise<WindowVerdict> {
     const [window, timezone] = await Promise.all([this.read(orgId), this.timezone(orgId)]);
     return evaluateWindow(window, timezone, at);
+  }
+
+  /**
+   * REQ-AB-03 read straight from the role grants — for the moments before a
+   * principal exists (login) or when rotating one would be the wrong order
+   * (refresh, REQ-AB-05).
+   */
+  async holdsExemption(userId: string): Promise<boolean> {
+    const held = await this.db.execute<{ one: number }>(sql`
+      SELECT 1 AS one FROM user_roles ur
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        JOIN permissions p ON p.id = rp.permission_id
+       WHERE ur.user_id = ${userId} AND p.key = ${PERMISSIONS.ACCESS_OUTSIDE_WINDOW}
+       LIMIT 1
+    `);
+    return held.rows.length > 0;
   }
 
   /** The refusal every route and the login share (REQ-AB-04). */
@@ -78,7 +96,7 @@ function minutesOf(hhmm: string): number {
 
 /** Exported for the unit test: no clock, no database. */
 export function evaluateWindow(window: AccessWindow, timezone: string, at: Date): WindowVerdict {
-  if (!window.enabled || window.days.length === 0) return { closed: false, reopensAt: null };
+  if (!window.enabled || window.days.length === 0) return { closed: false, reopensAt: null, closesInMinutes: null };
   const local = localParts(at, timezone);
   const closes = minutesOf(window.closesAt);
   const reopens = minutesOf(window.reopensAt);
@@ -88,9 +106,13 @@ export function evaluateWindow(window: AccessWindow, timezone: string, at: Date)
   const closedNow = overnight
     ? (local.minutes >= closes && window.days.includes(local.weekday)) || (local.minutes < reopens && window.days.includes(yesterday))
     : local.minutes >= closes && local.minutes < reopens && window.days.includes(local.weekday);
-  if (!closedNow) return { closed: false, reopensAt: null };
+  if (!closedNow) {
+    // REQ-AB-05: the client warns fifteen minutes ahead; it needs to know when "ahead" is.
+    const closesToday = window.days.includes(local.weekday) && local.minutes < closes;
+    return { closed: false, reopensAt: null, closesInMinutes: closesToday ? closes - local.minutes : null };
+  }
   // Reopens at `reopensAt` today if still ahead, else tomorrow — stated as a local time the reader can act on.
   const reopenToday = local.minutes < reopens;
   const label = `${window.reopensAt}${reopenToday ? '' : ' tomorrow'}`;
-  return { closed: true, reopensAt: label };
+  return { closed: true, reopensAt: label, closesInMinutes: null };
 }

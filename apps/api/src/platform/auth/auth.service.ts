@@ -191,14 +191,7 @@ export class AuthService {
     if (verdict.closed) {
       // No session exists yet, so the principal cannot be resolved; the one
       // key that matters is read straight from the role grants.
-      const held = await this.db.execute<{ one: number }>(sql`
-        SELECT 1 AS one FROM user_roles ur
-          JOIN role_permissions rp ON rp.role_id = ur.role_id
-          JOIN permissions p ON p.id = rp.permission_id
-         WHERE ur.user_id = ${user.id} AND p.key = ${PERMISSIONS.ACCESS_OUTSIDE_WINDOW}
-         LIMIT 1
-      `);
-      const exempt = held.rows.length > 0;
+      const exempt = await this.accessWindow.holdsExemption(user.id);
       if (!exempt) {
         // Direct, as the lockout is: the request answers 403 and the
         // interceptor only audits successes (REQ-AB-08).
@@ -370,6 +363,18 @@ export class AuthService {
     // worth reading. Reuse detection is not suppressed: SessionService records
     // that case explicitly.
     this.auditContext.suppress();
+
+    // 12 REQ-AB-05: after the cutoff a refresh is refused, so a session ends
+    // when its access token expires — nobody is thrown out mid-form. Decided
+    // before rotating: a refusal that had already burnt the cookie would sign
+    // the person out on the spot, which is the hard termination AB-05 forbids.
+    const family = await this.sessions.familyOf(presentedToken);
+    if (family !== null) {
+      const verdict = await this.accessWindow.verdict(family.orgId);
+      if (verdict.closed && !(await this.accessWindow.holdsExemption(family.userId))) {
+        throw this.accessWindow.refusal(verdict);
+      }
+    }
 
     const rotated = await this.sessions.rotate(presentedToken, context);
 
@@ -1074,7 +1079,7 @@ export class AuthService {
   // ------------------------------------------------------------------- me
 
   async me(principal: Principal): Promise<MeResponse> {
-    const employee = await this.loadEmployee(principal);
+    const [employee, verdict] = await Promise.all([this.loadEmployee(principal), this.accessWindow.verdict(principal.orgId)]);
 
     return {
       user: {
@@ -1086,6 +1091,10 @@ export class AuthService {
       employee,
       roles: principal.roles,
       permissions: [...principal.permissions].sort(),
+      accessWindow: {
+        closesInMinutes: verdict.closesInMinutes,
+        exempt: principal.permissions.has(PERMISSIONS.ACCESS_OUTSIDE_WINDOW),
+      },
     };
   }
 

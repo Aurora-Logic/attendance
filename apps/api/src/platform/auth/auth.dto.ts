@@ -100,6 +100,8 @@ export interface MeResponse {
   readonly roles: readonly { readonly id: string; readonly name: string }[];
   /** Technical design §10: "`/me` returns the effective permission set." */
   readonly permissions: readonly string[];
+  /** 12 REQ-AB-05: when today's sign-in window closes, so the client can warn fifteen minutes ahead; exempt holders are never warned. */
+  readonly accessWindow: { readonly closesInMinutes: number | null; readonly exempt: boolean };
 }
 
 /** Minimum password length, echoed so the web client shows one number, not two. */
