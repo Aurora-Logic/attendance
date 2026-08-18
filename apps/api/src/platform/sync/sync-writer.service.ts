@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  PUSH_KINDS,
   voucherPushPayloadSchema,
   type AgentResultsAck,
   type AgentResultsInput,
   type PartyPullRow,
   type PriceListPullRow,
+  type PushKind,
   type StockItemPullRow,
   type VoucherPullRow,
 } from '@vyuha/shared';
@@ -654,6 +656,33 @@ export class SyncWriterService {
         `);
       }
     }
+    // D-38 / REQ-W-06: a voucher this side pushed has come back. Tell the
+    // document's module what Tally now says about it — cancelled, renumbered
+    // — through the same seam that told it the push landed.
+    await this.mirrorToDocument(tx, agent, row);
+  }
+
+  private async mirrorToDocument(tx: Transaction, agent: WriterScope, row: VoucherPullRow): Promise<void> {
+    const refs = await tx.execute<{ internal_type: string; internal_id: string }>(sql`
+      SELECT internal_type, internal_id FROM external_refs
+       WHERE org_id = ${agent.orgId} AND system = 'TALLY' AND entity_type = 'voucher_push' AND external_guid = ${row.guid} AND deleted_at IS NULL
+       LIMIT 1
+    `);
+    const ref = refs.rows[0];
+    if (ref === undefined) return;
+    if (!(PUSH_KINDS as readonly string[]).includes(ref.internal_type)) return;
+    const handler = this.pushOutcomes.find(ref.internal_type as PushKind);
+    if (handler?.onMirror === undefined) return;
+    await handler.onMirror(tx, agent.orgId, ref.internal_id, {
+      remoteGuid: row.guid,
+      remoteVoucherNumber: row.voucherNumber ?? null,
+      isCancelled: row.isCancelled,
+      alterId: row.alterId,
+    });
+    await tx.execute(sql`
+      UPDATE external_refs SET sync_state = ${row.isCancelled ? 'voided_in_tally' : 'pushed'}, external_alter_id = ${row.alterId}, last_pulled_at = now(), updated_at = now()
+       WHERE org_id = ${agent.orgId} AND system = 'TALLY' AND entity_type = 'voucher_push' AND external_guid = ${row.guid} AND deleted_at IS NULL
+    `);
   }
 
   private async resolvePartyId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {

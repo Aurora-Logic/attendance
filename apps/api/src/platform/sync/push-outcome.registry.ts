@@ -18,9 +18,23 @@ export interface PushOutcome {
   readonly errorText: string | null;
 }
 
+/**
+ * D-38's other direction: what the pull says about a voucher this side
+ * pushed. Tally is the system of record, so a cancellation or a renumbering
+ * there is a fact the document here mirrors — never the reverse.
+ */
+export interface PushMirror {
+  readonly remoteGuid: string;
+  readonly remoteVoucherNumber: string | null;
+  readonly isCancelled: boolean;
+  readonly alterId: number;
+}
+
 export interface PushOutcomeHandler {
   readonly kind: PushKind;
   onOutcome(tx: Transaction, orgId: string, payload: VoucherPushPayload, outcome: PushOutcome): Promise<void>;
+  /** Optional: the pushed voucher came back on the pull, changed or not. */
+  onMirror?(tx: Transaction, orgId: string, documentId: string, mirror: PushMirror): Promise<void>;
 }
 
 @Injectable()

@@ -20,6 +20,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { NotificationDispatcher, type NotificationEvent } from '../../../platform/notifications/notification.dispatcher.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import { SyncWriterService } from '../../../platform/sync/sync-writer.service.js';
 import { FulfilmentService } from '../fulfilment/fulfilment.service.js';
 
 /**
@@ -609,6 +610,25 @@ describe('invoices raised here (D-38: both places, kept in sync)', () => {
     expect(order.body.invoices).toHaveLength(1);
     expect(order.body.invoices[0]?.voucherId).toBe(voucherId);
     expect(order.body.invoices[0]?.invoiceDocumentId).toBe(invoiceId);
+  });
+
+  it('cancelled in Tally, the invoice is cancelled here, its link goes, and the order’s invoiced_qty gives the quantity back (the mirror)', async () => {
+    const writer = harness.resolve(SyncWriterService);
+    await harness.db.transaction(async (tx) => {
+      await writer.applyRows(tx, { orgId: ORG_ID, connectionId }, {
+        entityType: 'voucher',
+        rows: [{ guid: 'guid-inv-1', alterId: 10, date: '2026-08-19', voucherType: 'Sales', voucherNumber: '77', partyName: 'Asha Traders', narration: 'vyuha:INV-0001', isCancelled: true, amount: '28320.00', lines: [] }],
+      });
+    });
+    const invoice = await harness.get<SalesDocumentView>(`/sales/invoices/${invoiceId}`, { token: salesToken });
+    expect(invoice.body.status).toBe('CANCELLED');
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdI}`, { token: salesToken });
+    expect(order.body.lines[0]?.invoicedQty).toBe('0.000');
+    expect(order.body.invoices).toEqual([]);
+    expect(order.body.fulfilment).toBe('awaiting_invoice');
+    // The audit row is written by the request interceptor on the webhook path; the writer was called directly here.
+    const ref = await harness.db.execute<{ sync_state: string }>(sql`SELECT sync_state FROM external_refs WHERE org_id = ${ORG_ID} AND entity_type = 'voucher_push' AND external_guid = 'guid-inv-1'`);
+    expect(ref.rows[0]?.sync_state).toBe('voided_in_tally');
   });
 
   it('lists by order and refuses to cancel once confirmed', async () => {

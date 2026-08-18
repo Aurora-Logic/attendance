@@ -20,7 +20,7 @@ import { InjectDatabase, type Database, type Transaction } from '../../../platfo
 import { FileService } from '../../../platform/files/file.service.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService } from '../../../platform/rbac/scope.service.js';
-import { PushOutcomeRegistry, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
+import { PushOutcomeRegistry, type PushMirror, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
 import { PushQueueService } from '../../../platform/sync/push-queue.service.js';
 import { EstimateRepository } from '../estimates/estimate.repository.js';
 
@@ -57,7 +57,21 @@ export class DispatchService implements OnModuleInit {
     this.pushOutcomes.register({
       kind: 'DELIVERY_NOTE',
       onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, payload, outcome),
+      onMirror: (tx, orgId, documentId, mirror) => this.applyMirror(tx, orgId, documentId, mirror),
     });
+  }
+
+  /**
+   * The Delivery Note came back on the pull. Its number is Tally's to give;
+   * a cancellation there is Tally's own words on the record — the goods left,
+   * and no quantity here is undone by an accountant's void.
+   */
+  private async applyMirror(tx: Transaction, orgId: string, documentId: string, mirror: PushMirror): Promise<void> {
+    await tx.execute(sql`
+      UPDATE dispatches SET remote_voucher_number = COALESCE(${mirror.remoteVoucherNumber}, remote_voucher_number), remote_guid = ${mirror.remoteGuid},
+                            last_error = ${mirror.isCancelled ? 'Cancelled in Tally' : null}, updated_at = now()
+       WHERE org_id = ${orgId} AND id = ${documentId}
+    `);
   }
 
   async list(principal: Principal, query: DispatchListQuery): Promise<Paginated<DispatchView>> {

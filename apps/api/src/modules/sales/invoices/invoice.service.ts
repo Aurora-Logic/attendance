@@ -21,7 +21,7 @@ import { InjectDatabase, type Database, type Transaction } from '../../../platfo
 import { orgToday } from '../../../platform/documents/document-support.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
-import { PushOutcomeRegistry, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
+import { PushOutcomeRegistry, type PushMirror, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
 import { PushQueueService } from '../../../platform/sync/push-queue.service.js';
 import { EstimateRepository, type EstimateHeaderInput } from '../estimates/estimate.repository.js';
 import { salesDocuments } from '../schema/index.js';
@@ -50,7 +50,52 @@ export class InvoiceService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.pushOutcomes.register({ kind: 'SALES_INVOICE', onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, payload, outcome) });
+    this.pushOutcomes.register({
+      kind: 'SALES_INVOICE',
+      onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, payload, outcome),
+      onMirror: (tx, orgId, documentId, mirror) => this.applyMirror(tx, orgId, documentId, mirror),
+    });
+  }
+
+  /**
+   * D-38, the other direction: the accountant cancelled the Sales voucher in
+   * Tally. The invoice here is cancelled too, its link to the order goes, and
+   * the order's invoiced_qty gives back what this invoice covered — but never
+   * below what has already left the building: goods dispatched against a
+   * bill Tally later voided are the accountant's problem to re-bill, not a
+   * quantity this side can un-dispatch.
+   */
+  private async applyMirror(tx: Transaction, orgId: string, documentId: string, mirror: PushMirror): Promise<void> {
+    const rows = await tx.execute<{ status: string; number: string; source_document_id: string | null }>(sql`
+      SELECT status, number, source_document_id FROM sales_documents WHERE org_id = ${orgId} AND id = ${documentId} AND doc_type = 'INVOICE' AND deleted_at IS NULL
+    `);
+    const current = rows.rows[0];
+    if (current === undefined) return;
+    await tx.execute(sql`
+      UPDATE sales_documents SET remote_voucher_number = COALESCE(${mirror.remoteVoucherNumber}, remote_voucher_number), remote_guid = ${mirror.remoteGuid}, updated_at = now()
+       WHERE id = ${documentId}
+    `);
+    if (!mirror.isCancelled || current.status !== 'CONFIRMED') return;
+    await tx.execute(sql`UPDATE sales_documents SET status = 'CANCELLED', updated_at = now() WHERE id = ${documentId}`);
+    if (current.source_document_id !== null) {
+      const lines = await tx.execute<{ stock_item_id: string | null; description: string; quantity: string }>(sql`
+        SELECT stock_item_id, description, quantity::text AS quantity FROM sales_document_lines WHERE document_id = ${documentId} AND deleted_at IS NULL ORDER BY line_no
+      `);
+      for (const line of lines.rows) {
+        await tx.execute(sql`
+          UPDATE sales_document_lines l
+             SET invoiced_qty = GREATEST(l.dispatched_qty, l.invoiced_qty - ${line.quantity}::numeric), updated_at = now()
+           WHERE l.id = (
+             SELECT l2.id FROM sales_document_lines l2
+              WHERE l2.document_id = ${current.source_document_id} AND l2.deleted_at IS NULL AND l2.invoiced_qty > l2.dispatched_qty
+                AND (${line.stock_item_id === null ? sql`false` : sql`l2.stock_item_id = ${line.stock_item_id}`} OR l2.description = ${line.description})
+              ORDER BY l2.line_no LIMIT 1
+           )
+        `);
+      }
+      await tx.execute(sql`DELETE FROM sales_order_invoices WHERE invoice_document_id = ${documentId}`);
+    }
+    this.auditContext.record({ action: 'sales.invoice.cancelled_in_tally', entityType: 'sales_document', entityId: documentId, before: { status: current.status }, after: { number: current.number, remoteGuid: mirror.remoteGuid } });
   }
 
   async list(principal: Principal, query: InvoiceListQuery): Promise<Paginated<SalesDocumentSummary>> {

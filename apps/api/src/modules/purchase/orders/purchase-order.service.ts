@@ -36,7 +36,7 @@ import { orgToday, resolveDocumentLines } from '../../../platform/documents/docu
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
-import { PushOutcomeRegistry, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
+import { PushOutcomeRegistry, type PushMirror, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
 import { PushQueueService } from '../../../platform/sync/push-queue.service.js';
 
 /**
@@ -72,8 +72,41 @@ export class PurchaseOrderService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.pushOutcomes.register({ kind: 'PURCHASE_ORDER', onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, 'purchase_orders', payload, outcome) });
-    this.pushOutcomes.register({ kind: 'RECEIPT_NOTE', onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, 'grns', payload, outcome) });
+    this.pushOutcomes.register({
+      kind: 'PURCHASE_ORDER',
+      onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, 'purchase_orders', payload, outcome),
+      onMirror: (tx, orgId, documentId, mirror) => this.applyMirror(tx, orgId, 'purchase_orders', documentId, mirror),
+    });
+    this.pushOutcomes.register({
+      kind: 'RECEIPT_NOTE',
+      onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, 'grns', payload, outcome),
+      onMirror: (tx, orgId, documentId, mirror) => this.applyMirror(tx, orgId, 'grns', documentId, mirror),
+    });
+  }
+
+  /**
+   * The pushed voucher came back on the pull. Tally's number is the number;
+   * a PO cancelled in Tally is cancelled here (nothing received against it
+   * yet is undone — a receipt is a fact); a Receipt Note voided there is
+   * noted in Tally's words, since the goods are on the shelf either way.
+   */
+  private async applyMirror(tx: Transaction, orgId: string, table: 'purchase_orders' | 'grns', documentId: string, mirror: PushMirror): Promise<void> {
+    const t = table === 'grns' ? sql`grns` : sql`purchase_orders`;
+    await tx.execute(sql`
+      UPDATE ${t} SET remote_voucher_number = COALESCE(${mirror.remoteVoucherNumber}, remote_voucher_number), remote_guid = ${mirror.remoteGuid}, updated_at = now()
+       WHERE org_id = ${orgId} AND id = ${documentId}
+    `);
+    if (!mirror.isCancelled) return;
+    if (table === 'purchase_orders') {
+      const rows = await tx.execute<{ status: string; number: string }>(sql`SELECT status, number FROM purchase_orders WHERE id = ${documentId}`);
+      const po = rows.rows[0];
+      if (po?.status === 'CONFIRMED') {
+        await tx.execute(sql`UPDATE purchase_orders SET status = 'CANCELLED', updated_at = now() WHERE id = ${documentId}`);
+        this.auditContext.record({ action: 'purchase.order.cancelled_in_tally', entityType: 'purchase_order', entityId: documentId, before: { status: po.status }, after: { number: po.number, remoteGuid: mirror.remoteGuid } });
+      }
+      return;
+    }
+    await tx.execute(sql`UPDATE grns SET last_error = 'Cancelled in Tally', updated_at = now() WHERE id = ${documentId}`);
   }
 
   // -------------------------------------------------------- purchase orders

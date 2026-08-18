@@ -31,7 +31,7 @@ import type { ApprovalSubjectDecision, ApprovalSubjectSettlement } from '../../.
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
-import { PushOutcomeRegistry, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
+import { PushOutcomeRegistry, type PushMirror, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
 import { PushQueueService } from '../../../platform/sync/push-queue.service.js';
 import { RequirementsService } from '../../../platform/procurement/requirements.service.js';
 import { orgToday, resolveDocumentCustomer, resolveDocumentLines, resolveDocumentOwner } from '../../../platform/documents/document-support.js';
@@ -77,7 +77,28 @@ export class SalesOrderService implements OnModuleInit {
     this.pushOutcomes.register({
       kind: 'SALES_ORDER',
       onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, payload, outcome),
+      onMirror: (tx, orgId, documentId, mirror) => this.applyMirror(tx, orgId, documentId, mirror),
     });
+  }
+
+  /**
+   * D-38 / REQ-W-06, the other direction: the pushed voucher came back on the
+   * pull. Tally is the system of record — an order cancelled there is
+   * cancelled here, and its number is whatever Tally now calls it. Nothing
+   * else moves: quantities are Vyuha's own facts.
+   */
+  private async applyMirror(tx: Transaction, orgId: string, documentId: string, mirror: PushMirror): Promise<void> {
+    const rows = await tx.execute<{ status: string; number: string }>(sql`SELECT status, number FROM sales_documents WHERE org_id = ${orgId} AND id = ${documentId} AND deleted_at IS NULL`);
+    const current = rows.rows[0];
+    if (current === undefined) return;
+    await tx.execute(sql`
+      UPDATE sales_documents SET remote_voucher_number = COALESCE(${mirror.remoteVoucherNumber}, remote_voucher_number), remote_guid = ${mirror.remoteGuid}, updated_at = now()
+       WHERE id = ${documentId}
+    `);
+    if (mirror.isCancelled && current.status === 'CONFIRMED') {
+      await tx.execute(sql`UPDATE sales_documents SET status = 'CANCELLED', updated_at = now() WHERE id = ${documentId}`);
+      this.auditContext.record({ action: 'sales.order.cancelled_in_tally', entityType: 'sales_document', entityId: documentId, before: { status: current.status }, after: { number: current.number, remoteGuid: mirror.remoteGuid } });
+    }
   }
 
   async list(principal: Principal, query: SalesOrderListQuery): Promise<Paginated<SalesDocumentSummary>> {
