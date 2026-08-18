@@ -228,6 +228,13 @@ UI in one pass after (below).
 | **Invoices raised in both places, kept in sync (D-38, owner's instruction 18 Aug evening)**: an `INVOICE` document raised against an order's packed-and-uninvoiced balance at the order's rates; confirming advances invoiced_qty, links with method `vyuha`, and queues a `Sales` voucher; the pulled-back voucher attaches to the same link (GUID in `external_refs`) and never counts twice. Fixing this found and removed a latent bug: push refs anchored under entity_type `voucher` collided with the pull's own mapping — now `voucher_push` | `4345be4` | orders 19/19 |
 | PO approval by value through `platform/approvals` (REQ-X-16, D-32): confirming an over-threshold PO raises a `purchase_order` request routed to every holder of `purchase.document.approve`; the inbox decision or the PO's own Approve button decides the same request; rejection returns it to draft; cancel withdraws it. Thresholds are one settings endpoint (`/purchase/settings`: approval threshold, invoice-waiting hours). REQ-AA-15: the link sweep tells accounts once per order that packed goods have waited longer than the configured hours | `01ec5c1` | purchase 10/10, approvals 5 files |
 | REQ-X-18: the vendor's copy of a PO per channel, composed at release, sent by hand and marked (REQ-AA-26); vendor email / WhatsApp on the PO since a Tally party carries no contact | `e319887` | purchase 11/11 |
+| REQ-AB-05: refresh refused after the cutoff, decided before the cookie rotates; `/me` says how long until the close and the shell warns once, fifteen minutes ahead | `aa5140b` | auth 13 files |
+| REQ-X-26: the waiting order carries its requirements and the POs behind them (vendor, status, expected date) through the platform seam | `dc77ebd` | purchase 12/12 |
+| REQ-AA-28: party email/phone from the pull, inherited by the order, overridable per order and per dispatch | `c3ee809` | orders 22/22 |
+| REQ-W-09 (D-40): an order past the party's credit limit answers `CREDIT_BLOCKED` with the position; `sales.credit.override` with a reason releases it, audited | `2d9d083` | orders 25/25 |
+| REQ-W-08 (D-39): a discount past the threshold waits in the approvals inbox as `PENDING_APPROVAL`; approve from the order or the inbox; reject → draft; cancel withdraws; threshold a sales setting | `ab88f06` | orders 25/25, approvals 90/90 |
+| REQ-AC-07: no route writes a stock figure — 405 on every verb, items included | `a57591b` | purchase 12/12 |
+| **UI pass, one go, house pattern**: purchase (requirements queue with select-and-raise-PO, item purchasing sheet, PO list/sheet with receive → GRN → allocate, GRN list/sheet, thresholds dialog), Sales module's Fulfilment group (pick queue as a phone screen with the pack bottom sheet, awaiting invoice with the unlinked tab and link-by-hand, dispatch board and sheet with signed photo links, composed messages, Copy, Mark sent), invoices register and sheet, the order sheet's quantities table / waiting on / invoices / dispatch history / pack records / customer contact / Pack · Raise invoice · Dispatch · Short close · Approve discount / credit-block release, item history's availability line, Settings → Access window tab, sales and purchase settings dialogs. Every document sheet was quietly 384px wide (a primitive-variant specificity bug since 12 Aug) — fixed at the primitive | `7c069cf`, `faeb504`, `4bb3f2b`, `ab88f06` | web 439/439; live: docs 12 §7 / 13 §6 walked through the real screens (order of 100 → pack 60 on a 360px phone → requirement → PO → GRN → back on the queue with 40 → invoice raised here → outstation dispatch of 60 with two real photographs → Delivery Note → message with the balance → marked sent → 100/60/60/60 partially dispatched), 0 exceptions, 0 failing requests, no overflow at 1440 or 360 |
 
 ## Next, in order
 
@@ -247,6 +254,18 @@ inputs outside this branch:
 Until one of those lands, the useful next steps are the code review the
 user asked to hold for the end (`/code-review`), the Phase 7 exit gate (one
 salesperson for a fortnight), and merging `phase-6a` back to `main`.
+
+Still open after docs 12/13 and D-38 (18 Aug evening):
+
+- **REQ-W-09's overdue half** (credit days) waits on bill-wise allocations
+  (P6b-5); the limit half is enforced (D-40).
+- **REQ-T-05** (Tally period lock) needs the agent to read Tally's lock date.
+- **The Delivery Note / Receipt Note / Sales / Purchase Order XML** the
+  agent renders is unproven against a live TallyPrime, like the Sales
+  Order's (6e gate).
+- **Photograph upload from a real phone camera** was exercised through CDP
+  with real JPEG files, not through a device; the gallery re-encode ran in
+  jsdom only.
 
 ### 6b exit gate — run, passed
 
