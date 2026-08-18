@@ -205,9 +205,21 @@ land.
 
 ## Next, in order
 
-Nothing further is buildable in 6b/6c without the blocked inputs. Phase 6d
-(push into Tally) needs a write transport OpsTally does not offer. Phase 7
-(CRM) is under way above.
+Every phase now has its transport-free part built: 6b/6c (masters,
+vouchers, reconciliation), 6d (statement, credit cycle, sales analysis),
+7 (CRM complete), 8a (estimates). What remains is gated, all of it on
+inputs outside this branch:
+
+1. **A write transport into Tally** — 6e (attendance voucher push, D-06),
+   8a's orders/challans/POs/GRNs and their sync state (REQ-W-03…W-07,
+   X-01…X-03), 8b if D-03 says Vyuha raises invoices. OpsTally is push-only.
+2. **Bill-wise allocations / backfill decision (P6b-5)** — ageing (REQ-Y-02),
+   payment analysis (REQ-Y-04), overdue-by-bill on the credit cycle.
+3. **Tally XML fixtures + D-05** — the pull agent's transport and packaging.
+
+Until one of those lands, the useful next steps are the code review the
+user asked to hold for the end (`/code-review`), the Phase 7 exit gate (one
+salesperson for a fortnight), and merging `phase-6a` back to `main`.
 
 ### 6b exit gate — run, passed
 
