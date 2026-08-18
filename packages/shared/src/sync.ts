@@ -193,6 +193,50 @@ export const priceListPullRowSchema = z.object({
 
 export type PriceListPullRow = z.infer<typeof priceListPullRowSchema>;
 
+/**
+ * One voucher as a source read it out of Tally (09 §4.3, Phase 6c). Vyuha's
+ * own shape — OpsTally's payload maps onto it in the API, and the pull agent
+ * will produce it directly. Lines carry no identity: they are the voucher's
+ * and are replaced wholesale on every upsert.
+ */
+export const voucherLinePullSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('ledger'),
+    ledgerName: z.string().max(200),
+    amount: decimalString,
+    /** Tally's debit/credit convention — true on the debit side. */
+    isDeemedPositive: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal('inventory'),
+    stockItemName: z.string().max(200),
+    /** Tally's formatted quantity strings, unit suffix and all. */
+    actualQty: z.string().max(80),
+    billedQty: z.string().max(80),
+    rate: decimalString.optional(),
+    amount: decimalString,
+  }),
+]);
+
+export type VoucherLinePull = z.infer<typeof voucherLinePullSchema>;
+
+export const voucherPullRowSchema = z.object({
+  guid: z.string().min(1).max(120),
+  masterId: z.string().max(80).optional(),
+  alterId: z.number().int().min(0),
+  /** ISO date (YYYY-MM-DD). Sources convert from Tally's YYYYMMDD. */
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  voucherType: z.string().min(1).max(120),
+  voucherNumber: z.string().max(120).optional(),
+  partyName: z.string().max(200).optional(),
+  narration: z.string().max(4000).optional(),
+  isCancelled: z.boolean(),
+  amount: decimalString,
+  lines: z.array(voucherLinePullSchema).max(2000),
+});
+
+export type VoucherPullRow = z.infer<typeof voucherPullRowSchema>;
+
 /** Chunk bounds: small enough to commit fast, large enough not to chatter. */
 export const SYNC_CHUNK_MAX_ROWS = 500;
 

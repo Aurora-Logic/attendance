@@ -6,6 +6,7 @@ import { AgentAuthService } from './agent-auth.service.js';
 import { SyncAgentController } from './sync-agent.controller.js';
 import { SyncAgentService } from './sync-agent.service.js';
 import { SyncPullSweepHandler } from './sync-pull-sweep.handler.js';
+import { SyncInboxReplayHandler } from './sync-inbox-replay.handler.js';
 import { SyncJournalSweepHandler } from './sync-journal-sweep.handler.js';
 import { SyncStalenessHandler } from './sync-staleness.handler.js';
 import { SyncSchedulerService } from './sync-scheduler.service.js';
@@ -29,7 +30,7 @@ import { OpsTallyWebhookService } from './opstally-webhook.service.js';
   // for REQ-Q-04: the staleness sweep announces transitions.
   imports: [AuthModule, NotificationsModule],
   controllers: [SyncAgentController, SyncWebhookController],
-  providers: [AgentAuthService, SyncAgentService, SyncWriterService, OpsTallyWebhookService, SyncSchedulerService, SyncPullSweepHandler, SyncStalenessHandler, SyncJournalSweepHandler],
+  providers: [AgentAuthService, SyncAgentService, SyncWriterService, OpsTallyWebhookService, SyncSchedulerService, SyncPullSweepHandler, SyncStalenessHandler, SyncJournalSweepHandler, SyncInboxReplayHandler],
   exports: [AgentAuthService, SyncSchedulerService],
 })
 export class SyncModule {}

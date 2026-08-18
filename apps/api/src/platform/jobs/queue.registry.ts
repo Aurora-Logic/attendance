@@ -103,6 +103,15 @@ export interface JobPayloads {
   };
 
   /**
+   * Phase 6c: vouchers OpsTally delivered before the projection existed sit
+   * retained in `sync_inbox.payload`; this drains them through the live
+   * path. Cheap once drained -- one indexed SELECT that finds nothing.
+   */
+  'replay-sync-inbox': {
+    readonly now?: string;
+  };
+
+  /**
    * REQ-M-05: everything the system holds about one employee, as a file.
    *
    * Same shape as `generate-report-export` and for the same reason -- only the
@@ -226,6 +235,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'enqueue-sync-pulls': QUEUES.MAINTENANCE,
   'check-agent-heartbeats': QUEUES.MAINTENANCE,
   'sweep-sync-journal-bodies': QUEUES.MAINTENANCE,
+  'replay-sync-inbox': QUEUES.MAINTENANCE,
   'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-notification': QUEUES.NOTIFICATION,
@@ -357,6 +367,9 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // D-20's retention. Nightly at 02:45, offset from the other overnight
   // sweeps so the maintenance queue is never a convoy.
   { schedulerId: 'sync:sweep-journal-bodies', jobName: 'sweep-sync-journal-bodies', pattern: '45 2 * * *' },
+  // Drains retained vouchers within a quarter hour of a deploy that adds a
+  // projection for them; after that it is one empty SELECT per run.
+  { schedulerId: 'sync:replay-inbox', jobName: 'replay-sync-inbox', pattern: '*/15 * * * *' },
   // REQ-K-03. Every 15 minutes, because a reminder is only useful shortly
   // before the shift it names and shift start times are not on the hour. The
   // sweep costs one preference query per organisation when nobody has opted

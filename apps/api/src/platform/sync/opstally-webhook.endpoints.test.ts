@@ -10,6 +10,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { OpsTallyWebhookService } from './opstally-webhook.service.js';
 
 /**
  * The OpsTally webhook door, over real HTTP, signed the way the Agent signs
@@ -90,6 +91,7 @@ beforeAll(async () => {
   await harness.db.execute(sql`DELETE FROM sync_jobs WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM sync_cursors WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM external_refs WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM vouchers WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM parties WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM price_list_entries WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${ORG_ID}`);
@@ -339,21 +341,89 @@ describe('projection through the writer (REQ-R-01, R-02, T-03)', () => {
     ]);
   });
 
-  it('vouchers are acknowledged, journalled, and retained for Phase 6c', async () => {
-    const response = await deliver(
-      envelope('evt_vch_1', 'voucher.created', {
-        guid: 'vch-guid-1', masterId: '5001', alterId: 900, date: '20260817', voucherType: 'Sales',
-        voucherNumber: 'INV-0042', party: 'Asha Traders', narration: '', isCancelled: false, amount: 4150.5,
-        ledgerEntries: [{ ledgerName: 'Asha Traders', amount: 4150.5, isDeemedPositive: true }],
-        inventoryEntries: [{ stockItemName: 'Cat6 Cable Box', actualQty: '1 NOS', billedQty: '1 NOS', rate: 4150.5, amount: 4150.5 }],
-      }),
-    );
+  const INVOICE = {
+    guid: 'vch-guid-1', masterId: '5001', alterId: 900, date: '20260817', voucherType: 'Sales',
+    voucherNumber: 'INV-0042', party: 'Asha Traders', narration: 'Cable order', isCancelled: false, amount: 4150.5,
+    ledgerEntries: [
+      { ledgerName: 'Asha Traders', amount: 4150.5, isDeemedPositive: true },
+      { ledgerName: 'Sales', amount: -4150.5, isDeemedPositive: false },
+    ],
+    inventoryEntries: [{ stockItemName: 'Cat6 Cable Box', actualQty: '1 NOS', billedQty: '1 NOS', rate: 4150.5, amount: 4150.5 }],
+  };
+
+  it('a voucher lands with its lines, its party and item resolved by Tally’s own names (6c)', async () => {
+    const response = await deliver(envelope('evt_vch_1', 'voucher.created', INVOICE));
     expect(response.status).toBe(200);
-    expect(response.body.result).toContain('deferred');
-    const inbox = await harness.db.execute<{ payload: { payload: { voucherNumber: string } } | null }>(sql`
-      SELECT payload FROM sync_inbox WHERE connection_id = ${connectionId} AND event_id = 'evt_vch_1'
+    expect(response.body.result).toBe('ok: 1 voucher (Sales)');
+
+    const voucher = await harness.db.execute<{
+      id: string; voucher_date: string; voucher_number: string; party_name: string; party_id: string | null; amount: string;
+    }>(sql`
+      SELECT v.id, v.voucher_date::text AS voucher_date, v.voucher_number, v.party_name, v.party_id, v.amount
+        FROM vouchers v WHERE v.org_id = ${ORG_ID} AND v.voucher_number = 'INV-0042'
     `);
-    expect(inbox.rows[0]?.payload?.payload.voucherNumber).toBe('INV-0042');
+    const row = voucher.rows[0];
+    expect(row?.voucher_date).toBe('2026-08-17');
+    expect(row?.party_name).toBe('Asha Traders');
+    // The debtor ledger delivered above is this voucher's party.
+    expect(row?.party_id).not.toBeNull();
+    expect(row?.amount).toBe('4150.5');
+
+    const lines = await harness.db.execute<{ line_no: number; kind: string; ledger_name: string | null; stock_item_id: string | null; amount: string }>(sql`
+      SELECT line_no, kind, ledger_name, stock_item_id, amount FROM voucher_lines WHERE voucher_id = ${row?.id ?? ''} ORDER BY line_no
+    `);
+    expect(lines.rows.map((l) => [l.line_no, l.kind, l.ledger_name])).toEqual([
+      [1, 'ledger', 'Asha Traders'],
+      [2, 'ledger', 'Sales'],
+      [3, 'inventory', null],
+    ]);
+    // The inventory line resolved the projected stock item by name.
+    expect(lines.rows[2]?.stock_item_id).not.toBeNull();
+    expect(lines.rows[1]?.amount).toBe('-4150.5');
+  });
+
+  it('an update replaces the lines wholesale; a cancellation flips the flag', async () => {
+    await deliver(envelope('evt_vch_2', 'voucher.updated', { ...INVOICE, alterId: 901, inventoryEntries: [] }));
+    const lines = await harness.db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+       WHERE v.org_id = ${ORG_ID} AND v.voucher_number = 'INV-0042'
+    `);
+    expect(Number(lines.rows[0]?.count)).toBe(2);
+
+    const cancelled = await deliver(envelope('evt_vch_3', 'voucher.cancelled', { ...INVOICE, alterId: 902, isCancelled: true }));
+    expect(cancelled.body.result).toContain('cancelled');
+    const flag = await harness.db.execute<{ is_cancelled: boolean; count: string }>(sql`
+      SELECT bool_or(is_cancelled) AS is_cancelled, count(*) AS count FROM vouchers
+       WHERE org_id = ${ORG_ID} AND voucher_number = 'INV-0042'
+    `);
+    // One row per GUID however many events; the flag is Tally's.
+    expect(flag.rows[0]).toEqual({ is_cancelled: true, count: '1' });
+  });
+
+  it('vouchers retained before the projection existed replay through the same path', async () => {
+    // Simulate a pre-6c inbox row: acknowledged, payload kept, nothing projected.
+    const retained = envelope('evt_vch_old', 'voucher.created', {
+      ...INVOICE, guid: 'vch-guid-old', masterId: '4000', alterId: 800, voucherNumber: 'INV-0001', date: '20260601',
+    });
+    await harness.db.execute(sql`
+      INSERT INTO sync_inbox (org_id, connection_id, event_id, event_type, result, payload)
+      VALUES (${ORG_ID}, ${connectionId}, 'evt_vch_old', 'voucher.created', 'deferred', ${JSON.stringify(retained)}::jsonb)
+    `);
+    const service = harness.resolve(OpsTallyWebhookService);
+    const outcome = await service.replayDeferred();
+    expect(outcome.replayed).toBeGreaterThanOrEqual(1);
+
+    const row = await harness.db.execute<{ voucher_date: string }>(sql`
+      SELECT voucher_date::text AS voucher_date FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'INV-0001'
+    `);
+    expect(row.rows[0]?.voucher_date).toBe('2026-06-01');
+    const inbox = await harness.db.execute<{ payload: unknown; result: string }>(sql`
+      SELECT payload, result FROM sync_inbox WHERE connection_id = ${connectionId} AND event_id = 'evt_vch_old'
+    `);
+    expect(inbox.rows[0]?.payload).toBeNull();
+    expect(inbox.rows[0]?.result).toContain('replayed');
+    // A second replay finds nothing to do.
+    expect((await service.replayDeferred()).replayed).toBe(0);
   });
 
   it('every accepted delivery is in the journal with the body hash', async () => {

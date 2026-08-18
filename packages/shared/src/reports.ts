@@ -37,9 +37,15 @@ export const REPORT_KEYS = [
   'leave-availed',
   'punch-audit',
   'headcount',
+  // Phase 6c (REQ-S-05): the Tally module's first report. Listed with the
+  // rest so ReportKey stays one union; grouped separately below.
+  'voucher-reconciliation',
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
+
+/** The keys the Tally module's source claims; everything else is attendance's. */
+export const TALLY_REPORT_KEYS = ['voucher-reconciliation'] as const satisfies readonly ReportKey[];
 
 export function isReportKey(value: string): value is ReportKey {
   return (REPORT_KEYS as readonly string[]).includes(value);
@@ -388,6 +394,20 @@ const PEOPLE_FILTERS: readonly ReportFilterName[] = [
   'locationId',
 ];
 
+/**
+ * REQ-S-05: one row per voucher type per month. `total` is the sum of
+ * `vouchers.amount` — a held figure summed for reconciliation only, shown as
+ * exact decimal text; nothing downstream computes on it.
+ */
+const VOUCHER_RECONCILIATION_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'voucherType', header: 'Voucher type', type: 'text', sortField: 'voucherType', width: 18 },
+  { key: 'count', header: 'Vouchers', type: 'number', width: 10 },
+  { key: 'cancelled', header: 'Cancelled', type: 'number', secondary: true, width: 10 },
+  { key: 'total', header: 'Total value', type: 'text', width: 16 },
+  { key: 'lastPulledAt', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   'attendance-register': {
     key: 'attendance-register',
@@ -510,21 +530,35 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: 'month',
     filters: ['departmentId', 'locationId', 'period'],
   },
+  'voucher-reconciliation': {
+    key: 'voucher-reconciliation',
+    label: 'Voucher reconciliation',
+    description:
+      'Voucher count and total value per voucher type per month, from the Tally projection — compare against Tally’s own Day Book totals before signing off a backfill (REQ-S-05).',
+    columns: VOUCHER_RECONCILIATION_COLUMNS,
+    defaultSort: 'month',
+    filters: ['period'],
+  },
 };
 
 /**
- * The attendance module's reports — today, all of them. Named as a group so
- * Phase 6d's receivables definitions can join `ALL_REPORTS` without the
- * attendance source claiming their keys: each module's source claims its own
- * group, and the registry's duplicate refusal stays a safety net instead of
- * becoming a planned boot failure.
+ * The attendance module's reports. Named as a group so another module's
+ * definitions can join `ALL_REPORTS` without the attendance source claiming
+ * their keys: each module's source claims its own group, and the registry's
+ * duplicate refusal stays a safety net instead of becoming a planned boot
+ * failure. The Tally group is the first such joiner.
  */
-export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.map(
+export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.filter(
+  (key) => !(TALLY_REPORT_KEYS as readonly string[]).includes(key),
+).map((key) => REPORT_DEFINITIONS[key]);
+
+/** The Tally module's reports (Phase 6c onward). */
+export const TALLY_REPORTS: readonly ReportDefinition[] = TALLY_REPORT_KEYS.map(
   (key) => REPORT_DEFINITIONS[key],
 );
 
 /** Every module's reports. Grows by concatenation as modules add groups. */
-export const ALL_REPORTS: readonly ReportDefinition[] = ATTENDANCE_REPORTS;
+export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...TALLY_REPORTS];
 
 /** The columns a report shows before anyone touches the F12 chooser. */
 export function defaultVisibleColumns(reportKey: ReportKey): string[] {

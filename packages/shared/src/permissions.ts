@@ -59,6 +59,7 @@ export const PERMISSIONS = {
    * exists, because a projection nobody can see cannot be reconciled.
    */
   MASTERS_TALLY_VIEW: 'masters.tally.view',
+  RECEIVABLES_VIEW: 'receivables.view',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -89,6 +90,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'roles.manage': 'Create roles and assign permissions',
   'audit.view': 'View the audit log',
   'masters.tally.view': 'View the Tally masters projection: parties, items, price lists',
+  'receivables.view': 'View vouchers and receivables pulled from Tally: invoices, receipts, statements, ageing',
   'integration.manage': 'Manage integration connections',
 };
 
@@ -149,6 +151,8 @@ const ADMIN_PERMISSIONS = [
   PERMISSIONS.AUDIT_VIEW,
   PERMISSIONS.INTEGRATION_MANAGE,
   PERMISSIONS.MASTERS_TALLY_VIEW,
+  // 08 §2.2: Sales manager and Accounts hold this too, when those roles land.
+  PERMISSIONS.RECEIVABLES_VIEW,
 ] as const satisfies readonly PermissionKey[];
 
 /**

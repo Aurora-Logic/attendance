@@ -9,8 +9,10 @@ import {
   type OpsTallyEvent,
   type OpsTallyLedger,
   type OpsTallyStockItem,
+  type OpsTallyVoucher,
   type PartyPullRow,
   type StockItemPullRow,
+  type VoucherPullRow,
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
@@ -95,6 +97,42 @@ function stockToRow(item: OpsTallyStockItem): StockItemPullRow {
     closingQty: decimal(item.closingQty),
     salePrice: decimal(item.salePrice),
     costPrice: decimal(item.costPrice),
+  };
+}
+
+/** Tally's YYYYMMDD → ISO YYYY-MM-DD; the reference gives no other date shape. */
+function tallyDateToIso(yyyymmdd: string): string {
+  return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
+}
+
+function voucherToRow(voucher: OpsTallyVoucher): VoucherPullRow {
+  return {
+    guid: voucher.guid,
+    masterId: voucher.masterId,
+    alterId: voucher.alterId,
+    date: tallyDateToIso(voucher.date),
+    voucherType: voucher.voucherType === '' ? 'Unknown' : voucher.voucherType,
+    voucherNumber: voucher.voucherNumber,
+    partyName: voucher.party,
+    narration: voucher.narration,
+    isCancelled: voucher.isCancelled,
+    amount: decimal(voucher.amount),
+    lines: [
+      ...voucher.ledgerEntries.map((entry) => ({
+        kind: 'ledger' as const,
+        ledgerName: entry.ledgerName,
+        amount: decimal(entry.amount),
+        isDeemedPositive: entry.isDeemedPositive,
+      })),
+      ...voucher.inventoryEntries.map((entry) => ({
+        kind: 'inventory' as const,
+        stockItemName: entry.stockItemName,
+        actualQty: entry.actualQty,
+        billedQty: entry.billedQty,
+        rate: decimal(entry.rate),
+        amount: decimal(entry.amount),
+      })),
+    ],
   };
 }
 
@@ -299,20 +337,73 @@ export class OpsTallyWebhookService {
 
       case 'voucher.created':
       case 'voucher.updated':
-      case 'voucher.cancelled':
-        // Accepted so the Agent stops, retained so 6c can replay.
+      case 'voucher.cancelled': {
+        // `voucher.cancelled` is the same shape with isCancelled true; the
+        // upsert carries the flag, so all three land through one path.
+        const row = voucherToRow(event.payload);
+        await this.writer.applyRows(tx, scope, { entityType: 'voucher', rows: [row] });
+        await this.advanceCursor(tx, scope, 'voucher', row.alterId);
         return {
           entityType: 'voucher',
-          result: 'deferred: voucher projection lands in Phase 6c; payload retained in sync_inbox',
-          retainPayload: true,
+          result: `ok: 1 voucher (${row.voucherType}${row.isCancelled ? ', cancelled' : ''})`,
+          retainPayload: false,
         };
+      }
     }
+  }
+
+  /**
+   * Vouchers that arrived before the projection existed were acknowledged
+   * and retained in `sync_inbox.payload` (OPEN-QUESTIONS P6b-4). This
+   * replays them through the same path a live delivery takes, oldest first
+   * per connection, clearing the payload as each lands. Idempotent: a row
+   * whose payload no longer validates is left with its payload and its
+   * result says why, so it can be looked at rather than silently dropped.
+   */
+  async replayDeferred(limit = 500): Promise<{ replayed: number; skipped: number }> {
+    const pending = await this.db.execute<{
+      id: string;
+      org_id: string;
+      connection_id: string;
+      payload: unknown;
+    }>(sql`
+      SELECT id, org_id, connection_id, payload FROM sync_inbox
+       WHERE payload IS NOT NULL
+       ORDER BY connection_id, received_at
+       LIMIT ${limit}
+    `);
+
+    let replayed = 0;
+    let skipped = 0;
+    for (const row of pending.rows) {
+      const validated = opsTallyEventSchema.safeParse(row.payload);
+      if (!validated.success || !validated.data.event.startsWith('voucher.')) {
+        skipped += 1;
+        await this.db.execute(sql`
+          UPDATE sync_inbox SET result = ${'replay skipped: retained payload no longer validates'}
+           WHERE id = ${row.id}
+        `);
+        continue;
+      }
+      const scope: WriterScope = { orgId: row.org_id, connectionId: row.connection_id };
+      await this.db.transaction(async (tx) => {
+        const outcome = await this.apply(tx, scope, validated.data);
+        await tx.execute(sql`
+          UPDATE sync_inbox SET result = ${`replayed: ${outcome.result}`}, payload = NULL WHERE id = ${row.id}
+        `);
+      });
+      replayed += 1;
+    }
+    if (replayed > 0 || skipped > 0) {
+      this.logger.log({ msg: 'Deferred OpsTally vouchers replayed', replayed, skipped });
+    }
+    return { replayed, skipped };
   }
 
   private async advanceCursor(
     tx: Transaction,
     scope: WriterScope,
-    entityType: 'party' | 'stock_item',
+    entityType: 'party' | 'stock_item' | 'voucher',
     alterId: number,
   ): Promise<void> {
     await tx.execute(sql`

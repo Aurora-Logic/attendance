@@ -25,6 +25,7 @@ beforeAll(async () => {
 
   await harness.db.execute(sql`DELETE FROM sync_jobs WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM sync_cursors WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM vouchers WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM parties WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(
     sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${ORG_ID} AND deleted_at IS NULL`,
@@ -170,5 +171,109 @@ describe('parties join Go To (REQ-O-05)', () => {
       token: employeeToken,
     });
     expect(response.body.records.some((r) => r.type === 'party')).toBe(false);
+  });
+});
+
+describe('vouchers, the books (Phase 6c, receivables.view)', () => {
+  let invoiceId = '';
+
+  beforeAll(async () => {
+    const inserted = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO vouchers
+        (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount)
+      VALUES
+        (${ORG_ID}, ${connectionId}, '2026-08-01', 'Sales', 'INV-0042', 'Asha Traders', ${ashaId}, 'Cable order', false, '4150.50'),
+        (${ORG_ID}, ${connectionId}, '2026-08-05', 'Receipt', 'RCT-0007', 'Asha Traders', ${ashaId}, '', false, '4150.50'),
+        (${ORG_ID}, ${connectionId}, '2026-07-20', 'Sales', 'INV-0040', 'Someone Else', NULL, '', true, '99.00')
+      RETURNING id
+    `);
+    invoiceId = inserted.rows[0]?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, ledger_name, is_deemed_positive, amount)
+      VALUES (${ORG_ID}, ${invoiceId}, 1, 'ledger', 'Asha Traders', true, '4150.50'),
+             (${ORG_ID}, ${invoiceId}, 2, 'ledger', 'Sales', false, '-4150.50')
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_name, actual_qty, billed_qty, rate, amount)
+      VALUES (${ORG_ID}, ${invoiceId}, 3, 'inventory', 'Cat6 Cable Box', '1 NOS', '1 NOS', '4150.50', '4150.50')
+    `);
+  });
+
+  it('is receivables.view, not masters.tally.view: an employee is refused', async () => {
+    const refused = await harness.get('/masters/vouchers', { token: employeeToken });
+    expect(refused.status).toBe(403);
+  });
+
+  it('lists newest first, hiding the cancelled unless asked, and filters by type, party and date', async () => {
+    const list = await harness.get<{ data: { voucherNumber: string; amount: string }[]; meta: { total: number } }>(
+      '/masters/vouchers',
+      { token: adminToken },
+    );
+    expect(list.status).toBe(200);
+    expect(list.body.data.map((v) => v.voucherNumber)).toEqual(['RCT-0007', 'INV-0042']);
+    // Money as text, to the paisa (D-01).
+    expect(list.body.data[1]?.amount).toBe('4150.50');
+
+    const withCancelled = await harness.get<{ meta: { total: number } }>(
+      '/masters/vouchers?includeCancelled=true',
+      { token: adminToken },
+    );
+    expect(withCancelled.body.meta.total).toBe(3);
+
+    const sales = await harness.get<{ data: { voucherNumber: string }[] }>(
+      `/masters/vouchers?voucherType=Sales&partyId=${ashaId}&from=2026-08-01&to=2026-08-31`,
+      { token: adminToken },
+    );
+    expect(sales.body.data.map((v) => v.voucherNumber)).toEqual(['INV-0042']);
+  });
+
+  it('the detail carries the lines in Tally’s order', async () => {
+    const detail = await harness.get<{ lines: { lineNo: number; kind: string; ledgerName: string | null; amount: string }[] }>(
+      `/masters/vouchers/${invoiceId}`,
+      { token: adminToken },
+    );
+    expect(detail.status).toBe(200);
+    expect(detail.body.lines.map((l) => [l.lineNo, l.kind])).toEqual([[1, 'ledger'], [2, 'ledger'], [3, 'inventory']]);
+    expect(detail.body.lines[1]?.amount).toBe('-4150.50');
+  });
+
+  it('typing a voucher number in Go To opens that voucher (09 §6)', async () => {
+    const response = await harness.get<{ records: { type: string; id: string; code: string | null; title: string }[] }>(
+      '/go-to?q=INV-0042',
+      { token: adminToken },
+    );
+    const voucher = response.body.records.find((r) => r.type === 'voucher');
+    expect(voucher?.id).toBe(invoiceId);
+    expect(voucher?.code).toBe('INV-0042');
+    expect(voucher?.title).toBe('Sales INV-0042');
+    // And a non-holder never sees the source.
+    const refused = await harness.get<{ records: { type: string }[] }>('/go-to?q=INV-0042', { token: employeeToken });
+    expect(refused.body.records.some((r) => r.type === 'voucher')).toBe(false);
+  });
+});
+
+describe('voucher reconciliation report (REQ-S-05, through the report shell)', () => {
+  it('appears in the catalogue for a receivables holder, and only for them', async () => {
+    const admin = await harness.get<{ data: { key: string }[] }>('/reports', { token: adminToken });
+    expect(admin.body.data.some((r) => r.key === 'voucher-reconciliation')).toBe(true);
+    // Attendance's own catalogue is untouched by the new group.
+    expect(admin.body.data.some((r) => r.key === 'attendance-register')).toBe(true);
+    // A row read without the key is refused where the source is asked.
+    const employee = await harness.get('/reports/voucher-reconciliation/rows', { token: employeeToken });
+    expect(employee.status).toBe(403);
+  });
+
+  it('groups by month and voucher type; cancelled vouchers count but do not add value', async () => {
+    const response = await harness.get<{
+      data: { month: string; voucherType: string; count: number; cancelled: number; total: string }[];
+      meta: { total: number };
+    }>('/reports/voucher-reconciliation/rows?from=2026-07-01&to=2026-08-31', { token: adminToken });
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual([
+      { month: '2026-07', voucherType: 'Sales', count: 1, cancelled: 1, total: '0', lastPulledAt: expect.any(String) as string },
+      { month: '2026-08', voucherType: 'Receipt', count: 1, cancelled: 0, total: '4150.50', lastPulledAt: expect.any(String) as string },
+      { month: '2026-08', voucherType: 'Sales', count: 1, cancelled: 0, total: '4150.50', lastPulledAt: expect.any(String) as string },
+    ]);
+    expect(response.body.meta.total).toBe(3);
   });
 });

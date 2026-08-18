@@ -5,6 +5,7 @@ import type {
   PartyPullRow,
   PriceListPullRow,
   StockItemPullRow,
+  VoucherPullRow,
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
@@ -38,6 +39,9 @@ import { requireAgentCompany, type AgentPrincipal } from './agent-principal.js';
 interface MappingDecision {
   readonly internalId: string | null;
 }
+
+/** Everything anchored in `external_refs` by a Tally GUID. */
+type MappedEntity = 'party' | 'stock_item' | 'voucher';
 
 /**
  * The two facts every projection write is scoped by. `AgentPrincipal`
@@ -249,12 +253,15 @@ export class SyncWriterService {
     scope: WriterScope,
     rows:
       | { entityType: 'party'; rows: readonly PartyPullRow[] }
-      | { entityType: 'stock_item'; rows: readonly StockItemPullRow[] },
+      | { entityType: 'stock_item'; rows: readonly StockItemPullRow[] }
+      | { entityType: 'voucher'; rows: readonly VoucherPullRow[] },
   ): Promise<void> {
     if (rows.entityType === 'party') {
       for (const row of rows.rows) await this.upsertParty(tx, scope, row);
-    } else {
+    } else if (rows.entityType === 'stock_item') {
       for (const row of rows.rows) await this.upsertStockItem(tx, scope, row);
+    } else {
+      for (const row of rows.rows) await this.upsertVoucher(tx, scope, row);
     }
   }
 
@@ -274,7 +281,7 @@ export class SyncWriterService {
   private async resolveMapping(
     tx: Transaction,
     agent: WriterScope,
-    entityType: 'party' | 'stock_item',
+    entityType: MappedEntity,
     guid: string,
   ): Promise<MappingDecision> {
     const existing = await tx.execute<{
@@ -310,7 +317,7 @@ export class SyncWriterService {
   private async touchMapping(
     tx: Transaction,
     agent: WriterScope,
-    entityType: 'party' | 'stock_item',
+    entityType: MappedEntity,
     guid: string,
     alterId: number,
   ): Promise<void> {
@@ -331,7 +338,7 @@ export class SyncWriterService {
   private async insertMapping(
     tx: Transaction,
     agent: WriterScope,
-    entityType: 'party' | 'stock_item',
+    entityType: MappedEntity,
     guid: string,
     alterId: number,
     internalId: string,
@@ -460,6 +467,108 @@ export class SyncWriterService {
     const itemId = inserted.rows[0]?.id;
     if (itemId === undefined) throw new Error('Stock item insert returned no row.');
     await this.insertMapping(tx, agent, 'stock_item', row.guid, row.alterId, itemId);
+  }
+
+  /**
+   * Phase 6c: vouchers, GUID-anchored like the masters, with one difference
+   * in shape — the lines are replaced wholesale. A line has no identity
+   * across syncs (Tally renumbers them freely), so reconciling old against
+   * new row by row would invent one; delete-and-insert inside the voucher's
+   * own transaction is the honest upsert. Party and item references resolve
+   * by exact name within the connection because that is Tally's own
+   * reference (a voucher names its party ledger); unresolved stays null and
+   * the verbatim name is kept either way.
+   */
+  private async upsertVoucher(
+    tx: Transaction,
+    agent: WriterScope,
+    row: VoucherPullRow,
+  ): Promise<void> {
+    const mapping = await this.resolveMapping(tx, agent, 'voucher', row.guid);
+
+    const partyId = await this.resolvePartyId(tx, agent, row.partyName ?? '');
+    let voucherId: string;
+    if (mapping.internalId !== null) {
+      await tx.execute(sql`
+        UPDATE vouchers
+           SET master_id = ${row.masterId ?? null},
+               alter_id = ${row.alterId},
+               voucher_date = ${row.date},
+               voucher_type = ${row.voucherType},
+               voucher_number = ${row.voucherNumber ?? ''},
+               party_name = ${row.partyName ?? ''},
+               party_id = ${partyId},
+               narration = ${row.narration ?? ''},
+               is_cancelled = ${row.isCancelled},
+               amount = ${row.amount},
+               connection_id = ${agent.connectionId},
+               last_pulled_at = now(),
+               updated_at = now()
+         WHERE id = ${mapping.internalId}
+      `);
+      await this.touchMapping(tx, agent, 'voucher', row.guid, row.alterId);
+      voucherId = mapping.internalId;
+      await tx.execute(sql`DELETE FROM voucher_lines WHERE voucher_id = ${voucherId}`);
+    } else {
+      const inserted = await tx.execute<{ id: string }>(sql`
+        INSERT INTO vouchers
+          (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number,
+           party_name, party_id, narration, is_cancelled, amount)
+        VALUES
+          (${agent.orgId}, ${agent.connectionId}, ${row.masterId ?? null}, ${row.alterId}, ${row.date},
+           ${row.voucherType}, ${row.voucherNumber ?? ''}, ${row.partyName ?? ''}, ${partyId},
+           ${row.narration ?? ''}, ${row.isCancelled}, ${row.amount})
+        RETURNING id
+      `);
+      const id = inserted.rows[0]?.id;
+      if (id === undefined) throw new Error('Voucher insert returned no row.');
+      await this.insertMapping(tx, agent, 'voucher', row.guid, row.alterId, id);
+      voucherId = id;
+    }
+
+    let lineNo = 0;
+    for (const line of row.lines) {
+      lineNo += 1;
+      if (line.kind === 'ledger') {
+        await tx.execute(sql`
+          INSERT INTO voucher_lines
+            (org_id, voucher_id, line_no, kind, ledger_name, is_deemed_positive, amount)
+          VALUES
+            (${agent.orgId}, ${voucherId}, ${lineNo}, 'ledger', ${line.ledgerName},
+             ${line.isDeemedPositive}, ${line.amount})
+        `);
+      } else {
+        const itemId = await this.resolveStockItemId(tx, agent, line.stockItemName);
+        await tx.execute(sql`
+          INSERT INTO voucher_lines
+            (org_id, voucher_id, line_no, kind, stock_item_name, stock_item_id,
+             actual_qty, billed_qty, rate, amount)
+          VALUES
+            (${agent.orgId}, ${voucherId}, ${lineNo}, 'inventory', ${line.stockItemName}, ${itemId},
+             ${line.actualQty}, ${line.billedQty}, ${line.rate ?? null}, ${line.amount})
+        `);
+      }
+    }
+  }
+
+  private async resolvePartyId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
+    if (name === '') return null;
+    const rows = await tx.execute<{ id: string }>(sql`
+      SELECT id FROM parties
+       WHERE connection_id = ${agent.connectionId} AND name = ${name}
+       LIMIT 1
+    `);
+    return rows.rows[0]?.id ?? null;
+  }
+
+  private async resolveStockItemId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
+    if (name === '') return null;
+    const rows = await tx.execute<{ id: string }>(sql`
+      SELECT id FROM stock_items
+       WHERE connection_id = ${agent.connectionId} AND name = ${name}
+       LIMIT 1
+    `);
+    return rows.rows[0]?.id ?? null;
   }
 
   /**

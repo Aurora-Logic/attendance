@@ -13,10 +13,13 @@ import {
   partyListQuerySchema,
   priceListListQuerySchema,
   stockItemListQuerySchema,
+  voucherListQuerySchema,
   type Paginated,
   type PartyView,
   type PriceListEntryView,
   type StockItemView,
+  type VoucherDetailView,
+  type VoucherView,
 } from '@vyuha/shared';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
@@ -27,6 +30,7 @@ import { MastersService } from './masters.service.js';
 class PartyListQueryDto extends createZodDto(partyListQuerySchema) {}
 class StockItemListQueryDto extends createZodDto(stockItemListQuerySchema) {}
 class PriceListListQueryDto extends createZodDto(priceListListQuerySchema) {}
+class VoucherListQueryDto extends createZodDto(voucherListQuerySchema) {}
 
 /**
  * `/api/v1/masters/*` (09 §5): the Tally masters projection, read-only —
@@ -78,6 +82,30 @@ export class MastersController {
     @Query() query: PriceListListQueryDto,
   ): Promise<Paginated<PriceListEntryView>> {
     return this.masters.listPriceListEntries(principal, query);
+  }
+
+  /**
+   * Phase 6c: the books, read-only like the masters, behind `receivables.view`
+   * rather than `masters.tally.view` — a voucher is money moving, and 08 §2.2
+   * gives it to Accounts and Sales managers, not to everyone who may look up
+   * a party.
+   */
+  @Get('vouchers')
+  @RequirePermission(PERMISSIONS.RECEIVABLES_VIEW)
+  listVouchers(
+    @CurrentUser() principal: Principal,
+    @Query() query: VoucherListQueryDto,
+  ): Promise<Paginated<VoucherView>> {
+    return this.masters.listVouchers(principal, query);
+  }
+
+  @Get('vouchers/:id')
+  @RequirePermission(PERMISSIONS.RECEIVABLES_VIEW)
+  findVoucher(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<VoucherDetailView> {
+    return this.masters.findVoucher(principal, id);
   }
 
   @Post('parties')
