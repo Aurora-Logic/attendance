@@ -14,7 +14,9 @@ import { useItemHistory } from './use-estimates';
  * REQ-W-02: "on selecting an item in an estimate, an information affordance
  * opens that item's history for that party". A popover on a desktop, a
  * bottom sheet on a phone (CLAUDE.md §3), asked when opened — the reason
- * the backfill is worth its cost, one click from the rate box.
+ * the backfill is worth its cost, one click from the rate box. The first
+ * line is availability (REQ-AC-08): one control, two facts a salesperson
+ * needs at the same instant.
  */
 export function ItemHistoryAffordance({
   stockItemId,
@@ -55,6 +57,18 @@ export function ItemHistoryAffordance({
       {history.isError ? <p className="text-muted-foreground">Could not load the history: {history.error.message}</p> : null}
       {history.isSuccess ? (
         <>
+          {history.data.availability === null ? null : (
+            // REQ-AC-08: available = closing − committed (REQ-AC-04), with the pull it rests on (REQ-AC-05).
+            <p className="text-xs tabular-nums">
+              <span className="font-medium">Available {history.data.availability.availableQty ?? EMPTY_VALUE}</span>
+              <span className="text-muted-foreground">
+                {' '}
+                · Tally closing {history.data.availability.closingQty ?? EMPTY_VALUE} − committed {history.data.availability.committedQty}
+                {Number(history.data.availability.openPoQty) > 0 ? ` · ${history.data.availability.openPoQty} on order` : ''}
+                {history.data.availability.asOf === null ? ' · no stock pull yet' : ` · as of ${formatRelativeAge(history.data.availability.asOf)}`}
+              </span>
+            </p>
+          )}
           <p className="text-muted-foreground text-xs">
             Current sale price {history.data.currentSalePrice ?? EMPTY_VALUE}
             {history.data.vouchersAsOf === null ? '' : ` · vouchers as of ${formatRelativeAge(history.data.vouchersAsOf)}`}

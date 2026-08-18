@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { ESTIMATE_STATUSES, SALES_ORDER_STATUSES, SYNC_STATES } from '@vyuha/shared';
+import { DISPATCH_MODES, ESTIMATE_STATUSES, FULFILMENT_STATES, SALES_DOCUMENT_TYPES, SALES_ORDER_STATUSES, SYNC_STATES } from '@vyuha/shared';
 
 /** What `/sales/estimates` answers (REQ-W-01), parsed at the boundary. */
 
@@ -16,12 +16,25 @@ export const salesLineSchema = z.object({
   taxPct: z.string(),
   amount: z.string(),
   taxAmount: z.string(),
+  // REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate.
+  packedQty: z.string(),
+  invoicedQty: z.string(),
+  dispatchedQty: z.string(),
 });
 export type SalesLine = z.infer<typeof salesLineSchema>;
 
+/** REQ-AA-29: the four figures and the balance every order screen shows per line. */
+export function lineBalances(line: SalesLine): { toPack: number; toInvoice: number; toDispatch: number } {
+  return {
+    toPack: Math.max(0, Number(line.quantity) - Number(line.packedQty)),
+    toInvoice: Math.max(0, Number(line.packedQty) - Number(line.invoicedQty)),
+    toDispatch: Math.max(0, Number(line.invoicedQty) - Number(line.dispatchedQty)),
+  };
+}
+
 const headerShape = {
   id: z.string(),
-  docType: z.enum(['ESTIMATE', 'SALES_ORDER']),
+  docType: z.enum(SALES_DOCUMENT_TYPES),
   number: z.string(),
   status: z.enum([...ESTIMATE_STATUSES, ...SALES_ORDER_STATUSES]),
   date: z.string(),
@@ -44,13 +57,59 @@ const headerShape = {
   remoteVoucherNumber: z.string().nullable(),
   lastPushedAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  // Orders only (null on an estimate): the fulfilment word derived from the
+  // lines (REQ-AA-02), the short close (REQ-AA-05), and where the customer
+  // is told (REQ-AA-28).
+  fulfilment: z.enum(FULFILMENT_STATES).nullable(),
+  shortClosedAt: z.string().nullable(),
+  shortCloseReason: z.string().nullable(),
+  customerEmail: z.string().nullable(),
+  customerWhatsapp: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 };
 
+/** REQ-AA-12 / D-38: an invoice against an order, however it got there. */
+export const orderInvoiceSchema = z.object({
+  voucherId: z.string().nullable(),
+  invoiceDocumentId: z.string().nullable(),
+  voucherNumber: z.string(),
+  date: z.string(),
+  amount: z.string(),
+  method: z.enum(['narration', 'manual', 'vyuha']),
+  linkedAt: z.string(),
+});
+export type OrderInvoice = z.infer<typeof orderInvoiceSchema>;
+export const ORDER_INVOICE_METHOD_LABELS: Record<OrderInvoice['method'], string> = {
+  narration: 'Auto-linked',
+  manual: 'Linked by hand',
+  vyuha: 'Raised here',
+};
+
+/** REQ-X-26: why an order waits and what it waits on — an open requirement and the POs raised against it. */
+export const orderWaitingOnSchema = z.object({
+  requirementId: z.string(),
+  lineId: z.string().nullable(),
+  stockItemName: z.string(),
+  quantity: z.string(),
+  orderedQty: z.string(),
+  receivedQty: z.string(),
+  state: z.enum(['open', 'ordered', 'received', 'closed']),
+  neededBy: z.string().nullable(),
+  purchaseOrders: z.array(z.object({ id: z.string(), number: z.string(), vendorName: z.string(), status: z.string(), expectedDate: z.string().nullable(), quantity: z.string() })),
+});
+export type OrderWaitingOn = z.infer<typeof orderWaitingOnSchema>;
+export const WAITING_ON_STATE_LABELS: Record<OrderWaitingOn['state'], string> = { open: 'No PO yet', ordered: 'On order', received: 'Received', closed: 'Closed' };
+
 export const estimateSummarySchema = z.object(headerShape);
 export type EstimateSummary = z.infer<typeof estimateSummarySchema>;
-export const estimateSchema = z.object({ ...headerShape, lines: z.array(salesLineSchema) });
+export const estimateSchema = z.object({
+  ...headerShape,
+  lines: z.array(salesLineSchema),
+  invoices: z.array(orderInvoiceSchema),
+  // Orders only; the estimate and invoice endpoints answer without it.
+  waitingOn: z.array(orderWaitingOnSchema).default([]),
+});
 export type Estimate = z.infer<typeof estimateSchema>;
 
 export const estimatesResponseSchema = z.object({
@@ -59,9 +118,24 @@ export const estimatesResponseSchema = z.object({
 });
 export type EstimatesResponse = z.infer<typeof estimatesResponseSchema>;
 
+/** REQ-AC-04: available = Tally closing − committed, with the pull it rests on (REQ-AC-05). */
+export const stockAvailabilitySchema = z.object({
+  stockItemId: z.string(),
+  closingQty: z.string().nullable(),
+  committedQty: z.string(),
+  availableQty: z.string().nullable(),
+  openPoQty: z.string(),
+  reorderLevel: z.string().nullable(),
+  minimumOrderQty: z.string().nullable(),
+  asOf: z.string().nullable(),
+});
+export type StockAvailability = z.infer<typeof stockAvailabilitySchema>;
+
 export const itemHistorySchema = z.object({
   stockItemName: z.string(),
   currentSalePrice: z.string().nullable(),
+  // REQ-AC-08: the other fact a salesperson needs at the same instant.
+  availability: stockAvailabilitySchema.nullable(),
   entries: z.array(
     z.object({
       source: z.enum(['voucher', 'estimate']),
@@ -77,6 +151,123 @@ export const itemHistorySchema = z.object({
   vouchersAsOf: z.string().nullable(),
 });
 export type ItemHistory = z.infer<typeof itemHistorySchema>;
+
+/** REQ-W-09: what a credit block says, carried in the CREDIT_BLOCKED error's details. */
+export const creditPositionSchema = z.object({
+  partyId: z.string(),
+  partyName: z.string(),
+  creditLimit: z.string().nullable(),
+  creditDays: z.number().nullable(),
+  exposure: z.string(),
+  openOrders: z.string(),
+  headroom: z.string().nullable(),
+});
+export type CreditPosition = z.infer<typeof creditPositionSchema>;
+export const creditBlockSchema = z.object({ position: creditPositionSchema, requiredPermission: z.string(), orderTotal: z.string() });
+export type CreditBlock = z.infer<typeof creditBlockSchema>;
+
+// ------------------------------------------------------- pick, pack, invoice
+
+/** REQ-AA-06: an open order with something left to pack, as the picker sees it. */
+export const pickQueueEntrySchema = z.object({
+  documentId: z.string(),
+  number: z.string(),
+  customerName: z.string(),
+  date: z.string(),
+  fulfilment: z.enum(FULFILMENT_STATES),
+  balanceLines: z.number(),
+  balanceQty: z.string(),
+  waitingOnRequirements: z.number(),
+});
+export type PickQueueEntry = z.infer<typeof pickQueueEntrySchema>;
+
+/** REQ-AA-11/AA-15: packed, uninvoiced, and for how long. */
+export const awaitingInvoiceEntrySchema = z.object({
+  documentId: z.string(),
+  number: z.string(),
+  customerName: z.string(),
+  packedUninvoicedQty: z.string(),
+  waitingSince: z.string(),
+  waitingHours: z.number(),
+});
+export type AwaitingInvoiceEntry = z.infer<typeof awaitingInvoiceEntrySchema>;
+
+/** REQ-AA-13: a Sales voucher with a party and no order behind it. */
+export const unlinkedInvoiceSchema = z.object({
+  voucherId: z.string(),
+  voucherNumber: z.string(),
+  date: z.string(),
+  partyId: z.string().nullable(),
+  partyName: z.string(),
+  amount: z.string(),
+  narration: z.string().nullable(),
+  candidateOrders: z.array(z.object({ documentId: z.string(), number: z.string(), date: z.string(), grandTotal: z.string() })),
+});
+export type UnlinkedInvoice = z.infer<typeof unlinkedInvoiceSchema>;
+
+/** REQ-AA-09: one packing session. */
+export const packRecordSchema = z.object({
+  id: z.string(),
+  documentId: z.string(),
+  boxCount: z.number(),
+  packedById: z.string().nullable(),
+  packedByName: z.string().nullable(),
+  packedAt: z.string(),
+  comment: z.string().nullable(),
+  lines: z.array(z.object({ lineId: z.string(), description: z.string(), quantity: z.string(), comment: z.string().nullable() })),
+});
+export type PackRecord = z.infer<typeof packRecordSchema>;
+
+// ------------------------------------------------------------------ dispatch
+
+export const dispatchNotificationSchema = z.object({
+  id: z.string(),
+  channel: z.enum(['email', 'whatsapp']),
+  recipient: z.string().nullable(),
+  status: z.enum(['pending', 'sent', 'failed']),
+  composedText: z.string(),
+  sentAt: z.string().nullable(),
+  error: z.string().nullable(),
+});
+export type DispatchNotification = z.infer<typeof dispatchNotificationSchema>;
+
+/** REQ-AA-16: a dispatch is its own record with its own lines. */
+export const dispatchSchema = z.object({
+  id: z.string(),
+  number: z.string(),
+  documentId: z.string(),
+  orderNumber: z.string(),
+  customerName: z.string(),
+  mode: z.enum(DISPATCH_MODES),
+  dispatchedById: z.string().nullable(),
+  dispatchedByName: z.string().nullable(),
+  dispatchedAt: z.string(),
+  lrNumber: z.string().nullable(),
+  transporterName: z.string().nullable(),
+  transporterContact: z.string().nullable(),
+  vehicleNumber: z.string().nullable(),
+  driverName: z.string().nullable(),
+  expectedDeliveryDate: z.string().nullable(),
+  notes: z.string().nullable(),
+  syncState: z.enum(SYNC_STATES),
+  remoteGuid: z.string().nullable(),
+  remoteVoucherNumber: z.string().nullable(),
+  lastError: z.string().nullable(),
+  lines: z.array(z.object({ lineId: z.string(), description: z.string(), quantity: z.string(), unit: z.string().nullable() })),
+  attachments: z.array(z.object({ fileId: z.string(), kind: z.enum(['box', 'lr']) })),
+  notifications: z.array(dispatchNotificationSchema),
+});
+export type Dispatch = z.infer<typeof dispatchSchema>;
+
+export const dispatchesResponseSchema = z.object({
+  data: z.array(dispatchSchema),
+  meta: z.object({ page: z.number(), pageSize: z.number(), total: z.number() }),
+});
+export type DispatchesResponse = z.infer<typeof dispatchesResponseSchema>;
+
+/** What `GET /sales/dispatches/:id/attachments/:fileId/url` answers: a signed link and its life. */
+export const attachmentUrlSchema = z.object({ url: z.string(), expiresInSeconds: z.number() });
+export type AttachmentUrl = z.infer<typeof attachmentUrlSchema>;
 
 /** The editor's working copy of a line; strings as typed, validated on save. */
 export interface LineDraft {
@@ -103,6 +294,9 @@ export interface EstimateDraft {
   ownerId: string | null;
   notes: string;
   terms: string;
+  /** REQ-AA-28: sales orders only; blank means the party master's contact. Estimates ignore them. */
+  customerEmail: string;
+  customerWhatsapp: string;
   lines: LineDraft[];
 }
 
@@ -135,6 +329,8 @@ export function emptyEstimateDraft(today: string, overrides: Partial<EstimateDra
     ownerId: null,
     notes: '',
     terms: '',
+    customerEmail: '',
+    customerWhatsapp: '',
     lines: [newLine()],
     ...overrides,
   };
@@ -154,6 +350,8 @@ export function estimateToDraft(estimate: Estimate): EstimateDraft {
     ownerId: estimate.ownerId,
     notes: estimate.notes ?? '',
     terms: estimate.terms ?? '',
+    customerEmail: estimate.customerEmail ?? '',
+    customerWhatsapp: estimate.customerWhatsapp ?? '',
     lines: estimate.lines.map((line) =>
       newLine({
         stockItemId: line.stockItemId,

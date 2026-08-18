@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
-import type { CreateEstimateInput, EstimateStatus, SalesLineInput, UpdateEstimateInput } from '@vyuha/shared';
+import type { ConfirmSalesOrderInput, CreateEstimateInput, EstimateStatus, SalesLineInput, UpdateEstimateInput } from '@vyuha/shared';
 
 import { apiRequest } from '@/lib/api/client';
 import { parseOrThrow } from '@/lib/api/parse';
@@ -191,6 +191,10 @@ export function useSaveSalesOrder(): UseMutationResult<Estimate, Error, Estimate
         ownerId: draft.ownerId,
         notes: blank(draft.notes),
         terms: blank(draft.terms),
+        // REQ-AA-28: null on create falls back to the party master; null on
+        // a draft clears the override the way the person cleared the box.
+        customerEmail: blank(draft.customerEmail),
+        customerWhatsapp: blank(draft.customerWhatsapp),
         lines: toLineInputs(draft),
       };
       const response = await apiRequest<unknown>(draft.id === undefined ? '/sales/orders' : `/sales/orders/${draft.id}`, {
@@ -203,12 +207,12 @@ export function useSaveSalesOrder(): UseMutationResult<Estimate, Error, Estimate
   });
 }
 
-/** Confirm, push, cancel: one mutation, the action named. */
-export function useSalesOrderAction(): UseMutationResult<Estimate, Error, { id: string; action: 'confirm' | 'push' | 'cancel' }> {
+/** Confirm, push, cancel: one mutation, the action named. Confirm may carry the credit override (REQ-W-09). */
+export function useSalesOrderAction(): UseMutationResult<Estimate, Error, { id: string; action: 'confirm' | 'push' | 'cancel'; body?: ConfirmSalesOrderInput }> {
   const invalidate = useInvalidateSales();
   return useMutation({
-    mutationFn: async ({ id, action }) => {
-      const response = await apiRequest<unknown>(`/sales/orders/${id}/${action}`, { method: 'POST' });
+    mutationFn: async ({ id, action, body }) => {
+      const response = await apiRequest<unknown>(`/sales/orders/${id}/${action}`, { method: 'POST', ...(body === undefined ? {} : { body }) });
       return parseOrThrow(estimateSchema, response, 'sales order');
     },
     onSuccess: invalidate,
