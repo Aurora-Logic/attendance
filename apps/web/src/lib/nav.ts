@@ -9,6 +9,7 @@ import {
   ClockCounterClockwiseIcon,
   ClockIcon,
   DownloadSimpleIcon,
+  FileTextIcon,
   FingerprintIcon,
   GearIcon,
   HandshakeIcon,
@@ -485,6 +486,28 @@ export const MODULES: ModuleDef[] = [
       },
     ],
   },
+  {
+    id: 'sales',
+    label: 'Sales',
+    icon: FileTextIcon,
+    home: '/sales/estimates',
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    groups: [
+      {
+        label: 'Documents',
+        items: [
+          {
+            to: '/sales/estimates',
+            label: 'Estimates',
+            icon: FileTextIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-W-01, REQ-W-02',
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 /**
@@ -589,6 +612,7 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/crm\/companies\/[^/]+$/u, parent: '/crm/companies', label: 'Company' },
   { pattern: /^\/tasks\/[^/]+$/u, parent: '/tasks', label: 'Task' },
   { pattern: /^\/crm\/deals\/[^/]+$/u, parent: '/crm/deals', label: 'Deal' },
+  { pattern: /^\/sales\/estimates\/[^/]+$/u, parent: '/sales/estimates', label: 'Estimate' },
 ];
 
 export function findBreadcrumbs(pathname: string): [Crumb, ...Crumb[]] {

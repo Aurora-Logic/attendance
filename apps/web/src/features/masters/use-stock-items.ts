@@ -17,6 +17,11 @@ export const stockItemSchema = z.object({
   unit: z.string(),
   parentGroup: z.string(),
   gstRate: z.string().nullable(),
+  // Held figures (D-01), exact text; absent on rows the server has not yet
+  // been asked for them, so optional rather than nullable-required.
+  closingQty: z.string().nullable().optional(),
+  salePrice: z.string().nullable().optional(),
+  costPrice: z.string().nullable().optional(),
   absentInTally: z.boolean(),
   lastPulledAt: z.string(),
 });

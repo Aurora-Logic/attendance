@@ -175,6 +175,19 @@ for tasks and so sees none) and P7-2 (which roles hold the task keys).
 Next in Phase 7: pipelines and deals with the won → party link (REQ-U-04…
 U-06), then activities through the audit interceptor (REQ-U-07).
 
+## Phase 8a on this branch (the part that needs no push transport)
+
+| Deliverable | Commit | Proof |
+|---|---|---|
+| Estimates (REQ-W-01): `sales_documents` + lines + per-org sequence (migration 0031), arithmetic once in SQL as exact text, tax for information from the item's GST rate, draft editable / later read-only, transition table, five `sales.*` keys held by the Sales roles; item history (REQ-W-02) from the party's vouchers and earlier estimates; estimates in Go To | `198e30d` | sales 7/7 |
+| Estimates screen: Sales module in the sidebar, register with status filter, wide sheet with the line editor (party or CRM company or a name; item picker prefills description, unit, rate and tax; Enter on the last box appends a line — Alt+N is the calculator's), item-history affordance as a popover / bottom sheet, preview totals replaced by the server's on save, status Select, 360px bottom sheet | — | live drive: raised EST-0003 for Live Drive Traders with an item line and a free line — server totals 14,952.00 / 622.57 / 2,579.30 / 16,908.73 — history popover shows Sales INV-2026-0042 and the current price, marked Sent and read-only, Go To opens it, no failing requests |
+
+Not buildable yet: everything that pushes (REQ-W-03…W-07, X-01…X-03) —
+same blocker as Phase 6d, the write transport OpsTally does not offer;
+REQ-W-08 discount approval and REQ-W-09 credit block wait for the sales
+order they gate; REQ-U-06 lights up on the deal sheet once a won deal's
+documents exist (`GET /sales/estimates?dealId=` is already there for it).
+
 ## Next, in order
 
 Nothing further is buildable in 6b/6c without the blocked inputs. Phase 6d
