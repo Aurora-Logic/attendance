@@ -244,13 +244,13 @@ function GrnSheetBody({ grn, onClose }: { grn: Grn; onClose: () => void }) {
       </SheetHeader>
 
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
-        {grn.syncState === 'FAILED' && grn.lastError ? (
+        {grn.lastError ? (
           <Alert variant="destructive">
             <XCircleIcon />
-            <AlertTitle>Tally rejected it</AlertTitle>
+            <AlertTitle>{grn.syncState === 'FAILED' ? 'Tally rejected it' : 'Tally has since changed it'}</AlertTitle>
             <AlertDescription>
               <p className="font-mono text-xs">{grn.lastError}</p>
-              <p className="mt-1">Tally&rsquo;s own words (REQ-T-01).</p>
+              <p className="mt-1">{grn.syncState === 'FAILED' ? 'Tally\u2019s own words (REQ-T-01).' : 'Seen on the pull (D-38). The stock is on the shelf either way.'}</p>
             </AlertDescription>
           </Alert>
         ) : null}
