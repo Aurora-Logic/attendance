@@ -29,6 +29,13 @@ import { ContactsPage } from '@/features/crm/contacts-page';
 import { DealsPage } from '@/features/crm/deals-page';
 import { EstimatesPage } from '@/features/sales/estimates-page';
 import { SalesOrdersPage } from '@/features/sales/sales-orders-page';
+import { InvoicesPage } from '@/features/sales/invoices-page';
+import { PickQueuePage } from '@/features/sales/pick-queue-page';
+import { AwaitingInvoicePage } from '@/features/sales/awaiting-invoice-page';
+import { DispatchesPage } from '@/features/sales/dispatches-page';
+import { RequirementsPage } from '@/features/purchase/requirements-page';
+import { PurchaseOrdersPage } from '@/features/purchase/purchase-orders-page';
+import { GrnsPage } from '@/features/purchase/grns-page';
 import { PartiesPage } from '@/features/masters/parties-page';
 import { TasksPage } from '@/features/tasks/tasks-page';
 import { PriceListsPage } from '@/features/masters/price-lists-page';
@@ -50,6 +57,13 @@ import { ALL_NAV_ITEMS } from '@/lib/nav';
 const BUILT_ROUTES = new Set([
   '/sales/estimates',
   '/sales/orders',
+  '/sales/invoices',
+  '/sales/pick-queue',
+  '/sales/awaiting-invoice',
+  '/sales/dispatches',
+  '/purchase/requirements',
+  '/purchase/orders',
+  '/purchase/grns',
   '/tasks',
   '/crm/deals',
   '/crm/contacts',
@@ -136,6 +150,18 @@ export default function App() {
               <Route path="sales/estimates/:id" element={<EstimatesPage />} />
               <Route path="sales/orders" element={<SalesOrdersPage />} />
               <Route path="sales/orders/:id" element={<SalesOrdersPage />} />
+              <Route path="sales/invoices" element={<InvoicesPage />} />
+              <Route path="sales/invoices/:id" element={<InvoicesPage />} />
+              <Route path="sales/pick-queue" element={<PickQueuePage />} />
+              <Route path="sales/pick-queue/:id" element={<PickQueuePage />} />
+              <Route path="sales/awaiting-invoice" element={<AwaitingInvoicePage />} />
+              <Route path="sales/dispatches" element={<DispatchesPage />} />
+              <Route path="sales/dispatches/:id" element={<DispatchesPage />} />
+              <Route path="purchase/requirements" element={<RequirementsPage />} />
+              <Route path="purchase/orders" element={<PurchaseOrdersPage />} />
+              <Route path="purchase/orders/:id" element={<PurchaseOrdersPage />} />
+              <Route path="purchase/grns" element={<GrnsPage />} />
+              <Route path="purchase/grns/:id" element={<GrnsPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />

@@ -6,6 +6,7 @@ import {
   EnvelopeSimpleIcon,
   LockKeyIcon,
   MapPinAreaIcon,
+  MoonIcon,
   PaperPlaneTiltIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
@@ -46,6 +47,7 @@ import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { DEVICE_BINDING_MODES, PERMISSIONS, PUNCH_WINDOW_BEHAVIOURS } from '@vyuha/shared';
 
+import { AccessWindowPanel } from './access-window-panel';
 import { OfficeLocationPanel } from './office-location-panel';
 import { PolicyChoiceField, PolicyNumberField } from './policy-fields';
 import {
@@ -63,6 +65,7 @@ import {
   type PhotoPolicy,
   type SettingsPatch,
 } from './types';
+import { useAccessWindowDraft, useSaveAccessWindow } from './use-access-window';
 import { useOfficeGeofence, useSaveGeofence } from './use-office-location';
 import { useSaveSettings, useSettings, useTestEmail } from './use-settings';
 
@@ -80,7 +83,8 @@ import { useSaveSettings, useSettings, useTestEmail } from './use-settings';
  * request to a second endpoint. That stays behind the same button — two Save
  * buttons on one screen is exactly what the paragraph above exists to avoid —
  * but the two requests are independent, and the screen reports which of them
- * landed rather than assuming both did.
+ * landed rather than assuming both did. The access window (12 REQ-AB-02) is
+ * the third such row: its own route, the same Save.
  */
 
 const KB = 1024;
@@ -151,7 +155,7 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader description="Organisation profile, attendance policy, photo retention and outbound email." />
+      <PageHeader description="Organisation profile, attendance policy, photo retention, outbound email and the sign-in window." />
 
       {canManage ? (
         <div className="flex flex-col gap-4">
@@ -195,6 +199,8 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
   const save = useSaveSettings();
   const office = useOfficeGeofence();
   const saveOffice = useSaveGeofence();
+  const accessWindow = useAccessWindowDraft();
+  const saveWindow = useSaveAccessWindow();
   // REQ-M-02 and REQ-L-05. Settings are the one record where the diff matters
   // more than the current value: "what is the retention now" is on the screen,
   // and "who shortened it, and when" is the question a purged photo raises.
@@ -202,9 +208,10 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
 
   const patch = patchOf(draft, saved);
   const officeWrite = office.write;
-  const changedSections = Object.keys(patch).length + (officeWrite === null ? 0 : 1);
+  const windowWrite = accessWindow.write;
+  const changedSections = Object.keys(patch).length + (officeWrite === null ? 0 : 1) + (windowWrite === null ? 0 : 1);
   const dirty = changedSections > 0;
-  const saving = save.isPending || saveOffice.isPending;
+  const saving = save.isPending || saveOffice.isPending || saveWindow.isPending;
   // An office draft the panel refuses to send is not "saved", and the status
   // line would be lying if it said so.
   const officeBlocked = office.change.kind === 'invalid';
@@ -218,33 +225,34 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
       // allSettled, not all: a refused geofence must not throw away an edited
       // timezone that the server already accepted, and one rejection must not
       // leave the other promise unhandled.
-      const [settingsResult, officeResult] = await Promise.allSettled([
+      const [settingsResult, officeResult, windowResult] = await Promise.allSettled([
         settingsPatch === null ? Promise.resolve(null) : save.mutateAsync(settingsPatch),
         officeWrite === null ? Promise.resolve(null) : saveOffice.mutateAsync(officeWrite),
+        windowWrite === null ? Promise.resolve(null) : saveWindow.mutateAsync(windowWrite),
       ]);
 
       const savedSettings = settingsResult.status === 'fulfilled' && settingsResult.value !== null;
       const savedOffice = officeResult.status === 'fulfilled' && officeResult.value !== null;
+      const savedWindow = windowResult.status === 'fulfilled' && windowResult.value !== null;
 
       if (settingsResult.status === 'fulfilled' && settingsResult.value !== null) {
         setDraft(draftOf(settingsResult.value));
       }
-      // The panel derives its fields from the fetched row, so dropping the
+      // The panels derive their fields from the fetched row, so dropping the
       // edits is what makes the server's answer the thing on screen.
       if (savedOffice) office.reset();
+      if (savedWindow) accessWindow.reset();
 
       // PRD §6.6: the toast repeats the action the button named — and names
       // only what actually saved. A failure is rendered above the fields it
       // did not save, not in a corner the reader has already looked away from.
-      if (savedSettings || savedOffice) {
+      const savedNames = [savedSettings ? 'Settings' : null, savedOffice ? 'office location' : null, savedWindow ? 'access window' : null].filter((name): name is string => name !== null);
+      if (savedNames.length > 0) {
+        const first = savedNames[0] ?? 'Settings';
+        const title = savedNames.length === 1 ? `${first.charAt(0).toUpperCase()}${first.slice(1)} saved` : `${first.charAt(0).toUpperCase()}${first.slice(1)} and ${savedNames.slice(1).join(' and ')} saved`;
         toast.add({
           type: 'success',
-          title:
-            savedSettings && savedOffice
-              ? 'Settings and office location saved'
-              : savedSettings
-                ? 'Settings saved'
-                : 'Office location saved',
+          title,
           description: 'The change is recorded in the audit log.',
         });
       }
@@ -327,8 +335,10 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
             onClick={() => {
               setDraft(draftOf(saved));
               office.reset();
+              accessWindow.reset();
               save.reset();
               saveOffice.reset();
+              saveWindow.reset();
             }}
           >
             Discard changes
@@ -374,6 +384,10 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           <TabsTrigger value="email" className="px-3">
             <EnvelopeSimpleIcon data-icon="inline-start" />
             Email
+          </TabsTrigger>
+          <TabsTrigger value="access" className="px-3">
+            <MoonIcon data-icon="inline-start" />
+            Access window
           </TabsTrigger>
         </TabsList>
 
@@ -677,6 +691,10 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
 
         <TabsContent value="email">
           <EmailTab settings={saved} />
+        </TabsContent>
+
+        <TabsContent value="access">
+          <AccessWindowPanel window={accessWindow} saveError={saveWindow.error} />
         </TabsContent>
       </Tabs>
 
