@@ -1,9 +1,9 @@
 import ExcelJS from 'exceljs';
 
 import {
+  ATTENDANCE_REPORTS,
   MAX_EXPORT_RANGE_DAYS,
   PERMISSIONS,
-  REPORT_KEYS,
   SYSTEM_ROLES,
   uuidv7,
   type AttendanceDaySummary,
@@ -334,9 +334,10 @@ describe('the report catalogue', () => {
     expect(forViewer).not.toContain('leave-ledger');
     expect(forViewer).not.toContain('headcount');
 
-    // HR holds every family, and sees the whole list in its declared order.
+    // HR holds every attendance family, and sees that whole list in its
+    // declared order — not the Tally group, which needs receivables.view.
     const forHr = await harness.get<{ data: ReportDefinition[] }>('/reports', { token: hrToken });
-    expect(forHr.body.data.map((report) => report.key)).toEqual([...REPORT_KEYS]);
+    expect(forHr.body.data.map((report) => report.key)).toEqual(ATTENDANCE_REPORTS.map((report) => report.key));
 
     const anonymous = await harness.get('/reports');
     expect(anonymous.status).toBe(401);

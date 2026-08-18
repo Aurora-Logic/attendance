@@ -1,4 +1,5 @@
 import {
+  ATTENDANCE_REPORTS,
   MAX_EXPORT_RANGE_DAYS,
   MUSTER_GRID_DAYS,
   REPORT_DEFINITIONS,
@@ -305,7 +306,10 @@ describe('the report catalogue', () => {
       'daily-muster',
       'punch-audit',
     ];
-    for (const key of REPORT_KEYS) {
+    // Another module's reports carry their own extractors beside their own
+    // source (the Tally group's live in `platform/masters`); this file holds
+    // attendance's to account.
+    for (const key of ATTENDANCE_REPORTS.map((report) => report.key)) {
       if (readModelBacked.includes(key)) continue;
       expect(covered, `report "${key}" has no extractor sample`).toContain(key);
     }
