@@ -132,3 +132,113 @@ export function useDeleteEstimate(): UseMutationResult<void, Error, string> {
     onSuccess: invalidate,
   });
 }
+
+// ------------------------------------------------------------ sales orders
+
+export interface SalesOrderFilters {
+  page: number;
+  q?: string;
+  status?: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  syncState?: 'NOT_PUSHED' | 'QUEUED' | 'PUSHED' | 'FAILED';
+  dealId?: string;
+  partyId?: string;
+}
+
+export function useSalesOrders(filters: SalesOrderFilters, options: { enabled?: boolean } = {}): UseQueryResult<EstimatesResponse, Error> {
+  const params = new URLSearchParams({ page: String(filters.page), pageSize: '25' });
+  if (filters.q) params.set('q', filters.q);
+  if (filters.status) params.set('status', filters.status);
+  if (filters.syncState) params.set('syncState', filters.syncState);
+  if (filters.dealId) params.set('dealId', filters.dealId);
+  if (filters.partyId) params.set('partyId', filters.partyId);
+  const key = params.toString();
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['sales', 'orders', key],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/sales/orders?${key}`, { signal });
+      return parseOrThrow(estimatesResponseSchema, body, 'sales order list');
+    },
+    placeholderData: keepPreviousData,
+    // REQ-W-06: the state changes when the agent reports; a minute is the
+    // most a queued badge should lie by.
+    refetchInterval: 60_000,
+  });
+}
+
+export function useSalesOrder(id: string | null): UseQueryResult<Estimate, Error> {
+  return useQuery({
+    enabled: id !== null,
+    queryKey: ['sales', 'order', id],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/sales/orders/${id ?? ''}`, { signal });
+      return parseOrThrow(estimateSchema, body, 'sales order');
+    },
+    refetchInterval: (query) => (query.state.data?.syncState === 'QUEUED' ? 10_000 : false),
+  });
+}
+
+/** Create or edit a draft; the estimate draft shape serves, minus its estimate-only fields. */
+export function useSaveSalesOrder(): UseMutationResult<Estimate, Error, EstimateDraft> {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (draft: EstimateDraft) => {
+      if (draft.partyId === null) throw new Error('A sales order needs a Tally party.');
+      const common = {
+        partyId: draft.partyId,
+        date: draft.date,
+        dealId: draft.dealId,
+        ownerId: draft.ownerId,
+        notes: blank(draft.notes),
+        terms: blank(draft.terms),
+        lines: toLineInputs(draft),
+      };
+      const response = await apiRequest<unknown>(draft.id === undefined ? '/sales/orders' : `/sales/orders/${draft.id}`, {
+        method: draft.id === undefined ? 'POST' : 'PATCH',
+        body: common,
+      });
+      return parseOrThrow(estimateSchema, response, 'saved sales order');
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** Confirm, push, cancel: one mutation, the action named. */
+export function useSalesOrderAction(): UseMutationResult<Estimate, Error, { id: string; action: 'confirm' | 'push' | 'cancel' }> {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ id, action }) => {
+      const response = await apiRequest<unknown>(`/sales/orders/${id}/${action}`, { method: 'POST' });
+      return parseOrThrow(estimateSchema, response, 'sales order');
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** REQ-W-07: the edit and the re-push, together. */
+export function useAlterSalesOrder(): UseMutationResult<Estimate, Error, EstimateDraft> {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (draft: EstimateDraft) => {
+      if (draft.id === undefined) throw new Error('Only a saved order can be altered.');
+      const response = await apiRequest<unknown>(`/sales/orders/${draft.id}/alter`, {
+        method: 'POST',
+        body: { notes: blank(draft.notes), terms: blank(draft.terms), lines: toLineInputs(draft), ...(draft.partyId === null ? {} : { partyId: draft.partyId }) },
+      });
+      return parseOrThrow(estimateSchema, response, 'altered sales order');
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** REQ-W-03: an accepted estimate becomes a draft order. */
+export function useConvertEstimate(): UseMutationResult<Estimate, Error, { estimateId: string; partyId?: string }> {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ estimateId, partyId }) => {
+      const response = await apiRequest<unknown>(`/sales/estimates/${estimateId}/convert`, { method: 'POST', body: partyId === undefined ? {} : { partyId } });
+      return parseOrThrow(estimateSchema, response, 'sales order');
+    },
+    onSuccess: invalidate,
+  });
+}

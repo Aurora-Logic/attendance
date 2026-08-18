@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { BooksIcon, BuildingsIcon, PlusIcon, TrashIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react';
+import { ArrowRightIcon, BooksIcon, BuildingsIcon, TrashIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react';
+import { useNavigate } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
@@ -8,7 +9,7 @@ import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -24,13 +25,12 @@ import { useStockItems } from '@/features/masters/use-stock-items';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { cn } from '@/lib/utils';
-import { ESTIMATE_STATUS_LABELS, ESTIMATE_TRANSITIONS, PERMISSIONS, type EstimateStatus } from '@vyuha/shared';
+import { ESTIMATE_TRANSITIONS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
 
-import { ItemHistoryAffordance } from './item-history-popover';
+import { DocumentLinesEditor, type StockItemOption } from './document-lines-editor';
 import { formatMoney } from './money';
-import { newLine, previewLine, type Estimate, type EstimateDraft, type LineDraft } from './types';
-import { useDeleteEstimate, useSaveEstimate, useSetEstimateStatus } from './use-estimates';
+import type { Estimate, EstimateDraft } from './types';
+import { useConvertEstimate, useDeleteEstimate, useSaveEstimate, useSetEstimateStatus } from './use-estimates';
 
 /**
  * One estimate (REQ-W-01): the header, the line editor, the totals, and the
@@ -75,6 +75,8 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
   const save = useSaveEstimate();
   const setStatus = useSetEstimateStatus();
   const remove = useDeleteEstimate();
+  const convert = useConvertEstimate();
+  const navigate = useNavigate();
   const canSeeParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
   const canSeeCompanies = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_SELF);
   const parties = useParties({ page: 1 }, { enabled: canSeeParties });
@@ -85,7 +87,14 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
 
   const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
   const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
-  const itemOptions: PickerOption[] = (items.data?.data ?? []).map((i) => ({ id: i.id, label: i.name, hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' ') }));
+  const itemOptions: StockItemOption[] = (items.data?.data ?? []).map((i) => ({
+    id: i.id,
+    label: i.name,
+    hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
+    unit: i.unit,
+    salePrice: i.salePrice ?? null,
+    gstRate: i.gstRate,
+  }));
   const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
 
   // Raised from a record (deal, company, party) the name arrives with the
@@ -96,38 +105,7 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
   const effectiveDraft: EstimateDraft = customerName === draft.customerName ? draft : { ...draft, customerName };
 
   const customerMissing = draft.partyId === null && draft.companyId === null && customerName.trim() === '';
-  const preview = draft.lines.map(previewLine);
-  const previewSubtotal = preview.reduce((sum, p, i) => sum + (p === null ? 0 : Number(draft.lines[i]?.quantity ?? 0) * Number(draft.lines[i]?.rate ?? 0)), 0);
-  const previewNet = preview.reduce((sum, p) => sum + (p?.amount ?? 0), 0);
-  const previewTax = preview.reduce((sum, p) => sum + (p?.tax ?? 0), 0);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
-
-  function updateLine(key: string, patch: Partial<LineDraft>) {
-    setDraft((current) => ({ ...current, lines: current.lines.map((line) => (line.key === key ? { ...line, ...patch } : line)) }));
-  }
-  function addLine() {
-    if (!editable) return;
-    const added = newLine();
-    setDraft((current) => ({ ...current, lines: [...current.lines, added] }));
-    // Focus the new line's description once it exists.
-    window.requestAnimationFrame(() => {
-      const next = document.querySelector<HTMLInputElement>(`input[aria-label="Line ${String(draft.lines.length + 1)} description"]`);
-      next?.focus();
-    });
-  }
-  function removeLine(key: string) {
-    setDraft((current) => ({ ...current, lines: current.lines.length === 1 ? [newLine()] : current.lines.filter((l) => l.key !== key) }));
-  }
-  function chooseItem(key: string, option: PickerOption | null) {
-    const item = (items.data?.data ?? []).find((i) => i.id === option?.id);
-    updateLine(key, {
-      stockItemId: item?.id ?? null,
-      description: item?.name ?? '',
-      unit: item?.unit ?? '',
-      rate: item?.salePrice === null || item?.salePrice === undefined ? '' : item.salePrice.replace(/\.?0+$/u, ''),
-      taxPct: item?.gstRate === null || item?.gstRate === undefined ? '0' : String(Number(item.gstRate)),
-    });
-  }
 
   function submit() {
     if (customerMissing || save.isPending || !editable) return;
@@ -145,7 +123,7 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
       { id: initial.id, status },
       {
         onSuccess: (saved) => {
-          toast.add({ type: 'success', title: `${saved.number} ${ESTIMATE_STATUS_LABELS[saved.status].toLowerCase()}` });
+          toast.add({ type: 'success', title: `${saved.number} ${SALES_DOCUMENT_STATUS_LABELS[saved.status].toLowerCase()}` });
           onClose();
         },
       },
@@ -154,7 +132,7 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
 
   const failure = save.error ?? setStatus.error ?? remove.error;
   const copy = actionErrorCopy(failure, save.error ? 'Saving the estimate' : setStatus.error ? 'Changing the status' : 'Deleting the estimate');
-  const nextStatuses = ESTIMATE_TRANSITIONS[draft.status];
+  const nextStatuses = isEstimateStatus(draft.status) ? ESTIMATE_TRANSITIONS[draft.status] : [];
 
   return (
     <ShortcutLayer id={`modal:estimate-${initial.id ?? 'new'}`}>
@@ -163,14 +141,14 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
       <SheetHeader className="shrink-0 border-b">
         <SheetTitle className="flex items-center gap-2">
           {isNew ? 'New estimate' : `Estimate ${initial.number ?? ''}`}
-          {isNew ? null : <Badge variant={draft.status === 'ACCEPTED' ? 'default' : 'outline'}>{ESTIMATE_STATUS_LABELS[draft.status]}</Badge>}
+          {isNew ? null : <Badge variant={draft.status === 'ACCEPTED' ? 'default' : 'outline'}>{SALES_DOCUMENT_STATUS_LABELS[draft.status]}</Badge>}
         </SheetTitle>
         <SheetDescription>
           {isNew
             ? 'Vyuha-owned; never pushed to Tally. Taxes are shown for information.'
             : editable
               ? 'A draft: lines and header may change. Sending it makes it read-only.'
-              : `Read-only while ${ESTIMATE_STATUS_LABELS[draft.status].toLowerCase()}. ${record?.ownerName ? `Owned by ${record.ownerName}.` : ''}`}
+              : `Read-only while ${SALES_DOCUMENT_STATUS_LABELS[draft.status].toLowerCase()}. ${record?.ownerName ? `Owned by ${record.ownerName}.` : ''}`}
         </SheetDescription>
       </SheetHeader>
 
@@ -306,102 +284,20 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
             </Field>
           </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Lines</span>
-            {editable ? (
-              <Button type="button" variant="outline" size="sm" onClick={addLine}>
-                <PlusIcon data-icon="inline-start" />
-                Add line
-              </Button>
-            ) : null}
-          </div>
-
-          <ol className="flex flex-col divide-y border">
-            {draft.lines.map((line, index) => {
-              const p = preview[index] ?? null;
-              return (
-                <li key={line.key} className="flex flex-col gap-2 p-3">
-                  <div className="grid gap-2 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
-                    <div className="flex flex-col gap-1">
-                      {canSeeParties ? (
-                        <RecordPicker
-                          id={`line-item-${line.key}`}
-                          label={`Line ${String(index + 1)} item`}
-                          placeholder="Stock item, or type a description below"
-                          searchPlaceholder="Search stock items"
-                          emptyMessage="No item matches. Leave it and type a description."
-                          options={itemOptions}
-                          loading={items.isPending}
-                          clearable
-                          clearLabel="No stock item"
-                          disabled={!editable}
-                          value={pick(itemOptions, line.stockItemId)}
-                          onValueChange={(next) => {
-                            chooseItem(line.key, next);
-                          }}
-                        />
-                      ) : null}
-                      <Input
-                        aria-label={`Line ${String(index + 1)} description`}
-                        className="pointer-coarse:h-11"
-                        placeholder="Description"
-                        disabled={!editable}
-                        value={line.description}
-                        onChange={(event) => {
-                          updateLine(line.key, { description: event.target.value });
-                        }}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <Input aria-label={`Line ${String(index + 1)} quantity`} inputMode="decimal" className="pointer-coarse:h-11 tabular-nums" placeholder="Qty" disabled={!editable} value={line.quantity} onChange={(e) => { updateLine(line.key, { quantity: e.target.value }); }} />
-                      <Input aria-label={`Line ${String(index + 1)} rate`} inputMode="decimal" className="pointer-coarse:h-11 tabular-nums" placeholder="Rate" disabled={!editable} value={line.rate} onChange={(e) => { updateLine(line.key, { rate: e.target.value }); }} />
-                      <Input aria-label={`Line ${String(index + 1)} discount percent`} inputMode="decimal" className="pointer-coarse:h-11 tabular-nums" placeholder="Disc %" disabled={!editable} value={line.discountPct} onChange={(e) => { updateLine(line.key, { discountPct: e.target.value }); }} />
-                      <Input
-                        aria-label={`Line ${String(index + 1)} tax percent`}
-                        inputMode="decimal"
-                        className="pointer-coarse:h-11 tabular-nums"
-                        placeholder="Tax %"
-                        disabled={!editable}
-                        value={line.taxPct}
-                        onChange={(e) => { updateLine(line.key, { taxPct: e.target.value }); }}
-                        onKeyDown={(e) => {
-                          // Enter on the last box of the last line appends a line, as voucher entry does.
-                          if (e.key === 'Enter' && index === draft.lines.length - 1) {
-                            e.preventDefault();
-                            addLine();
-                          }
-                        }}
-                      />
-                    </div>
-                    <div className="flex items-start justify-end gap-1">
-                      <ItemHistoryAffordance stockItemId={line.stockItemId} partyId={draft.partyId} companyId={draft.companyId} />
-                      {editable ? (
-                        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove line ${String(index + 1)}`} onClick={() => { removeLine(line.key); }}>
-                          <TrashIcon />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="text-muted-foreground flex justify-end gap-4 text-xs tabular-nums">
-                    <span>{line.unit ? `per ${line.unit}` : ''}</span>
-                    <span>{p === null ? '—' : `${formatMoney(p.amount.toFixed(2))}${p.tax > 0 ? ` + tax ${formatMoney(p.tax.toFixed(2))}` : ''}`}</span>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-
-          <dl className="ml-auto grid w-full max-w-xs grid-cols-2 gap-x-4 gap-y-1 text-sm tabular-nums">
-            <dt className="text-muted-foreground">Subtotal</dt>
-            <dd className="text-right">{formatMoney((dirty || record === null ? previewSubtotal : Number(record.subtotal)).toFixed(2))}</dd>
-            <dt className="text-muted-foreground">Discount</dt>
-            <dd className="text-right">{formatMoney((dirty || record === null ? previewSubtotal - previewNet : Number(record.discountTotal)).toFixed(2))}</dd>
-            <dt className="text-muted-foreground">Tax (for information)</dt>
-            <dd className="text-right">{formatMoney((dirty || record === null ? previewTax : Number(record.taxTotal)).toFixed(2))}</dd>
-            <dt className="font-medium">Total</dt>
-            <dd className={cn('text-right font-medium')}>{formatMoney((dirty || record === null ? previewNet + previewTax : Number(record.grandTotal)).toFixed(2))}</dd>
-          </dl>
-          {dirty && editable ? <FieldDescription className="text-right">Preview — the server computes the figures on save.</FieldDescription> : null}
+          <DocumentLinesEditor
+            lines={draft.lines}
+            onLinesChange={(next) => {
+              setDraft((current) => ({ ...current, lines: next }));
+            }}
+            editable={editable}
+            itemOptions={itemOptions}
+            itemsLoading={items.isPending}
+            canPickItems={canSeeParties}
+            partyId={draft.partyId}
+            companyId={draft.companyId}
+            saved={record}
+            dirty={dirty}
+          />
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
@@ -434,6 +330,32 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
             </Button>
           )
         ) : null}
+        {!isNew && draft.status === 'ACCEPTED' ? (
+          // REQ-W-03: an accepted estimate becomes a sales order carrying its lines.
+          <Button
+            variant="outline"
+            disabled={convert.isPending || draft.partyId === null}
+            title={draft.partyId === null ? 'Addressed to a prospect: choose the Tally party on the order' : undefined}
+            onClick={() => {
+              if (initial.id === undefined) return;
+              convert.mutate(
+                { estimateId: initial.id },
+                {
+                  onSuccess: (order) => {
+                    toast.add({ type: 'success', title: `${order.number} raised from ${initial.number ?? 'the estimate'}` });
+                    void navigate(`/sales/orders/${order.id}`);
+                  },
+                  onError: (error) => {
+                    toast.add({ type: 'error', title: 'Could not convert', description: error.message });
+                  },
+                },
+              );
+            }}
+          >
+            {convert.isPending ? <Spinner data-icon="inline-start" /> : <ArrowRightIcon data-icon="inline-start" />}
+            Sales order
+          </Button>
+        ) : null}
         {!isNew && nextStatuses.length > 0 ? (
           <Select
             value=""
@@ -448,7 +370,7 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
             <SelectContent>
               {nextStatuses.map((s) => (
                 <SelectItem key={s} value={s}>
-                  {ESTIMATE_STATUS_LABELS[s]}
+                  {SALES_DOCUMENT_STATUS_LABELS[s]}
                 </SelectItem>
               ))}
             </SelectContent>

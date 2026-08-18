@@ -11,6 +11,7 @@ import {
   DownloadSimpleIcon,
   FileTextIcon,
   FingerprintIcon,
+  ClipboardIcon,
   GearIcon,
   HandshakeIcon,
   type Icon,
@@ -504,6 +505,15 @@ export const MODULES: ModuleDef[] = [
             phase: 8,
             reqs: 'REQ-W-01, REQ-W-02',
           },
+          {
+            to: '/sales/orders',
+            label: 'Sales orders',
+            shortLabel: 'Orders',
+            icon: ClipboardIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-W-03, REQ-W-06, REQ-W-07',
+          },
         ],
       },
     ],
@@ -613,6 +623,7 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/tasks\/[^/]+$/u, parent: '/tasks', label: 'Task' },
   { pattern: /^\/crm\/deals\/[^/]+$/u, parent: '/crm/deals', label: 'Deal' },
   { pattern: /^\/sales\/estimates\/[^/]+$/u, parent: '/sales/estimates', label: 'Estimate' },
+  { pattern: /^\/sales\/orders\/[^/]+$/u, parent: '/sales/orders', label: 'Sales order' },
 ];
 
 export function findBreadcrumbs(pathname: string): [Crumb, ...Crumb[]] {

@@ -8,7 +8,7 @@ import { formatMoney } from '@/features/sales/money';
 import { useEstimates } from '@/features/sales/use-estimates';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import { ESTIMATE_STATUS_LABELS, PERMISSIONS } from '@vyuha/shared';
+import { SALES_DOCUMENT_STATUS_LABELS, PERMISSIONS } from '@vyuha/shared';
 
 import type { Deal } from './types';
 
@@ -69,7 +69,7 @@ export function DealDocuments({ deal }: { deal: Deal }) {
               </Link>
               <span className="text-muted-foreground flex items-center gap-2 text-xs">
                 <span className="tabular-nums">{formatDate(estimate.date)}</span>
-                <Badge variant={estimate.status === 'ACCEPTED' ? 'default' : 'outline'}>{ESTIMATE_STATUS_LABELS[estimate.status]}</Badge>
+                <Badge variant={estimate.status === 'ACCEPTED' ? 'default' : 'outline'}>{SALES_DOCUMENT_STATUS_LABELS[estimate.status]}</Badge>
                 <span className="tabular-nums">{formatMoney(estimate.grandTotal)}</span>
               </span>
             </li>

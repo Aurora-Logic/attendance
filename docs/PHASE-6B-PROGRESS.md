@@ -197,11 +197,20 @@ carry (P6b). A statement can be honest without them; an ageing cannot.
 
 | REQ-U-06, the estimate half: the deal sheet lists the estimates raised against it and raises one carrying the deal, company and party into the sheet | — | live drive: "Estimate" from the deal opens the sheet with Asha Traders preset, saved, and the deal lists Estimate EST-000n Draft 999.00 |
 
-Not buildable yet: everything that pushes (REQ-W-03…W-07, X-01…X-03) —
-same blocker as Phase 6d, the write transport OpsTally does not offer;
-REQ-W-08 discount approval and REQ-W-09 credit block wait for the sales
-order they gate; REQ-U-06's other documents join the deal's list as they
-land.
+| Sales orders + the push path (REQ-W-03, W-06, W-07; 09 §3.3): same table and line editor under `SALES_ORDER`; convert from an accepted estimate; confirm queues one PUSH `sync_jobs` row per document (`voucher_push:<id>`), payload is the document as data; `voucher_push` results outcome (accepted / landed_on_retry / rejected) settled by the writer in one transaction — journal, job, `external_refs` on the GUID with the idempotency key, exception with Tally's verbatim text, `PushOutcomeRegistry` tells the sales module; Alter re-pushes against the GUID; five sync-state columns (migration 0032) | `5deb627` | orders 7/7 with a played agent; sync+sales 103/103 |
+| Agent push executor: renders TallyPrime's Import Data envelope (one voucher per envelope, key in the narration, `ACTION="Alter"` + GUID on alter), asks Tally for the key before any retry, reports outcomes; parser makes a wrong guess loud; fixture transport rehearses acceptance, the retry rule and a rejection | `f954c02` | agent 10/10 |
+| Sales orders screen: register with status and Tally-state filters, sheet with the sync badge as the agent's last word, Confirm and push / Push again / Alter and re-push, Tally's rejection text shown verbatim; "Sales order" button on an accepted estimate; shared `DocumentLinesEditor` behind both sheets | — | live: SO-0001 raised → Confirmed · Queued for Tally → (agent played through the real endpoints) In Tally · #42 → Alter re-queued; no failing requests |
+
+**Not yet verified against a live TallyPrime**: the XML the agent renders,
+and the Phase 6e exit gate (kill the agent between import and ack, retry,
+count vouchers). Both need a Tally on a machine the agent can reach
+(D-05, fixtures). The pipeline up to that hop is proven end to end.
+
+Still not buildable: delivery challans / POs / GRNs (the same push path,
+their own document types — a slice each once the first push is proven
+against Tally), REQ-W-08 discount approval and REQ-W-09 credit block (the
+approvals framework hooks are ready; the thresholds are a decision),
+REQ-T-05 period-lock check (needs the agent to read Tally's lock date).
 
 ## Next, in order
 
@@ -210,9 +219,10 @@ vouchers, reconciliation), 6d (statement, credit cycle, sales analysis),
 7 (CRM complete), 8a (estimates). What remains is gated, all of it on
 inputs outside this branch:
 
-1. **A write transport into Tally** — 6e (attendance voucher push, D-06),
-   8a's orders/challans/POs/GRNs and their sync state (REQ-W-03…W-07,
-   X-01…X-03), 8b if D-03 says Vyuha raises invoices. OpsTally is push-only.
+1. **A live TallyPrime the agent can reach** — proves the push XML and the
+   6e exit gate (lost response, retry, one voucher). The pipeline, the
+   sales order and the agent executor are built; challans/POs/GRNs and 6e's
+   attendance voucher (D-06) are a document type each on the same path.
 2. **Bill-wise allocations / backfill decision (P6b-5)** — ageing (REQ-Y-02),
    payment analysis (REQ-Y-04), overdue-by-bill on the credit cycle.
 3. **Tally XML fixtures + D-05** — the pull agent's transport and packaging.

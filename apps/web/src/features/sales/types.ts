@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { ESTIMATE_STATUSES } from '@vyuha/shared';
+import { ESTIMATE_STATUSES, SALES_ORDER_STATUSES, SYNC_STATES } from '@vyuha/shared';
 
 /** What `/sales/estimates` answers (REQ-W-01), parsed at the boundary. */
 
@@ -21,9 +21,9 @@ export type SalesLine = z.infer<typeof salesLineSchema>;
 
 const headerShape = {
   id: z.string(),
-  docType: z.literal('ESTIMATE'),
+  docType: z.enum(['ESTIMATE', 'SALES_ORDER']),
   number: z.string(),
-  status: z.enum(ESTIMATE_STATUSES),
+  status: z.enum([...ESTIMATE_STATUSES, ...SALES_ORDER_STATUSES]),
   date: z.string(),
   validUntil: z.string().nullable(),
   partyId: z.string().nullable(),
@@ -38,6 +38,12 @@ const headerShape = {
   discountTotal: z.string(),
   taxTotal: z.string(),
   grandTotal: z.string(),
+  sourceDocumentId: z.string().nullable(),
+  syncState: z.enum(SYNC_STATES),
+  remoteGuid: z.string().nullable(),
+  remoteVoucherNumber: z.string().nullable(),
+  lastPushedAt: z.string().nullable(),
+  lastError: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 };

@@ -17,17 +17,16 @@ import { toDateParam } from '@/features/attendance/format';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { ESTIMATE_STATUSES, SALES_DOCUMENT_STATUS_LABELS, PERMISSIONS, type EstimateStatus } from '@vyuha/shared';
+import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
-import { EstimateSheet } from './estimate-sheet';
+import { SalesOrderSheet, SyncStateBadge } from './sales-order-sheet';
 import { formatMoney } from './money';
 import { emptyEstimateDraft, estimateToDraft, type EstimateDraft, type EstimateSummary } from './types';
-import { useEstimate, useEstimates } from './use-estimates';
+import { useSalesOrder, useSalesOrders } from './use-estimates';
 
 /**
- * Estimates (REQ-W-01): the register, and the sheet the route opens. Filter
- * state in the URL as everywhere; `?new=1` opens a fresh draft, with
- * `company`, `party` and `deal` carried in when raised from a record.
+ * Sales orders (REQ-W-03) with their sync state in the register (REQ-W-06):
+ * a status filter and a Tally-state filter, and the sheet the route opens.
  */
 
 const ALL = '__all__';
@@ -36,15 +35,15 @@ const COLUMNS: RecordColumn<EstimateSummary>[] = [
   { key: 'number', header: 'Number', cell: (row) => <span className="font-medium tabular-nums">{row.number}</span> },
   { key: 'customer', header: 'Customer', cell: (row) => row.customerName },
   { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
-  { key: 'status', header: 'Status', cell: (row) => <Badge variant={row.status === 'ACCEPTED' ? 'default' : 'outline'}>{SALES_DOCUMENT_STATUS_LABELS[row.status]}</Badge> },
+  { key: 'status', header: 'Status', cell: (row) => <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[row.status]}</Badge> },
+  { key: 'sync', header: 'Tally', cell: (row) => <SyncStateBadge record={row} /> },
   { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },
-  { key: 'valid', header: 'Valid until', cell: (row) => formatDate(row.validUntil), className: 'tabular-nums', secondary: true },
   { key: 'owner', header: 'Owner', cell: (row) => row.ownerName ?? EMPTY_VALUE, secondary: true },
 ];
 
 function ListSkeleton() {
   return (
-    <div role="status" aria-busy="true" aria-label="Loading estimates" className="border">
+    <div role="status" aria-busy="true" aria-label="Loading sales orders" className="border">
       {Array.from({ length: 4 }, (_, index) => (
         <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
           <Skeleton className="h-3 w-24 shrink-0" />
@@ -56,11 +55,11 @@ function ListSkeleton() {
   );
 }
 
-function isStatus(value: string | null): value is EstimateStatus {
-  return ESTIMATE_STATUSES.some((s) => s === value);
+function isStatus(value: string | null): value is SalesOrderStatus {
+  return SALES_ORDER_STATUSES.some((s) => s === value);
 }
 
-export function EstimatesPage() {
+export function SalesOrdersPage() {
   const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
   const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
   const canView = canViewSelf || canViewAll;
@@ -72,11 +71,12 @@ export function EstimatesPage() {
   const q = searchParams.get('q') ?? '';
   const statusParam = searchParams.get('status');
   const status = isStatus(statusParam) ? statusParam : undefined;
+  const syncParam = searchParams.get('sync');
+  const syncState = SYNC_STATES.find((s) => s === syncParam);
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
   const openId = params.id ?? null;
   const creating = searchParams.get('new') === '1';
   const dealParam = searchParams.get('deal') ?? '';
-  const companyParam = searchParams.get('company') ?? '';
   const partyParam = searchParams.get('party') ?? '';
 
   const [draft, setDraft] = useState(q);
@@ -105,13 +105,13 @@ export function EstimatesPage() {
     };
   }, [draft, q, setSearchParams]);
 
-  const query = useEstimates(
-    { page, ...(q ? { q } : {}), ...(status ? { status } : {}), ...(dealParam ? { dealId: dealParam } : {}), ...(companyParam ? { companyId: companyParam } : {}), ...(partyParam ? { partyId: partyParam } : {}) },
+  const query = useSalesOrders(
+    { page, ...(q ? { q } : {}), ...(status ? { status } : {}), ...(syncState ? { syncState } : {}), ...(dealParam ? { dealId: dealParam } : {}), ...(partyParam ? { partyId: partyParam } : {}) },
     { enabled: canView },
   );
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
-  const open = useEstimate(canView ? openId : null);
+  const open = useSalesOrder(canView ? openId : null);
 
   function startNew() {
     setSearchParams(
@@ -127,13 +127,13 @@ export function EstimatesPage() {
     const next = new URLSearchParams(window.location.search);
     next.delete('new');
     const search = next.toString();
-    void navigate(`/sales/estimates${search ? `?${search}` : ''}`, { replace: true });
+    void navigate(`/sales/orders${search ? `?${search}` : ''}`, { replace: true });
   }
 
   useShortcut({
-    id: 'sales.estimates.create',
+    id: 'sales.orders.create',
     keys: 'alt+c',
-    label: 'New estimate',
+    label: 'New sales order',
     scope: 'screen',
     when: () => canCreate,
     run: startNew,
@@ -142,7 +142,6 @@ export function EstimatesPage() {
   const sheetDraft: EstimateDraft | null = creating
     ? emptyEstimateDraft(toDateParam(new Date()), {
         ...(dealParam ? { dealId: dealParam } : {}),
-        ...(companyParam ? { companyId: companyParam } : {}),
         ...(partyParam ? { partyId: partyParam } : {}),
       })
     : open.data !== undefined && openId !== null
@@ -152,13 +151,13 @@ export function EstimatesPage() {
   if (!canView) {
     return (
       <>
-        <PageHeader description="Estimates: what was quoted, to whom, and whether it was accepted." />
+        <PageHeader description="Sales orders: what was ordered, and whether Tally has it." />
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <LockKeyIcon />
             </EmptyMedia>
-            <EmptyTitle>You cannot view estimates</EmptyTitle>
+            <EmptyTitle>You cannot view sales orders</EmptyTitle>
             <EmptyDescription>This needs sales.document.view.self or sales.document.view.all — the Sales role carries it.</EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -166,17 +165,17 @@ export function EstimatesPage() {
     );
   }
 
-  const filtered = Boolean(q) || status !== undefined || Boolean(dealParam || companyParam || partyParam);
+  const filtered = Boolean(q) || status !== undefined || syncState !== undefined || Boolean(dealParam || partyParam);
 
   return (
     <>
       <PageHeader
-        description="Vyuha-owned quotes. Never pushed to Tally; an accepted estimate is what a sales order is raised from."
+        description="Confirmed orders push to Tally as Sales Order vouchers, one voucher per request. The Tally column is the agent's word, never inferred."
         action={
           canCreate ? (
             <Button size="sm" onClick={startNew}>
               <PlusIcon data-icon="inline-start" />
-              New estimate
+              New sales order
               <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
             </Button>
           ) : null
@@ -185,7 +184,7 @@ export function EstimatesPage() {
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <SearchField id="estimate-search" label="Search estimates" value={draft} onValueChange={setDraft} placeholder="Number or customer" />
+          <SearchField id="order-search" label="Search sales orders" value={draft} onValueChange={setDraft} placeholder="Number or customer" />
           <Select
             value={status ?? ALL}
             onValueChange={(value: string | null) => {
@@ -202,13 +201,40 @@ export function EstimatesPage() {
             }}
           >
             <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Status">
-              <SelectValue>{(value: string) => (value === ALL ? 'Any status' : SALES_DOCUMENT_STATUS_LABELS[value as EstimateStatus])}</SelectValue>
+              <SelectValue>{(value: string) => (value === ALL ? 'Any status' : SALES_DOCUMENT_STATUS_LABELS[value as SalesOrderStatus])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>Any status</SelectItem>
-              {ESTIMATE_STATUSES.map((s) => (
+              {SALES_ORDER_STATUSES.map((s) => (
                 <SelectItem key={s} value={s}>
                   {SALES_DOCUMENT_STATUS_LABELS[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={syncState ?? ALL}
+            onValueChange={(value: string | null) => {
+              setSearchParams(
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  if (value === null || value === ALL) next.delete('sync');
+                  else next.set('sync', value);
+                  next.delete('page');
+                  return next;
+                },
+                { replace: true },
+              );
+            }}
+          >
+            <SelectTrigger className="pointer-coarse:min-h-11 w-44" aria-label="Tally state">
+              <SelectValue>{(value: string) => (value === ALL ? 'Any Tally state' : SYNC_STATE_LABELS[value as DocumentSyncState])}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any Tally state</SelectItem>
+              {SYNC_STATES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {SYNC_STATE_LABELS[s]}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -219,7 +245,7 @@ export function EstimatesPage() {
         {query.isError ? (
           <QueryErrorAlert
             error={query.error}
-            subject="estimates"
+            subject="sales orders"
             onRetry={() => {
               void query.refetch();
             }}
@@ -232,14 +258,14 @@ export function EstimatesPage() {
               <EmptyMedia variant="icon">
                 <FileTextIcon />
               </EmptyMedia>
-              <EmptyTitle>{filtered ? 'No estimate matches that' : 'No estimates yet'}</EmptyTitle>
-              <EmptyDescription>{filtered ? 'Try another status or clear the search.' : canCreate ? 'Raise the first one — a customer and a line are enough.' : 'Estimates appear here as the sales team raises them.'}</EmptyDescription>
+              <EmptyTitle>{filtered ? 'No sales order matches that' : 'No sales orders yet'}</EmptyTitle>
+              <EmptyDescription>{filtered ? 'Try another status or clear the search.' : canCreate ? 'Raise the first one, or convert an accepted estimate.' : 'Sales orders appear here as the sales team raises them.'}</EmptyDescription>
             </EmptyHeader>
             {!filtered && canCreate ? (
               <EmptyContent>
                 <Button size="sm" onClick={startNew}>
                   <PlusIcon data-icon="inline-start" />
-                  New estimate
+                  New sales order
                 </Button>
               </EmptyContent>
             ) : null}
@@ -253,10 +279,10 @@ export function EstimatesPage() {
               rows={rows}
               rowKey={(row) => row.id}
               mobilePrimary={(row) => `${row.number} · ${row.customerName}`}
-              mobileStatus={(row) => <Badge variant={row.status === 'ACCEPTED' ? 'default' : 'outline'}>{SALES_DOCUMENT_STATUS_LABELS[row.status]}</Badge>}
-              mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)}`}
+              mobileStatus={(row) => <SyncStateBadge record={row} />}
+              mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)} · ${SYNC_STATE_LABELS[row.syncState]}`}
               onRowActivate={(row) => {
-                void navigate(`/sales/estimates/${row.id}${window.location.search}`);
+                void navigate(`/sales/orders/${row.id}${window.location.search}`);
               }}
             />
             {meta !== null && meta.total > meta.pageSize ? <RecordPagination page={meta.page} pageSize={meta.pageSize} total={meta.total} /> : null}
@@ -267,14 +293,14 @@ export function EstimatesPage() {
       {openId !== null && open.isError ? (
         <QueryErrorAlert
           error={open.error}
-          subject="that estimate"
+          subject="that sales order"
           onRetry={() => {
             void open.refetch();
           }}
         />
       ) : null}
 
-      <EstimateSheet
+      <SalesOrderSheet
         draft={sheetDraft}
         record={open.data ?? null}
         onOpenChange={(isOpen) => {

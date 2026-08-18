@@ -28,6 +28,7 @@ import { CompaniesPage } from '@/features/crm/companies-page';
 import { ContactsPage } from '@/features/crm/contacts-page';
 import { DealsPage } from '@/features/crm/deals-page';
 import { EstimatesPage } from '@/features/sales/estimates-page';
+import { SalesOrdersPage } from '@/features/sales/sales-orders-page';
 import { PartiesPage } from '@/features/masters/parties-page';
 import { TasksPage } from '@/features/tasks/tasks-page';
 import { PriceListsPage } from '@/features/masters/price-lists-page';
@@ -48,6 +49,7 @@ import { ALL_NAV_ITEMS } from '@/lib/nav';
  */
 const BUILT_ROUTES = new Set([
   '/sales/estimates',
+  '/sales/orders',
   '/tasks',
   '/crm/deals',
   '/crm/contacts',
@@ -132,6 +134,8 @@ export default function App() {
               <Route path="crm/deals/:id" element={<DealsPage />} />
               <Route path="sales/estimates" element={<EstimatesPage />} />
               <Route path="sales/estimates/:id" element={<EstimatesPage />} />
+              <Route path="sales/orders" element={<SalesOrdersPage />} />
+              <Route path="sales/orders/:id" element={<SalesOrdersPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />
