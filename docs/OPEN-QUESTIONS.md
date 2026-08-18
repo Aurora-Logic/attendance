@@ -274,3 +274,37 @@ manager cannot be assigned a task today. Recommended default: give
 `crm.task.view.self` and `crm.task.manage` to every system role once the
 Sales roles land, since REQ-V-02 lets a task hang off an employee and
 REQ-V-07 makes tasks a landing screen. Held at Admin only until then.
+
+## P8-1 — Which number the customer sees on a Vyuha-raised invoice (D-38, REQ-AA-11)
+
+A Vyuha-raised invoice carries INV-0001 here and is pushed as a Sales
+voucher whose `REFERENCE` is INV-0001; Tally then assigns its own voucher
+number, which comes back as `remoteVoucherNumber` and is shown beside the
+badge. Recommended default (in use): Vyuha's number is the reference on
+the voucher and on the customer's dispatch message; Tally's number is
+shown alongside and never printed as the invoice number. Say the word if
+Tally's number should be the customer's.
+
+## P8-2 — Should dispatch wait for the pushed invoice to be accepted by Tally? (D-38, REQ-AA-14)
+
+Confirming a Vyuha-raised invoice advances `invoiced_qty` at once, so a
+dispatch may follow while the Sales voucher is still queued or after Tally
+rejected it (the invoice then shows FAILED with Tally's words).
+Recommended default (in use): dispatch on confirm; the sync badge on the
+invoice is the accountant's signal to fix a rejection. The stricter rule —
+count `invoiced_qty` only when the push is accepted — is a one-line change
+in `InvoiceService.confirm` if you prefer it.
+
+## P8-3 — Credit days (REQ-W-09's overdue half) — blocked on P6b-5
+
+The credit block enforces the limit (D-40). "Overdue bills beyond credit
+days" needs bill-wise allocations from Tally. Until then credit days are
+shown, not enforced. Confirm this is acceptable for go-live.
+
+## P8-4 — Attendance push shape (D-06, Phase 6e) — still unanswered
+
+Vouchers (Tally Payroll's Attendance voucher, which needs Payroll enabled
+with employee masters and attendance types in the company) or a file
+handoff to whoever runs payroll? Everything else in the push path is
+built; this is the only reason 6e is not started. Recommended default:
+file handoff (less coupling) unless payroll is run inside Tally Payroll.
