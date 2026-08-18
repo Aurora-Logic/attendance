@@ -3,6 +3,7 @@ import {
   ERROR_CODES,
   INVITATION_TTL_HOURS,
   PASSWORD_RESET_TTL_MINUTES,
+  PERMISSIONS,
   type InvitationResult,
   type PasswordResetLink,
   type SignInAccount,
@@ -33,6 +34,7 @@ import type {
   LoginResponse,
   MeResponse,
 } from './auth.dto.js';
+import { AccessWindowService } from './access-window.service.js';
 import { signAccessToken } from './jwt.js';
 import { LoginRateLimiter } from './login-rate-limit.service.js';
 import { PasswordResetRateLimiter } from './password-reset-rate-limit.service.js';
@@ -115,6 +117,7 @@ export class AuthService {
     private readonly auditContext: AuditContext,
     private readonly audit: AuditService,
     private readonly jobs: JobRunner,
+    private readonly accessWindow: AccessWindowService,
   ) {}
 
   // ---------------------------------------------------------------- login
@@ -181,6 +184,35 @@ export class AuthService {
     }
 
     await this.rateLimiter.clear(context.ip);
+
+    // 12 REQ-AB-01/AB-03/AB-08: outside the window only an exempt account
+    // signs in; every refusal is audited with the account and the time.
+    const verdict = await this.accessWindow.verdict(user.orgId);
+    if (verdict.closed) {
+      // No session exists yet, so the principal cannot be resolved; the one
+      // key that matters is read straight from the role grants.
+      const held = await this.db.execute<{ one: number }>(sql`
+        SELECT 1 AS one FROM user_roles ur
+          JOIN role_permissions rp ON rp.role_id = ur.role_id
+          JOIN permissions p ON p.id = rp.permission_id
+         WHERE ur.user_id = ${user.id} AND p.key = ${PERMISSIONS.ACCESS_OUTSIDE_WINDOW}
+         LIMIT 1
+      `);
+      const exempt = held.rows.length > 0;
+      if (!exempt) {
+        // Direct, as the lockout is: the request answers 403 and the
+        // interceptor only audits successes (REQ-AB-08).
+        await this.audit.write({
+          orgId: user.orgId,
+          actorUserId: user.id,
+          action: 'auth.login_refused_window',
+          entityType: 'user',
+          entityId: user.id,
+          after: { email: user.email, reopensAt: verdict.reopensAt, at: now.toISOString() },
+        });
+        throw this.accessWindow.refusal(verdict);
+      }
+    }
 
     const session = await this.sessions.startFamily(user.orgId, user.id, context);
 

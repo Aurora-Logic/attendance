@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
 
+import { AccessWindowService } from '../auth/access-window.service.js';
 import { AccessGuard } from './access.guard.js';
 import { PrincipalService } from './principal.service.js';
 import { RbacAdminService } from './rbac-admin.service.js';
@@ -26,6 +27,7 @@ import { ScopeService } from './scope.service.js';
   controllers: [RoleController],
   providers: [
     AccessGuard,
+    AccessWindowService,
     PrincipalService,
     ScopeService,
     RbacAdminService,
@@ -33,6 +35,6 @@ import { ScopeService } from './scope.service.js';
     RoleSoftDeletes,
     RoutePolicyAudit,
   ],
-  exports: [AccessGuard, PrincipalService, ScopeService, RbacAdminService, RoleService],
+  exports: [AccessGuard, AccessWindowService, PrincipalService, ScopeService, RbacAdminService, RoleService],
 })
 export class RbacModule {}

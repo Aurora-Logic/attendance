@@ -14,7 +14,7 @@ import { PERMISSIONS } from '@vyuha/shared';
 import type { Request, Response } from 'express';
 
 import { CurrentUser, type Principal } from '../rbac/principal.js';
-import { Authenticated, Public, RequirePermission } from '../rbac/route-policy.js';
+import { Authenticated, Public, RequirePermission, WindowExempt } from '../rbac/route-policy.js';
 import {
   AcceptInvitationDto,
   ConfirmPasswordResetDto,
@@ -45,6 +45,8 @@ import type { SessionRequestContext } from './session.service.js';
  * **There is no signup route** (ADR 0002), and there is no route that issues
  * an account except `POST /invitations`, which requires `employee.manage`.
  */
+// 12 REQ-AB-05: the session plumbing stays reachable; login refuses on its own terms.
+@WindowExempt()
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}

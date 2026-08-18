@@ -80,3 +80,14 @@ export const RequirePermission = (
   ...keys: readonly [PermissionKey, ...PermissionKey[]]
 ): CustomDecorator<string> =>
   SetMetadata<string, RoutePolicy>(ROUTE_POLICY_KEY, { kind: 'permission', keys });
+
+
+/**
+ * 12 REQ-AB-06/AB-07 (D-23): a route the access window does not close —
+ * the punch endpoints and their offline sync, and the session plumbing a
+ * person needs to reach them. Everything else a user JWT reaches is refused
+ * outside the window unless the account holds `access.outside_window`.
+ * Agent routes and jobs never pass through the user path at all.
+ */
+export const WINDOW_EXEMPT_KEY = 'vyuha:window-exempt';
+export const WindowExempt = (): CustomDecorator<string> => SetMetadata<string, boolean>(WINDOW_EXEMPT_KEY, true);

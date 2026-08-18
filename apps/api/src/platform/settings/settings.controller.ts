@@ -7,13 +7,17 @@ import {
   HttpStatus,
   Patch,
   Post,
+  Put,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ERROR_CODES, PERMISSIONS, type OrgBranding } from '@vyuha/shared';
+import { ERROR_CODES, PERMISSIONS, accessWindowSchema, type AccessWindow, type OrgBranding } from '@vyuha/shared';
 
+import { AuditContext } from '../audit/audit-context.js';
+import { AccessWindowService } from '../auth/access-window.service.js';
 import { AppError } from '../common/errors.js';
+import { createZodDto } from '../common/zod-validation.pipe.js';
 import { Authenticated, RequirePermission } from '../rbac/route-policy.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { UpdateSettingsDto } from './settings.dto.js';
@@ -50,9 +54,31 @@ function uploadedBytes(value: unknown): Buffer | null {
  * window behaviour and the device binding mode to the people those controls
  * exist to constrain.
  */
+class AccessWindowDto extends createZodDto(accessWindowSchema) {}
+
 @Controller('settings')
 export class SettingsController {
-  constructor(private readonly settings: SettingsService) {}
+  constructor(
+    private readonly settings: SettingsService,
+    private readonly accessWindow: AccessWindowService,
+    private readonly auditContext: AuditContext,
+  ) {}
+
+  /** 12 REQ-AB-02: the sign-in window, a setting. */
+  @Get('access-window')
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  readAccessWindow(@CurrentUser() principal: Principal): Promise<AccessWindow> {
+    return this.accessWindow.read(principal.orgId);
+  }
+
+  @Put('access-window')
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  async writeAccessWindow(@CurrentUser() principal: Principal, @Body() body: AccessWindowDto): Promise<AccessWindow> {
+    const before = await this.accessWindow.read(principal.orgId);
+    const after = await this.accessWindow.write(principal.orgId, principal.userId, body);
+    this.auditContext.record({ action: 'settings.access_window.updated', entityType: 'organization', entityId: principal.orgId, before: { ...before }, after: { ...after } });
+    return after;
+  }
 
   @Get()
   @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)

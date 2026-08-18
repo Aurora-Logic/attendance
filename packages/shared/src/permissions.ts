@@ -89,6 +89,9 @@ export const PERMISSIONS = {
   PURCHASE_DOCUMENT_VIEW: 'purchase.document.view',
   PURCHASE_DOCUMENT_CREATE: 'purchase.document.create',
   PURCHASE_DOCUMENT_APPROVE: 'purchase.document.approve',
+
+  /** 12 REQ-AB-03: exempt from the sign-in window. Admin only by default. */
+  ACCESS_OUTSIDE_WINDOW: 'access.outside_window',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -138,6 +141,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
   'purchase.document.create': 'Raise purchase orders and record receipts',
   'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
+  'access.outside_window': 'Sign in and work outside the access window (19:30 to 09:00 by default)',
   'integration.manage': 'Manage integration connections',
 };
 
@@ -226,6 +230,7 @@ const ADMIN_PERMISSIONS = [
   PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
   PERMISSIONS.PURCHASE_DOCUMENT_CREATE,
   PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
+  PERMISSIONS.ACCESS_OUTSIDE_WINDOW,
 ] as const satisfies readonly PermissionKey[];
 
 /**

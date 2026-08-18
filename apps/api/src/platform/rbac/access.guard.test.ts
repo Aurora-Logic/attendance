@@ -7,6 +7,7 @@ import { AppError } from '../common/errors.js';
 import { signAccessToken } from '../auth/jwt.js';
 import { env } from '../common/env.js';
 import type { AuditContext } from '../audit/audit-context.js';
+import type { AccessWindowService } from '../auth/access-window.service.js';
 import type { AgentAuthService } from '../sync/agent-auth.service.js';
 import { AccessGuard } from './access.guard.js';
 import type { Principal } from './principal.js';
@@ -129,7 +130,9 @@ function guardFor(principal: Principal | Error): AccessGuard {
   // Inert: nothing in these cases reaches an agent route, so nothing is
   // attributed or suppressed.
   const audit = { attribute: () => undefined } as unknown as AuditContext;
-  return new AccessGuard(new Reflector(), principals, agents, audit);
+  // The window is open in these cases; the closed case has its own suite.
+  const accessWindow = { verdict: () => Promise.resolve({ closed: false, reopensAt: null }) } as unknown as AccessWindowService;
+  return new AccessGuard(new Reflector(), principals, agents, audit, accessWindow);
 }
 
 async function bearer(): Promise<Record<string, string>> {

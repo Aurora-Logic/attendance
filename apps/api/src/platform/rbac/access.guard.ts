@@ -1,6 +1,6 @@
 import { Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ERROR_CODES } from '@vyuha/shared';
+import { ERROR_CODES, PERMISSIONS } from '@vyuha/shared';
 import type { Request } from 'express';
 
 import { AuditContext } from '../audit/audit-context.js';
@@ -8,9 +8,10 @@ import { env } from '../common/env.js';
 import { AppError } from '../common/errors.js';
 import { verifyAccessToken } from '../auth/jwt.js';
 import { AgentAuthService } from '../sync/agent-auth.service.js';
-import { hasAnyPermission, type Principal } from './principal.js';
+import { AccessWindowService } from '../auth/access-window.service.js';
+import { hasAnyPermission, hasPermission, type Principal } from './principal.js';
 import { PrincipalService } from './principal.service.js';
-import { ROUTE_POLICY_DECORATORS, ROUTE_POLICY_KEY, type RoutePolicy } from './route-policy.js';
+import { ROUTE_POLICY_DECORATORS, ROUTE_POLICY_KEY, WINDOW_EXEMPT_KEY, type RoutePolicy } from './route-policy.js';
 
 /**
  * The single gate. Authentication and authorisation are one guard rather than
@@ -32,6 +33,7 @@ export class AccessGuard implements CanActivate {
     private readonly principals: PrincipalService,
     private readonly agents: AgentAuthService,
     private readonly auditContext: AuditContext,
+    private readonly accessWindow: AccessWindowService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -75,6 +77,15 @@ export class AccessGuard implements CanActivate {
 
     const principal = await this.authenticate(request);
     request.principal = principal;
+
+    // 12 Area AB: outside the window, only the exempt routes and the exempt
+    // holders get through. Sessions are not terminated (REQ-AB-05); each
+    // request is answered on its own, and the punch endpoints keep working.
+    const exempt = this.reflector.getAllAndOverride<boolean | undefined>(WINDOW_EXEMPT_KEY, [context.getHandler(), context.getClass()]) === true;
+    if (!exempt && !hasPermission(principal, PERMISSIONS.ACCESS_OUTSIDE_WINDOW)) {
+      const verdict = await this.accessWindow.verdict(principal.orgId);
+      if (verdict.closed) throw this.accessWindow.refusal(verdict);
+    }
 
     if (policy.kind === 'authenticated') return true;
 
