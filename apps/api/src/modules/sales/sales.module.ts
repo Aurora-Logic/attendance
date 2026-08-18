@@ -9,6 +9,7 @@ import { FulfilmentController } from './fulfilment/fulfilment.controller.js';
 import { FulfilmentService } from './fulfilment/fulfilment.service.js';
 import { DispatchController } from './dispatch/dispatch.controller.js';
 import { DispatchService } from './dispatch/dispatch.service.js';
+import { SalesReportSource } from './reports/sales-report.source.js';
 
 /**
  * The sales module (08 Areas W and Y). Opens with the estimate (Phase 8a);
@@ -18,6 +19,6 @@ import { DispatchService } from './dispatch/dispatch.service.js';
  */
 @Module({
   controllers: [EstimateController, SalesOrderController, FulfilmentController, DispatchController],
-  providers: [EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService],
+  providers: [EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, SalesReportSource],
 })
 export class SalesModule {}

@@ -14,6 +14,8 @@ import {
   headcountCell,
   creditCycleCell,
   customerStatementCell,
+  lowStockCell,
+  pendingDispatchCell,
   salesAnalysisCell,
   voucherReconciliationCell,
   leaveAvailedCell,
@@ -399,6 +401,36 @@ export const salesAnalysisRowSchema = z.object({
 });
 export type SalesAnalysisRow = z.infer<typeof salesAnalysisRowSchema>;
 
+export const pendingDispatchRowSchema = z.object({
+  id: z.string(),
+  orderId: z.string(),
+  orderNumber: z.string(),
+  customerName: z.string(),
+  orderDate: z.string(),
+  ageDays: z.number(),
+  item: z.string(),
+  ordered: z.string(),
+  packed: z.string(),
+  invoiced: z.string(),
+  dispatched: z.string(),
+  balance: z.string(),
+  fulfilment: z.string(),
+});
+export type PendingDispatchRow = z.infer<typeof pendingDispatchRowSchema>;
+
+export const lowStockRowSchema = z.object({
+  stockItemId: z.string(),
+  item: z.string(),
+  closing: z.string().nullable(),
+  committed: z.string(),
+  available: z.string().nullable(),
+  reorderLevel: z.string(),
+  openPo: z.string(),
+  shortfall: z.string(),
+  asOf: z.string().nullable(),
+});
+export type LowStockRow = z.infer<typeof lowStockRowSchema>;
+
 // --------------------------------------------------------------- the row view
 
 /**
@@ -566,6 +598,22 @@ const SALES_ANALYSIS_SHAPE: RowViewShape<SalesAnalysisRow> = {
   status: () => null,
 };
 
+const PENDING_DISPATCH_SHAPE: RowViewShape<PendingDispatchRow> = {
+  schema: pendingDispatchRowSchema,
+  cell: pendingDispatchCell,
+  id: (row) => row.id,
+  primary: (row) => `${row.orderNumber} · ${row.item}`,
+  status: (row) => row.fulfilment.toUpperCase(),
+};
+
+const LOW_STOCK_SHAPE: RowViewShape<LowStockRow> = {
+  schema: lowStockRowSchema,
+  cell: lowStockCell,
+  id: (row) => row.stockItemId,
+  primary: (row) => row.item,
+  status: () => null,
+};
+
 function build<T>(
   shape: RowViewShape<T>,
   reportKey: ReportKey,
@@ -629,6 +677,10 @@ export function toRowViews(reportKey: ReportKey, rows: readonly unknown[]): Repo
       return build(CREDIT_CYCLE_SHAPE, reportKey, rows);
     case 'sales-analysis':
       return build(SALES_ANALYSIS_SHAPE, reportKey, rows);
+    case 'pending-dispatch':
+      return build(PENDING_DISPATCH_SHAPE, reportKey, rows);
+    case 'low-stock':
+      return build(LOW_STOCK_SHAPE, reportKey, rows);
   }
 }
 

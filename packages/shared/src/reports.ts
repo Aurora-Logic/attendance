@@ -43,12 +43,16 @@ export const REPORT_KEYS = [
   'customer-statement',
   'credit-cycle',
   'sales-analysis',
+  'pending-dispatch',
+  'low-stock',
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
 
 /** The keys the Tally module's source claims; everything else is attendance's. */
-export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'sales-analysis'] as const satisfies readonly ReportKey[];
+export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'sales-analysis', 'low-stock'] as const satisfies readonly ReportKey[];
+/** The sales module's reports (12 REQ-AA-30). */
+export const SALES_REPORT_KEYS = ['pending-dispatch'] as const satisfies readonly ReportKey[];
 
 export function isReportKey(value: string): value is ReportKey {
   return (REPORT_KEYS as readonly string[]).includes(value);
@@ -489,6 +493,33 @@ const SALES_ANALYSIS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
+/** 12 REQ-AA-30: every open order with a balance, by party, by age, by item. */
+const PENDING_DISPATCH_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'orderNumber', header: 'Order', type: 'code', sortField: 'orderNumber', width: 12 },
+  { key: 'customerName', header: 'Party', type: 'text', sortField: 'customerName', width: 26 },
+  { key: 'orderDate', header: 'Order date', type: 'date', sortField: 'orderDate', width: 12 },
+  { key: 'ageDays', header: 'Age (days)', type: 'number', sortField: 'ageDays', width: 10 },
+  { key: 'item', header: 'Item', type: 'text', width: 26 },
+  { key: 'ordered', header: 'Ordered', type: 'text', width: 10 },
+  { key: 'packed', header: 'Packed', type: 'text', secondary: true, width: 10 },
+  { key: 'invoiced', header: 'Invoiced', type: 'text', secondary: true, width: 10 },
+  { key: 'dispatched', header: 'Dispatched', type: 'text', width: 10 },
+  { key: 'balance', header: 'Balance', type: 'text', width: 10 },
+  { key: 'fulfilment', header: 'Stage', type: 'status', width: 16 },
+];
+
+/** 13 REQ-AC-06: at or below reorder level, with committed, available, open PO and the shortfall. */
+const LOW_STOCK_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'closing', header: 'Closing (Tally)', type: 'text', width: 12 },
+  { key: 'committed', header: 'Committed', type: 'text', width: 12 },
+  { key: 'available', header: 'Available', type: 'text', sortField: 'available', width: 12 },
+  { key: 'reorderLevel', header: 'Reorder level', type: 'text', width: 12 },
+  { key: 'openPo', header: 'On order', type: 'text', width: 12 },
+  { key: 'shortfall', header: 'Shortfall', type: 'text', sortField: 'shortfall', width: 12 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   'attendance-register': {
     key: 'attendance-register',
@@ -647,6 +678,22 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: '-value',
     filters: ['groupBy', 'period', 'partyId'],
   },
+  'pending-dispatch': {
+    key: 'pending-dispatch',
+    label: 'Pending dispatch',
+    description: 'Every open sales order line with a balance still to dispatch — by party, by age, by item (REQ-AA-30).',
+    columns: PENDING_DISPATCH_COLUMNS,
+    defaultSort: '-ageDays',
+    filters: ['partyId'],
+  },
+  'low-stock': {
+    key: 'low-stock',
+    label: 'Low stock',
+    description: 'Items at or below their reorder level: Tally closing, committed to open orders, available, on order, and the shortfall (REQ-AC-06).',
+    columns: LOW_STOCK_COLUMNS,
+    defaultSort: '-shortfall',
+    filters: [],
+  },
 };
 
 /**
@@ -657,8 +704,10 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
  * failure. The Tally group is the first such joiner.
  */
 export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.filter(
-  (key) => !(TALLY_REPORT_KEYS as readonly string[]).includes(key),
+  (key) => !(TALLY_REPORT_KEYS as readonly string[]).includes(key) && !(SALES_REPORT_KEYS as readonly string[]).includes(key),
 ).map((key) => REPORT_DEFINITIONS[key]);
+
+export const SALES_REPORTS: readonly ReportDefinition[] = SALES_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
 
 /** The Tally module's reports (Phase 6c onward). */
 export const TALLY_REPORTS: readonly ReportDefinition[] = TALLY_REPORT_KEYS.map(
@@ -666,7 +715,7 @@ export const TALLY_REPORTS: readonly ReportDefinition[] = TALLY_REPORT_KEYS.map(
 );
 
 /** Every module's reports. Grows by concatenation as modules add groups. */
-export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...TALLY_REPORTS];
+export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS];
 
 /** The columns a report shows before anyone touches the F12 chooser. */
 export function defaultVisibleColumns(reportKey: ReportKey): string[] {
@@ -1660,6 +1709,65 @@ export function salesAnalysisCell(row: SalesAnalysisSource, key: string): Report
       return row.asOf;
     default:
       return null;
+  }
+}
+
+export interface PendingDispatchSource {
+  readonly id: string;
+  readonly orderId: string;
+  readonly orderNumber: string;
+  readonly customerName: string;
+  readonly orderDate: string;
+  readonly ageDays: number;
+  readonly item: string;
+  readonly ordered: string;
+  readonly packed: string;
+  readonly invoiced: string;
+  readonly dispatched: string;
+  readonly balance: string;
+  readonly fulfilment: string;
+}
+
+export function pendingDispatchCell(row: PendingDispatchSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'orderNumber': return row.orderNumber;
+    case 'customerName': return row.customerName;
+    case 'orderDate': return row.orderDate;
+    case 'ageDays': return row.ageDays;
+    case 'item': return row.item;
+    case 'ordered': return row.ordered;
+    case 'packed': return row.packed;
+    case 'invoiced': return row.invoiced;
+    case 'dispatched': return row.dispatched;
+    case 'balance': return row.balance;
+    case 'fulfilment': return row.fulfilment.toUpperCase();
+    default: return null;
+  }
+}
+
+export interface LowStockSource {
+  readonly stockItemId: string;
+  readonly item: string;
+  readonly closing: string | null;
+  readonly committed: string;
+  readonly available: string | null;
+  readonly reorderLevel: string;
+  readonly openPo: string;
+  readonly shortfall: string;
+  readonly asOf: string | null;
+}
+
+export function lowStockCell(row: LowStockSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'item': return row.item;
+    case 'closing': return row.closing;
+    case 'committed': return row.committed;
+    case 'available': return row.available;
+    case 'reorderLevel': return row.reorderLevel;
+    case 'openPo': return row.openPo;
+    case 'shortfall': return row.shortfall;
+    case 'asOf': return row.asOf;
+    default: return null;
   }
 }
 

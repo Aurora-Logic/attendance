@@ -4,10 +4,12 @@ import {
   TALLY_REPORTS,
   creditCycleCell,
   customerStatementCell,
+  lowStockCell,
   salesAnalysisCell,
   voucherReconciliationCell,
   type CreditCycleSource,
   type CustomerStatementSource,
+  type LowStockSource,
   type ReportCellValue,
   type ReportColumnSpec,
   type ReportDefinition,
@@ -60,7 +62,7 @@ const classifiedCase = sql`voucher_type = ANY(${sql.raw(`ARRAY['${[...DEBIT_TYPE
 
 interface TallyReportPage extends ReportSourcePage {
   readonly key: ReportKey;
-  readonly rows: readonly (VoucherReconciliationSource | CustomerStatementSource | CreditCycleSource | SalesAnalysisSource)[];
+  readonly rows: readonly (VoucherReconciliationSource | CustomerStatementSource | CreditCycleSource | SalesAnalysisSource | LowStockSource)[];
 }
 
 @Injectable()
@@ -139,6 +141,8 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
              GROUP BY ${this.dimensionKey(usable.groupBy ?? 'party')}
           ) grouped
         `);
+      case 'low-stock':
+        return this.scalar(sql`SELECT count(*)::int AS value FROM (${this.lowStockQuery(principal.orgId)}) t`);
       default:
         throw new Error(`TallyReportSource does not serve "${key}".`);
     }
@@ -164,6 +168,8 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
         return this.wrap(key, total, await this.creditRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
       case 'sales-analysis':
         return this.wrap(key, total, await this.salesRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
+      case 'low-stock':
+        return this.wrap(key, total, await this.lowStockRows(principal.orgId, filters.sort, limit, offset));
       default:
         throw new Error(`TallyReportSource does not serve "${key}".`);
     }
@@ -188,6 +194,8 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
           return creditCycleCell(row as CreditCycleSource, column.key);
         case 'sales-analysis':
           return salesAnalysisCell(row as SalesAnalysisSource, column.key);
+        case 'low-stock':
+          return lowStockCell(row as LowStockSource, column.key);
         default:
           return null;
       }
@@ -431,6 +439,45 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       value: row.value,
       share: grandTotal === 0 ? '0.0' : ((Number(row.value) / grandTotal) * 100).toFixed(1),
       asOf,
+    }));
+  }
+
+  // -------------------------------------------------------------- low stock
+
+  /** REQ-AC-06: available = closing − committed, against the Vyuha-held reorder level (D-28). */
+  private lowStockQuery(orgId: string): SQL {
+    return sql`
+      SELECT s.id, s.name,
+             s.closing_qty,
+             COALESCE((SELECT sum(l.quantity - l.dispatched_qty) FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
+                        WHERE l.stock_item_id = s.id AND l.deleted_at IS NULL AND d.doc_type = 'SALES_ORDER' AND d.status = 'CONFIRMED' AND d.short_closed_at IS NULL AND d.deleted_at IS NULL), 0) AS committed,
+             COALESCE((SELECT sum(pl.quantity - pl.received_qty - pl.rejected_qty) FROM purchase_order_lines pl JOIN purchase_orders po ON po.id = pl.purchase_order_id
+                        WHERE pl.stock_item_id = s.id AND pl.deleted_at IS NULL AND po.status = 'CONFIRMED' AND po.short_closed_at IS NULL AND po.deleted_at IS NULL), 0) AS open_po,
+             i.reorder_level, s.last_pulled_at
+        FROM stock_items s JOIN item_settings i ON i.stock_item_id = s.id AND i.deleted_at IS NULL AND i.reorder_level IS NOT NULL
+       WHERE s.org_id = ${orgId}
+         AND (COALESCE(s.closing_qty, 0) - COALESCE((SELECT sum(l.quantity - l.dispatched_qty) FROM sales_document_lines l JOIN sales_documents d ON d.id = l.document_id
+                        WHERE l.stock_item_id = s.id AND l.deleted_at IS NULL AND d.doc_type = 'SALES_ORDER' AND d.status = 'CONFIRMED' AND d.short_closed_at IS NULL AND d.deleted_at IS NULL), 0)) <= i.reorder_level`;
+  }
+
+  private async lowStockRows(orgId: string, sort: string | undefined, limit: number, offset: number): Promise<LowStockSource[]> {
+    const orderBy = sort === 'item' ? sql`name ASC` : sort === 'available' ? sql`available ASC` : sql`shortfall DESC, name ASC`;
+    const rows = await this.db.execute<{ id: string; name: string; closing_qty: string | null; committed: string; open_po: string; reorder_level: string; last_pulled_at: Date | null; available: string; shortfall: string }>(sql`
+      SELECT t.*, (COALESCE(t.closing_qty, 0) - t.committed)::text AS available,
+             GREATEST(t.reorder_level - (COALESCE(t.closing_qty, 0) - t.committed + t.open_po), 0)::text AS shortfall
+        FROM (${this.lowStockQuery(orgId)}) t
+       ORDER BY ${orderBy} LIMIT ${limit} OFFSET ${offset}
+    `);
+    return rows.rows.map((r) => ({
+      stockItemId: r.id,
+      item: r.name,
+      closing: r.closing_qty === null ? null : Number(r.closing_qty).toFixed(3),
+      committed: Number(r.committed).toFixed(3),
+      available: Number(r.available).toFixed(3),
+      reorderLevel: Number(r.reorder_level).toFixed(3),
+      openPo: Number(r.open_po).toFixed(3),
+      shortfall: Number(r.shortfall).toFixed(3),
+      asOf: r.last_pulled_at === null ? null : new Date(r.last_pulled_at).toISOString(),
     }));
   }
 
