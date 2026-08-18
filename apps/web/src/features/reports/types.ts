@@ -12,6 +12,7 @@ import {
   attendanceExceptionCell,
   attendanceRegisterCell,
   headcountCell,
+  voucherReconciliationCell,
   leaveAvailedCell,
   leaveBalanceCell,
   leaveLedgerCell,
@@ -344,6 +345,17 @@ export const headcountRowSchema = z.object({
   closing: z.number(),
 });
 
+export const voucherReconciliationRowSchema = z.object({
+  month: z.string(),
+  voucherType: z.string(),
+  count: z.number(),
+  cancelled: z.number(),
+  total: z.string(),
+  lastPulledAt: z.string(),
+});
+
+export type VoucherReconciliationRow = z.infer<typeof voucherReconciliationRowSchema>;
+
 // --------------------------------------------------------------- the row view
 
 /**
@@ -478,6 +490,15 @@ const HEADCOUNT_SHAPE: RowViewShape<HeadcountRow> = {
   status: () => null,
 };
 
+const VOUCHER_RECONCILIATION_SHAPE: RowViewShape<VoucherReconciliationRow> = {
+  schema: voucherReconciliationRowSchema,
+  cell: voucherReconciliationCell,
+  // A grouped row has no id of its own; month and type together are the key.
+  id: (row) => `${row.month}:${row.voucherType}`,
+  primary: (row) => `${row.month} · ${row.voucherType}`,
+  status: () => null,
+};
+
 function build<T>(
   shape: RowViewShape<T>,
   reportKey: ReportKey,
@@ -533,6 +554,8 @@ export function toRowViews(reportKey: ReportKey, rows: readonly unknown[]): Repo
       return build(LEAVE_AVAILED_SHAPE, reportKey, rows);
     case 'headcount':
       return build(HEADCOUNT_SHAPE, reportKey, rows);
+    case 'voucher-reconciliation':
+      return build(VOUCHER_RECONCILIATION_SHAPE, reportKey, rows);
   }
 }
 

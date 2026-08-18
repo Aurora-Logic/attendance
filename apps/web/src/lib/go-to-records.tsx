@@ -1,4 +1,4 @@
-import { BooksIcon, UserIcon, type Icon } from '@phosphor-icons/react';
+import { BooksIcon, ReceiptIcon, UserIcon, type Icon } from '@phosphor-icons/react';
 
 import type { GoToRecord } from '@vyuha/shared';
 
@@ -40,6 +40,12 @@ const GO_TO_RECORD_KINDS: Record<string, GoToRecordKind> = {
     // Capped at the list query's own max: a 200-char Tally name would
     // otherwise 400 the very screen the palette promised.
     route: (record) => `/masters/parties?q=${encodeURIComponent(record.title.slice(0, 80))}`,
+  },
+  voucher: {
+    group: 'Vouchers',
+    icon: ReceiptIcon,
+    // 09 §6: typing a voucher number opens that voucher.
+    route: (record) => `/masters/vouchers/${record.id}`,
   },
 };
 

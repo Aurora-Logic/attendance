@@ -1414,6 +1414,36 @@ export interface HeadcountSource {
   readonly closing: number;
 }
 
+/** One reconciliation row as the source produces it (Phase 6c, REQ-S-05). */
+export interface VoucherReconciliationSource {
+  readonly month: string;
+  readonly voucherType: string;
+  readonly count: number;
+  readonly cancelled: number;
+  /** Exact decimal text — summed once for reconciliation, never computed on again. */
+  readonly total: string;
+  readonly lastPulledAt: string;
+}
+
+export function voucherReconciliationCell(row: VoucherReconciliationSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'month':
+      return row.month;
+    case 'voucherType':
+      return row.voucherType;
+    case 'count':
+      return row.count;
+    case 'cancelled':
+      return row.cancelled;
+    case 'total':
+      return row.total;
+    case 'lastPulledAt':
+      return row.lastPulledAt;
+    default:
+      return null;
+  }
+}
+
 export function headcountCell(row: HeadcountSource, key: string): ReportCellValue {
   switch (key) {
     case 'month':

@@ -122,10 +122,26 @@ price lists (OpsTally has no per-level event); GST rate (not in the stock
 payload); voucher projection (6c); how 6c backfills history when the source
 is push-only with a 90-day lookback.
 
+## Phase 6c under this transport (started on this branch)
+
+| Deliverable | Commit | Proof |
+|---|---|---|
+| Voucher projection + writer + inbox replay; OpsTally voucher.* project on arrival | `26160e0` | webhook 21/21 (lines, party/item resolved by name, wholesale line replace, cancel flag, replay drains and is idempotent) |
+| `GET /masters/vouchers`, `/:id` under `receivables.view`; Go To by voucher number (09 §6) | `26160e0` | masters 16/16 |
+| REQ-S-05 reconciliation as a report-shell source (Tally report group; attendance narrows to its own) | `26160e0` | export+reports 89/89; live: catalogue lists it, page renders rows |
+| Vouchers screen (list, sheet with lines, URL-addressable detail) + nav Books group | — | live drive: rows, sheet Dr/Cr + inventory line, Go To opens the sheet, zero console errors |
+
+**Not buildable under a push-only source (needs the P6b-5 decision):** the
+historical backfill orchestrator and progress screen (REQ-S-01…S-04, S-06),
+bill-wise allocations (not in the OpsTally voucher payload — ageing waits),
+the daily drift check (REQ-T-08 needs to ask Tally). Recorded, not
+forgotten.
+
 ## Next, in order
 
-Nothing buildable remains for 6b; see "Blocked, and on whom". The 6c
-voucher projection now has a retained inbox to replay from.
+Nothing further is buildable in 6b/6c without the blocked inputs. Phase 6d
+(push into Tally) needs a write transport OpsTally does not offer. **Phase
+7 (CRM) is entirely Vyuha's own and is next.**
 
 ### 6b exit gate — run, passed
 

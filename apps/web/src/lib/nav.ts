@@ -13,6 +13,7 @@ import {
   LockIcon,
   PackageIcon,
   PlugIcon,
+  ReceiptIcon,
   TagIcon,
   BuildingsIcon,
   ChartLineUpIcon,
@@ -405,6 +406,20 @@ export const MODULES: ModuleDef[] = [
           },
         ],
       },
+      {
+        label: 'Books',
+        items: [
+          {
+            to: '/masters/vouchers',
+            label: 'Vouchers',
+            icon: ReceiptIcon,
+            // Money moving, not a master: 08 §2.2's receivables key.
+            permission: PERMISSIONS.RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: 'REQ-S-01, REQ-Y-06',
+          },
+        ],
+      },
     ],
   },
 ];
@@ -506,6 +521,7 @@ const OFF_NAV_LABELS: Record<string, string> = {
  */
 const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }[] = [
   { pattern: /^\/employees\/[^/]+$/u, parent: '/employees', label: 'Employee' },
+  { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
 ];
 
 export function findBreadcrumbs(pathname: string): [Crumb, ...Crumb[]] {

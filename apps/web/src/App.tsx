@@ -27,6 +27,7 @@ import { NotificationsPage } from '@/features/notifications';
 import { PartiesPage } from '@/features/masters/parties-page';
 import { PriceListsPage } from '@/features/masters/price-lists-page';
 import { StockItemsPage } from '@/features/masters/stock-items-page';
+import { VouchersPage } from '@/features/masters/vouchers-page';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { OrgMastersPage } from '@/features/org-masters';
 import { ProfilePage } from '@/features/profile/profile-page';
@@ -44,6 +45,7 @@ const BUILT_ROUTES = new Set([
   '/masters/parties',
   '/masters/items',
   '/masters/price-lists',
+  '/masters/vouchers',
   '/',
   '/employees',
   '/punch',
@@ -108,6 +110,8 @@ export default function App() {
               <Route path="masters/parties" element={<PartiesPage />} />
               <Route path="masters/items" element={<StockItemsPage />} />
               <Route path="masters/price-lists" element={<PriceListsPage />} />
+              <Route path="masters/vouchers" element={<VouchersPage />} />
+              <Route path="masters/vouchers/:id" element={<VouchersPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />
