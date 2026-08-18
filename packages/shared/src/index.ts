@@ -17,6 +17,7 @@ export * from './people.js';
 export * from './permissions.js';
 export * from './regularization.js';
 export * from './reports.js';
+export * from './sales.js';
 export * from './shifts.js';
 export * from './sync.js';
 export * from './tasks.js';

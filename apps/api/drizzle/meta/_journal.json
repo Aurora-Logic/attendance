@@ -218,6 +218,13 @@
       "when": 1787038218937,
       "tag": "0030_crm_pipelines_deals",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1787040415246,
+      "tag": "0031_sales_estimates",
+      "breakpoints": true
     }
   ]
 }

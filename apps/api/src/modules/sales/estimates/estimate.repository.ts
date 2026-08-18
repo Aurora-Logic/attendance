@@ -1,0 +1,423 @@
+import type {
+  EstimateStatus,
+  EstimateSummary,
+  EstimateView,
+  ItemHistoryEntry,
+  SalesLineInput,
+  SalesLineView,
+  SortTerm,
+} from '@vyuha/shared';
+import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { alias, type PgColumn } from 'drizzle-orm/pg-core';
+
+import type { Database, Transaction } from '../../../platform/db/db.provider.js';
+import { employees, stockItems, voucherLines, vouchers } from '../../../platform/db/schema/index.js';
+import { ScopedRepository, type OrgContext } from '../../../platform/db/scoped-repository.js';
+import { masterOrderBy, masterSearch } from '../../../platform/org/master-query.js';
+import { salesDocumentLines, salesDocumentSequences, salesDocuments } from '../schema/index.js';
+
+/**
+ * Estimates (REQ-W-01, W-02). Lines are replaced wholesale on save, in one
+ * transaction with the header's totals — the voucher writer's approach, for
+ * the same reason: a partial line set is worse than an old one.
+ *
+ * Arithmetic happens here, in SQL, on numeric columns: `amount = quantity ×
+ * rate × (1 − discount/100)`, `tax = amount × tax/100`, each rounded to two
+ * places once. The API returns the results as text and the client never
+ * re-derives them.
+ */
+
+const owner = alias(employees, 'estimate_owner');
+
+const ownerName = (person: { id: PgColumn; firstName: PgColumn; lastName: PgColumn }): SQL<string | null> =>
+  sql<string | null>`CASE WHEN ${person.id} IS NULL THEN NULL ELSE concat_ws(' ', ${person.firstName}, ${person.lastName}) END`;
+
+const SORT_COLUMNS = {
+  number: salesDocuments.number,
+  date: salesDocuments.date,
+  grandTotal: salesDocuments.grandTotal,
+  customerName: salesDocuments.customerName,
+  updatedAt: salesDocuments.updatedAt,
+} as const;
+
+export interface EstimateListFilters {
+  readonly q?: string | undefined;
+  readonly status?: EstimateStatus | undefined;
+  readonly partyId?: string | undefined;
+  readonly companyId?: string | undefined;
+  readonly dealId?: string | undefined;
+  readonly ownerId?: string | undefined;
+  readonly sort: readonly SortTerm[];
+  readonly limit: number;
+  readonly offset: number;
+}
+
+export interface EstimateHeaderInput {
+  date: string;
+  validUntil: string | null;
+  partyId: string | null;
+  companyId: string | null;
+  dealId: string | null;
+  customerName: string;
+  ownerId: string | null;
+  notes: string | null;
+  terms: string | null;
+}
+
+export class EstimateRepository extends ScopedRepository<typeof salesDocuments> {
+  constructor(db: Database, ctx: OrgContext) {
+    super(db, salesDocuments, ctx);
+  }
+
+  private headerSelection() {
+    return {
+      id: salesDocuments.id,
+      docType: salesDocuments.docType,
+      number: salesDocuments.number,
+      status: salesDocuments.status,
+      date: salesDocuments.date,
+      validUntil: salesDocuments.validUntil,
+      partyId: salesDocuments.partyId,
+      companyId: salesDocuments.companyId,
+      dealId: salesDocuments.dealId,
+      customerName: salesDocuments.customerName,
+      ownerId: salesDocuments.ownerId,
+      ownerName: ownerName(owner),
+      notes: salesDocuments.notes,
+      terms: salesDocuments.terms,
+      subtotal: salesDocuments.subtotal,
+      discountTotal: salesDocuments.discountTotal,
+      taxTotal: salesDocuments.taxTotal,
+      grandTotal: salesDocuments.grandTotal,
+      createdAt: salesDocuments.createdAt,
+      updatedAt: salesDocuments.updatedAt,
+    };
+  }
+
+  private headerQuery(where: SQL) {
+    return this.db.select(this.headerSelection()).from(salesDocuments).leftJoin(owner, eq(owner.id, salesDocuments.ownerId)).where(where);
+  }
+
+  private filterPredicate(filters: EstimateListFilters): SQL | undefined {
+    return and(
+      eq(salesDocuments.docType, 'ESTIMATE'),
+      filters.q === undefined ? undefined : masterSearch(filters.q, [salesDocuments.number, salesDocuments.customerName]),
+      filters.status === undefined ? undefined : eq(salesDocuments.status, filters.status),
+      filters.partyId === undefined ? undefined : eq(salesDocuments.partyId, filters.partyId),
+      filters.companyId === undefined ? undefined : eq(salesDocuments.companyId, filters.companyId),
+      filters.dealId === undefined ? undefined : eq(salesDocuments.dealId, filters.dealId),
+      filters.ownerId === undefined ? undefined : eq(salesDocuments.ownerId, filters.ownerId),
+    );
+  }
+
+  async list(scope: SQL, filters: EstimateListFilters): Promise<{ rows: EstimateSummary[]; total: number }> {
+    const predicate = this.filterPredicate(filters);
+    const rows = await this.headerQuery(this.scoped(scope, predicate))
+      .orderBy(...masterOrderBy(filters.sort, SORT_COLUMNS, salesDocuments.date, salesDocuments.id))
+      .limit(filters.limit)
+      .offset(filters.offset);
+    const total = await this.count(and(scope, predicate));
+    return { rows: rows.map(toSummary), total };
+  }
+
+  async view(scope: SQL, id: string): Promise<EstimateView | null> {
+    const rows = await this.headerQuery(this.scoped(scope, eq(salesDocuments.id, id), eq(salesDocuments.docType, 'ESTIMATE'))).limit(1);
+    const row = rows[0];
+    if (row === undefined) return null;
+    const lines = await this.db
+      .select()
+      .from(salesDocumentLines)
+      .where(and(eq(salesDocumentLines.documentId, id), isNull(salesDocumentLines.deletedAt)))
+      .orderBy(asc(salesDocumentLines.lineNo));
+    return { ...toSummary(row), lines: lines.map(toLineView) };
+  }
+
+  /**
+   * Header and lines in one transaction, number issued from the sequence
+   * row under `FOR UPDATE` so two estimates raised together cannot share it.
+   */
+  async create(header: EstimateHeaderInput, lines: readonly SalesLineInput[]): Promise<string> {
+    return this.db.transaction(async (tx) => {
+      const number = await this.nextNumber(tx);
+      const inserted = await tx
+        .insert(salesDocuments)
+        .values({
+          orgId: this.ctx.orgId,
+          docType: 'ESTIMATE',
+          number,
+          status: 'DRAFT',
+          date: header.date,
+          validUntil: header.validUntil,
+          partyId: header.partyId,
+          companyId: header.companyId,
+          dealId: header.dealId,
+          customerName: header.customerName,
+          ownerId: header.ownerId,
+          notes: header.notes,
+          terms: header.terms,
+          createdBy: this.ctx.actorUserId,
+          updatedBy: this.ctx.actorUserId,
+        })
+        .returning({ id: salesDocuments.id });
+      const id = inserted[0]?.id;
+      if (id === undefined) throw new Error('Estimate insert returned no row.');
+      await this.replaceLines(tx, id, lines);
+      return id;
+    });
+  }
+
+  async updateHeader(id: string, patch: Partial<EstimateHeaderInput>, lines: readonly SalesLineInput[] | undefined): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(salesDocuments)
+        .set({ ...patch, updatedAt: new Date(), updatedBy: this.ctx.actorUserId })
+        .where(this.scoped(eq(salesDocuments.id, id)))
+        .returning({ id: salesDocuments.id });
+      if (rows.length === 0) return false;
+      if (lines !== undefined) await this.replaceLines(tx, id, lines);
+      return true;
+    });
+  }
+
+  async setStatus(id: string, status: EstimateStatus): Promise<boolean> {
+    const rows = await this.db
+      .update(salesDocuments)
+      .set({ status, updatedAt: new Date(), updatedBy: this.ctx.actorUserId })
+      .where(this.scoped(eq(salesDocuments.id, id)))
+      .returning({ id: salesDocuments.id });
+    return rows.length > 0;
+  }
+
+  private async nextNumber(tx: Transaction): Promise<string> {
+    await tx
+      .insert(salesDocumentSequences)
+      .values({ orgId: this.ctx.orgId, docType: 'ESTIMATE', lastNumber: 0 })
+      .onConflictDoNothing();
+    const bumped = await tx
+      .update(salesDocumentSequences)
+      .set({ lastNumber: sql`${salesDocumentSequences.lastNumber} + 1` })
+      .where(and(eq(salesDocumentSequences.orgId, this.ctx.orgId), eq(salesDocumentSequences.docType, 'ESTIMATE')))
+      .returning({ lastNumber: salesDocumentSequences.lastNumber });
+    const next = bumped[0]?.lastNumber;
+    if (next === undefined) throw new Error('Estimate sequence returned no row.');
+    return `EST-${String(next).padStart(4, '0')}`;
+  }
+
+  /** Delete-then-insert inside the caller's transaction, then the header's totals from the new lines. */
+  private async replaceLines(tx: Transaction, documentId: string, lines: readonly SalesLineInput[]): Promise<void> {
+    await tx.delete(salesDocumentLines).where(eq(salesDocumentLines.documentId, documentId));
+    if (lines.length > 0) {
+      await tx.insert(salesDocumentLines).values(
+        lines.map((line, index) => ({
+          orgId: this.ctx.orgId,
+          documentId,
+          lineNo: index + 1,
+          stockItemId: line.stockItemId ?? null,
+          description: line.description,
+          quantity: line.quantity,
+          unit: line.unit ?? null,
+          rate: line.rate,
+          discountPct: line.discountPct,
+          taxPct: line.taxPct,
+          amount: sql`round(${line.quantity}::numeric * ${line.rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2)`,
+          taxAmount: sql`round(round(${line.quantity}::numeric * ${line.rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2) * ${line.taxPct}::numeric / 100, 2)`,
+          createdBy: this.ctx.actorUserId,
+          updatedBy: this.ctx.actorUserId,
+        })),
+      );
+    }
+    await tx.execute(sql`
+      UPDATE sales_documents d
+         SET subtotal = t.subtotal,
+             discount_total = t.discount_total,
+             tax_total = t.tax_total,
+             grand_total = t.subtotal - t.discount_total + t.tax_total,
+             updated_at = now()
+        FROM (
+          SELECT coalesce(sum(round(quantity * rate, 2)), 0) AS subtotal,
+                 coalesce(sum(round(quantity * rate, 2) - amount), 0) AS discount_total,
+                 coalesce(sum(tax_amount), 0) AS tax_total
+            FROM sales_document_lines
+           WHERE document_id = ${documentId} AND deleted_at IS NULL
+        ) t
+       WHERE d.id = ${documentId}
+    `);
+  }
+
+  /**
+   * REQ-W-02: the item's past with this customer. Vouchers when they are a
+   * party; earlier estimates either way. Newest first, capped.
+   */
+  async itemHistory(input: {
+    stockItemId: string;
+    partyId: string | null;
+    companyId: string | null;
+    limit: number;
+  }): Promise<{ stockItemName: string; currentSalePrice: string | null; entries: ItemHistoryEntry[]; vouchersAsOf: string | null } | null> {
+    const item = await this.db
+      .select({ name: stockItems.name, salePrice: stockItems.salePrice, lastPulledAt: stockItems.lastPulledAt })
+      .from(stockItems)
+      .where(and(eq(stockItems.orgId, this.ctx.orgId), eq(stockItems.id, input.stockItemId)))
+      .limit(1);
+    const found = item[0];
+    if (found === undefined) return null;
+
+    const entries: ItemHistoryEntry[] = [];
+    if (input.partyId !== null) {
+      const rows = await this.db
+        .select({
+          date: vouchers.voucherDate,
+          voucherType: vouchers.voucherType,
+          voucherNumber: vouchers.voucherNumber,
+          quantity: voucherLines.billedQty,
+          rate: voucherLines.rate,
+          amount: voucherLines.amount,
+          isCancelled: vouchers.isCancelled,
+        })
+        .from(voucherLines)
+        .innerJoin(vouchers, eq(vouchers.id, voucherLines.voucherId))
+        .where(
+          and(
+            eq(voucherLines.orgId, this.ctx.orgId),
+            eq(voucherLines.stockItemId, input.stockItemId),
+            eq(vouchers.partyId, input.partyId),
+          ),
+        )
+        .orderBy(desc(vouchers.voucherDate), desc(vouchers.id))
+        .limit(input.limit);
+      for (const row of rows) {
+        entries.push({
+          source: 'voucher',
+          date: row.date,
+          reference: `${row.voucherType} ${row.voucherNumber}`.trim(),
+          quantity: row.quantity,
+          rate: row.rate,
+          discountPct: null,
+          amount: row.amount,
+          status: row.isCancelled ? 'cancelled' : null,
+        });
+      }
+    }
+
+    const customerPredicate =
+      input.partyId !== null && input.companyId !== null
+        ? sql`(${salesDocuments.partyId} = ${input.partyId} OR ${salesDocuments.companyId} = ${input.companyId})`
+        : input.partyId !== null
+          ? eq(salesDocuments.partyId, input.partyId)
+          : input.companyId !== null
+            ? eq(salesDocuments.companyId, input.companyId)
+            : sql`false`;
+    const quoted = await this.db
+      .select({
+        date: salesDocuments.date,
+        number: salesDocuments.number,
+        status: salesDocuments.status,
+        quantity: salesDocumentLines.quantity,
+        rate: salesDocumentLines.rate,
+        discountPct: salesDocumentLines.discountPct,
+        amount: salesDocumentLines.amount,
+      })
+      .from(salesDocumentLines)
+      .innerJoin(salesDocuments, eq(salesDocuments.id, salesDocumentLines.documentId))
+      .where(
+        and(
+          eq(salesDocumentLines.orgId, this.ctx.orgId),
+          eq(salesDocumentLines.stockItemId, input.stockItemId),
+          isNull(salesDocumentLines.deletedAt),
+          isNull(salesDocuments.deletedAt),
+          customerPredicate,
+        ),
+      )
+      .orderBy(desc(salesDocuments.date), desc(salesDocuments.id))
+      .limit(input.limit);
+    for (const row of quoted) {
+      entries.push({
+        source: 'estimate',
+        date: row.date,
+        reference: `Estimate ${row.number}`,
+        quantity: row.quantity,
+        rate: row.rate,
+        discountPct: row.discountPct,
+        amount: row.amount,
+        status: row.status.toLowerCase(),
+      });
+    }
+    entries.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
+    const asOf = await this.db
+      .select({ at: sql<Date | null>`max(${vouchers.lastPulledAt})` })
+      .from(vouchers)
+      .where(eq(vouchers.orgId, this.ctx.orgId));
+    const vouchersAsOf = asOf[0]?.at ?? null;
+    return {
+      stockItemName: found.name,
+      currentSalePrice: found.salePrice,
+      entries: entries.slice(0, input.limit),
+      vouchersAsOf: vouchersAsOf === null ? null : new Date(vouchersAsOf).toISOString(),
+    };
+  }
+}
+
+interface HeaderRow {
+  id: string;
+  docType: 'ESTIMATE';
+  number: string;
+  status: EstimateStatus;
+  date: string;
+  validUntil: string | null;
+  partyId: string | null;
+  companyId: string | null;
+  dealId: string | null;
+  customerName: string;
+  ownerId: string | null;
+  ownerName: string | null;
+  notes: string | null;
+  terms: string | null;
+  subtotal: string;
+  discountTotal: string;
+  taxTotal: string;
+  grandTotal: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function toSummary(row: HeaderRow): EstimateSummary {
+  return {
+    id: row.id,
+    docType: row.docType,
+    number: row.number,
+    status: row.status,
+    date: row.date,
+    validUntil: row.validUntil,
+    partyId: row.partyId,
+    companyId: row.companyId,
+    dealId: row.dealId,
+    customerName: row.customerName,
+    ownerId: row.ownerId,
+    ownerName: row.ownerName,
+    notes: row.notes,
+    terms: row.terms,
+    subtotal: row.subtotal,
+    discountTotal: row.discountTotal,
+    taxTotal: row.taxTotal,
+    grandTotal: row.grandTotal,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toLineView(row: typeof salesDocumentLines.$inferSelect): SalesLineView {
+  return {
+    id: row.id,
+    lineNo: row.lineNo,
+    stockItemId: row.stockItemId,
+    description: row.description,
+    quantity: row.quantity,
+    unit: row.unit,
+    rate: row.rate,
+    discountPct: row.discountPct,
+    taxPct: row.taxPct,
+    amount: row.amount,
+    taxAmount: row.taxAmount,
+  };
+}

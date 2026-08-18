@@ -4,6 +4,7 @@ import { LoggerModule } from 'nestjs-pino';
 
 import { AttendanceModule } from './modules/attendance/attendance.module.js';
 import { CrmModule } from './modules/crm/crm.module.js';
+import { SalesModule } from './modules/sales/sales.module.js';
 import { AuditContextMiddleware } from './platform/audit/audit-context.middleware.js';
 import { AuditInterceptor } from './platform/audit/audit.interceptor.js';
 import { AuditModule } from './platform/audit/audit.module.js';
@@ -87,6 +88,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     // CRM and ERP will sit beside this one and import nothing from it.
     AttendanceModule,
     CrmModule,
+    SalesModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AppExceptionFilter },

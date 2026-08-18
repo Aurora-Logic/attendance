@@ -474,6 +474,9 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM on_duty_requests WHERE org_id = ${this.orgId}`);
     // CRM records own an employee (`owner_id`, RESTRICT), so they go before
     // the employees do — same reasoning, same raw SQL.
+    await this.db.execute(sql`DELETE FROM sales_document_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_documents WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_document_sequences WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM crm_deals WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM crm_pipeline_stages WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM crm_pipelines WHERE org_id = ${this.orgId}`);

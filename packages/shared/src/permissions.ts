@@ -77,6 +77,13 @@ export const PERMISSIONS = {
   CRM_TASK_VIEW_SELF: 'crm.task.view.self',
   CRM_TASK_VIEW_TEAM: 'crm.task.view.team',
   CRM_TASK_MANAGE: 'crm.task.manage',
+
+  /** Phase 8a (08 §2.2). Documents are the estimate now; orders, challans and invoices as they land. */
+  SALES_DOCUMENT_VIEW_SELF: 'sales.document.view.self',
+  SALES_DOCUMENT_VIEW_ALL: 'sales.document.view.all',
+  SALES_DOCUMENT_CREATE: 'sales.document.create',
+  SALES_DOCUMENT_ALTER: 'sales.document.alter',
+  SALES_DISCOUNT_APPROVE: 'sales.discount.approve',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -118,6 +125,11 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'crm.task.view.self': 'View tasks assigned to you or owned by you',
   'crm.task.view.team': 'View your team’s tasks',
   'crm.task.manage': 'Create, assign and close tasks',
+  'sales.document.view.self': 'View the sales documents you own',
+  'sales.document.view.all': 'View every sales document',
+  'sales.document.create': 'Raise estimates, sales orders and challans',
+  'sales.document.alter': 'Alter an accepted document (re-pushed against its GUID)',
+  'sales.discount.approve': 'Approve a discount above the threshold',
   'integration.manage': 'Manage integration connections',
 };
 
@@ -198,6 +210,11 @@ const ADMIN_PERMISSIONS = [
   PERMISSIONS.CRM_TASK_VIEW_SELF,
   PERMISSIONS.CRM_TASK_VIEW_TEAM,
   PERMISSIONS.CRM_TASK_MANAGE,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
+  PERMISSIONS.SALES_DOCUMENT_CREATE,
+  PERMISSIONS.SALES_DOCUMENT_ALTER,
+  PERMISSIONS.SALES_DISCOUNT_APPROVE,
 ] as const satisfies readonly PermissionKey[];
 
 /**
@@ -213,6 +230,8 @@ const SALES_PERMISSIONS = [
   PERMISSIONS.CRM_DEAL_MANAGE,
   PERMISSIONS.CRM_TASK_VIEW_SELF,
   PERMISSIONS.CRM_TASK_MANAGE,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+  PERMISSIONS.SALES_DOCUMENT_CREATE,
 ] as const satisfies readonly PermissionKey[];
 
 /** 08 §2.2, the Sales manager column: all of Sales at full scope, plus receivables. */
@@ -223,6 +242,9 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.CRM_PIPELINE_MANAGE,
   PERMISSIONS.CRM_TASK_VIEW_TEAM,
   PERMISSIONS.RECEIVABLES_VIEW,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
+  PERMISSIONS.SALES_DOCUMENT_ALTER,
+  PERMISSIONS.SALES_DISCOUNT_APPROVE,
 ] as const satisfies readonly PermissionKey[];
 
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {
