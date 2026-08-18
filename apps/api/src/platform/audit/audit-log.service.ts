@@ -124,7 +124,8 @@ function toView(row: AuditLogRow): AuditLogEntryView {
 
 const CURSOR_SEPARATOR = '|';
 
-function encodeCursor(row: AuditLogRow): string {
+/** Exported for the CRM activity timeline, which pages the same rows for one record. */
+export function encodeCursor(row: AuditLogRow): string {
   return Buffer.from(
     `${row.createdAt.toISOString()}${CURSOR_SEPARATOR}${row.id}`,
     'utf8',
@@ -136,7 +137,7 @@ function encodeCursor(row: AuditLogRow): string {
  * reason to silently start from the top -- that would look like the list
  * looping forever.
  */
-function decodeCursor(raw: string): AuditLogCursor {
+export function decodeCursor(raw: string): AuditLogCursor {
   const decoded = Buffer.from(raw, 'base64url').toString('utf8');
   const separator = decoded.indexOf(CURSOR_SEPARATOR);
   if (separator < 0) throw invalidCursor();

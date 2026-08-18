@@ -354,3 +354,68 @@ export type UpdateDealInput = z.infer<typeof updateDealSchema>;
  */
 export const linkCompanyPartySchema = z.object({ partyId: z.uuid().nullable() });
 export type LinkCompanyPartyInput = z.infer<typeof linkCompanyPartySchema>;
+
+// ------------------------------------------------------------------ activities
+
+/**
+ * REQ-U-07: the activity log per contact, company and deal is the audit
+ * trail (technical design: "written through the platform audit interceptor,
+ * not a parallel mechanism"). Logging a call is one audit entry against the
+ * record; reading the timeline is reading that record's audit rows — so a
+ * stage change, an edit and a phone call sit in one list, in order, with the
+ * actor the interceptor already knew.
+ */
+export const CRM_ACTIVITY_KINDS = ['call', 'meeting', 'note', 'email'] as const;
+export type CrmActivityKind = (typeof CRM_ACTIVITY_KINDS)[number];
+
+export const CRM_ACTIVITY_KIND_LABELS: Record<CrmActivityKind, string> = {
+  call: 'Call',
+  meeting: 'Meeting',
+  note: 'Note',
+  email: 'Email',
+};
+
+export const CRM_ACTIVITY_SUBJECTS = ['contact', 'company', 'deal'] as const;
+export type CrmActivitySubject = (typeof CRM_ACTIVITY_SUBJECTS)[number];
+
+/** The audit action a logged activity is written under: `crm.activity.<kind>`. */
+export const CRM_ACTIVITY_ACTION_PREFIX = 'crm.activity.';
+
+export const logActivitySchema = z.object({
+  subjectType: z.enum(CRM_ACTIVITY_SUBJECTS),
+  subjectId: z.uuid(),
+  kind: z.enum(CRM_ACTIVITY_KINDS),
+  body: z.string().trim().min(1).max(4000),
+  /** When it happened, if not now — a call logged after the fact. */
+  occurredAt: z.iso.datetime({ offset: true }).optional(),
+});
+export type LogActivityInput = z.infer<typeof logActivitySchema>;
+
+export const activityListQuerySchema = z.object({
+  subjectType: z.enum(CRM_ACTIVITY_SUBJECTS),
+  subjectId: z.uuid(),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+export type ActivityListQuery = z.infer<typeof activityListQuerySchema>;
+
+export interface ActivityView {
+  readonly id: string;
+  /** A logged kind, or `system` for an event the record went through (created, moved, won…). */
+  readonly kind: CrmActivityKind | 'system';
+  /** The audit action, verbatim, for the reader who wants it. */
+  readonly action: string;
+  /** What to print: "Call", "Stage changed", "Won". */
+  readonly title: string;
+  readonly body: string | null;
+  readonly actorName: string | null;
+  /** When it happened: the logged `occurredAt`, else when the row was written. */
+  readonly occurredAt: string;
+  /** When it was recorded — differs from `occurredAt` for a call logged later. */
+  readonly recordedAt: string;
+}
+
+export interface ActivityPage {
+  readonly data: readonly ActivityView[];
+  readonly nextCursor: string | null;
+}

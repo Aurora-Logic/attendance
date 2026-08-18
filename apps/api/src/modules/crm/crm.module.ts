@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 
 import { CompanyController, ContactController } from './contacts/crm.controller.js';
+import { ActivityController } from './activities/activity.controller.js';
+import { ActivityService } from './activities/activity.service.js';
 import { CompanyGoToSource, ContactGoToSource } from './contacts/contact-goto.source.js';
 import { CrmService } from './contacts/crm.service.js';
 import { CrmTaskSubjects } from './contacts/crm-task-subjects.js';
@@ -19,7 +21,7 @@ import { DealService } from './deals/deal.service.js';
  * `modules/attendance` or the sales module when it exists.
  */
 @Module({
-  controllers: [ContactController, CompanyController, PipelineController, DealController],
-  providers: [CrmService, ContactGoToSource, CompanyGoToSource, CrmTaskSubjects, DealService, DealGoToSource],
+  controllers: [ContactController, CompanyController, PipelineController, DealController, ActivityController],
+  providers: [CrmService, ContactGoToSource, CompanyGoToSource, CrmTaskSubjects, DealService, DealGoToSource, ActivityService],
 })
 export class CrmModule {}
