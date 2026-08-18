@@ -47,6 +47,9 @@ export const purchaseOrders = pgTable(
     lastError: text('last_error'),
     shortClosedAt: timestamp('short_closed_at', { withTimezone: true }),
     shortCloseReason: text('short_close_reason'),
+    /** REQ-X-18: the vendor's contact for this PO's notification. */
+    vendorEmail: text('vendor_email'),
+    vendorWhatsapp: text('vendor_whatsapp'),
     ...standardColumns(),
   },
   (t) => [
@@ -107,6 +110,29 @@ export const poLineRequirements = pgTable(
     allocatedQty: numeric('allocated_qty', { precision: 16, scale: 3 }).notNull().default('0'),
   },
   (t) => [uniqueIndex('po_line_requirements_uq').on(t.purchaseOrderLineId, t.requirementId), index('po_line_requirements_req_idx').on(t.requirementId)],
+);
+
+/** REQ-X-18: the message to the vendor, per channel — the dispatch notification's shape, in the purchase module. */
+export const purchaseOrderNotifications = pgTable(
+  'purchase_order_notifications',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    purchaseOrderId: uuid('purchase_order_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+    channel: text('channel').notNull(),
+    recipient: text('recipient'),
+    status: text('status').notNull(),
+    composedText: text('composed_text').notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    sentBy: uuid('sent_by'),
+    error: text('error'),
+    ...standardColumns(),
+  },
+  (t) => [index('purchase_order_notifications_po_idx').on(t.purchaseOrderId)],
 );
 
 export const grns = pgTable(

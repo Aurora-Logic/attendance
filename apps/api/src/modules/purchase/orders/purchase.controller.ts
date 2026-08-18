@@ -10,6 +10,7 @@ import {
   purchaseOrderFromRequirementsSchema,
   purchaseOrderListQuerySchema,
   purchaseSettingsSchema,
+  markNotificationSentSchema,
   type PurchaseSettings,
   putItemSettingsSchema,
   putItemVendorsSchema,
@@ -36,6 +37,7 @@ import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js
 import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { PurchaseOrderService } from './purchase-order.service.js';
 
+class MarkNotificationDto extends createZodDto(markNotificationSentSchema) {}
 class PurchaseSettingsDto extends createZodDto(purchaseSettingsSchema) {}
 class RequirementListQueryDto extends createZodDto(requirementListQuerySchema) {}
 class CreateRequirementDto extends createZodDto(createRequirementSchema) {}
@@ -174,6 +176,19 @@ export class PurchaseController {
   @HttpCode(HttpStatus.OK)
   shortClose(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() body: ShortCloseDto): Promise<PurchaseOrderView> {
     return this.orders.shortClose(principal, id, body.reason);
+  }
+
+  /** REQ-X-18 / REQ-AA-26: the vendor's copy was sent by hand. */
+  @Post('orders/:id/notifications/:notificationId')
+  @RequirePermission(CREATE)
+  @HttpCode(HttpStatus.OK)
+  markNotification(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('notificationId', ParseUUIDPipe) notificationId: string,
+    @Body() body: MarkNotificationDto,
+  ): Promise<PurchaseOrderView> {
+    return this.orders.markNotification(principal, id, notificationId, body.status, body.error ?? null);
   }
 
   @Post('orders/:id/cancel')

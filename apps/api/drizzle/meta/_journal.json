@@ -267,6 +267,13 @@
       "when": 1787058026505,
       "tag": "0037_po_approval_and_invoice_reminder",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1787058677015,
+      "tag": "0038_po_vendor_notifications",
+      "breakpoints": true
     }
   ]
 }

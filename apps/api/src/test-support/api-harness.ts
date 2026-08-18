@@ -485,6 +485,7 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM grn_lines WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM grns WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM po_line_requirements WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM purchase_order_notifications WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM purchase_order_lines WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM purchase_orders WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM item_vendors WHERE org_id = ${this.orgId}`);

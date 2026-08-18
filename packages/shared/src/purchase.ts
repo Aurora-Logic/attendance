@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { pageQuerySchema } from './pagination.js';
-import { SYNC_STATES, salesLineInputSchema, type DocumentSyncState } from './sales.js';
+import { SYNC_STATES, salesLineInputSchema, type DispatchNotificationView, type DocumentSyncState } from './sales.js';
 
 /**
  * Procurement (13). Requirements are the record a purchase order is built
@@ -108,12 +108,17 @@ export interface PurchaseOrderView {
   readonly lastError: string | null;
   readonly shortClosedAt: string | null;
   readonly shortCloseReason: string | null;
+  /** REQ-X-18: where the vendor is told; a PO has no party contact in Tally, so the buyer fills these. */
+  readonly vendorEmail: string | null;
+  readonly vendorWhatsapp: string | null;
   readonly lines: readonly PurchaseOrderLineView[];
+  /** REQ-X-18: the message to the vendor, one per channel, composed when the PO is released; `manual` until the API lands (REQ-AA-26). */
+  readonly notifications: readonly DispatchNotificationView[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
-export type PurchaseOrderSummary = Omit<PurchaseOrderView, 'lines'>;
+export type PurchaseOrderSummary = Omit<PurchaseOrderView, 'lines' | 'notifications'>;
 
 export const purchaseOrderListQuerySchema = pageQuerySchema.extend({
   q: z.string().trim().min(1).max(80).optional(),
@@ -138,6 +143,8 @@ export const createPurchaseOrderSchema = z.object({
   expectedDate: z.iso.date().nullish(),
   ownerId: z.uuid().nullish(),
   notes: z.string().trim().max(4000).nullish(),
+  vendorEmail: z.email().max(254).nullish(),
+  vendorWhatsapp: z.string().trim().min(6).max(24).nullish(),
   lines: z.array(purchaseLineInputSchema).min(1).max(200),
 });
 export type CreatePurchaseOrderInput = z.infer<typeof createPurchaseOrderSchema>;

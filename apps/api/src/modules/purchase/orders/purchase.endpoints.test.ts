@@ -291,6 +291,27 @@ describe('approval by value through the inbox (13 REQ-X-16)', () => {
     expect(request).toBeUndefined();
   });
 
+  it('a released PO carries the vendor’s copy per channel, pending until a person marks it sent (REQ-X-18, REQ-AA-26)', async () => {
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: buyerToken,
+      body: { partyId: vendorId, vendorEmail: 'orders@behar.example', vendorWhatsapp: '+919800000000', lines: [{ stockItemId: cableId, quantity: '1', rate: '3800' }] },
+    });
+    expect(created.body.vendorEmail).toBe('orders@behar.example');
+    expect(created.body.notifications).toEqual([]);
+    const confirmed = await harness.post<PurchaseOrderView>(`/purchase/orders/${created.body.id}/confirm`, { token: buyerToken });
+    expect(confirmed.body.status).toBe('CONFIRMED');
+    expect(confirmed.body.notifications.map((n) => [n.channel, n.recipient, n.status])).toEqual([
+      ['email', 'orders@behar.example', 'pending'],
+      ['whatsapp', '+919800000000', 'pending'],
+    ]);
+    expect(confirmed.body.notifications[0]?.composedText).toContain(created.body.number);
+    expect(confirmed.body.notifications[0]?.composedText).toContain('Cat6 cable 305m: 1.000 BOX @ 3800.00');
+    const marked = await harness.post<PurchaseOrderView>(`/purchase/orders/${created.body.id}/notifications/${confirmed.body.notifications[1]?.id ?? ''}`, { token: buyerToken, body: { status: 'sent' } });
+    expect(marked.status).toBe(200);
+    expect(marked.body.notifications.find((n) => n.channel === 'whatsapp')?.status).toBe('sent');
+    expect(await harness.waitForAuditAction('purchase.order.notification_sent')).toBe(true);
+  });
+
   it('cancelling a pending PO withdraws its request', async () => {
     const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
       token: buyerToken,

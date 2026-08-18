@@ -90,7 +90,7 @@ export class PurchaseOrderService implements OnModuleInit {
     const total = await this.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM purchase_orders po WHERE ${where}`);
     const rows = await Promise.all(ids.rows.map((r) => this.view(principal.orgId, r.id)));
     return paginated(
-      rows.filter((r): r is PurchaseOrderView => r !== null).map(({ lines: _lines, ...summary }) => summary),
+      rows.filter((r): r is PurchaseOrderView => r !== null).map(({ lines: _lines, notifications: _notifications, ...summary }) => summary),
       query,
       Number(total.rows[0]?.n ?? 0),
     );
@@ -108,9 +108,9 @@ export class PurchaseOrderService implements OnModuleInit {
     const id = await this.db.transaction(async (tx) => {
       const number = await this.nextNumber(tx, principal.orgId, 'PURCHASE_ORDER', 'PO');
       const inserted = await tx.execute<{ id: string }>(sql`
-        INSERT INTO purchase_orders (org_id, number, date, party_id, vendor_name, sales_order_id, expected_date, owner_id, notes, created_by, updated_by)
+        INSERT INTO purchase_orders (org_id, number, date, party_id, vendor_name, sales_order_id, expected_date, owner_id, notes, vendor_email, vendor_whatsapp, created_by, updated_by)
         VALUES (${principal.orgId}, ${number}, ${input.date ?? (await orgToday(this.db, principal.orgId))}, ${input.partyId}, ${vendor}, ${input.salesOrderId ?? null},
-                ${input.expectedDate ?? null}, ${input.ownerId ?? principal.employeeId}, ${input.notes ?? null}, ${principal.userId}, ${principal.userId})
+                ${input.expectedDate ?? null}, ${input.ownerId ?? principal.employeeId}, ${input.notes ?? null}, ${input.vendorEmail ?? null}, ${input.vendorWhatsapp ?? null}, ${principal.userId}, ${principal.userId})
         RETURNING id
       `);
       const poId = inserted.rows[0]?.id;
@@ -161,7 +161,10 @@ export class PurchaseOrderService implements OnModuleInit {
           party_id = COALESCE(${input.partyId ?? null}, party_id), vendor_name = COALESCE(${vendor}, vendor_name),
           date = COALESCE(${input.date ?? null}, date), expected_date = ${input.expectedDate === undefined ? sql`expected_date` : (input.expectedDate ?? null)},
           sales_order_id = ${input.salesOrderId === undefined ? sql`sales_order_id` : (input.salesOrderId ?? null)},
-          notes = ${input.notes === undefined ? sql`notes` : (input.notes ?? null)}, updated_at = now(), updated_by = ${principal.userId}
+          notes = ${input.notes === undefined ? sql`notes` : (input.notes ?? null)},
+          vendor_email = ${input.vendorEmail === undefined ? sql`vendor_email` : (input.vendorEmail ?? null)},
+          vendor_whatsapp = ${input.vendorWhatsapp === undefined ? sql`vendor_whatsapp` : (input.vendorWhatsapp ?? null)},
+          updated_at = now(), updated_by = ${principal.userId}
          WHERE id = ${id} AND org_id = ${principal.orgId}
       `);
       if (input.lines !== undefined) {
@@ -260,6 +263,17 @@ export class PurchaseOrderService implements OnModuleInit {
 
   private async releaseWithin(tx: Database, orgId: string, id: string, actorUserId: string | null): Promise<void> {
     await tx.execute(sql`UPDATE purchase_orders SET status = 'CONFIRMED', updated_at = now(), updated_by = ${actorUserId} WHERE org_id = ${orgId} AND id = ${id}`);
+    // REQ-X-18: the vendor's copy, composed now and sent by hand until the channel lands (REQ-AA-26).
+    const po = await this.view(orgId, id);
+    if (po !== null) {
+      const text = composeVendorText(po);
+      for (const [channel, recipient] of [['email', po.vendorEmail], ['whatsapp', po.vendorWhatsapp]] as const) {
+        await tx.execute(sql`
+          INSERT INTO purchase_order_notifications (org_id, purchase_order_id, channel, recipient, status, composed_text, created_by, updated_by)
+          VALUES (${orgId}, ${id}, ${channel}, ${recipient}, 'pending', ${text}, ${actorUserId}, ${actorUserId})
+        `);
+      }
+    }
     // REQ-X-10: the requirements this PO took up move to `ordered`.
     await tx.execute(sql`
       UPDATE procurement_requirements r SET ordered_qty = r.ordered_qty + t.qty, state = CASE WHEN r.ordered_qty + t.qty >= r.quantity THEN 'ordered' ELSE r.state END, updated_at = now()
@@ -281,6 +295,19 @@ export class PurchaseOrderService implements OnModuleInit {
        ORDER BY u.email
     `);
     return rows.rows.map((r) => r.user_id);
+  }
+
+  /** REQ-X-18 / REQ-AA-26: a person sent it and says so. */
+  async markNotification(principal: Principal, id: string, notificationId: string, status: 'sent' | 'failed', error: string | null): Promise<PurchaseOrderView> {
+    const po = await this.find(principal, id);
+    const rows = await this.db.execute<{ id: string }>(sql`
+      UPDATE purchase_order_notifications SET status = ${status}, sent_at = ${status === 'sent' ? sql`now()` : sql`NULL`}, sent_by = ${principal.userId}, error = ${error}, updated_at = now(), updated_by = ${principal.userId}
+       WHERE id = ${notificationId} AND purchase_order_id = ${id} AND org_id = ${principal.orgId}
+      RETURNING id
+    `);
+    if (rows.rows.length === 0) throw AppError.notFound('Notification', notificationId);
+    this.auditContext.record({ action: `purchase.order.notification_${status}`, entityType: 'purchase_order', entityId: id, before: null, after: { notificationId, number: po.number } });
+    return this.find(principal, id);
   }
 
   // ------------------------------------------------------------ settings
@@ -642,12 +669,17 @@ export class PurchaseOrderService implements OnModuleInit {
       id: string; number: string; status: PurchaseOrderView['status']; date: string; party_id: string; vendor_name: string; sales_order_id: string | null; expected_date: string | null;
       owner_id: string | null; owner_name: string | null; notes: string | null; subtotal: string; tax_total: string; grand_total: string; sync_state: PurchaseOrderView['syncState'];
       remote_guid: string | null; remote_voucher_number: string | null; last_error: string | null; short_closed_at: Date | null; short_close_reason: string | null; created_at: Date; updated_at: Date;
+      vendor_email: string | null; vendor_whatsapp: string | null;
       lines: PurchaseOrderView['lines'];
+      notifications: { id: string; channel: 'email' | 'whatsapp'; recipient: string | null; status: 'pending' | 'sent' | 'failed'; composedText: string; sentAt: string | null; error: string | null }[];
     }>(sql`
       SELECT po.id, po.number, po.status, po.date, po.party_id, po.vendor_name, po.sales_order_id, po.expected_date, po.owner_id,
              CASE WHEN e.id IS NULL THEN NULL ELSE concat_ws(' ', e.first_name, e.last_name) END AS owner_name,
              po.notes, po.subtotal::text AS subtotal, po.tax_total::text AS tax_total, po.grand_total::text AS grand_total,
              po.sync_state, po.remote_guid, po.remote_voucher_number, po.last_error, po.short_closed_at, po.short_close_reason, po.created_at, po.updated_at,
+             po.vendor_email, po.vendor_whatsapp,
+             COALESCE((SELECT json_agg(json_build_object('id', n.id, 'channel', n.channel, 'recipient', n.recipient, 'status', n.status, 'composedText', n.composed_text, 'sentAt', n.sent_at, 'error', n.error) ORDER BY n.channel)
+                         FROM purchase_order_notifications n WHERE n.purchase_order_id = po.id AND n.deleted_at IS NULL), '[]'::json) AS notifications,
              COALESCE((
                SELECT json_agg(json_build_object(
                  'id', pl.id, 'lineNo', pl.line_no, 'stockItemId', pl.stock_item_id, 'description', pl.description, 'quantity', pl.quantity::text, 'unit', pl.unit,
@@ -698,7 +730,10 @@ export class PurchaseOrderService implements OnModuleInit {
       lastError: r.last_error,
       shortClosedAt: r.short_closed_at === null ? null : new Date(r.short_closed_at).toISOString(),
       shortCloseReason: r.short_close_reason,
+      vendorEmail: r.vendor_email,
+      vendorWhatsapp: r.vendor_whatsapp,
       lines,
+      notifications: r.notifications.map((n) => ({ ...n, sentAt: n.sentAt === null ? null : new Date(n.sentAt).toISOString() })),
       createdAt: new Date(r.created_at).toISOString(),
       updatedAt: new Date(r.updated_at).toISOString(),
     };
@@ -754,4 +789,20 @@ export class PurchaseOrderService implements OnModuleInit {
       pendingAllocations: r.pending,
     };
   }
+}
+
+/** REQ-X-18: what the vendor receives — the PO in words a supplier can act on, one line per item. */
+function composeVendorText(po: PurchaseOrderView): string {
+  const lines = po.lines.map((l) => `- ${l.description}: ${l.quantity}${l.unit === null ? '' : ` ${l.unit}`} @ ${l.rate}`).join('\n');
+  return [
+    `Purchase order ${po.number} dated ${po.date}`,
+    `To: ${po.vendorName}`,
+    lines,
+    `Total: ${po.grandTotal}`,
+    po.expectedDate === null ? null : `Expected by: ${po.expectedDate}`,
+    po.notes === null || po.notes === '' ? null : `Notes: ${po.notes}`,
+    'Please confirm receipt of this order.',
+  ]
+    .filter((part): part is string => part !== null)
+    .join('\n');
 }
