@@ -5,6 +5,7 @@ import { EmployeeSubjectDescriber } from './employee-subject.describer.js';
 import { TaskRemindersHandler } from './task-reminders.handler.js';
 import { TaskSubjectRegistry } from './task-subject.registry.js';
 import { TaskController } from './task.controller.js';
+import { TaskGoToSource } from './task-goto.source.js';
 import { TaskService } from './task.service.js';
 
 /**
@@ -19,7 +20,7 @@ import { TaskService } from './task.service.js';
 @Module({
   imports: [NotificationsModule],
   controllers: [TaskController],
-  providers: [TaskSubjectRegistry, TaskService, EmployeeSubjectDescriber, TaskRemindersHandler],
+  providers: [TaskSubjectRegistry, TaskService, EmployeeSubjectDescriber, TaskRemindersHandler, TaskGoToSource],
   exports: [TaskSubjectRegistry],
 })
 export class TasksModule {}

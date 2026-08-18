@@ -147,9 +147,14 @@ forgotten.
 | Contacts and companies in Go To (REQ-O-05), scoped through the same service | `097d64c` | search suite green |
 | CRM module in the sidebar (People: Contacts, Companies), Contacts and Companies screens — URL-addressable sheet, Alt+C create, duplicate warning that names and links the match and never blocks, owner picker for `view.all` holders, 360px cards + bottom sheet | — | live drive: create company, create contact against it, duplicate warning on `09811122333` vs `+91 98111 22333` and on the email, Go To opens contact and company, zero console errors |
 
-Next in Phase 7: tasks in the platform (REQ-V-01…V-08, D-17), then
-pipelines and deals with the won → party link, then activities through the
-audit interceptor (REQ-U-07).
+| Tasks in the platform (D-17): `tasks`, `task_board_columns` (migration 0029), `TaskSubjectRegistry` (employee described by the platform, contact/company by CRM), one `filterPredicate` behind `GET /tasks` and `GET /tasks/board` (REQ-V-04), column config under `settings.manage` (REQ-V-03), moves audited as `task.moved` / `task.closed` / `task.reopened` (REQ-V-06), self/team scoping over assignee and owner, three notification events through the dispatcher + a daily reminder sweep (REQ-V-08), tasks in Go To | `37fd376` | tasks 15/15, jobs+notifications 49/49 |
+| My tasks screen (REQ-V-07 landing; CRM module home): list and board as two renderings of one filter set with a persisted default view (REQ-V-05), Alt+C create, Ctrl+A save, Alt+D done, keyboard Select for status and Command picker for assignee, native drag on the board → PATCH `columnId`, board columns sheet, `/tasks/:id` opens the sheet (notification links land there) | — | live drive: created by keyboard, assigned, closed with Alt+D, shown struck through under "Show closed", dragged Done → In progress ("Moved to In progress"), Go To opens it, columns added and removed, 360px cards without overflow, zero console errors. Web 416/416 |
+
+Open on this slice: P7-1 (an Admin with no employee record has no `.all`
+for tasks and so sees none) and P7-2 (which roles hold the task keys).
+
+Next in Phase 7: pipelines and deals with the won → party link (REQ-U-04…
+U-06), then activities through the audit interceptor (REQ-U-07).
 
 ## Next, in order
 

@@ -1,0 +1,416 @@
+import { useEffect, useState } from 'react';
+import { CheckSquareIcon, GearIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
+
+import { PageHeader } from '@/components/shared/page-header';
+import { RecordPagination } from '@/components/shared/record-pagination';
+import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { SearchField } from '@/components/shared/search-field';
+import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { toast } from '@/components/ui/toast';
+import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { EMPTY_VALUE } from '@/lib/format';
+import { useShortcut } from '@/lib/keyboard/registry';
+import { usePermission } from '@/lib/session/permissions';
+import { PERMISSIONS, TASK_DUE_FILTERS, TASK_PRIORITY_LABELS, type TaskDueFilter } from '@vyuha/shared';
+
+import { BoardColumnsSheet } from './board-columns-sheet';
+import { DueDate } from './due-date';
+import { TaskBoard } from './task-board';
+import { TaskSheet } from './task-sheet';
+import { useTaskViewStore, type TaskViewMode } from './task-view-store';
+import { emptyTaskDraft, taskToDraft, type Task, type TaskDraft } from './types';
+import { useMoveTask, useTask, useTaskBoard, useTasks, type TaskFilters } from './use-tasks';
+
+/**
+ * My tasks (REQ-V-07), the CRM landing screen: assigned to me, open, by due
+ * date — with the filters that turn it into everybody's tasks, a due slice,
+ * or the closed ones. List and board are two renderings of one filter set
+ * (REQ-V-04): the toggle changes what draws, never what is asked for. The
+ * open task is the route, so a notification's link lands on its sheet.
+ */
+
+const DUE_LABELS: Record<TaskDueFilter, string> = {
+  open: 'All open',
+  overdue: 'Overdue',
+  today: 'Due today',
+  upcoming: 'Upcoming',
+  undated: 'No date',
+};
+
+const COLUMNS: RecordColumn<Task>[] = [
+  {
+    key: 'title',
+    header: 'Task',
+    cell: (row) => (
+      <span className="flex min-w-0 items-center gap-2">
+        <span className={row.isClosed ? 'text-muted-foreground line-through' : 'font-medium'}>{row.title}</span>
+        {row.subjectLabel === null ? null : (
+          <span className="text-muted-foreground truncate text-xs">on {row.subjectLabel}</span>
+        )}
+      </span>
+    ),
+  },
+  { key: 'due', header: 'Due', cell: (row) => <DueDate value={row.dueDate} closed={row.isClosed} /> },
+  { key: 'status', header: 'Status', cell: (row) => <Badge variant="outline">{row.columnName}</Badge> },
+  {
+    key: 'priority',
+    header: 'Priority',
+    cell: (row) => TASK_PRIORITY_LABELS[row.priority],
+    secondary: true,
+  },
+  { key: 'assignee', header: 'Assigned to', cell: (row) => row.assigneeName ?? EMPTY_VALUE, secondary: true },
+];
+
+function ListSkeleton() {
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading tasks" className="border">
+      {Array.from({ length: 4 }, (_, index) => (
+        <div key={index} aria-hidden className="flex min-h-9 items-center gap-4 border-b px-3 py-2.5 last:border-b-0">
+          <Skeleton className="h-3 w-56 shrink-0" />
+          <Skeleton className="hidden h-3 w-24 shrink-0 sm:block" />
+          <Skeleton className="ml-auto h-3 w-20 shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function isDueFilter(value: string | null): value is TaskDueFilter {
+  return TASK_DUE_FILTERS.some((f) => f === value);
+}
+
+export function TasksPage() {
+  const canViewSelf = usePermission(PERMISSIONS.CRM_TASK_VIEW_SELF);
+  const canViewTeam = usePermission(PERMISSIONS.CRM_TASK_VIEW_TEAM);
+  const canView = canViewSelf || canViewTeam;
+  const canConfigure = usePermission(PERMISSIONS.SETTINGS_MANAGE);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const params = useParams<{ id?: string }>();
+  const navigate = useNavigate();
+  const isMobile = useIsMobile();
+  const defaultView = useTaskViewStore((s) => s.defaultView);
+  const setDefaultView = useTaskViewStore((s) => s.setDefaultView);
+  const [configuring, setConfiguring] = useState(false);
+
+  const q = searchParams.get('q') ?? '';
+  const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
+  // "Mine" is the landing default (REQ-V-07); `?all=1` widens to everyone the caller may see.
+  const mine = searchParams.get('all') !== '1';
+  const dueParam = searchParams.get('due');
+  const due: TaskDueFilter = isDueFilter(dueParam) ? dueParam : 'open';
+  const includeClosed = searchParams.get('closed') === '1';
+  const viewParam = searchParams.get('view');
+  const view: TaskViewMode = viewParam === 'board' || viewParam === 'list' ? viewParam : defaultView;
+  const openId = params.id ?? null;
+  const creating = searchParams.get('new') === '1';
+  const subjectType = searchParams.get('subjectType') ?? '';
+  const subjectId = searchParams.get('subjectId') ?? '';
+
+  const [draft, setDraft] = useState(q);
+  const [syncedQ, setSyncedQ] = useState(q);
+  if (syncedQ !== q) {
+    setSyncedQ(q);
+    if (draft.trim() !== q) setDraft(q);
+  }
+  useEffect(() => {
+    if (draft.trim() === q) return undefined;
+    const timer = window.setTimeout(() => {
+      setParam('q', draft.trim() || null);
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setParam is stable in effect; listing it would re-run per render
+  }, [draft, q]);
+
+  function setParam(name: string, value: string | null) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value === null) next.delete(name);
+        else next.set(name, value);
+        if (name !== 'page' && name !== 'view') next.delete('page');
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  const filters: TaskFilters = {
+    ...(q ? { q } : {}),
+    ...(mine ? { mine: true } : {}),
+    ...(due === 'open' ? {} : { due }),
+    ...(includeClosed ? { includeClosed: true } : {}),
+    ...(subjectType && subjectId ? { subjectType, subjectId } : {}),
+  };
+
+  const list = useTasks({ ...filters, page }, { enabled: canView && view === 'list' });
+  const board = useTaskBoard(filters, { enabled: canView && view === 'board' });
+  const open = useTask(canView ? openId : null);
+  const move = useMoveTask();
+
+  function startNew() {
+    setParam('new', '1');
+  }
+
+  function closeSheet() {
+    const next = new URLSearchParams(window.location.search);
+    next.delete('new');
+    const search = next.toString();
+    void navigate(`/tasks${search ? `?${search}` : ''}`, { replace: true });
+  }
+
+  useShortcut({
+    id: 'tasks.create',
+    keys: 'alt+c',
+    label: 'New task',
+    scope: 'screen',
+    when: () => canView,
+    run: startNew,
+  });
+
+  const sheetDraft: TaskDraft | null = creating
+    ? emptyTaskDraft(subjectType && subjectId ? { subjectType, subjectId, subjectLabel: searchParams.get('subjectLabel') } : {})
+    : open.data !== undefined && openId !== null
+      ? taskToDraft(open.data)
+      : null;
+
+  if (!canView) {
+    return (
+      <>
+        <PageHeader description="What you are chasing, by due date." />
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <LockKeyIcon />
+            </EmptyMedia>
+            <EmptyTitle>You cannot view tasks</EmptyTitle>
+            <EmptyDescription>This needs crm.task.view.self. Ask an administrator for a role that carries it.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </>
+    );
+  }
+
+  const rows = list.data?.data ?? [];
+  const meta = list.data?.meta ?? null;
+  const query = view === 'list' ? list : board;
+  const nothing = view === 'list' ? list.isSuccess && rows.length === 0 : board.isSuccess && board.data.lanes.every((l) => l.tasks.length === 0);
+  const filtered = Boolean(q) || due !== 'open' || !mine || includeClosed;
+
+  return (
+    <>
+      <PageHeader
+        description={mine ? 'Assigned to you, open, by due date. Every change is audited.' : 'Everyone you can see, by due date. Every change is audited.'}
+        action={
+          <Button size="sm" onClick={startNew}>
+            <PlusIcon data-icon="inline-start" />
+            New task
+            <ShortcutHint keys="alt+c" className="ml-1 hidden md:inline-flex" />
+          </Button>
+        }
+      />
+
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchField id="task-search" label="Search tasks" value={draft} onValueChange={setDraft} placeholder="Title or notes" />
+
+          <ToggleGroup
+            variant="outline"
+            aria-label="Whose tasks"
+            value={[mine ? 'mine' : 'all']}
+            onValueChange={(value) => {
+              const next = value[0];
+              if (next === 'mine' || next === 'all') setParam('all', next === 'all' ? '1' : null);
+            }}
+          >
+            <ToggleGroupItem value="mine" className="pointer-coarse:h-11">Mine</ToggleGroupItem>
+            <ToggleGroupItem value="all" className="pointer-coarse:h-11">Everyone</ToggleGroupItem>
+          </ToggleGroup>
+
+          <Select
+            value={due}
+            onValueChange={(value: string | null) => {
+              setParam('due', value === null || value === 'open' ? null : value);
+            }}
+          >
+            <SelectTrigger className="pointer-coarse:min-h-11 w-36" aria-label="Due">
+              <SelectValue>{(value: TaskDueFilter) => DUE_LABELS[value]}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {TASK_DUE_FILTERS.map((f) => (
+                <SelectItem key={f} value={f}>
+                  {DUE_LABELS[f]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Label htmlFor="tasks-closed" className="flex items-center gap-2 text-sm font-normal">
+            <Switch
+              id="tasks-closed"
+              checked={includeClosed}
+              onCheckedChange={(next: boolean) => {
+                setParam('closed', next ? '1' : null);
+              }}
+            />
+            Show closed
+          </Label>
+
+          <div className="ml-auto flex items-center gap-2">
+            {canConfigure ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setConfiguring(true);
+                }}
+              >
+                <GearIcon data-icon="inline-start" />
+                Columns
+              </Button>
+            ) : null}
+            {isMobile ? null : (
+              <ToggleGroup
+                variant="outline"
+                aria-label="View"
+                value={[view]}
+                onValueChange={(value) => {
+                  const next = value[0];
+                  if (next === 'list' || next === 'board') {
+                    setParam('view', next);
+                    // REQ-V-05: the choice sticks for this person on this device.
+                    setDefaultView(next);
+                  }
+                }}
+              >
+                <ToggleGroupItem value="list" aria-label="List view">
+                  <ListBulletsIcon />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="board" aria-label="Board view">
+                  <KanbanIcon />
+                </ToggleGroupItem>
+              </ToggleGroup>
+            )}
+          </div>
+        </div>
+
+        {query.isPending ? <ListSkeleton /> : null}
+
+        {query.isError ? (
+          <QueryErrorAlert
+            error={query.error}
+            subject="tasks"
+            onRetry={() => {
+              void query.refetch();
+            }}
+          />
+        ) : null}
+
+        {nothing ? (
+          <Empty className="border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <CheckSquareIcon />
+              </EmptyMedia>
+              <EmptyTitle>{filtered ? 'No task matches that' : 'Nothing to chase'}</EmptyTitle>
+              <EmptyDescription>
+                {filtered
+                  ? 'Try another due slice, include closed tasks, or widen to everyone.'
+                  : 'Nothing is assigned to you and open. Add one, or enjoy the quiet.'}
+              </EmptyDescription>
+            </EmptyHeader>
+            {!filtered ? (
+              <EmptyContent>
+                <Button size="sm" onClick={startNew}>
+                  <PlusIcon data-icon="inline-start" />
+                  New task
+                </Button>
+              </EmptyContent>
+            ) : null}
+          </Empty>
+        ) : null}
+
+        {view === 'list' && rows.length > 0 ? (
+          <>
+            <RecordTable
+              columns={COLUMNS}
+              rows={rows}
+              rowKey={(row) => row.id}
+              mobilePrimary={(row) => row.title}
+              mobileStatus={(row) => <Badge variant="outline">{row.columnName}</Badge>}
+              mobileSupporting={(row) => (
+                <span className="flex flex-wrap gap-x-2">
+                  <DueDate value={row.dueDate} closed={row.isClosed} />
+                  {row.assigneeName === null ? null : <span>{row.assigneeName}</span>}
+                </span>
+              )}
+              onRowActivate={(row) => {
+                void navigate(`/tasks/${row.id}${window.location.search}`);
+              }}
+            />
+            {meta !== null && meta.total > meta.pageSize ? (
+              <RecordPagination page={meta.page} pageSize={meta.pageSize} total={meta.total} />
+            ) : null}
+          </>
+        ) : null}
+
+        {view === 'board' && board.data !== undefined && !nothing ? (
+          <TaskBoard
+            board={board.data}
+            moving={move.isPending}
+            onOpen={(task) => {
+              void navigate(`/tasks/${task.id}${window.location.search}`);
+            }}
+            onMove={(task, columnId) => {
+              const lane = board.data?.lanes.find((l) => l.column.id === columnId);
+              move.mutate(
+                { id: task.id, columnId },
+                {
+                  onSuccess: (moved) => {
+                    toast.add({
+                      type: 'success',
+                      title: moved.isClosed && !task.isClosed ? 'Task done' : `Moved to ${lane?.column.name ?? moved.columnName}`,
+                      description: moved.title,
+                    });
+                  },
+                  onError: (error) => {
+                    toast.add({ type: 'error', title: 'Could not move the task', description: error.message });
+                  },
+                },
+              );
+            }}
+          />
+        ) : null}
+      </div>
+
+      {openId !== null && open.isError ? (
+        <QueryErrorAlert
+          error={open.error}
+          subject="that task"
+          onRetry={() => {
+            void open.refetch();
+          }}
+        />
+      ) : null}
+
+      <TaskSheet
+        draft={sheetDraft}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) closeSheet();
+        }}
+      />
+      <BoardColumnsSheet open={configuring} onOpenChange={setConfiguring} />
+    </>
+  );
+}

@@ -27,6 +27,7 @@ import { NotificationsPage } from '@/features/notifications';
 import { CompaniesPage } from '@/features/crm/companies-page';
 import { ContactsPage } from '@/features/crm/contacts-page';
 import { PartiesPage } from '@/features/masters/parties-page';
+import { TasksPage } from '@/features/tasks/tasks-page';
 import { PriceListsPage } from '@/features/masters/price-lists-page';
 import { StockItemsPage } from '@/features/masters/stock-items-page';
 import { VouchersPage } from '@/features/masters/vouchers-page';
@@ -44,6 +45,7 @@ import { ALL_NAV_ITEMS } from '@/lib/nav';
  * that would go stale the next time a screen ships.
  */
 const BUILT_ROUTES = new Set([
+  '/tasks',
   '/crm/contacts',
   '/crm/companies',
   '/masters/parties',
@@ -120,6 +122,8 @@ export default function App() {
               <Route path="crm/contacts/:id" element={<ContactsPage />} />
               <Route path="crm/companies" element={<CompaniesPage />} />
               <Route path="crm/companies/:id" element={<CompaniesPage />} />
+              <Route path="tasks" element={<TasksPage />} />
+              <Route path="tasks/:id" element={<TasksPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />

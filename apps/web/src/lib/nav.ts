@@ -4,6 +4,7 @@ import {
   CalendarBlankIcon,
   CalendarDotsIcon,
   ChartBarIcon,
+  CheckSquareIcon,
   ClipboardTextIcon,
   ClockCounterClockwiseIcon,
   ClockIcon,
@@ -428,11 +429,26 @@ export const MODULES: ModuleDef[] = [
     id: 'crm',
     label: 'CRM',
     icon: HandshakeIcon,
-    home: '/crm/contacts',
+    // REQ-V-07: My tasks is the CRM landing screen.
+    home: '/tasks',
     // 08 §2.2 gives view.self to everyone who holds view.all, so the narrower
     // key is the module gate: whoever may see any contact may open the module.
     permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
     groups: [
+      {
+        label: 'Work',
+        items: [
+          {
+            to: '/tasks',
+            label: 'My tasks',
+            shortLabel: 'Tasks',
+            icon: CheckSquareIcon,
+            permission: PERMISSIONS.CRM_TASK_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-V-01, REQ-V-03, REQ-V-05, REQ-V-07',
+          },
+        ],
+      },
       {
         label: 'People',
         items: [
@@ -558,6 +574,7 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
   { pattern: /^\/crm\/contacts\/[^/]+$/u, parent: '/crm/contacts', label: 'Contact' },
   { pattern: /^\/crm\/companies\/[^/]+$/u, parent: '/crm/companies', label: 'Company' },
+  { pattern: /^\/tasks\/[^/]+$/u, parent: '/tasks', label: 'Task' },
 ];
 
 export function findBreadcrumbs(pathname: string): [Crumb, ...Crumb[]] {

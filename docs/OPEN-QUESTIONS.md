@@ -248,3 +248,25 @@ backfill against a copy of the books (REQ-S-04) therefore cannot come
 through this door alone. Options for 6c: raise the Agent's lookback for one
 baseline pass; a one-off pull-agent run with the XML transport; or an
 export/import step. Needs a decision before 6c starts.
+
+## P7-1 — An administrator with no employee record sees no tasks (REQ-V-01, 08 §2.2)
+
+08 §2.2 gives tasks `view.self` and `view.team` only — no `view.all` — and
+both breadths are resolved against the caller's employee record. The seeded
+`admin@vyuha.local` has none, so it sees an empty task list and any task it
+creates is owned by nobody and vanishes from its own view. Contacts and
+deals do not have this problem because they carry `view.all`.
+Recommended default: add `crm.task.view.all`, held by Admin, so an
+administrator can see and reassign every task the way it can every contact.
+Until decided, tasks are built exactly to the table as written; the dev
+account with an employee record (`info@example.com`) is unaffected.
+
+## P7-2 — Which roles hold the task keys (REQ-V-01)
+
+08 §2.2's task rows cover Sales, Sales manager, Purchase, Accounts and
+Admin — the four roles that do not exist yet plus Admin. The existing
+Employee/Operations/HR roles are not in the table, so an operations
+manager cannot be assigned a task today. Recommended default: give
+`crm.task.view.self` and `crm.task.manage` to every system role once the
+Sales roles land, since REQ-V-02 lets a task hang off an employee and
+REQ-V-07 makes tasks a landing screen. Held at Admin only until then.

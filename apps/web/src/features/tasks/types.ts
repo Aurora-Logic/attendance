@@ -1,0 +1,92 @@
+import { z } from 'zod';
+
+import { TASK_PRIORITIES, type TaskPriority } from '@vyuha/shared';
+
+/** What `/tasks` answers (REQ-V-01), parsed at the boundary. */
+
+export const boardColumnSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sortOrder: z.number(),
+  isDone: z.boolean(),
+});
+export type BoardColumn = z.infer<typeof boardColumnSchema>;
+
+export const taskSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  subjectType: z.string().nullable(),
+  subjectId: z.string().nullable(),
+  subjectLabel: z.string().nullable(),
+  assigneeId: z.string().nullable(),
+  assigneeName: z.string().nullable(),
+  ownerId: z.string().nullable(),
+  ownerName: z.string().nullable(),
+  dueDate: z.string().nullable(),
+  priority: z.enum(TASK_PRIORITIES),
+  columnId: z.string(),
+  columnName: z.string(),
+  isClosed: z.boolean(),
+  closedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Task = z.infer<typeof taskSchema>;
+
+export const tasksResponseSchema = z.object({
+  data: z.array(taskSchema),
+  meta: z.object({ page: z.number(), pageSize: z.number(), total: z.number() }),
+});
+export type TasksResponse = z.infer<typeof tasksResponseSchema>;
+
+export const boardResponseSchema = z.object({
+  lanes: z.array(z.object({ column: boardColumnSchema, tasks: z.array(taskSchema), total: z.number() })),
+});
+export type BoardResponse = z.infer<typeof boardResponseSchema>;
+
+export const boardColumnsSchema = z.array(boardColumnSchema);
+
+/** The sheet's working copy. */
+export interface TaskDraft {
+  id?: string;
+  title: string;
+  description: string;
+  assigneeId: string | null;
+  dueDate: string | null;
+  priority: TaskPriority;
+  columnId: string | null;
+  subjectType: string | null;
+  subjectId: string | null;
+  subjectLabel: string | null;
+}
+
+export function emptyTaskDraft(overrides: Partial<TaskDraft> = {}): TaskDraft {
+  return {
+    title: '',
+    description: '',
+    assigneeId: null,
+    dueDate: null,
+    priority: 'MEDIUM',
+    columnId: null,
+    subjectType: null,
+    subjectId: null,
+    subjectLabel: null,
+    ...overrides,
+  };
+}
+
+export function taskToDraft(task: Task): TaskDraft {
+  return {
+    id: task.id,
+    title: task.title,
+    description: task.description ?? '',
+    assigneeId: task.assigneeId,
+    dueDate: task.dueDate,
+    priority: task.priority,
+    columnId: task.columnId,
+    subjectType: task.subjectType,
+    subjectId: task.subjectId,
+    subjectLabel: task.subjectLabel,
+  };
+}
