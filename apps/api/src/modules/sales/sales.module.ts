@@ -13,6 +13,7 @@ import { SalesReportSource } from './reports/sales-report.source.js';
 import { ApprovalModule } from '../../platform/approvals/approvals.module.js';
 import { InvoiceController } from './invoices/invoice.controller.js';
 import { SalesOrderApprovalHandler } from './orders/sales-order-approval.handler.js';
+import { DispatchGoToSource, InvoiceGoToSource, SalesOrderGoToSource } from './orders/sales-goto.source.js';
 import { InvoiceService } from './invoices/invoice.service.js';
 
 /**
@@ -24,6 +25,6 @@ import { InvoiceService } from './invoices/invoice.service.js';
 @Module({
   imports: [ApprovalModule],
   controllers: [EstimateController, SalesOrderController, FulfilmentController, DispatchController, InvoiceController],
-  providers: [EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, SalesReportSource, InvoiceService, SalesOrderApprovalHandler],
+  providers: [EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, SalesReportSource, InvoiceService, SalesOrderApprovalHandler, SalesOrderGoToSource, InvoiceGoToSource, DispatchGoToSource],
 })
 export class SalesModule {}

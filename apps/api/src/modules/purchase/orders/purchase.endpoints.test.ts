@@ -327,6 +327,11 @@ describe('approval by value through the inbox (13 REQ-X-16)', () => {
     expect(await harness.waitForAuditAction('purchase.order.notification_sent')).toBe(true);
   });
 
+  it('a PO number opens from the palette (REQ-O-05)', async () => {
+    const found = await harness.get<{ records: { type: string; code: string | null }[] }>('/go-to?q=PO-0001', { token: buyerToken });
+    expect(found.body.records.some((r) => r.type === 'purchase_order' && r.code === 'PO-0001')).toBe(true);
+  });
+
   it('cancelling a pending PO withdraws its request', async () => {
     const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
       token: buyerToken,

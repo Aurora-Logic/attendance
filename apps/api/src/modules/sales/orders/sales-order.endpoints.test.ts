@@ -720,6 +720,17 @@ describe('the credit block (08 REQ-W-09, REQ-Y-03)', () => {
   });
 });
 
+describe('Go To (REQ-O-05)', () => {
+  it('a sales order, an invoice and a dispatch number each open from the palette', async () => {
+    const orders = await harness.get<{ records: { type: string; title: string; code: string | null }[] }>('/go-to?q=SO-0001', { token: salesToken });
+    expect(orders.body.records.some((r) => r.type === 'sales_order' && r.code === 'SO-0001')).toBe(true);
+    const invoices = await harness.get<{ records: { type: string; title: string; code: string | null }[] }>('/go-to?q=INV-0001', { token: salesToken });
+    expect(invoices.body.records.some((r) => r.type === 'invoice' && r.code === 'INV-0001')).toBe(true);
+    const dispatches = await harness.get<{ records: { type: string; title: string; code: string | null }[] }>('/go-to?q=DN-0001', { token: salesToken });
+    expect(dispatches.body.records.some((r) => r.type === 'dispatch' && r.code === 'DN-0001')).toBe(true);
+  });
+});
+
 describe('the customer’s contact (12 REQ-AA-28)', () => {
   it('comes from the party master, is overridable per order, and the dispatch overrides both', async () => {
     await harness.db.execute(sql`UPDATE parties SET email = 'accounts@asha.example', phone = '+919900000000' WHERE id = ${partyId}`);

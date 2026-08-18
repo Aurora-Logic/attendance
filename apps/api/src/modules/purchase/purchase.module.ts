@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ApprovalModule } from '../../platform/approvals/approvals.module.js';
 import { NotificationsModule } from '../../platform/notifications/notifications.module.js';
 import { PurchaseOrderApprovalHandler } from './orders/purchase-order-approval.handler.js';
+import { PurchaseOrderGoToSource } from './orders/purchase-goto.source.js';
 import { PurchaseOrderService } from './orders/purchase-order.service.js';
 import { PurchaseController } from './orders/purchase.controller.js';
 import { ReorderSweepHandler } from './reorder-sweep.handler.js';
@@ -11,6 +12,6 @@ import { ReorderSweepHandler } from './reorder-sweep.handler.js';
 @Module({
   imports: [NotificationsModule, ApprovalModule],
   controllers: [PurchaseController],
-  providers: [PurchaseOrderService, PurchaseOrderApprovalHandler, ReorderSweepHandler],
+  providers: [PurchaseOrderService, PurchaseOrderApprovalHandler, PurchaseOrderGoToSource, ReorderSweepHandler],
 })
 export class PurchaseModule {}
