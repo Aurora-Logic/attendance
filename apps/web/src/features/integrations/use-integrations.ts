@@ -96,24 +96,70 @@ const queuedPullSchema = z.object({
 
 export type QueuedPull = z.infer<typeof queuedPullSchema>;
 
+const FULL_PULL_TYPES = ['party', 'stock_item', 'price_list'] as const;
+
 /**
  * REQ-R-07's manual half. The server holds the one-open-job invariant, so a
  * second press answers the existing job instead of erroring — the screen's
  * only duty is to say which of the two happened.
  */
-export function usePullNow(): UseMutationResult<QueuedPull, Error, { connectionId: string }> {
+export function usePullNow(): UseMutationResult<
+  { queued: number; alreadyQueued: number },
+  Error,
+  { connectionId: string }
+> {
   return useMutation({
     mutationFn: async ({ connectionId }) => {
-      const body = await apiRequest<unknown>(`/integrations/${connectionId}/pull`, {
-        method: 'POST',
-        body: { entityType: 'party' },
-      });
-      return parseOrThrow(queuedPullSchema, body, 'queued pull');
+      // Every writable type, in dependency order (items before their prices);
+      // a press that queued only parties left stock and prices to the sweep.
+      let queued = 0;
+      let alreadyQueued = 0;
+      for (const entityType of FULL_PULL_TYPES) {
+        const body = await apiRequest<unknown>(`/integrations/${connectionId}/pull`, {
+          method: 'POST',
+          body: { entityType },
+        });
+        const ack = parseOrThrow(queuedPullSchema, body, 'queued pull');
+        if (ack.alreadyQueued) alreadyQueued += 1;
+        else queued += 1;
+      }
+      return { queued, alreadyQueued };
     },
   });
 }
 
-const FULL_PULL_TYPES = ['party', 'stock_item', 'price_list'] as const;
+const webhookSecretSetSchema = z.object({
+  connectionId: z.string(),
+  /** The URL to paste into OpsTally's settings — the other half of the handshake. */
+  webhookUrl: z.string(),
+});
+
+export type WebhookSecretSet = z.infer<typeof webhookSecretSetSchema>;
+
+/**
+ * The OpsTally handshake, Vyuha's half: store the whsec_ secret the Agent
+ * generated; the answer is the URL the Agent needs. Replacing it later
+ * re-binds the connection to whichever install signs with the new one.
+ */
+export function useSetWebhookSecret(): UseMutationResult<
+  WebhookSecretSet,
+  Error,
+  { connectionId: string; secret: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ connectionId, secret }) => {
+      const body = await apiRequest<unknown>(`/integrations/${connectionId}/webhook-secret`, {
+        method: 'PUT',
+        body: { secret },
+      });
+      return parseOrThrow(webhookSecretSetSchema, body, 'webhook secret');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['integrations'] });
+    },
+  });
+}
 
 /**
  * REQ-R-05: the explicit administrative re-pull — every master entity type,

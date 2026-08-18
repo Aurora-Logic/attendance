@@ -6,6 +6,7 @@ import {
   LockKeyIcon,
   PlugIcon,
   PlusIcon,
+  WebhooksLogoIcon,
 } from '@phosphor-icons/react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 
@@ -65,6 +66,7 @@ import {
   useIssueToken,
   usePullNow,
   useResolveException,
+  useSetWebhookSecret,
   useSyncExceptions,
 } from './use-integrations';
 
@@ -122,6 +124,12 @@ export function IntegrationsPage() {
   /** The connection whose full re-pull is being confirmed (REQ-R-05). */
   const [repulling, setRepulling] = useState<IntegrationConnection | null>(null);
 
+  /** The OpsTally handshake: paste the secret, read back the URL. */
+  const setSecret = useSetWebhookSecret();
+  const [connecting, setConnecting] = useState<IntegrationConnection | null>(null);
+  const [secretDraft, setSecretDraft] = useState('');
+  const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
+
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -165,12 +173,13 @@ export function IntegrationsPage() {
       { connectionId: connection.id },
       {
         onSuccess: (result) => {
+          const allOpen = result.queued === 0;
           toast.add({
             type: 'success',
-            title: result.alreadyQueued ? 'A pull is already queued' : 'Pull queued',
-            description: result.alreadyQueued
-              ? `${connection.name} has an open pull; the agent takes it on its next poll.`
-              : `The agent picks it up on its next poll of ${connection.name}.`,
+            title: allOpen ? 'Pulls are already queued' : 'Pull queued',
+            description: allOpen
+              ? `${connection.name} has open pulls for every master; the agent takes them on its next poll.`
+              : `Parties, stock items and price lists queued; the agent picks them up on its next poll of ${connection.name}.`,
           });
         },
         // The server names what is missing — an unbound company, an entity
@@ -196,6 +205,19 @@ export function IntegrationsPage() {
           });
           setResolving(null);
           setResolutionNote('');
+        },
+      },
+    );
+  }
+
+  function submitSecret() {
+    if (connecting === null) return;
+    setSecret.mutate(
+      { connectionId: connecting.id, secret: secretDraft.trim() },
+      {
+        onSuccess: (result) => {
+          setSecretDraft('');
+          setWebhookUrl(result.webhookUrl);
         },
       },
     );
@@ -251,69 +273,107 @@ export function IntegrationsPage() {
       cell: (row) => <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>,
     },
     {
+      key: 'transport',
+      header: 'Source',
+      cell: (row) =>
+        row.transport === 'webhook' ? 'OpsTally webhook' : row.transport === 'agent' ? 'Vyuha agent' : EMPTY_VALUE,
+      secondary: true,
+    },
+    {
       key: 'heartbeat',
-      header: 'Last heartbeat',
+      // One column, two meanings the reader can tell apart: an agent
+      // heartbeats on a clock; OpsTally delivers only when Tally changed.
+      header: 'Last heard',
       cell: (row) => heartbeatAge(row.lastHeartbeatAt),
       className: 'tabular-nums',
     },
     {
       key: 'pull',
       header: 'Sync',
-      cell: (row) => (
-        <Button
-          variant="outline"
-          size="sm"
-          className="pointer-coarse:min-h-11"
-          // Without a credential nothing could ever claim the job; the
-          // reason is stated where the button is, not discovered on press.
-          disabled={!row.tokenIssued || pull.isPending}
-          title={row.tokenIssued ? undefined : 'Issue the agent token first'}
-          onClick={() => {
-            runPull(row);
-          }}
-        >
-          <CloudArrowDownIcon data-icon="inline-start" />
-          Pull now
-        </Button>
-      ),
+      cell: (row) =>
+        row.transport === 'webhook' ? (
+          // A push door has no pull: a full resync is triggered from the
+          // OpsTally Agent ("stock.snapshot"), not from here.
+          <span className="text-muted-foreground text-xs">Resync from the OpsTally Agent</span>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="pointer-coarse:min-h-11"
+            // Without a credential nothing could ever claim the job; the
+            // reason is stated where the button is, not discovered on press.
+            disabled={!row.tokenIssued || pull.isPending}
+            title={row.tokenIssued ? undefined : 'Issue the agent token first'}
+            onClick={() => {
+              runPull(row);
+            }}
+          >
+            <CloudArrowDownIcon data-icon="inline-start" />
+            Pull now
+          </Button>
+        ),
     },
     {
       key: 'repull',
       header: '',
-      cell: (row) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="pointer-coarse:min-h-11"
-          disabled={!row.tokenIssued}
-          title={row.tokenIssued ? undefined : 'Issue the agent token first'}
-          onClick={() => {
-            fullPull.reset();
-            setRepulling(row);
-          }}
-        >
-          Full re-pull
-        </Button>
-      ),
+      cell: (row) =>
+        row.transport === 'webhook' ? null : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="pointer-coarse:min-h-11"
+            disabled={!row.tokenIssued}
+            title={row.tokenIssued ? undefined : 'Issue the agent token first'}
+            onClick={() => {
+              fullPull.reset();
+              setRepulling(row);
+            }}
+          >
+            Full re-pull
+          </Button>
+        ),
     },
     {
-      key: 'token',
-      header: 'Agent token',
+      key: 'credential',
+      header: 'Credential',
       cell: (row) => (
-        <Button
-          variant="outline"
-          size="sm"
-          className="pointer-coarse:min-h-11"
-          disabled={issue.isPending}
-          onClick={() => {
-            issue.reset();
-            if (row.tokenIssued) setRotating(row);
-            else runIssue(row);
-          }}
-        >
-          <KeyIcon data-icon="inline-start" />
-          {row.tokenIssued ? 'Rotate token' : 'Issue token'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* The first credential decides the door; after that only its own
+              rotation is offered. Before either, both are — side by side, so
+              the choice is visible rather than discovered. */}
+          {row.transport !== 'webhook' ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="pointer-coarse:min-h-11"
+              disabled={issue.isPending}
+              onClick={() => {
+                issue.reset();
+                if (row.tokenIssued) setRotating(row);
+                else runIssue(row);
+              }}
+            >
+              <KeyIcon data-icon="inline-start" />
+              {row.tokenIssued ? 'Rotate token' : 'Issue agent token'}
+            </Button>
+          ) : null}
+          {row.transport !== 'agent' ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="pointer-coarse:min-h-11"
+              onClick={() => {
+                setSecret.reset();
+                setSecretDraft('');
+                setWebhookUrl(null);
+                setConnecting(row);
+              }}
+            >
+              <WebhooksLogoIcon data-icon="inline-start" />
+              {row.transport === 'webhook' ? 'Replace OpsTally secret' : 'Connect OpsTally'}
+            </Button>
+          ) : null}
+        </div>
       ),
     },
   ];
@@ -402,8 +462,9 @@ export function IntegrationsPage() {
               <EmptyTitle>No connections</EmptyTitle>
               <EmptyDescription>
                 One connection per Tally company (a Tally installation holding four financial
-                years as four companies is four connections). Add the first, then issue its agent
-                token — the agent cannot report in without one.
+                years as four companies is four connections). Add the first, then either connect
+                OpsTally with its signing secret or issue a Vyuha agent token — the first
+                credential decides how data arrives.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
@@ -420,7 +481,7 @@ export function IntegrationsPage() {
                 <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
               )}
               mobileSupporting={(row) =>
-                `${row.companyName ?? row.system} · last heartbeat ${heartbeatAge(row.lastHeartbeatAt)}`
+                `${row.companyName ?? row.system} · ${row.transport === 'webhook' ? 'OpsTally' : 'agent'} · last heard ${heartbeatAge(row.lastHeartbeatAt)}`
               }
             />
 
@@ -496,7 +557,34 @@ export function IntegrationsPage() {
 
         <div className="flex flex-col gap-3 border p-4">
           <SectionHeading
-            title="How the Tally agent connects"
+            title="How OpsTally connects"
+            note="OpsTally Webhooks reference, v1."
+          />
+          <ol className="text-muted-foreground flex list-decimal flex-col gap-2 pl-5 text-sm">
+            <li>
+              Install OpsTally Agent on the machine running TallyPrime and select the company to
+              sync. It talks to Tally on localhost port 9000 and only ever calls out.
+            </li>
+            <li>
+              In the Agent&apos;s settings, set the webhook URL — press Connect OpsTally on the
+              connection above, paste the signing secret the Agent generated, and copy the URL it
+              answers with back into the Agent.
+            </li>
+            <li>
+              Send a test event from the Agent. The first delivery binds this connection to that
+              install and to Tally&apos;s exact company name; the status turns Connected.
+            </li>
+            <li>
+              From then on, every change in Tally arrives signed: ledgers under Sundry Debtors and
+              Creditors become parties, stock items arrive with quantity and prices, vouchers are
+              kept for the sales and receivables phases. Retries are safe — repeats are ignored.
+            </li>
+          </ol>
+        </div>
+
+        <div className="flex flex-col gap-3 border p-4">
+          <SectionHeading
+            title="How the Vyuha agent connects"
             note="Technical design section 14."
           />
           <ol className="text-muted-foreground flex list-decimal flex-col gap-2 pl-5 text-sm">
@@ -674,6 +762,88 @@ export function IntegrationsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={connecting !== null}
+        onOpenChange={(next) => {
+          if (!next) setConnecting(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {connecting?.transport === 'webhook'
+                ? `Replace the OpsTally secret for ${connecting.name}`
+                : `Connect OpsTally to ${connecting?.name ?? 'this connection'}`}
+            </DialogTitle>
+            <DialogDescription>
+              Paste the signing secret from the OpsTally Agent&apos;s settings (it starts with
+              whsec_). It is stored sealed and never shown again; only the signature it produces
+              crosses the wire. Replacing it re-binds this connection to whichever install signs
+              with the new one.
+            </DialogDescription>
+          </DialogHeader>
+          {webhookUrl === null ? (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="webhook-secret">Signing secret</Label>
+                <Input
+                  id="webhook-secret"
+                  value={secretDraft}
+                  onChange={(event) => {
+                    setSecretDraft(event.target.value);
+                  }}
+                  placeholder="whsec_…"
+                  autoComplete="off"
+                  maxLength={256}
+                />
+              </div>
+              {setSecret.isError ? (
+                <Alert variant="destructive">
+                  <AlertTitle>The secret was not stored</AlertTitle>
+                  <AlertDescription>{setSecret.error.message}</AlertDescription>
+                </Alert>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <p className="text-sm">
+                Stored. Now paste this URL into the OpsTally Agent&apos;s webhook setting and send a
+                test event.
+              </p>
+              <CopyField value={webhookUrl} label="Webhook URL" id="opstally-webhook-url" />
+            </div>
+          )}
+          <DialogFooter>
+            {webhookUrl === null ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setConnecting(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={!secretDraft.trim().startsWith('whsec_') || setSecret.isPending}
+                  onClick={submitSecret}
+                >
+                  {setSecret.isPending ? 'Storing' : 'Store secret'}
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={() => {
+                  setConnecting(null);
+                }}
+              >
+                Done
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={resolving !== null}
