@@ -187,8 +187,22 @@ export interface EstimateView {
   readonly lines: readonly SalesLineView[];
   /** Orders only: the invoices Tally raised against it (REQ-AA-12). */
   readonly invoices: readonly OrderInvoiceView[];
+  /** Orders only (13 REQ-X-26): why it waits and what it waits on — each open requirement with the POs raised against it. Empty when nothing waits. */
+  readonly waitingOn: readonly OrderWaitingOnView[];
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+export interface OrderWaitingOnView {
+  readonly requirementId: string;
+  readonly lineId: string | null;
+  readonly stockItemName: string;
+  readonly quantity: string;
+  readonly orderedQty: string;
+  readonly receivedQty: string;
+  readonly state: 'open' | 'ordered' | 'received' | 'closed';
+  readonly neededBy: string | null;
+  readonly purchaseOrders: readonly { id: string; number: string; vendorName: string; status: string; expectedDate: string | null; quantity: string }[];
 }
 
 export interface OrderInvoiceView {
@@ -204,7 +218,7 @@ export interface OrderInvoiceView {
 }
 
 /** The list row: the header without its lines. */
-export type EstimateSummary = Omit<EstimateView, 'lines' | 'invoices'>;
+export type EstimateSummary = Omit<EstimateView, 'lines' | 'invoices' | 'waitingOn'>;
 
 /** A sales order is the same shape; the type says which life it leads. */
 export type SalesDocumentView = EstimateView;

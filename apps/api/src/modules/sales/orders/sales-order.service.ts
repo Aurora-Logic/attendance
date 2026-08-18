@@ -25,6 +25,7 @@ import { hasPermission, orgContextOf, type Principal } from '../../../platform/r
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { PushOutcomeRegistry, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
 import { PushQueueService } from '../../../platform/sync/push-queue.service.js';
+import { RequirementsService } from '../../../platform/procurement/requirements.service.js';
 import { orgToday, resolveDocumentCustomer, resolveDocumentLines, resolveDocumentOwner } from '../../../platform/documents/document-support.js';
 import { EstimateRepository, type EstimateHeaderInput } from '../estimates/estimate.repository.js';
 import { salesDocuments } from '../schema/index.js';
@@ -57,6 +58,7 @@ export class SalesOrderService implements OnModuleInit {
     private readonly scopes: ScopeService,
     private readonly pushOutcomes: PushOutcomeRegistry,
     private readonly pushQueue: PushQueueService,
+    private readonly requirements: RequirementsService,
   ) {}
 
   onModuleInit(): void {
@@ -86,7 +88,8 @@ export class SalesOrderService implements OnModuleInit {
   async find(principal: Principal, id: string): Promise<SalesDocumentView> {
     const order = await this.repository(principal).view(this.scope(principal), id);
     if (order === null) throw AppError.notFound('Sales order', id);
-    return order;
+    // 13 REQ-X-26: why it waits and what it waits on, from the platform seam.
+    return { ...order, waitingOn: await this.requirements.waitingOn(principal.orgId, id) };
   }
 
   async create(principal: Principal, input: CreateSalesOrderInput): Promise<SalesDocumentView> {

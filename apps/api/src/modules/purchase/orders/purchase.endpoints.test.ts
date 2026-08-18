@@ -111,6 +111,11 @@ describe('shortage → requirement → PO → GRN → allocation (13 §1)', () =
     expect(mine[0]?.customerName).toBe('Asha Traders');
   });
 
+  it('the waiting order says why it waits and on what: the requirement, then the PO with its vendor and date (REQ-X-26)', async () => {
+    const before = await harness.get<SalesDocumentView>(`/sales/orders/${orderA}`, { token: salesToken });
+    expect(before.body.waitingOn.map((w) => [w.stockItemName, w.quantity, w.state, w.purchaseOrders])).toEqual([['Cat6 cable 305m', '4.000', 'open', []]]);
+  });
+
   it('one PO from both requirements, one line of 8, linked to each; confirming pushes it and marks them ordered', async () => {
     const queue = await harness.get<RequirementView[]>('/purchase/requirements?state=open', { token: adminToken });
     const ids = queue.body.filter((r) => r.stockItemId === cableId).map((r) => r.id);
@@ -135,6 +140,9 @@ describe('shortage → requirement → PO → GRN → allocation (13 §1)', () =
     expect(confirmed.body.syncState).toBe('NOT_PUSHED');
     const after = await harness.get<RequirementView[]>('/purchase/requirements?state=ordered', { token: adminToken });
     expect(after.body.filter((r) => r.stockItemId === cableId)).toHaveLength(2);
+    const waiting = await harness.get<SalesDocumentView>(`/sales/orders/${orderA}`, { token: salesToken });
+    expect(waiting.body.waitingOn[0]?.state).toBe('ordered');
+    expect(waiting.body.waitingOn[0]?.purchaseOrders.map((p) => [p.number, p.vendorName, p.status, p.quantity])).toEqual([['PO-0001', 'Behar Supply Co', 'CONFIRMED', '4.000']]);
     const availability = await harness.get<StockAvailability>(`/purchase/items/${cableId}/availability`, { token: adminToken });
     expect(availability.body.openPoQty).toBe('8.000');
     // The nightly sweep raises nothing for an item an open PO already covers (with no reorder level set, nothing at all).

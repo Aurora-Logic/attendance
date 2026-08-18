@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { OrderWaitingOnView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
@@ -149,6 +150,44 @@ export class RequirementsService {
       state: r.state,
       closedReason: r.closed_reason,
       createdAt: new Date(r.created_at).toISOString(),
+    }));
+  }
+
+  /**
+   * 13 REQ-X-26: what a sales order waits on — its open and ordered
+   * requirements, each with the POs raised against it, the vendor and the
+   * expected date — so sales answers "when will the rest come" from the
+   * order. Read here, in the platform, because the requirement is the seam
+   * (D-35): the sales module never queries a purchase table.
+   */
+  async waitingOn(orgId: string, salesOrderId: string): Promise<OrderWaitingOnView[]> {
+    const rows = await this.db.execute<{
+      id: string; sales_order_line_id: string | null; stock_item_name: string; quantity: string; ordered_qty: string; received_qty: string;
+      state: OrderWaitingOnView['state']; needed_by: string | null; purchase_orders: OrderWaitingOnView['purchaseOrders'];
+    }>(sql`
+      SELECT r.id, r.sales_order_line_id, s.name AS stock_item_name, r.quantity::text AS quantity, r.ordered_qty::text AS ordered_qty, r.received_qty::text AS received_qty,
+             r.state, r.needed_by,
+             COALESCE((
+               SELECT json_agg(json_build_object('id', po.id, 'number', po.number, 'vendorName', po.vendor_name, 'status', po.status, 'expectedDate', po.expected_date, 'quantity', plr.quantity::text) ORDER BY po.date)
+                 FROM po_line_requirements plr
+                 JOIN purchase_order_lines pl ON pl.id = plr.purchase_order_line_id
+                 JOIN purchase_orders po ON po.id = pl.purchase_order_id AND po.deleted_at IS NULL AND po.status <> 'CANCELLED'
+                WHERE plr.requirement_id = r.id
+             ), '[]'::json) AS purchase_orders
+        FROM procurement_requirements r JOIN stock_items s ON s.id = r.stock_item_id
+       WHERE r.org_id = ${orgId} AND r.sales_order_id = ${salesOrderId} AND r.deleted_at IS NULL AND r.state IN ('open', 'ordered')
+       ORDER BY r.created_at
+    `);
+    return rows.rows.map((r) => ({
+      requirementId: r.id,
+      lineId: r.sales_order_line_id,
+      stockItemName: r.stock_item_name,
+      quantity: r.quantity,
+      orderedQty: r.ordered_qty,
+      receivedQty: r.received_qty,
+      state: r.state,
+      neededBy: r.needed_by,
+      purchaseOrders: r.purchase_orders,
     }));
   }
 

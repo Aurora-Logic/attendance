@@ -188,6 +188,8 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
     return {
       ...toSummary(row),
       lines: lines.map(toLineView),
+      // Filled by SalesOrderService from the platform seam (REQ-X-26); the repository knows no purchase table.
+      waitingOn: [],
       invoices: invoices.rows.map((i) => ({
         voucherId: i.voucher_id,
         invoiceDocumentId: i.invoice_document_id,
