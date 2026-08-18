@@ -212,6 +212,23 @@ against Tally), REQ-W-08 discount approval and REQ-W-09 credit block (the
 approvals framework hooks are ready; the thresholds are a decision),
 REQ-T-05 period-lock check (needs the agent to read Tally's lock date).
 
+## Order-to-dispatch and shortage-to-GRN (docs 12 and 13) on this branch
+
+Built backend-first on the recommended defaults (D-21…D-38 in docs/11),
+verified by API suites with the agent played through the real endpoints,
+UI in one pass after (below).
+
+| Deliverable | Commit | Proof |
+|---|---|---|
+| Quantities are the state (REQ-AA-01…04, D-34): `packed_qty` / `invoiced_qty` / `dispatched_qty` on every sales line with the CHECK chain, fulfilment derived in SQL (open → picking → awaiting_invoice → ready_to_dispatch → partially_dispatched → closed / short_closed); pick queue, pack records with boxes and comments, a short pack raises a shortage requirement carrying the order (D-31); awaiting-invoice queue with waiting hours; the invoice handshake — Tally's Sales voucher naming the order links itself and advances invoiced_qty, an invoice naming nobody waits on the unlinked screen with the party's open orders beside it (D-21); short-close with reason (`sales.document.alter`); job `link-sales-invoices` every five minutes | slices A–B | orders 15/15 |
+| Dispatch (REQ-AA-16…28): a dispatch record with its own lines, mode decides the fields and the refusal names each missing one; nothing leaves ahead of the invoice; box and LR photographs as multipart parts (`DISPATCH_PHOTO` purpose, signed URLs); pushed as a Delivery Note; customer notification composed per channel with the balance, `manual` until the API lands, marked sent by hand (REQ-AA-26); dispatch board with mode / age / sync filters | slice C | orders + dispatch cases |
+| Procurement (13): requirements in the platform (D-35) from shortage, reorder sweep (01:15, D-28) and manual; availability = Tally closing − committed with no sync running (REQ-AC-03/04, in item history too); purchase module (D-36): POs (create, from selected requirements one line per item, edit, confirm, push as Purchase Order, short-close, cancel), GRNs with received / rejected / reason pushed as Receipt Notes, allocation of an insufficient receipt between waiting orders decided by a person (REQ-X-27, D-30), the released order's owner told once (REQ-X-28), item vendors and reorder settings Vyuha-owned (D-27, D-28), purchase history per vendor (REQ-X-14) | slice D | purchase 6/6 |
+| Access window (REQ-AB-01…04): a setting, evaluated per request in the org's clock; punch and its context exempt; login refusal audited | — | access-window 2 files |
+| Reports: customer statement, credit cycle, sales analysis, low stock (`receivables.view`), pending dispatch (sales) — all through the report shell with `requiredFilters` | `5181914` | reports suite |
+| **Invoices raised in both places, kept in sync (D-38, owner's instruction 18 Aug evening)**: an `INVOICE` document raised against an order's packed-and-uninvoiced balance at the order's rates; confirming advances invoiced_qty, links with method `vyuha`, and queues a `Sales` voucher; the pulled-back voucher attaches to the same link (GUID in `external_refs`) and never counts twice. Fixing this found and removed a latent bug: push refs anchored under entity_type `voucher` collided with the pull's own mapping — now `voucher_push` | `4345be4` | orders 19/19 |
+| PO approval by value through `platform/approvals` (REQ-X-16, D-32): confirming an over-threshold PO raises a `purchase_order` request routed to every holder of `purchase.document.approve`; the inbox decision or the PO's own Approve button decides the same request; rejection returns it to draft; cancel withdraws it. Thresholds are one settings endpoint (`/purchase/settings`: approval threshold, invoice-waiting hours). REQ-AA-15: the link sweep tells accounts once per order that packed goods have waited longer than the configured hours | `01ec5c1` | purchase 10/10, approvals 5 files |
+| REQ-X-18: the vendor's copy of a PO per channel, composed at release, sent by hand and marked (REQ-AA-26); vendor email / WhatsApp on the PO since a Tally party carries no contact | `e319887` | purchase 11/11 |
+
 ## Next, in order
 
 Every phase now has its transport-free part built: 6b/6c (masters,
