@@ -155,7 +155,8 @@ function InvoiceForm({ order, onClose }: { order: Estimate; onClose: () => void 
                       {line.description}
                     </span>
                     <span className="text-muted-foreground text-xs tabular-nums">
-                      Packed {trimZeros(line.packedQty)} · Invoiced {trimZeros(line.invoicedQty)} · Balance {trimZeros(balance.toInvoice.toFixed(3))}
+                      Packed {trimZeros(line.packedQty)} · Invoiced {trimZeros(line.invoicedQty)}
+                      {balance.invoicing > 0 ? ` · In flight ${trimZeros(balance.invoicing.toFixed(3))}` : ''} · Balance {trimZeros(balance.toInvoice.toFixed(3))}
                       {line.unit ? ` ${line.unit}` : ''} @ {formatMoney(line.rate)}
                     </span>
                   </div>

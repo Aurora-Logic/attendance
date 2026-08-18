@@ -134,6 +134,8 @@ export interface SalesLineView {
   readonly packedQty: string;
   readonly invoicedQty: string;
   readonly dispatchedQty: string;
+  /** P8-2: on Vyuha-raised invoices confirmed but not yet accepted by Tally — spoken for, not yet invoiced. Zero except on an order. */
+  readonly invoicingQty: string;
 }
 
 /**

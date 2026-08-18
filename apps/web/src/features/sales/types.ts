@@ -20,14 +20,19 @@ export const salesLineSchema = z.object({
   packedQty: z.string(),
   invoicedQty: z.string(),
   dispatchedQty: z.string(),
+  // P8-2: on invoices in flight (confirmed, not yet accepted by Tally). Absent on older fixtures.
+  invoicingQty: z.string().default('0.000'),
 });
 export type SalesLine = z.infer<typeof salesLineSchema>;
 
 /** REQ-AA-29: the four figures and the balance every order screen shows per line. */
-export function lineBalances(line: SalesLine): { toPack: number; toInvoice: number; toDispatch: number } {
+export function lineBalances(line: SalesLine): { toPack: number; toInvoice: number; invoicing: number; toDispatch: number } {
+  const invoicing = Number(line.invoicingQty);
   return {
     toPack: Math.max(0, Number(line.quantity) - Number(line.packedQty)),
-    toInvoice: Math.max(0, Number(line.packedQty) - Number(line.invoicedQty)),
+    // What an invoice raised now may take: packed, less invoiced, less what an invoice in flight already holds (P8-2).
+    toInvoice: Math.max(0, Number(line.packedQty) - Number(line.invoicedQty) - invoicing),
+    invoicing,
     toDispatch: Math.max(0, Number(line.invoicedQty) - Number(line.dispatchedQty)),
   };
 }

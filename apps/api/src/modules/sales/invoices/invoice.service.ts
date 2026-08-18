@@ -128,11 +128,10 @@ export class InvoiceService implements OnModuleInit {
     if (order.partyId === null) throw AppError.conflict(`${order.number} has no Tally party; an invoice needs one.`);
     const requested = new Map((input.lines ?? []).map((l) => [l.lineId, Number(l.quantity)]));
     // Invoices confirmed but not yet accepted by Tally have not moved the
-    // order's invoiced_qty; their lines are spoken for all the same.
-    const inFlight = await this.inFlightByLine(principal.orgId, order);
+    // order's invoiced_qty; their lines are spoken for all the same (P8-2).
     const lines = order.lines
       .map((line) => {
-        const balance = Number(line.packedQty) - Number(line.invoicedQty) - (inFlight.get(line.id) ?? 0);
+        const balance = Number(line.packedQty) - Number(line.invoicedQty) - Number(line.invoicingQty);
         const wanted = requested.size === 0 ? balance : (requested.get(line.id) ?? 0);
         if (wanted > balance + 1e-9) throw AppError.validation(`Line ${String(line.lineNo)} (${line.description}) has ${balance.toFixed(3)} packed and uninvoiced.`, { lineId: line.id });
         return { line, quantity: wanted };
@@ -209,22 +208,6 @@ export class InvoiceService implements OnModuleInit {
     await this.repository(principal).setStatus(id, 'CANCELLED');
     this.auditContext.record({ action: 'sales.invoice.cancelled', entityType: 'sales_document', entityId: id, before: null, after: null });
     return this.find(principal, id);
-  }
-
-  /** Quantities on this order's CONFIRMED-but-unaccepted invoices, matched to order lines the way acceptance will match them. */
-  private async inFlightByLine(orgId: string, order: SalesDocumentView): Promise<Map<string, number>> {
-    const rows = await this.db.execute<{ stock_item_id: string | null; description: string; quantity: string }>(sql`
-      SELECT l.stock_item_id, l.description, l.quantity::text AS quantity
-        FROM sales_documents d JOIN sales_document_lines l ON l.document_id = d.id AND l.deleted_at IS NULL
-       WHERE d.org_id = ${orgId} AND d.doc_type = 'INVOICE' AND d.source_document_id = ${order.id} AND d.status = 'CONFIRMED' AND d.sync_state <> 'PUSHED' AND d.deleted_at IS NULL
-         AND NOT EXISTS (SELECT 1 FROM sales_order_invoices i WHERE i.invoice_document_id = d.id)
-    `);
-    const byLine = new Map<string, number>();
-    for (const row of rows.rows) {
-      const target = order.lines.find((line) => (row.stock_item_id !== null && line.stockItemId === row.stock_item_id) || line.description === row.description);
-      if (target !== undefined) byLine.set(target.id, (byLine.get(target.id) ?? 0) + Number(row.quantity));
-    }
-    return byLine;
   }
 
   private async enqueuePush(principal: Principal, id: string): Promise<boolean> {

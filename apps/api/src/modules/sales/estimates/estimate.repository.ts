@@ -173,6 +173,25 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       .from(salesDocumentLines)
       .where(and(eq(salesDocumentLines.documentId, id), isNull(salesDocumentLines.deletedAt)))
       .orderBy(asc(salesDocumentLines.lineNo));
+    // P8-2: what Vyuha-raised invoices in flight (confirmed, not yet accepted
+    // by Tally, no link yet) have spoken for on each line — matched the way
+    // acceptance will match them, by item then description.
+    const inFlight =
+      this.docType === 'SALES_ORDER'
+        ? await this.db.execute<{ stock_item_id: string | null; description: string; quantity: string }>(sql`
+            SELECT il.stock_item_id, il.description, sum(il.quantity)::text AS quantity
+              FROM sales_documents inv JOIN sales_document_lines il ON il.document_id = inv.id AND il.deleted_at IS NULL
+             WHERE inv.org_id = ${this.ctx.orgId} AND inv.doc_type = 'INVOICE' AND inv.source_document_id = ${id}
+               AND inv.status = 'CONFIRMED' AND inv.sync_state <> 'PUSHED' AND inv.deleted_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM sales_order_invoices i WHERE i.invoice_document_id = inv.id)
+             GROUP BY il.stock_item_id, il.description
+          `)
+        : { rows: [] };
+    const invoicingByLine = new Map<string, number>();
+    for (const row of inFlight.rows) {
+      const target = lines.find((line) => (row.stock_item_id !== null && line.stockItemId === row.stock_item_id) || line.description === row.description);
+      if (target !== undefined) invoicingByLine.set(target.id, (invoicingByLine.get(target.id) ?? 0) + Number(row.quantity));
+    }
     const invoices =
       this.docType === 'SALES_ORDER'
         ? await this.db.execute<{ voucher_id: string | null; invoice_document_id: string | null; voucher_number: string; voucher_date: string; amount: string; method: string; linked_at: Date }>(sql`
@@ -191,7 +210,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
         : { rows: [] };
     return {
       ...toSummary(row),
-      lines: lines.map(toLineView),
+      lines: lines.map((line) => toLineView(line, invoicingByLine.get(line.id) ?? 0)),
       // Filled by SalesOrderService from the platform seam (REQ-X-26); the repository knows no purchase table.
       waitingOn: [],
       invoices: invoices.rows.map((i) => ({
@@ -525,7 +544,7 @@ function toSummary(row: HeaderRow): EstimateSummary {
   };
 }
 
-function toLineView(row: typeof salesDocumentLines.$inferSelect): SalesLineView {
+function toLineView(row: typeof salesDocumentLines.$inferSelect, invoicing = 0): SalesLineView {
   return {
     id: row.id,
     lineNo: row.lineNo,
@@ -541,5 +560,6 @@ function toLineView(row: typeof salesDocumentLines.$inferSelect): SalesLineView 
     packedQty: row.packedQty,
     invoicedQty: row.invoicedQty,
     dispatchedQty: row.dispatchedQty,
+    invoicingQty: invoicing.toFixed(3),
   };
 }

@@ -81,7 +81,23 @@ const QUANTITY_COLUMNS: RecordColumn<SalesLine>[] = [
   },
   { key: 'ordered', header: 'Ordered', cell: (line) => trimZeros(line.quantity), numeric: true },
   { key: 'packed', header: 'Packed', cell: (line) => trimZeros(line.packedQty), numeric: true },
-  { key: 'invoiced', header: 'Invoiced', cell: (line) => trimZeros(line.invoicedQty), numeric: true },
+  {
+    key: 'invoiced',
+    header: 'Invoiced',
+    // P8-2: an invoice confirmed here but not yet accepted by Tally holds its quantity without having invoiced it.
+    cell: (line) => {
+      const invoicing = lineBalances(line).invoicing;
+      return invoicing > 0 ? (
+        <span>
+          {trimZeros(line.invoicedQty)}
+          <span className="text-muted-foreground ml-1 text-xs">+{trimZeros(invoicing.toFixed(3))} in flight</span>
+        </span>
+      ) : (
+        trimZeros(line.invoicedQty)
+      );
+    },
+    numeric: true,
+  },
   { key: 'dispatched', header: 'Dispatched', cell: (line) => trimZeros(line.dispatchedQty), numeric: true },
   {
     key: 'toPack',
