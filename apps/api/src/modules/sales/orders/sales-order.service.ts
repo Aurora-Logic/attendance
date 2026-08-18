@@ -106,6 +106,8 @@ export class SalesOrderService implements OnModuleInit {
       ownerId: await resolveDocumentOwner(this.db, this.scopes, GRANTS, principal, input.ownerId),
       notes: input.notes ?? null,
       terms: input.terms ?? null,
+      // REQ-AA-28: the party master's contact unless this order says otherwise.
+      ...(await this.partyContact(principal.orgId, customer.partyId, input.customerEmail, input.customerWhatsapp)),
     };
     const id = await repository.create(header, lines);
     const order = await repository.view(SQL_TRUE, id);
@@ -141,6 +143,7 @@ export class SalesOrderService implements OnModuleInit {
       ownerId: estimate.ownerId ?? principal.employeeId,
       notes: estimate.notes,
       terms: estimate.terms,
+      ...(await this.partyContact(principal.orgId, customer.partyId, undefined, undefined)),
     };
     const id = await repository.create(
       header,
@@ -262,6 +265,8 @@ export class SalesOrderService implements OnModuleInit {
     if (input.dealId !== undefined) patch.dealId = input.dealId;
     if (input.notes !== undefined) patch.notes = input.notes;
     if (input.terms !== undefined) patch.terms = input.terms;
+    if (input.customerEmail !== undefined) patch.customerEmail = input.customerEmail;
+    if (input.customerWhatsapp !== undefined) patch.customerWhatsapp = input.customerWhatsapp;
     if (input.ownerId !== undefined && input.ownerId !== existing.ownerId) {
       patch.ownerId = await resolveDocumentOwner(this.db, this.scopes, GRANTS, principal, input.ownerId);
     }
@@ -326,6 +331,14 @@ export class SalesOrderService implements OnModuleInit {
              last_pushed_at = now(), last_error = NULL, updated_at = now()
        WHERE org_id = ${orgId} AND id = ${payload.documentId} AND deleted_at IS NULL
     `);
+  }
+
+  /** REQ-AA-28: the party master's email and phone stand in wherever the order does not say. */
+  private async partyContact(orgId: string, partyId: string | null, email: string | null | undefined, whatsapp: string | null | undefined): Promise<{ customerEmail: string | null; customerWhatsapp: string | null }> {
+    if (partyId === null) return { customerEmail: email ?? null, customerWhatsapp: whatsapp ?? null };
+    const rows = await this.db.execute<{ email: string | null; phone: string | null }>(sql`SELECT email, phone FROM parties WHERE org_id = ${orgId} AND id = ${partyId}`);
+    const party = rows.rows[0];
+    return { customerEmail: email ?? party?.email ?? null, customerWhatsapp: whatsapp ?? party?.phone ?? null };
   }
 
   private scope(principal: Principal): SQL {

@@ -55,6 +55,9 @@ export const parties = pgTable(
     parentGroup: text('parent_group').notNull(),
     gstin: text('gstin'),
     address: text('address'),
+    /** 12 REQ-AA-28: the ledger's email and mobile, where the company keeps them in Tally. */
+    email: text('email'),
+    phone: text('phone'),
     creditLimit: numeric('credit_limit'),
     creditDays: integer('credit_days'),
     openingBalance: numeric('opening_balance'),

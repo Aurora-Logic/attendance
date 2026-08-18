@@ -84,6 +84,8 @@ function ledgerToParty(ledger: OpsTallyLedger): PartyPullRow {
     ...(ledger.gstin === null || ledger.gstin === undefined || ledger.gstin === ''
       ? {}
       : { gstin: ledger.gstin }),
+    ...(ledger.email === null || ledger.email === undefined || ledger.email === '' ? {} : { email: ledger.email }),
+    ...(ledger.mobile === null || ledger.mobile === undefined || ledger.mobile === '' ? {} : { phone: ledger.mobile }),
   };
 }
 

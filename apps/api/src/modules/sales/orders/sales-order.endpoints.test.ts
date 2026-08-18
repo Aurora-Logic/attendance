@@ -619,6 +619,22 @@ describe('invoices raised here (D-38: both places, kept in sync)', () => {
   });
 });
 
+describe('the customer’s contact (12 REQ-AA-28)', () => {
+  it('comes from the party master, is overridable per order, and the dispatch overrides both', async () => {
+    await harness.db.execute(sql`UPDATE parties SET email = 'accounts@asha.example', phone = '+919900000000' WHERE id = ${partyId}`);
+    const inherited = await harness.post<SalesDocumentView>('/sales/orders', { token: salesToken, body: { partyId, lines: [{ stockItemId: cableId, quantity: '1', rate: '10' }] } });
+    expect([inherited.body.customerEmail, inherited.body.customerWhatsapp]).toEqual(['accounts@asha.example', '+919900000000']);
+    const overridden = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, customerWhatsapp: '+918800000000', lines: [{ stockItemId: cableId, quantity: '1', rate: '10' }] },
+    });
+    expect([overridden.body.customerEmail, overridden.body.customerWhatsapp]).toEqual(['accounts@asha.example', '+918800000000']);
+    const party = await harness.get<{ email: string | null; phone: string | null }>(`/masters/parties/${partyId}`, { token: adminToken });
+    expect([party.body.email, party.body.phone]).toEqual(['accounts@asha.example', '+919900000000']);
+    await harness.db.execute(sql`UPDATE parties SET email = NULL, phone = NULL WHERE id = ${partyId}`);
+  });
+});
+
 describe('the accountant’s reminder (12 REQ-AA-15)', () => {
   it('after the configured hours, accounts hears once per order; a second sweep stays quiet', async () => {
     const emitted: NotificationEvent[] = [];

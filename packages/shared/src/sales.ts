@@ -344,6 +344,9 @@ export const createSalesOrderSchema = z.object({
   ownerId: z.uuid().nullish(),
   notes: z.string().trim().max(4000).nullish(),
   terms: z.string().trim().max(4000).nullish(),
+  /** REQ-AA-28: the party master's contact by default; these override it for this order. */
+  customerEmail: z.email().max(254).nullish(),
+  customerWhatsapp: z.string().trim().min(6).max(24).nullish(),
   lines: z.array(salesLineInputSchema).min(1).max(200),
 });
 export type CreateSalesOrderInput = z.infer<typeof createSalesOrderSchema>;
@@ -355,6 +358,8 @@ export const updateSalesOrderSchema = z.object({
   ownerId: z.uuid().nullish(),
   notes: z.string().trim().max(4000).nullish(),
   terms: z.string().trim().max(4000).nullish(),
+  customerEmail: z.email().max(254).nullish(),
+  customerWhatsapp: z.string().trim().min(6).max(24).nullish(),
   lines: z.array(salesLineInputSchema).min(1).max(200).optional(),
 });
 export type UpdateSalesOrderInput = z.infer<typeof updateSalesOrderSchema>;

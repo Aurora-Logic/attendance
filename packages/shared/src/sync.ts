@@ -139,6 +139,9 @@ export const partyPullRowSchema = z.object({
   parentGroup: z.string().min(1).max(120),
   gstin: z.string().min(1).max(20).optional(),
   address: z.string().min(1).max(1000).optional(),
+  /** 12 REQ-AA-28: the ledger's email and mobile, where the company keeps them. */
+  email: z.string().min(3).max(254).optional(),
+  phone: z.string().min(6).max(40).optional(),
   creditLimit: decimalString.optional(),
   creditDays: z.number().int().min(0).max(3650).optional(),
   openingBalance: decimalString.optional(),

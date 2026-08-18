@@ -19,6 +19,9 @@ export interface PartyView {
   readonly parentGroup: string;
   readonly gstin: string | null;
   readonly address: string | null;
+  /** 12 REQ-AA-28: where the customer is told, when the ledger carries it. */
+  readonly email: string | null;
+  readonly phone: string | null;
   /** Exact decimal as text (D-01): Tally's figure, held not computed. */
   readonly creditLimit: string | null;
   readonly creditDays: number | null;

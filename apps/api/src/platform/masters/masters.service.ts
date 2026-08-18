@@ -284,6 +284,8 @@ function toView(row: typeof parties.$inferSelect): PartyView {
     alias: row.alias,
     parentGroup: row.parentGroup,
     gstin: row.gstin,
+    email: row.email,
+    phone: row.phone,
     address: row.address,
     creditLimit: row.creditLimit,
     creditDays: row.creditDays,

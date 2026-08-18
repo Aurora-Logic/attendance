@@ -488,6 +488,8 @@ export class SyncWriterService {
                parent_group = ${row.parentGroup},
                gstin = ${row.gstin ?? null},
                address = ${row.address ?? null},
+               email = ${row.email ?? null},
+               phone = ${row.phone ?? null},
                credit_limit = ${row.creditLimit ?? null},
                credit_days = ${row.creditDays ?? null},
                opening_balance = ${row.openingBalance ?? null},
@@ -503,11 +505,11 @@ export class SyncWriterService {
 
     const inserted = await tx.execute<{ id: string }>(sql`
       INSERT INTO parties
-        (org_id, connection_id, name, alias, parent_group, gstin, address,
+        (org_id, connection_id, name, alias, parent_group, gstin, address, email, phone,
          credit_limit, credit_days, opening_balance)
       VALUES
         (${agent.orgId}, ${agent.connectionId}, ${row.name}, ${row.alias ?? null},
-         ${row.parentGroup}, ${row.gstin ?? null}, ${row.address ?? null},
+         ${row.parentGroup}, ${row.gstin ?? null}, ${row.address ?? null}, ${row.email ?? null}, ${row.phone ?? null},
          ${row.creditLimit ?? null}, ${row.creditDays ?? null}, ${row.openingBalance ?? null})
       RETURNING id
     `);

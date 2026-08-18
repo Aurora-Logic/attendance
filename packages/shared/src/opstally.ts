@@ -72,6 +72,9 @@ export const opsTallyLedgerSchema = z.object({
   parent: z.string().max(120).default(''),
   /** "GSTIN on file for this ledger, when set." */
   gstin: z.string().max(20).nullable().optional(),
+  /** 12 REQ-AA-28: the ledger's email and mobile, when OpsTally sends them. */
+  email: z.string().max(254).nullable().optional(),
+  mobile: z.string().max(40).nullable().optional(),
 });
 
 export type OpsTallyLedger = z.infer<typeof opsTallyLedgerSchema>;

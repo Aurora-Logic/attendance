@@ -70,6 +70,9 @@ export interface EstimateHeaderInput {
   ownerId: string | null;
   notes: string | null;
   terms: string | null;
+  /** REQ-AA-28: the customer's contact for notifications; the party master's by default. */
+  customerEmail?: string | null;
+  customerWhatsapp?: string | null;
 }
 
 export class EstimateRepository extends ScopedRepository<typeof salesDocuments> {
@@ -226,6 +229,8 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
           ownerId: header.ownerId,
           notes: header.notes,
           terms: header.terms,
+          customerEmail: header.customerEmail ?? null,
+          customerWhatsapp: header.customerWhatsapp ?? null,
           createdBy: this.ctx.actorUserId,
           updatedBy: this.ctx.actorUserId,
         })
