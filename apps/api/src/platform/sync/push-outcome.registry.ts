@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { SalesDocumentType, VoucherPushPayload } from '@vyuha/shared';
+import type { PushKind, VoucherPushPayload } from '@vyuha/shared';
 
 import type { Transaction } from '../db/db.provider.js';
 
@@ -19,24 +19,24 @@ export interface PushOutcome {
 }
 
 export interface PushOutcomeHandler {
-  readonly docType: SalesDocumentType;
+  readonly kind: PushKind;
   onOutcome(tx: Transaction, orgId: string, payload: VoucherPushPayload, outcome: PushOutcome): Promise<void>;
 }
 
 @Injectable()
 export class PushOutcomeRegistry {
   private readonly logger = new Logger(PushOutcomeRegistry.name);
-  private readonly handlers = new Map<SalesDocumentType, PushOutcomeHandler>();
+  private readonly handlers = new Map<PushKind, PushOutcomeHandler>();
 
   register(handler: PushOutcomeHandler): void {
-    if (this.handlers.has(handler.docType)) {
-      throw new Error(`Push outcome for "${handler.docType}" already has a handler registered.`);
+    if (this.handlers.has(handler.kind)) {
+      throw new Error(`Push outcome for "${handler.kind}" already has a handler registered.`);
     }
-    this.handlers.set(handler.docType, handler);
-    this.logger.log({ msg: 'Push outcome handler registered', docType: handler.docType });
+    this.handlers.set(handler.kind, handler);
+    this.logger.log({ msg: 'Push outcome handler registered', kind: handler.kind });
   }
 
-  find(docType: SalesDocumentType): PushOutcomeHandler | null {
-    return this.handlers.get(docType) ?? null;
+  find(kind: PushKind): PushOutcomeHandler | null {
+    return this.handlers.get(kind) ?? null;
   }
 }

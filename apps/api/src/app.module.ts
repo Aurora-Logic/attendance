@@ -34,6 +34,7 @@ import { SearchModule } from './platform/search/search.module.js';
 import { SettingsModule } from './platform/settings/settings.module.js';
 import { SyncModule } from './platform/sync/sync.module.js';
 import { TasksModule } from './platform/tasks/tasks.module.js';
+import { DocumentsModule } from './platform/documents/documents.module.js';
 import { StorageModule } from './platform/storage/storage.module.js';
 
 /**
@@ -82,6 +83,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     // reachable by AccessGuard, which resolves agent credentials through it.
     SyncModule,
     TasksModule,
+    DocumentsModule,
     IntegrationModule,
     HealthModule,
     // The first `modules/` entry. Everything above it is the shared kernel;

@@ -184,7 +184,7 @@ describe('one tick', () => {
   it('pushes one voucher per job and posts the outcome; a retry that already landed reports so and pushes nothing', async () => {
     const payload = {
       documentId: '01900000-0000-7000-8000-00000000aa01',
-      docType: 'SALES_ORDER',
+      kind: 'SALES_ORDER',
       voucherType: 'Sales Order',
       reference: 'SO-0001',
       date: '2026-08-18',
@@ -228,7 +228,7 @@ describe('one tick', () => {
   it('a rejected push carries Tally’s words verbatim', async () => {
     const payload = {
       documentId: '01900000-0000-7000-8000-00000000aa02',
-      docType: 'SALES_ORDER',
+      kind: 'SALES_ORDER',
       voucherType: 'Sales Order',
       reference: 'SO-0002',
       date: '2026-08-18',

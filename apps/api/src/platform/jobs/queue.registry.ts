@@ -145,6 +145,11 @@ export interface JobPayloads {
     readonly date?: string;
   };
 
+  /** D-21: link Sales vouchers to the orders their narration names, every few minutes. */
+  'link-sales-invoices': {
+    readonly now?: string;
+  };
+
   /** REQ-K-02: one queued envelope per domain event, fanned out by channel. */
   'send-notification': {
     readonly orgId: string;
@@ -247,6 +252,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-task-reminders': QUEUES.NOTIFICATION,
+  'link-sales-invoices': QUEUES.MAINTENANCE,
   'send-notification': QUEUES.NOTIFICATION,
   'deliver-password-reset': QUEUES.NOTIFICATION,
   'accrue-leave': QUEUES.LEAVE,
@@ -350,6 +356,8 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // REQ-V-08. Early enough to be read with the first coffee; the handler
   // works out each organisation's own date, so one server-time cron serves all.
   { schedulerId: 'notification:send-task-reminders', jobName: 'send-task-reminders', pattern: '30 2 * * *' },
+  // The accountant bills in Tally; the link lands within a few minutes of the pull.
+  { schedulerId: 'sales:link-invoices', jobName: 'link-sales-invoices', pattern: '*/5 * * * *' },
   // REQ-G-05. On the 1st, for the month that has just finished. Accruing on
   // the last day of a month instead would need a cron that can say "last day",
   // and would pro-rate a leaver's final month before their last day had ended.

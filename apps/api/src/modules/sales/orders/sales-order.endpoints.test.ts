@@ -1,7 +1,11 @@
 import {
   SYSTEM_ROLES,
   type AgentClaimResponse,
+  type AwaitingInvoiceEntry,
   type EstimateView,
+  type PackRecordView,
+  type PickQueueEntry,
+  type UnlinkedInvoice,
   type IssuedAgentToken,
   type Paginated,
   type SalesDocumentSummary,
@@ -268,5 +272,118 @@ describe('the push, as the agent reports it (REQ-W-06, 09 §3.3)', () => {
     const refused = await harness.post<ErrorBody>(`/sales/orders/${orderId}/cancel`, { token: salesToken });
     expect(refused.status).toBe(409);
     expect(refused.body.error.message).toContain('cancelled in Tally');
+  });
+});
+
+
+describe('pick, pack, and the billing handshake (12 §3.2, §3.3; 13 REQ-X-08)', () => {
+  let bigId = '';
+  let lineId = '';
+
+  it('a confirmed order joins the pick queue; a short pack raises a requirement for the balance and the word reads picking', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '100', rate: '4000' }] },
+    });
+    bigId = created.body.id;
+    lineId = created.body.lines[0]?.id ?? '';
+    expect(created.body.fulfilment).toBe('open');
+    await harness.post(`/sales/orders/${bigId}/confirm`, { token: salesToken });
+
+    const queue = await harness.get<PickQueueEntry[]>('/sales/pick-queue', { token: salesToken });
+    const entry = queue.body.find((e) => e.documentId === bigId);
+    expect(entry).toMatchObject({ balanceQty: '100.000', balanceLines: 1, waitingOnRequirements: 0, fulfilment: 'open' });
+
+    const tooMany = await harness.post<ErrorBody>(`/sales/orders/${bigId}/packs`, {
+      token: salesToken,
+      body: { boxCount: 3, lines: [{ lineId, quantity: '120' }] },
+    });
+    expect(tooMany.status).toBe(400);
+    expect(tooMany.body.error.message).toContain('100.000 left to pack');
+
+    const packed = await harness.post<PackRecordView>(`/sales/orders/${bigId}/packs`, {
+      token: salesToken,
+      body: { boxCount: 3, comment: 'Only 60 on the shelf', lines: [{ lineId, quantity: '60', comment: 'short supply' }] },
+    });
+    expect(packed.status).toBe(201);
+    expect(packed.body.lines).toEqual([{ lineId, description: 'Cat6 cable 305m', quantity: '60.000', comment: 'short supply' }]);
+
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${bigId}`, { token: salesToken });
+    expect(order.body.lines[0]?.packedQty).toBe('60.000');
+    expect(order.body.fulfilment).toBe('awaiting_invoice');
+
+    // D-31: the 40 became a requirement carrying the order.
+    const requirement = await harness.db.execute<{ quantity: string; source: string; state: string }>(sql`
+      SELECT quantity::text, source, state FROM procurement_requirements WHERE org_id = ${ORG_ID} AND sales_order_line_id = ${lineId} AND deleted_at IS NULL
+    `);
+    expect(requirement.rows).toEqual([{ quantity: '40.000', source: 'shortage', state: 'open' }]);
+    const again = await harness.get<PickQueueEntry[]>('/sales/pick-queue', { token: salesToken });
+    expect(again.body.find((e) => e.documentId === bigId)).toMatchObject({ balanceQty: '40.000', waitingOnRequirements: 1, fulfilment: 'picking' });
+  });
+
+  it('the packed 60 sit on the awaiting-invoice queue; the accountant’s Sales voucher naming the order links itself and advances invoiced_qty', async () => {
+    const waiting = await harness.get<AwaitingInvoiceEntry[]>('/sales/awaiting-invoice', { token: salesToken });
+    const entry = waiting.body.find((e) => e.documentId === bigId);
+    expect(entry?.packedUninvoicedQty).toBe('60.000');
+    expect(entry?.waitingHours).toBe(0);
+
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${bigId}`, { token: salesToken });
+    // The pull brings a Sales voucher whose narration names the order (D-21).
+    const voucher = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, amount)
+      VALUES (${ORG_ID}, ${connectionId}, 'inv-1', 5, '2026-08-19', 'Sales', 'INV-0101', 'Asha Traders', ${partyId}, ${`Against ${order.body.number}`}, '240000.00') RETURNING id
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_name, stock_item_id, actual_qty, billed_qty, rate, amount)
+      VALUES (${ORG_ID}, ${voucher.rows[0]?.id ?? ''}, 1, 'inventory', 'Cat6 cable 305m', ${cableId}, '60 BOX', '60 BOX', '4000.00', '240000.00')
+    `);
+
+    const after = await harness.get<AwaitingInvoiceEntry[]>('/sales/awaiting-invoice', { token: salesToken });
+    expect(after.body.find((e) => e.documentId === bigId)).toBeUndefined();
+    const linked = await harness.get<SalesDocumentView>(`/sales/orders/${bigId}`, { token: salesToken });
+    expect(linked.body.lines[0]?.invoicedQty).toBe('60.000');
+    expect(linked.body.invoices.map((i) => [i.voucherNumber, i.method])).toEqual([['INV-0101', 'narration']]);
+    expect(linked.body.fulfilment).toBe('ready_to_dispatch');
+  });
+
+  it('an invoice naming nobody waits on the unlinked screen with the party’s open orders beside it, and links by hand', async () => {
+    const stray = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, amount)
+      VALUES (${ORG_ID}, ${connectionId}, 'inv-2', 6, '2026-08-19', 'Sales', 'INV-0102', 'Asha Traders', ${partyId}, 'no reference', '10.00') RETURNING id
+    `);
+    const unlinked = await harness.get<UnlinkedInvoice[]>('/sales/invoices/unlinked', { token: salesToken });
+    const entry = unlinked.body.find((u) => u.voucherNumber === 'INV-0102');
+    expect(entry).toBeDefined();
+    // Nothing packed-and-uninvoiced remains on the big order, so it is not offered as a candidate.
+    expect(entry?.candidateOrders.some((c) => c.documentId === bigId)).toBe(false);
+
+    // Pack the remaining 40 by hand (stock "arrived"), then link the stray invoice to cover it.
+    await harness.post(`/sales/orders/${bigId}/packs`, { token: salesToken, body: { lines: [{ lineId, quantity: '40' }] } });
+    const requirement = await harness.db.execute<{ state: string }>(sql`SELECT state FROM procurement_requirements WHERE sales_order_line_id = ${lineId}`);
+    expect(requirement.rows[0]?.state).toBe('closed');
+    const linked = await harness.post<SalesDocumentView>(`/sales/orders/${bigId}/link-invoice`, { token: salesToken, body: { voucherId: stray.rows[0]?.id } });
+    expect(linked.status).toBe(200);
+    // A voucher with no item lines covers everything packed and uninvoiced.
+    expect(linked.body.lines[0]?.invoicedQty).toBe('100.000');
+    expect(linked.body.invoices).toHaveLength(2);
+    expect(await harness.waitForAuditAction('sales.order.invoice_linked')).toBe(true);
+  });
+
+  it('short-close needs the alter key, records the reason, and closes the order’s open requirements', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', { token: salesToken, body: { partyId, lines: [{ stockItemId: cableId, quantity: '10', rate: '1' }] } });
+    await harness.post(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+    const line = created.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${created.body.id}/packs`, { token: salesToken, body: { lines: [{ lineId: line, quantity: '4' }] } });
+
+    const refused = await harness.post<ErrorBody>(`/sales/orders/${created.body.id}/short-close`, { token: salesToken, body: { reason: 'Customer cancelled the rest' } });
+    expect(refused.status).toBe(403);
+    const closed = await harness.post<SalesDocumentView>(`/sales/orders/${created.body.id}/short-close`, { token: managerToken, body: { reason: 'Customer cancelled the rest' } });
+    expect(closed.status).toBe(200);
+    expect(closed.body.fulfilment).toBe('short_closed');
+    expect(closed.body.shortCloseReason).toBe('Customer cancelled the rest');
+    const requirement = await harness.db.execute<{ state: string; closed_reason: string }>(sql`SELECT state, closed_reason FROM procurement_requirements WHERE sales_order_line_id = ${line}`);
+    expect(requirement.rows[0]?.state).toBe('closed');
+    const queue = await harness.get<PickQueueEntry[]>('/sales/pick-queue', { token: salesToken });
+    expect(queue.body.some((e) => e.documentId === created.body.id)).toBe(false);
   });
 });

@@ -3,7 +3,7 @@ import {
   DEFAULT_ESTIMATE_SORT,
   ESTIMATE_SORT_FIELDS,
   PERMISSIONS,
-  SALES_DOCUMENT_VOUCHER_TYPE,
+  PUSH_KIND_VOUCHER_TYPE,
   pageSlice,
   paginated,
   parseSort,
@@ -24,7 +24,7 @@ import { InjectDatabase, type Database, type Transaction } from '../../../platfo
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { PushOutcomeRegistry, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
-import { orgToday, resolveDocumentCustomer, resolveDocumentLines, resolveDocumentOwner } from '../estimates/document-support.js';
+import { orgToday, resolveDocumentCustomer, resolveDocumentLines, resolveDocumentOwner } from '../../../platform/documents/document-support.js';
 import { EstimateRepository, type EstimateHeaderInput } from '../estimates/estimate.repository.js';
 import { salesDocuments } from '../schema/index.js';
 
@@ -59,7 +59,7 @@ export class SalesOrderService implements OnModuleInit {
 
   onModuleInit(): void {
     this.pushOutcomes.register({
-      docType: DOC_TYPE,
+      kind: 'SALES_ORDER',
       onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, payload, outcome),
     });
   }
@@ -289,12 +289,10 @@ export class SalesOrderService implements OnModuleInit {
       await repository.setSync(order.id, { syncState: 'NOT_PUSHED', pushJobId: null });
       return false;
     }
-    const voucherType = SALES_DOCUMENT_VOUCHER_TYPE[DOC_TYPE];
-    if (voucherType === null) throw new Error('A sales order has a voucher type.');
     const payload: VoucherPushPayload = {
       documentId: order.id,
-      docType: DOC_TYPE,
-      voucherType,
+      kind: 'SALES_ORDER',
+      voucherType: PUSH_KIND_VOUCHER_TYPE.SALES_ORDER,
       reference: order.number,
       date: order.date,
       partyName: order.customerName,

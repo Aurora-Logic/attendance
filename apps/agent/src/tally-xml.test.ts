@@ -5,7 +5,7 @@ import { parseImportResponse, renderVoucherImportXml, tallyDate } from './tally-
 describe('the push wire format', () => {
   const payload = {
     documentId: '01900000-0000-7000-8000-00000000aa01',
-    docType: 'SALES_ORDER' as const,
+    kind: 'SALES_ORDER' as const,
     voucherType: 'Sales Order',
     reference: 'SO-0001',
     date: '2026-08-18',

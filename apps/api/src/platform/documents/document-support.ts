@@ -1,11 +1,11 @@
 import { DATA_SCOPES, type SalesLineInput } from '@vyuha/shared';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
-import { AppError } from '../../../platform/common/errors.js';
-import type { Database } from '../../../platform/db/db.provider.js';
-import { employees, organizations, parties, stockItems } from '../../../platform/db/schema/index.js';
-import type { Principal } from '../../../platform/rbac/principal.js';
-import type { ScopeGrants, ScopeService } from '../../../platform/rbac/scope.service.js';
+import { AppError } from '../common/errors.js';
+import type { Database } from '../db/db.provider.js';
+import { employees, organizations, parties, stockItems } from '../db/schema/index.js';
+import type { Principal } from '../rbac/principal.js';
+import type { ScopeGrants, ScopeService } from '../rbac/scope.service.js';
 
 /**
  * What every sales document shares before it becomes a particular one:

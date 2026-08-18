@@ -1,4 +1,5 @@
 import {
+  FULFILMENT_STATES,
   SALES_DOCUMENT_TYPE_PREFIX,
   type DocumentSyncState,
   type EstimateStatus,
@@ -107,6 +108,27 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       remoteVoucherNumber: salesDocuments.remoteVoucherNumber,
       lastPushedAt: salesDocuments.lastPushedAt,
       lastError: salesDocuments.lastError,
+      shortClosedAt: salesDocuments.shortClosedAt,
+      shortCloseReason: salesDocuments.shortCloseReason,
+      customerEmail: salesDocuments.customerEmail,
+      customerWhatsapp: salesDocuments.customerWhatsapp,
+      // REQ-AA-02/AA-03 (+ D-34): the word derived from the lines, here and
+      // nowhere else, so no column can disagree with them.
+      fulfilment: sql<string | null>`CASE
+        WHEN ${salesDocuments.docType} <> 'SALES_ORDER' THEN NULL
+        WHEN ${salesDocuments.shortClosedAt} IS NOT NULL THEN 'short_closed'
+        ELSE (
+          SELECT CASE
+            WHEN count(*) = 0 THEN 'open'
+            WHEN bool_and(l.dispatched_qty >= l.quantity) THEN 'closed'
+            WHEN sum(l.dispatched_qty) > 0 THEN 'partially_dispatched'
+            WHEN sum(l.invoiced_qty - l.dispatched_qty) > 0 THEN 'ready_to_dispatch'
+            WHEN sum(l.packed_qty - l.invoiced_qty) > 0 THEN 'awaiting_invoice'
+            WHEN sum(l.packed_qty) > 0 THEN 'picking'
+            ELSE 'open' END
+            FROM sales_document_lines l
+           WHERE l.document_id = ${salesDocuments.id} AND l.deleted_at IS NULL
+        ) END`,
       createdAt: salesDocuments.createdAt,
       updatedAt: salesDocuments.updatedAt,
     };
@@ -148,7 +170,27 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       .from(salesDocumentLines)
       .where(and(eq(salesDocumentLines.documentId, id), isNull(salesDocumentLines.deletedAt)))
       .orderBy(asc(salesDocumentLines.lineNo));
-    return { ...toSummary(row), lines: lines.map(toLineView) };
+    const invoices =
+      this.docType === 'SALES_ORDER'
+        ? await this.db.execute<{ voucher_id: string; voucher_number: string; voucher_date: string; amount: string; method: string; linked_at: Date }>(sql`
+            SELECT i.voucher_id, v.voucher_number, v.voucher_date, v.amount::text AS amount, i.method, i.linked_at
+              FROM sales_order_invoices i JOIN vouchers v ON v.id = i.voucher_id
+             WHERE i.document_id = ${id}
+             ORDER BY v.voucher_date, v.voucher_number
+          `)
+        : { rows: [] };
+    return {
+      ...toSummary(row),
+      lines: lines.map(toLineView),
+      invoices: invoices.rows.map((i) => ({
+        voucherId: i.voucher_id,
+        voucherNumber: i.voucher_number,
+        date: i.voucher_date,
+        amount: i.amount,
+        method: i.method === 'manual' ? 'manual' : 'narration',
+        linkedAt: new Date(i.linked_at).toISOString(),
+      })),
+    };
   }
 
   /**
@@ -423,6 +465,11 @@ interface HeaderRow {
   remoteVoucherNumber: string | null;
   lastPushedAt: Date | null;
   lastError: string | null;
+  shortClosedAt: Date | null;
+  shortCloseReason: string | null;
+  customerEmail: string | null;
+  customerWhatsapp: string | null;
+  fulfilment: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -453,6 +500,11 @@ function toSummary(row: HeaderRow): EstimateSummary {
     remoteVoucherNumber: row.remoteVoucherNumber,
     lastPushedAt: row.lastPushedAt === null ? null : row.lastPushedAt.toISOString(),
     lastError: row.lastError,
+    fulfilment: FULFILMENT_STATES.find((f) => f === row.fulfilment) ?? null,
+    shortClosedAt: row.shortClosedAt === null ? null : row.shortClosedAt.toISOString(),
+    shortCloseReason: row.shortCloseReason,
+    customerEmail: row.customerEmail,
+    customerWhatsapp: row.customerWhatsapp,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -471,5 +523,8 @@ function toLineView(row: typeof salesDocumentLines.$inferSelect): SalesLineView 
     taxPct: row.taxPct,
     amount: row.amount,
     taxAmount: row.taxAmount,
+    packedQty: row.packedQty,
+    invoicedQty: row.invoicedQty,
+    dispatchedQty: row.dispatchedQty,
   };
 }

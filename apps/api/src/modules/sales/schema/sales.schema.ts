@@ -1,7 +1,8 @@
-import { date, index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { check, date, index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { ALIVE, primaryId, standardColumns } from '../../../platform/db/columns.js';
-import { employees, organizations, parties, stockItems } from '../../../platform/db/schema/index.js';
+import { employees, files, organizations, parties, stockItems, vouchers } from '../../../platform/db/schema/index.js';
 
 /**
  * Sales documents (08 Area W). One table with a type discriminator, as
@@ -62,6 +63,12 @@ export const salesDocuments = pgTable(
     pushJobId: uuid('push_job_id'),
     lastPushedAt: timestamp('last_pushed_at', { withTimezone: true }),
     lastError: text('last_error'),
+    /** REQ-AA-05: the balance written off, by whom, why. Never silent. */
+    shortClosedAt: timestamp('short_closed_at', { withTimezone: true }),
+    shortCloseReason: text('short_close_reason'),
+    /** REQ-AA-28: from the party master where present, overridable per order. */
+    customerEmail: text('customer_email'),
+    customerWhatsapp: text('customer_whatsapp'),
     ...standardColumns(),
   },
   (t) => [
@@ -95,10 +102,20 @@ export const salesDocumentLines = pgTable(
     taxPct: numeric('tax_pct', { precision: 5, scale: 2 }).notNull().default('0'),
     amount: numeric('amount', { precision: 16, scale: 2 }).notNull(),
     taxAmount: numeric('tax_amount', { precision: 16, scale: 2 }).notNull().default('0'),
+    /**
+     * REQ-AA-01/AA-04: quantities are the state, and the chain is a database
+     * constraint, not code. `quantity` is the ordered quantity.
+     */
+    packedQty: numeric('packed_qty', { precision: 16, scale: 3 }).notNull().default('0'),
+    invoicedQty: numeric('invoiced_qty', { precision: 16, scale: 3 }).notNull().default('0'),
+    dispatchedQty: numeric('dispatched_qty', { precision: 16, scale: 3 }).notNull().default('0'),
     ...standardColumns(),
   },
   (t) => [
     uniqueIndex('sales_document_lines_doc_line_uq').on(t.documentId, t.lineNo),
+    check('sales_document_lines_packed_le_ordered', sql`packed_qty >= 0 AND packed_qty <= quantity`),
+    check('sales_document_lines_invoiced_le_packed', sql`invoiced_qty >= 0 AND invoiced_qty <= packed_qty`),
+    check('sales_document_lines_dispatched_le_invoiced', sql`dispatched_qty >= 0 AND dispatched_qty <= invoiced_qty`),
     // REQ-W-02: what was quoted for this item, by document.
     index('sales_document_lines_org_item_idx').on(t.orgId, t.stockItemId).where(ALIVE),
   ],
@@ -121,4 +138,171 @@ export const salesDocumentSequences = pgTable(
     lastNumber: integer('last_number').notNull().default(0),
   },
   (t) => [uniqueIndex('sales_document_sequences_uq').on(t.orgId, t.docType)],
+);
+
+
+/** REQ-AA-09: one packing session on one order; several across days are normal. */
+export const packRecords = pgTable(
+  'pack_records',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => salesDocuments.id, { onDelete: 'cascade' }),
+    boxCount: integer('box_count').notNull().default(1),
+    packedBy: uuid('packed_by').references(() => employees.id, { onDelete: 'restrict' }),
+    packedAt: timestamp('packed_at', { withTimezone: true }).notNull().defaultNow(),
+    comment: text('comment'),
+    ...standardColumns(),
+  },
+  (t) => [index('pack_records_org_document_idx').on(t.orgId, t.documentId)],
+);
+
+export const packRecordLines = pgTable(
+  'pack_record_lines',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    packRecordId: uuid('pack_record_id')
+      .notNull()
+      .references(() => packRecords.id, { onDelete: 'cascade' }),
+    lineId: uuid('line_id')
+      .notNull()
+      .references(() => salesDocumentLines.id, { onDelete: 'cascade' }),
+    quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull(),
+    comment: text('comment'),
+    ...standardColumns(),
+  },
+  (t) => [index('pack_record_lines_line_idx').on(t.lineId), check('pack_record_lines_qty_positive', sql`quantity > 0`)],
+);
+
+/**
+ * REQ-AA-12/AA-13: the invoice Tally raised, linked to the order — by the
+ * order number in the narration (D-21) or by a person. One voucher links to
+ * one order; the unlinked ones are a screen, never a guess.
+ */
+export const salesOrderInvoices = pgTable(
+  'sales_order_invoices',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => salesDocuments.id, { onDelete: 'cascade' }),
+    voucherId: uuid('voucher_id')
+      .notNull()
+      .references(() => vouchers.id, { onDelete: 'cascade' }),
+    method: text('method').notNull(),
+    linkedBy: uuid('linked_by'),
+    linkedAt: timestamp('linked_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('sales_order_invoices_voucher_uq').on(t.voucherId), index('sales_order_invoices_document_idx').on(t.documentId)],
+);
+
+export const dispatchModeEnum = pgEnum('dispatch_mode', ['local_auto', 'local_own_vehicle', 'outstation']);
+
+/** REQ-AA-16: a dispatch is its own record; one order may have many. Pushes as a Delivery Note (REQ-AA-22). */
+export const dispatches = pgTable(
+  'dispatches',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => salesDocuments.id, { onDelete: 'restrict' }),
+    number: text('number').notNull(),
+    mode: dispatchModeEnum('mode').notNull(),
+    dispatchedBy: uuid('dispatched_by').references(() => employees.id, { onDelete: 'restrict' }),
+    dispatchedAt: timestamp('dispatched_at', { withTimezone: true }).notNull().defaultNow(),
+    lrNumber: text('lr_number'),
+    transporterName: text('transporter_name'),
+    transporterContact: text('transporter_contact'),
+    vehicleNumber: text('vehicle_number'),
+    driverName: text('driver_name'),
+    expectedDeliveryDate: date('expected_delivery_date', { mode: 'string' }),
+    notes: text('notes'),
+    syncState: documentSyncStateEnum('sync_state').notNull().default('NOT_PUSHED'),
+    remoteGuid: text('remote_guid'),
+    remoteVoucherNumber: text('remote_voucher_number'),
+    pushJobId: uuid('push_job_id'),
+    lastPushedAt: timestamp('last_pushed_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    ...standardColumns(),
+  },
+  (t) => [
+    uniqueIndex('dispatches_org_number_uq').on(t.orgId, t.number),
+    index('dispatches_org_document_idx').on(t.orgId, t.documentId),
+    index('dispatches_org_sync_idx').on(t.orgId, t.syncState).where(ALIVE),
+  ],
+);
+
+export const dispatchLines = pgTable(
+  'dispatch_lines',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    dispatchId: uuid('dispatch_id')
+      .notNull()
+      .references(() => dispatches.id, { onDelete: 'cascade' }),
+    lineId: uuid('line_id')
+      .notNull()
+      .references(() => salesDocumentLines.id, { onDelete: 'restrict' }),
+    quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull(),
+    ...standardColumns(),
+  },
+  (t) => [index('dispatch_lines_dispatch_idx').on(t.dispatchId), check('dispatch_lines_qty_positive', sql`quantity > 0`)],
+);
+
+/** REQ-AA-20: through the existing files pipeline; `kind` says which photograph. */
+export const dispatchAttachments = pgTable(
+  'dispatch_attachments',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    dispatchId: uuid('dispatch_id')
+      .notNull()
+      .references(() => dispatches.id, { onDelete: 'cascade' }),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'restrict' }),
+    kind: text('kind').notNull(),
+    ...standardColumns(),
+  },
+  (t) => [index('dispatch_attachments_dispatch_idx').on(t.dispatchId)],
+);
+
+/** REQ-AA-26/AA-27: every notification attempt, `manual` first, recorded from day one. */
+export const dispatchNotifications = pgTable(
+  'dispatch_notifications',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    dispatchId: uuid('dispatch_id')
+      .notNull()
+      .references(() => dispatches.id, { onDelete: 'cascade' }),
+    channel: text('channel').notNull(),
+    recipient: text('recipient'),
+    status: text('status').notNull(),
+    composedText: text('composed_text').notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    sentBy: uuid('sent_by'),
+    error: text('error'),
+    ...standardColumns(),
+  },
+  (t) => [index('dispatch_notifications_dispatch_idx').on(t.dispatchId)],
 );

@@ -427,7 +427,7 @@ export class SyncWriterService {
         (org_id, connection_id, direction, entity_type, request_hash, response_hash,
          request_body, response_body, result, duration_ms)
       VALUES
-        (${agent.orgId}, ${agent.connectionId}, 'PUSH', ${payload.docType},
+        (${agent.orgId}, ${agent.connectionId}, 'PUSH', ${payload.kind},
          ${input.requestHash}, ${input.responseHash},
          ${input.requestBody ?? null}, ${input.responseBody ?? null},
          ${outcome.outcome === 'rejected' ? `rejected: ${outcome.errorText ?? ''}` : `${outcome.outcome}: ${outcome.remoteGuid ?? ''}`},
@@ -439,7 +439,7 @@ export class SyncWriterService {
       // REQ-T-01: Tally's verbatim words, against the document, for a person.
       await tx.execute(sql`
         INSERT INTO sync_exceptions (org_id, connection_id, kind, entity_type, entity_id, tally_error)
-        VALUES (${agent.orgId}, ${agent.connectionId}, 'REJECTION', ${payload.docType}, ${payload.documentId},
+        VALUES (${agent.orgId}, ${agent.connectionId}, 'REJECTION', ${payload.kind}, ${payload.documentId},
                 ${`${payload.reference}: ${outcome.errorText ?? ''}`})
       `);
     } else {
@@ -449,7 +449,7 @@ export class SyncWriterService {
           (org_id, system, entity_type, external_guid, internal_type, internal_id, connection_id,
            remote_voucher_number, remote_voucher_type, sync_state, idempotency_key, last_pushed_at)
         VALUES
-          (${agent.orgId}, 'TALLY', 'voucher', ${outcome.remoteGuid}, ${payload.docType}, ${payload.documentId},
+          (${agent.orgId}, 'TALLY', 'voucher', ${outcome.remoteGuid}, ${payload.kind}, ${payload.documentId},
            ${agent.connectionId}, ${outcome.remoteVoucherNumber}, ${payload.voucherType}, 'pushed', ${payload.idempotencyKey}, now())
         ON CONFLICT (org_id, system, internal_type, internal_id) WHERE deleted_at IS NULL
         DO UPDATE SET external_guid = EXCLUDED.external_guid,
@@ -462,9 +462,9 @@ export class SyncWriterService {
       `);
     }
 
-    const handler = this.pushOutcomes.find(payload.docType);
+    const handler = this.pushOutcomes.find(payload.kind);
     if (handler === null) {
-      throw AppError.conflict(`No module handles push outcomes for ${payload.docType}.`);
+      throw AppError.conflict(`No module handles push outcomes for ${payload.kind}.`);
     }
     await handler.onOutcome(tx, agent.orgId, payload, outcome);
   }

@@ -26,7 +26,8 @@ import { InjectDatabase, type Database } from '../../../platform/db/db.provider.
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { salesDocuments } from '../schema/index.js';
-import { orgToday, resolveDocumentCustomer, resolveDocumentLines, resolveDocumentOwner } from './document-support.js';
+import { orgToday, resolveDocumentCustomer, resolveDocumentLines, resolveDocumentOwner } from '../../../platform/documents/document-support.js';
+import { StockAvailabilityService } from '../../../platform/documents/stock-availability.service.js';
 import { EstimateRepository, type EstimateHeaderInput } from './estimate.repository.js';
 
 /**
@@ -56,6 +57,7 @@ export class EstimateService {
     @InjectDatabase() private readonly db: Database,
     private readonly auditContext: AuditContext,
     private readonly scopes: ScopeService,
+    private readonly availability: StockAvailabilityService,
   ) {}
 
   async list(principal: Principal, query: EstimateListQuery): Promise<Paginated<EstimateSummary>> {
@@ -206,7 +208,9 @@ export class EstimateService {
       limit: query.limit,
     });
     if (history === null) throw AppError.notFound('Stock item', query.stockItemId);
-    return history;
+    // REQ-AC-08: the other fact a salesperson needs at the same instant.
+    const availability = await this.availability.forItem(principal.orgId, query.stockItemId);
+    return { ...history, availability };
   }
 
   // ---------------------------------------------------------------- helpers

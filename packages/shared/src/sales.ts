@@ -121,7 +121,27 @@ export interface SalesLineView {
   readonly amount: string;
   /** amount × tax, exact. */
   readonly taxAmount: string;
+  /** REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate. */
+  readonly packedQty: string;
+  readonly invoicedQty: string;
+  readonly dispatchedQty: string;
 }
+
+/**
+ * REQ-AA-02/AA-03 (+ D-34): derived from the line quantities, never stored.
+ * The word summarises; the numbers beside it are what count.
+ */
+export const FULFILMENT_STATES = ['open', 'picking', 'awaiting_invoice', 'ready_to_dispatch', 'partially_dispatched', 'closed', 'short_closed'] as const;
+export type FulfilmentState = (typeof FULFILMENT_STATES)[number];
+export const FULFILMENT_STATE_LABELS: Record<FulfilmentState, string> = {
+  open: 'Open',
+  picking: 'Picking',
+  awaiting_invoice: 'Awaiting invoice',
+  ready_to_dispatch: 'Ready to dispatch',
+  partially_dispatched: 'Partially dispatched',
+  closed: 'Closed',
+  short_closed: 'Short-closed',
+};
 
 /** Every status a document row may carry; which apply is decided by `docType`. */
 export type SalesDocumentStatus = EstimateStatus | SalesOrderStatus;
@@ -157,13 +177,31 @@ export interface EstimateView {
   readonly lastPushedAt: string | null;
   /** Tally's verbatim words when the push was rejected (REQ-T-01). */
   readonly lastError: string | null;
+  /** Orders only (null on an estimate): the derived fulfilment word. */
+  readonly fulfilment: FulfilmentState | null;
+  readonly shortClosedAt: string | null;
+  readonly shortCloseReason: string | null;
+  /** REQ-AA-28: where the customer is told, overridable per order. */
+  readonly customerEmail: string | null;
+  readonly customerWhatsapp: string | null;
   readonly lines: readonly SalesLineView[];
+  /** Orders only: the invoices Tally raised against it (REQ-AA-12). */
+  readonly invoices: readonly OrderInvoiceView[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
+export interface OrderInvoiceView {
+  readonly voucherId: string;
+  readonly voucherNumber: string;
+  readonly date: string;
+  readonly amount: string;
+  readonly method: 'narration' | 'manual';
+  readonly linkedAt: string;
+}
+
 /** The list row: the header without its lines. */
-export type EstimateSummary = Omit<EstimateView, 'lines'>;
+export type EstimateSummary = Omit<EstimateView, 'lines' | 'invoices'>;
 
 /** A sales order is the same shape; the type says which life it leads. */
 export type SalesDocumentView = EstimateView;
@@ -254,6 +292,8 @@ export interface ItemHistoryEntry {
 export interface ItemHistoryView {
   readonly stockItemName: string;
   readonly currentSalePrice: string | null;
+  /** REQ-AC-08: the other fact a salesperson needs at the same instant. */
+  readonly availability: StockAvailability | null;
   readonly entries: readonly ItemHistoryEntry[];
   /** REQ-Y-07 in miniature: how fresh the voucher side is. */
   readonly vouchersAsOf: string | null;
@@ -315,9 +355,22 @@ export type ConvertEstimateInput = z.infer<typeof convertEstimateSchema>;
  * pull path. `idempotencyKey` travels in the voucher's narration, and is
  * what the agent queries Tally for before any retry.
  */
+/**
+ * Everything that pushes (D-37). One outcome handler per kind; every pushed
+ * record carries the same sync-state columns and the same Alter semantics.
+ */
+export const PUSH_KINDS = ['SALES_ORDER', 'DELIVERY_NOTE', 'PURCHASE_ORDER', 'RECEIPT_NOTE'] as const;
+export type PushKind = (typeof PUSH_KINDS)[number];
+export const PUSH_KIND_VOUCHER_TYPE: Record<PushKind, string> = {
+  SALES_ORDER: 'Sales Order',
+  DELIVERY_NOTE: 'Delivery Note',
+  PURCHASE_ORDER: 'Purchase Order',
+  RECEIPT_NOTE: 'Receipt Note',
+};
+
 export const voucherPushPayloadSchema = z.object({
   documentId: z.uuid(),
-  docType: z.enum(SALES_DOCUMENT_TYPES),
+  kind: z.enum(PUSH_KINDS),
   voucherType: z.string().min(1).max(60),
   /** Vyuha's document number, carried as the voucher's reference. */
   reference: z.string().min(1).max(60),
@@ -339,3 +392,81 @@ export const voucherPushPayloadSchema = z.object({
   ).min(1),
 });
 export type VoucherPushPayload = z.infer<typeof voucherPushPayloadSchema>;
+
+
+// ------------------------------------------------------- pick, pack, invoice
+
+const qtyText = z.string().trim().regex(/^\d{1,12}(\.\d{1,3})?$/u, 'a quantity with up to three decimals');
+
+/** REQ-AA-06/AA-07/AA-08/AA-09: one packing session. Lines not named are untouched. */
+export const createPackRecordSchema = z.object({
+  boxCount: z.number().int().min(1).max(999).default(1),
+  comment: z.string().trim().max(2000).nullish(),
+  lines: z.array(z.object({ lineId: z.uuid(), quantity: qtyText, comment: z.string().trim().max(1000).nullish() })).min(1).max(200),
+});
+export type CreatePackRecordInput = z.infer<typeof createPackRecordSchema>;
+
+export interface PackRecordView {
+  readonly id: string;
+  readonly documentId: string;
+  readonly boxCount: number;
+  readonly packedById: string | null;
+  readonly packedByName: string | null;
+  readonly packedAt: string;
+  readonly comment: string | null;
+  readonly lines: readonly { lineId: string; description: string; quantity: string; comment: string | null }[];
+}
+
+/** REQ-AA-06: an open order with something left to pack, as the picker sees it. */
+export interface PickQueueEntry {
+  readonly documentId: string;
+  readonly number: string;
+  readonly customerName: string;
+  readonly date: string;
+  readonly fulfilment: FulfilmentState;
+  readonly balanceLines: number;
+  readonly balanceQty: string;
+  /** REQ-X-26: what it waits on, when a shortage requirement is open. */
+  readonly waitingOnRequirements: number;
+}
+
+/** REQ-AA-11/AA-15: packed, uninvoiced, and for how long. */
+export interface AwaitingInvoiceEntry {
+  readonly documentId: string;
+  readonly number: string;
+  readonly customerName: string;
+  readonly packedUninvoicedQty: string;
+  readonly waitingSince: string;
+  readonly waitingHours: number;
+}
+
+/** REQ-AA-13: a Sales voucher with a party and no order behind it. */
+export interface UnlinkedInvoice {
+  readonly voucherId: string;
+  readonly voucherNumber: string;
+  readonly date: string;
+  readonly partyId: string | null;
+  readonly partyName: string;
+  readonly amount: string;
+  readonly narration: string | null;
+  /** Open orders for the same party, for the manual link. */
+  readonly candidateOrders: readonly { documentId: string; number: string; date: string; grandTotal: string }[];
+}
+
+export const linkInvoiceSchema = z.object({ voucherId: z.uuid() });
+export type LinkInvoiceInput = z.infer<typeof linkInvoiceSchema>;
+
+export const shortCloseSchema = z.object({ reason: z.string().trim().min(3).max(1000) });
+export type ShortCloseInput = z.infer<typeof shortCloseSchema>;
+
+/** REQ-AC-04: available = Tally closing − committed, with the pull it rests on (REQ-AC-05). */
+export interface StockAvailability {
+  readonly stockItemId: string;
+  readonly closingQty: string | null;
+  readonly committedQty: string;
+  readonly availableQty: string | null;
+  readonly openPoQty: string;
+  readonly reorderLevel: string | null;
+  readonly minimumOrderQty: string | null;
+  readonly asOf: string | null;
+}
