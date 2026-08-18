@@ -13,6 +13,8 @@ import {
 import {
   PERMISSIONS,
   isReportKey,
+  pageSlice,
+  paginated,
   type ExportDownload,
   type ExportJobSummary,
   type Paginated,
@@ -22,9 +24,9 @@ import {
   type SavedView,
 } from '@vyuha/shared';
 
-import { AppError } from '../../../platform/common/errors.js';
-import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js';
-import { RequirePermission } from '../../../platform/rbac/route-policy.js';
+import { AppError } from '../common/errors.js';
+import { CurrentUser, type Principal } from '../rbac/principal.js';
+import { RequirePermission } from '../rbac/route-policy.js';
 import { ExportService } from './export.service.js';
 import {
   ExportListQueryDto,
@@ -34,17 +36,24 @@ import {
   SavedViewInputDto,
   SavedViewQueryDto,
   SchedulePauseDto,
-} from '../../../platform/export/report.dto.js';
-import { ReportService, type ReportRow } from './report.service.js';
-import { SavedViewService } from '../../../platform/export/saved-view.service.js';
+} from './report.dto.js';
+import { ReportSourceRegistry } from './report-source.registry.js';
+import { SavedViewService } from './saved-view.service.js';
 import { ScheduleService } from './schedule.service.js';
 
 /**
  * `/api/v1/reports` (REQ-J-01 … REQ-J-06).
  *
  * CLAUDE.md §6: controllers validate and delegate. Nothing here decides which
- * rows a caller may see -- that is `ScopeService`, applied in the service --
- * and nothing here formats a file.
+ * rows a caller may see -- that is `ScopeService`, applied inside whichever
+ * module registered the report -- and nothing here formats a file.
+ *
+ * The rows themselves come from `ReportSourceRegistry` (REQ-P-02), which is
+ * what makes this one controller the report shell for every module: a
+ * receivables report registered in Phase 6d is served by these same routes,
+ * and this file does not change. The row payload is therefore `unknown` to
+ * the type system here — its shape is the registering module's contract with
+ * the client, carried in `@vyuha/shared`, not this controller's business.
  *
  * The permission split follows the brief exactly: `report.view` reads,
  * `report.export` produces and downloads files. They are separate keys because
@@ -55,7 +64,7 @@ import { ScheduleService } from './schedule.service.js';
 @Controller('reports')
 export class ReportController {
   constructor(
-    private readonly reports: ReportService,
+    private readonly sources: ReportSourceRegistry,
     private readonly exports: ExportService,
     private readonly views: SavedViewService,
     private readonly schedules: ScheduleService,
@@ -70,7 +79,7 @@ export class ReportController {
   @Get()
   @RequirePermission(PERMISSIONS.REPORT_VIEW)
   catalogue(@CurrentUser() principal: Principal): { data: readonly ReportDefinition[] } {
-    return { data: this.reports.catalogue(principal) };
+    return { data: this.sources.catalogue(principal) };
   }
 
   // ------------------------------------------------------------ saved views
@@ -196,12 +205,21 @@ export class ReportController {
 
   @Get(':reportKey/rows')
   @RequirePermission(PERMISSIONS.REPORT_VIEW)
-  rows(
+  async rows(
     @CurrentUser() principal: Principal,
     @Param('reportKey') reportKey: string,
     @Query() query: ReportRowQueryDto,
-  ): Promise<Paginated<ReportRow>> {
-    return this.reports.list(principal, requireReportKey(reportKey), query);
+  ): Promise<Paginated<unknown>> {
+    const key = requireReportKey(reportKey);
+    const source = this.sources.require(key);
+    // The contract promises a source its filters arrive asserted and
+    // narrowed. Attendance happens to re-assert inside page(); the first
+    // source written to the interface literally would otherwise serve
+    // un-narrowed reads while the export path correctly refused them.
+    const filters = source.assertFiltersUsable(key, query);
+    const { limit, offset } = pageSlice(query);
+    const page = await source.page(principal, key, { ...filters, sort: query.sort }, limit, offset);
+    return paginated<unknown>([...page.rows], query, page.total);
   }
 }
 

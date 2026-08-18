@@ -1,9 +1,7 @@
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
-
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 
+import { loadDotEnvFiles } from '../src/platform/common/dotenv.js';
 import { runSeed, type AdminEmployeeLink, type SeedReport } from './seed.js';
 
 /**
@@ -28,16 +26,7 @@ const FORCE_FLAG = '--force';
 const EXAMPLE_PEOPLE_FLAG = '--with-example-people';
 
 async function main(): Promise<void> {
-  const envCandidates = [
-    resolve(process.cwd(), '.env'),
-    resolve(process.cwd(), '../../.env'),
-  ];
-  for (const envPath of envCandidates) {
-    if (existsSync(envPath)) {
-      try { process.loadEnvFile(envPath); } catch {}
-    }
-  }
-
+  loadDotEnvFiles();
 
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {

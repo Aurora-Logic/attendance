@@ -13,7 +13,7 @@ import { PERMISSIONS, type EmployeeAccess } from '@vyuha/shared';
 
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
-import { AssignRoleDto, RevokeRoleDto } from './employee-access.dto.js';
+import { AssignRoleDto, RevokeRoleDto, SetCredentialsDto } from './employee-access.dto.js';
 import { EmployeeAccessService } from './employee-access.service.js';
 
 /**
@@ -42,6 +42,21 @@ export class EmployeeAccessController {
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
   ): Promise<EmployeeAccess> {
     return this.access.read(principal, employeeId);
+  }
+
+  /**
+   * Direct credential provisioning and password reset for an employee.
+   * Gated on `employee.manage` (HR/Admin).
+   */
+  @Post('credentials')
+  @RequirePermission(PERMISSIONS.EMPLOYEE_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  setCredentials(
+    @CurrentUser() principal: Principal,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Body() body: SetCredentialsDto,
+  ): Promise<EmployeeAccess> {
+    return this.access.setCredentials(principal, employeeId, body);
   }
 
   /**

@@ -134,6 +134,55 @@
       "when": 1786626000000,
       "tag": "0018_report_schedules",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786888126878,
+      "tag": "0019_sync_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786890478408,
+      "tag": "0020_agent_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786891051507,
+      "tag": "0021_parties_projection",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786891718703,
+      "tag": "0022_one_open_pull",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786895763768,
+      "tag": "0023_sync_exceptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786896756231,
+      "tag": "0024_stale_notified",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786897801463,
+      "tag": "0025_stock_projections",
+      "breakpoints": true
     }
   ]
 }

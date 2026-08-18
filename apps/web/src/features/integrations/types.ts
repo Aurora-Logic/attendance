@@ -1,4 +1,11 @@
-import { INTEGRATION_STATUSES, INTEGRATION_SYSTEMS, type IntegrationStatus } from '@vyuha/shared';
+import {
+  AGENT_CONDITIONS,
+  INTEGRATION_STATUSES,
+  INTEGRATION_SYSTEMS,
+  SYNC_EXCEPTION_KINDS,
+  SYNC_EXCEPTION_STATES,
+  type IntegrationStatus,
+} from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -19,6 +26,10 @@ export const integrationConnectionSchema = z.object({
   lastHeartbeatAt: z.string().nullable(),
   /** True when a token has been issued, never the token itself. */
   tokenIssued: z.boolean(),
+  /** Which Tally company this connection is bound to (REQ-Q-03). */
+  companyName: z.string().nullable(),
+  /** REQ-Q-05: the specific problem the last heartbeat carried, so ERROR names its fix. */
+  lastCondition: z.enum(AGENT_CONDITIONS).nullable(),
 });
 
 export type IntegrationConnection = z.infer<typeof integrationConnectionSchema>;
@@ -34,6 +45,27 @@ export const integrationsResponseSchema = z.object({
 });
 
 export type IntegrationsResponse = z.infer<typeof integrationsResponseSchema>;
+
+/** `GET /integrations/exceptions` (REQ-T-01), as this screen reads it. */
+export const syncExceptionSchema = z.object({
+  id: z.string(),
+  connectionId: z.string(),
+  connectionName: z.string(),
+  kind: z.enum(SYNC_EXCEPTION_KINDS),
+  entityType: z.string().nullable(),
+  /** Tally's verbatim words — shown as-is, never paraphrased. */
+  tallyError: z.string(),
+  state: z.enum(SYNC_EXCEPTION_STATES),
+  createdAt: z.string(),
+  resolvedAt: z.string().nullable(),
+  resolutionNote: z.string().nullable(),
+});
+
+export type SyncException = z.infer<typeof syncExceptionSchema>;
+
+export const syncExceptionsResponseSchema = z.object({
+  data: z.array(syncExceptionSchema),
+});
 
 export const STATUS_LABELS: Record<IntegrationStatus, string> = {
   DISCONNECTED: 'Never connected',
@@ -78,6 +110,18 @@ export function statusExplanation(
     case 'STALE':
       return `Nothing has been heard for over ${String(staleAfterMinutes)} minutes. The agent may be stopped, or the machine running Tally may be off.`;
     case 'ERROR':
-      return 'The agent reported a failure on its last exchange. That is kept even after it goes quiet, because it says more than a missing heartbeat does.';
+      return CONDITION_EXPLANATIONS[connection.lastCondition ?? 'OK'];
   }
 }
+
+/**
+ * REQ-Q-05 on screen: the condition names the fix, because "Tally is not
+ * running" and "the wrong company is open" send the person walking to that
+ * machine with different instructions.
+ */
+const CONDITION_EXPLANATIONS = {
+  OK: 'The agent reported a failure on its last exchange. That is kept even after it goes quiet, because it says more than a missing heartbeat does.',
+  TALLY_NOT_RUNNING: 'Tally is not running on the agent machine. Start TallyPrime there; the agent reconnects on its own.',
+  WRONG_COMPANY_OPEN: 'Tally is running with the wrong company open. Open the company this connection is bound to; no job runs against the wrong books.',
+  LICENCE_LAPSED: 'The Tally licence has lapsed on that machine. Sync waits until it is renewed.',
+} as const;

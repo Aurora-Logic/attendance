@@ -1,8 +1,9 @@
-import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
+import { APPROVAL_SUBJECT_KEYS, PERMISSIONS, type PermissionKey } from '@vyuha/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
   ApprovalSubjectRegistry,
+  type ApprovalKeyCatalogue,
   type ApprovalSubjectHandler,
 } from './approval-subject.registry.js';
 
@@ -31,6 +32,24 @@ import {
  */
 const SALES_DISCOUNT_APPROVE = 'sales.discount.approve' as PermissionKey;
 const SALES_MANAGER_OVERRIDE = 'sales.credit.override' as PermissionKey;
+const SALES_DOCUMENT_CREATE = 'sales.document.create' as PermissionKey;
+
+/**
+ * The world as Phase 8 will make it: the shared catalogue plus the sales
+ * subject's declaration. Registering a subject now takes both halves — the
+ * declaration here and the handler below — and the registry is what holds
+ * them to each other, so the fixture declares the way the real module will
+ * rather than being exempt from the rule under test.
+ */
+const WITH_SALES_DECLARED: ApprovalKeyCatalogue = {
+  ...(APPROVAL_SUBJECT_KEYS as ApprovalKeyCatalogue),
+  sales_discount: {
+    act: [SALES_DISCOUNT_APPROVE],
+    override: [SALES_MANAGER_OVERRIDE],
+    raise: [SALES_DOCUMENT_CREATE],
+    scope: {},
+  },
+};
 
 /** Everything attendance would have supplied as a fallback. */
 const ATTENDANCE_KEYS: readonly PermissionKey[] = [
@@ -73,7 +92,7 @@ function withAttendance(registry: ApprovalSubjectRegistry): ApprovalSubjectRegis
 
 describe('ApprovalSubjectRegistry, as the single source of deciding permissions', () => {
   it('gives a non-attendance subject only the keys it declared', () => {
-    const registry = withAttendance(new ApprovalSubjectRegistry());
+    const registry = withAttendance(new ApprovalSubjectRegistry(WITH_SALES_DECLARED));
     registry.register(
       handler('sales_discount', [SALES_DISCOUNT_APPROVE], [SALES_MANAGER_OVERRIDE]),
     );
@@ -134,7 +153,7 @@ describe('ApprovalSubjectRegistry, as the single source of deciding permissions'
   });
 
   it('escalates to the keys handlers declare, not to a fixed attendance key', () => {
-    const registry = withAttendance(new ApprovalSubjectRegistry());
+    const registry = withAttendance(new ApprovalSubjectRegistry(WITH_SALES_DECLARED));
     expect(registry.orgWidePermissions()).toEqual([PERMISSIONS.LEAVE_APPROVE_ALL]);
 
     registry.register(handler('sales_discount', [SALES_DISCOUNT_APPROVE], [SALES_MANAGER_OVERRIDE]));
@@ -161,5 +180,31 @@ describe('ApprovalSubjectRegistry, as the single source of deciding permissions'
     expect(() => {
       registry.register(handler('leave_request', [SALES_DISCOUNT_APPROVE]));
     }).toThrow(/already has a handler/);
+  });
+
+  it('admits an undeclared subject, because the set is open and probes are legitimate', () => {
+    // Deliberate asymmetry with the case below: an undeclared subject only
+    // hurts itself — the guards never heard of its keys, so its approvers
+    // answer 403 and its first endpoint test says so. A *declared* subject
+    // disagreeing with its declaration is the silent two-layer drift that
+    // must refuse.
+    const registry = new ApprovalSubjectRegistry();
+    registry.register(handler('framework_probe', [SALES_DISCOUNT_APPROVE]));
+    expect(registry.get('framework_probe')).not.toBeNull();
+  });
+
+  it('refuses a handler whose keys disagree with its declaration', () => {
+    // Hand-written keys that drifted from the catalogue: the guard would
+    // admit one set and the per-request narrowing another. Both directions
+    // refuse — the wrong key and the missing override alike.
+    const registry = new ApprovalSubjectRegistry(WITH_SALES_DECLARED);
+    expect(() => {
+      registry.register(
+        handler('sales_discount', [PERMISSIONS.REGULARIZATION_APPROVE], [SALES_MANAGER_OVERRIDE]),
+      );
+    }).toThrow(/declares act keys/);
+    expect(() => {
+      registry.register(handler('sales_discount', [SALES_DISCOUNT_APPROVE], []));
+    }).toThrow(/declares override keys/);
   });
 });

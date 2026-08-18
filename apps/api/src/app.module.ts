@@ -14,11 +14,13 @@ import { pinoParams } from './platform/common/logging.js';
 import { RequestIdMiddleware } from './platform/common/request-id.middleware.js';
 import { ZodValidationPipe } from './platform/common/zod-validation.pipe.js';
 import { DbModule } from './platform/db/db.module.js';
+import { ExportModule } from './platform/export/export.module.js';
 import { FileModule } from './platform/files/file.module.js';
 import { HealthModule } from './platform/health/health.module.js';
 import { IntegrationModule } from './platform/integration/integration.module.js';
 import { JobsModule } from './platform/jobs/jobs.module.js';
 import { MailModule } from './platform/mail/mail.module.js';
+import { MastersModule } from './platform/masters/masters.module.js';
 import { NotificationsModule } from './platform/notifications/notifications.module.js';
 import { OrgModule } from './platform/org/org.module.js';
 import { PeopleModule } from './platform/people/people.module.js';
@@ -26,7 +28,9 @@ import { AccessGuard } from './platform/rbac/access.guard.js';
 import { RbacModule } from './platform/rbac/rbac.module.js';
 import { RecycleBinModule } from './platform/recycle-bin/recycle-bin.module.js';
 import { RedisModule } from './platform/redis/redis.module.js';
+import { SearchModule } from './platform/search/search.module.js';
 import { SettingsModule } from './platform/settings/settings.module.js';
+import { SyncModule } from './platform/sync/sync.module.js';
 import { StorageModule } from './platform/storage/storage.module.js';
 
 /**
@@ -64,8 +68,16 @@ import { StorageModule } from './platform/storage/storage.module.js';
     AuthModule,
     ConsentModule,
     OrgModule,
+    // Before PeopleModule, whose employee source registers into it on init.
+    SearchModule,
+    // Before AttendanceModule, whose report source registers into it on init.
+    ExportModule,
+    MastersModule,
     PeopleModule,
     SettingsModule,
+    // Before IntegrationModule, whose token issuance mints through it, and
+    // reachable by AccessGuard, which resolves agent credentials through it.
+    SyncModule,
     IntegrationModule,
     HealthModule,
     // The first `modules/` entry. Everything above it is the shared kernel;

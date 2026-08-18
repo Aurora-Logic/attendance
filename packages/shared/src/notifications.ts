@@ -36,6 +36,9 @@ export const NOTIFICATION_EVENTS = {
 
   PERIOD_LOCKED: 'period.locked',
   PERIOD_UNLOCKED: 'period.unlocked',
+
+  SYNC_AGENT_STALE: 'sync.agent_stale',
+  SYNC_AGENT_RECOVERED: 'sync.agent_recovered',
 } as const;
 
 export type NotificationEventType =
@@ -61,7 +64,13 @@ export const notificationChannelSchema = z.enum(NOTIFICATION_CHANNELS);
  * under. Labels rather than raw keys, because `leave.comp_off_expiring` is a
  * database value and not a sentence anybody should have to read.
  */
-export const NOTIFICATION_EVENT_GROUPS = ['Punch', 'Leave', 'Approvals', 'Attendance'] as const;
+export const NOTIFICATION_EVENT_GROUPS = [
+  'Punch',
+  'Leave',
+  'Approvals',
+  'Attendance',
+  'Integrations',
+] as const;
 export type NotificationEventGroup = (typeof NOTIFICATION_EVENT_GROUPS)[number];
 
 export interface NotificationEventDescriptor {
@@ -140,6 +149,16 @@ export const NOTIFICATION_EVENT_DESCRIPTORS: Record<
     label: 'Period unlocked',
     note: 'When a closed month is reopened, with the reason.',
   },
+  'sync.agent_stale': {
+    group: 'Integrations',
+    label: 'Tally agent gone quiet',
+    note: 'When a connection stops heartbeating for five minutes (REQ-Q-04).',
+  },
+  'sync.agent_recovered': {
+    group: 'Integrations',
+    label: 'Tally agent back',
+    note: 'When a quiet connection starts heartbeating again.',
+  },
 };
 
 /**
@@ -177,6 +196,8 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   'approval.overdue': '/approvals',
   'period.locked': '/period-lock',
   'period.unlocked': '/period-lock',
+  'sync.agent_stale': '/integrations',
+  'sync.agent_recovered': '/integrations',
 };
 
 /** Only the channels this phase actually delivers on (REQ-K-02). */

@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import {
-  ArrowClockwiseIcon,
-  EnvelopeSimpleIcon,
+  CheckIcon,
+  CopyIcon,
+  EyeIcon,
+  EyeSlashIcon,
   KeyIcon,
   PaperPlaneTiltIcon,
+  SparkleIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
 import { format, parseISO } from 'date-fns';
@@ -20,8 +23,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { ApiError } from '@/lib/api/client';
 import {
@@ -35,6 +42,7 @@ import {
 import {
   useCreateInvitation,
   useIssuePasswordResetLink,
+  useSetCredentials,
   useSignInAccount,
 } from './use-sign-in-access';
 
@@ -103,11 +111,20 @@ function expiryInWords(iso: string): string {
 
 function AccessSkeleton() {
   return (
-    <div role="status" aria-busy="true" aria-label="Checking this employee's account">
-      <Skeleton aria-hidden className="h-3 w-48" />
-      <Skeleton aria-hidden className="mt-2 h-8 w-full" />
+    <div role="status" aria-busy="true" aria-label="Checking this employee's account" className="space-y-2 py-4">
+      <Skeleton aria-hidden className="h-4 w-48" />
+      <Skeleton aria-hidden className="h-9 w-full" />
     </div>
   );
+}
+
+function generateRandomPassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*';
+  let password = '';
+  for (let i = 0; i < 12; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
 }
 
 function InviteBody({ employee, onClose }: { employee: EmployeeListItem; onClose: () => void }) {
@@ -115,52 +132,100 @@ function InviteBody({ employee, onClose }: { employee: EmployeeListItem; onClose
   const access = useSignInAccount(employee.id);
   const invite = useCreateInvitation();
   const reset = useIssuePasswordResetLink();
+  const setCreds = useSetCredentials();
 
-  // What the dialog is currently showing a link for. Held rather than read off
-  // the mutation, so issuing a second invitation replaces the first link on
-  // screen instead of leaving two.
-  const [issued, setIssued] = useState<{ kind: 'invitation' | 'reset'; url: string; expiresAt: string } | null>(
+  const account = access.data?.account ?? null;
+  const defaultEmail =
+    employee.workEmail ||
+    `${employee.firstName.toLowerCase()}.${(employee.lastName || 'emp').toLowerCase()}@company.local`;
+
+  const [tab, setTab] = useState<'direct' | 'link'>('direct');
+  const [emailInput, setEmailInput] = useState(account?.email || defaultEmail);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [copiedCreds, setCopiedCreds] = useState(false);
+
+  const [savedCreds, setSavedCreds] = useState<{ email: string; password: string } | null>(null);
+  const [issuedLink, setIssuedLink] = useState<{ kind: 'invitation' | 'reset'; url: string; expiresAt: string } | null>(
     null,
   );
 
-  const account = access.data?.account ?? null;
-  const workEmail = employee.workEmail;
+  function handleSetDirectCredentials(e: React.FormEvent) {
+    e.preventDefault();
+    if (!emailInput || !passwordInput) return;
 
-  function sendInvitation() {
-    if (workEmail === null) return;
+    setCreds.mutate(
+      {
+        employeeId: employee.id,
+        email: emailInput,
+        password: passwordInput,
+        reason: 'Direct credential provisioning by admin',
+      },
+      {
+        onSuccess: () => {
+          setSavedCreds({ email: emailInput, password: passwordInput });
+          void access.refetch();
+          toast.add({
+            type: 'success',
+            title: `Credentials saved for ${name}`,
+            description: 'Employee can now log in immediately with this email and password.',
+          });
+        },
+      },
+    );
+  }
+
+  function handleSendInvitationLink() {
+    if (!emailInput) return;
     invite.mutate(
-      { employeeId: employee.id, email: workEmail },
+      { employeeId: employee.id, email: emailInput },
       {
         onSuccess: (result) => {
-          setIssued({ kind: 'invitation', url: result.acceptUrl, expiresAt: result.expiresAt });
+          setIssuedLink({ kind: 'invitation', url: result.acceptUrl, expiresAt: result.expiresAt });
           void access.refetch();
         },
       },
     );
   }
 
-  function issueReset() {
+  function handleIssueResetLink() {
     reset.mutate(
       { employeeId: employee.id },
       {
         onSuccess: (result) => {
-          setIssued({ kind: 'reset', url: result.resetUrl, expiresAt: result.expiresAt });
+          setIssuedLink({ kind: 'reset', url: result.resetUrl, expiresAt: result.expiresAt });
         },
       },
     );
   }
 
-  const pending = invite.isPending || reset.isPending;
-  const failure = invite.error ?? reset.error;
+  function handleCopyCreds() {
+    if (!savedCreds) return;
+    const text = `Vyuha Login Credentials:\nEmail: ${savedCreds.email}\nPassword: ${savedCreds.password}`;
+    void navigator.clipboard.writeText(text);
+    setCopiedCreds(true);
+    setTimeout(() => { setCopiedCreds(false); }, 2000);
+  }
+
+  const isPending = invite.isPending || reset.isPending || setCreds.isPending;
+  const failure = invite.error ?? reset.error ?? setCreds.error;
 
   return (
     <>
       <DialogHeader>
-        <DialogTitle>{issued === null ? `Invite ${name} to sign in` : `Send this link to ${name}`}</DialogTitle>
+        <DialogTitle>
+          {savedCreds !== null
+            ? `Credentials Ready for ${name}`
+            : issuedLink !== null
+              ? `Send Link to ${name}`
+              : `Manage Login Credentials · ${name}`}
+        </DialogTitle>
         <DialogDescription>
-          {issued === null
-            ? 'An employee record and a login are separate things (REQ-B-02). This creates the login.'
-            : 'Nothing was emailed. Copy the link and send it however you normally reach them.'}
+          {savedCreds !== null
+            ? 'The login account is active. Share these credentials with the employee.'
+            : issuedLink !== null
+              ? 'Nothing was emailed. Copy the link and send it directly to the employee.'
+              : `Set a direct login password or generate a self-serve activation link for ${employee.employeeCode}.`}
         </DialogDescription>
       </DialogHeader>
 
@@ -176,39 +241,152 @@ function InviteBody({ employee, onClose }: { employee: EmployeeListItem; onClose
         />
       ) : null}
 
-      {issued !== null ? (
-        <IssuedLink issued={issued} name={name} />
-      ) : access.isSuccess ? (
-        <Offer account={account} name={name} workEmail={workEmail} failure={failure} />
+      {failure != null ? (
+        <Alert variant="destructive">
+          <WarningCircleIcon />
+          <AlertTitle>{failureCopy(failure).title}</AlertTitle>
+          <AlertDescription>{failureCopy(failure).description}</AlertDescription>
+        </Alert>
       ) : null}
 
-      <DialogFooter className="flex-row justify-end gap-2">
+      {savedCreds !== null ? (
+        <div className="flex flex-col gap-4 py-2">
+          <div className="rounded border bg-muted/40 p-4 space-y-3">
+            <div className="space-y-1">
+              <span className="text-xs text-muted-foreground">Sign in Email</span>
+              <p className="font-mono text-sm font-medium select-all">{savedCreds.email}</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs text-muted-foreground">Password</span>
+              <p className="font-mono text-sm font-medium select-all">{savedCreds.password}</p>
+            </div>
+          </div>
+
+          <Button variant="outline" className="w-full gap-2" onClick={handleCopyCreds}>
+            {copiedCreds ? <CheckIcon className="text-emerald-500" /> : <CopyIcon />}
+            {copiedCreds ? 'Copied to clipboard!' : 'Copy Email & Password'}
+          </Button>
+        </div>
+      ) : issuedLink !== null ? (
+        <IssuedLink issued={issuedLink} name={name} />
+      ) : access.isSuccess ? (
+        <div className="py-2">
+          <Tabs
+            value={tab}
+            onValueChange={(val: string) => {
+              if (val === 'direct' || val === 'link') setTab(val);
+            }}
+          >
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="direct">Direct Password</TabsTrigger>
+              <TabsTrigger value="link">Invite / Reset Link</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="direct" className="space-y-4 pt-3">
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor="cred-email">Login Email</Label>
+                  <Input
+                    id="cred-email"
+                    type="email"
+                    required
+                    value={emailInput}
+                    onChange={(e) => { setEmailInput(e.target.value); }}
+                    placeholder="name@company.com"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="cred-password">
+                      {account !== null ? 'New Password' : 'Set Password'}
+                    </Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="text-primary hover:underline h-auto p-0 text-[11px]"
+                      onClick={() => {
+                        setPasswordInput(generateRandomPassword());
+                        setShowPassword(true);
+                      }}
+                    >
+                      <SparkleIcon size={12} data-icon="inline-start" />
+                      Generate random
+                    </Button>
+                  </div>
+                  <div className="relative">
+                    <Input
+                      id="cred-password"
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      minLength={8}
+                      value={passwordInput}
+                      onChange={(e) => { setPasswordInput(e.target.value); }}
+                      placeholder="Min 8 characters"
+                      className="pr-8"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={() => { setShowPassword(!showPassword); }}
+                    >
+                      {showPassword ? <EyeSlashIcon /> : <EyeIcon />}
+                    </Button>
+                  </div>
+                </div>
+
+                {account !== null ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    This will immediately update the login password for {account.email} and unlock the account if locked.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    This creates an active login account linked to {name} ({employee.employeeCode}) with the default Employee role.
+                  </p>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="link" className="space-y-4 pt-3">
+              <Offer
+                account={account}
+                name={name}
+                workEmail={emailInput}
+                failure={null}
+              />
+            </TabsContent>
+          </Tabs>
+        </div>
+      ) : null}
+
+      <DialogFooter className="flex-row justify-end gap-2 pt-2">
         <Button variant="outline" className="flex-1 sm:flex-none" onClick={onClose}>
           <ACTION_ICONS.cancel data-icon="inline-start" />
-          {issued === null ? 'Cancel' : 'Done'}
+          {savedCreds !== null || issuedLink !== null ? 'Done' : 'Cancel'}
         </Button>
 
-        {/* The primary action lives in the footer so it is nearest the thumb,
-            and it changes verb with the state rather than appearing twice. */}
-        {issued === null && access.isSuccess ? (
-          <PrimaryAction
-            account={account}
-            workEmail={workEmail}
-            pending={pending}
-            onInvite={sendInvitation}
-            onReset={issueReset}
-          />
-        ) : null}
-        {issued !== null && issued.kind === 'invitation' ? (
-          <Button
-            variant="outline"
-            className="flex-1 sm:flex-none"
-            disabled={pending}
-            onClick={sendInvitation}
-          >
-            {pending ? <Spinner data-icon="inline-start" /> : <ArrowClockwiseIcon data-icon="inline-start" />}
-            {pending ? 'Issuing' : 'Issue a new link'}
-          </Button>
+        {savedCreds === null && issuedLink === null && access.isSuccess ? (
+          tab === 'direct' ? (
+            <Button
+              className="flex-1 sm:flex-none"
+              disabled={isPending || !emailInput || !passwordInput}
+              onClick={handleSetDirectCredentials}
+            >
+              {isPending ? <Spinner data-icon="inline-start" /> : <KeyIcon data-icon="inline-start" />}
+              {isPending ? 'Saving...' : account === null ? 'Create Credentials' : 'Update Password'}
+            </Button>
+          ) : (
+            <PrimaryAction
+              account={account}
+              workEmail={emailInput}
+              pending={isPending}
+              onInvite={handleSendInvitationLink}
+              onReset={handleIssueResetLink}
+            />
+          )
         ) : null}
       </DialogFooter>
     </>
@@ -245,26 +423,12 @@ function Offer({
         </Alert>
       ) : null}
 
-      {workEmail === null ? (
-        <Alert>
-          <EnvelopeSimpleIcon />
-          <AlertTitle>{name} has no work email</AlertTitle>
-          <AlertDescription>
-            Signing in is by work email (REQ-B-01), so there is nothing to create an account
-            against. Add one to the employee record first.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
       {account !== null && account.status === 'ACTIVE' ? (
         <Alert>
           <KeyIcon />
           <AlertTitle>{name} already has an account</AlertTitle>
           <AlertDescription>
-            They sign in as {account.email}. An employee has one login and only one (REQ-B-02), so
-            there is no second invitation to send. If they cannot get in, issue a password reset
-            link instead — it lasts {PASSWORD_RESET_TTL_MINUTES} minutes and ends every session
-            they have open.
+            They sign in as {account.email}. You can generate a password reset link below ({PASSWORD_RESET_TTL_MINUTES} mins), or switch to the Direct Password tab to set it immediately.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -274,8 +438,7 @@ function Offer({
           <WarningCircleIcon />
           <AlertTitle>{name}&rsquo;s account is suspended</AlertTitle>
           <AlertDescription>
-            A suspended account cannot sign in, so neither an invitation nor a reset would let them
-            in. Reactivate the account first; the server refuses both until then.
+            A suspended account cannot sign in. Reactivate the account first.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -283,35 +446,26 @@ function Offer({
       {account !== null && account.status === 'INVITED' ? (
         <Alert>
           <PaperPlaneTiltIcon />
-          <AlertTitle>{name} was invited but has not signed in yet</AlertTitle>
+          <AlertTitle>{name} was previously invited</AlertTitle>
           <AlertDescription>
-            Their invitation to {account.email} was never accepted, and its link may have expired.
-            Issuing a new one gives you a link to hand over and stops the previous one working.
+            Their invitation to {account.email} was never accepted. Issuing a new link will invalidate the old one.
           </AlertDescription>
         </Alert>
       ) : null}
 
-      {account === null && workEmail !== null ? (
-        <ul className="text-muted-foreground flex list-disc flex-col gap-1 pl-5 text-sm">
+      {account === null ? (
+        <ul className="text-muted-foreground flex list-disc flex-col gap-1 pl-5 text-xs">
           <li>
-            A login is created for <span className="font-medium">{workEmail}</span>, dormant until
-            they set a password.
+            An invitation link will be created for <span className="font-medium">{workEmail}</span>.
           </li>
           <li>
-            You get a link to pass on. It works once and stops working after{' '}
-            {INVITATION_TTL_HOURS} hours.
+            The link works once and expires in {INVITATION_TTL_HOURS} hours.
           </li>
           <li>
-            Nothing is emailed — the server has no mail transport configured, so this window is the
-            only place the link appears.
-          </li>
-          <li>
-            They can sign in but can do nothing until a role is granted, under Access and roles on
-            their record (REQ-B-07).
+            Copy the link after creation and share it with the employee.
           </li>
         </ul>
       ) : null}
-
     </div>
   );
 }
@@ -335,7 +489,7 @@ function PrimaryAction({
     return (
       <Button className="flex-1 sm:flex-none" disabled={pending} onClick={onReset}>
         {pending ? <Spinner data-icon="inline-start" /> : <KeyIcon data-icon="inline-start" />}
-        {pending ? 'Creating' : 'Reset password'}
+        {pending ? 'Generating...' : 'Generate Reset Link'}
       </Button>
     );
   }
@@ -343,16 +497,15 @@ function PrimaryAction({
   return (
     <Button
       className="flex-1 sm:flex-none"
-      disabled={pending || workEmail === null}
+      disabled={pending || !workEmail}
       onClick={onInvite}
     >
       {pending ? <Spinner data-icon="inline-start" /> : <PaperPlaneTiltIcon data-icon="inline-start" />}
-      {pending ? 'Creating' : account === null ? 'Create invitation link' : 'Issue a new link'}
+      {pending ? 'Creating...' : account === null ? 'Create Invitation Link' : 'Issue New Link'}
     </Button>
   );
 }
 
-/** The link, and everything the reader has to know while it is on screen. */
 function IssuedLink({
   issued,
   name,
@@ -361,40 +514,26 @@ function IssuedLink({
   name: string;
 }) {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 py-2">
       <CopyField
         id="issued-link"
         value={issued.url}
         label={issued.kind === 'invitation' ? 'Invitation link' : 'Password reset link'}
       />
 
-      <ul className="text-muted-foreground flex list-disc flex-col gap-1 pl-5 text-sm">
+      <ul className="text-muted-foreground flex list-disc flex-col gap-1 pl-5 text-xs">
         <li>
           This link stops working on{' '}
           <span className="text-foreground font-medium">{expiryInWords(issued.expiresAt)}</span>.
         </li>
         <li>
-          It can be used once. Whoever opens it{' '}
-          {issued.kind === 'invitation'
-            ? `sets the password for ${name}'s account`
-            : `chooses a new password for ${name}`}
-          , so send it to them and to nobody else.
-        </li>
-        <li>
-          {issued.kind === 'invitation'
-            ? 'Issuing another link for this person immediately stops this one working.'
-            : 'Using it signs them out of every device they are currently signed in on.'}
+          It can be used once. Send it directly to {name}.
         </li>
       </ul>
     </div>
   );
 }
 
-/**
- * Maps the error code, never the message (technical design §6) — except where
- * the server is the only side that knows the specific refusal, which is every
- * conflict this dialog can provoke.
- */
 function failureCopy(error: unknown): { title: string; description: string } {
   if (!(error instanceof ApiError)) {
     return { title: 'That did not go through', description: 'Something went wrong on the way.' };
@@ -404,21 +543,16 @@ function failureCopy(error: unknown): { title: string; description: string } {
     case 'NETWORK_ERROR':
       return {
         title: 'Could not reach the server',
-        description: 'No account was created. Check the connection and try again.',
+        description: 'Check the connection and try again.',
       };
     case 'FORBIDDEN':
       return {
         title: 'The server refused this',
-        description: 'Creating an account needs the employee.manage permission.',
+        description: 'Managing credentials needs the employee.manage permission.',
       };
     case 'EMPLOYEE_ALREADY_LINKED':
     case 'CONFLICT':
       return { title: 'Refused', description: error.message };
-    case 'NOT_FOUND':
-      return {
-        title: 'There is no account to reset',
-        description: 'This employee has no login yet. Invite them instead.',
-      };
     case 'VALIDATION_FAILED':
       return { title: 'The server would not accept that', description: error.message };
     default:

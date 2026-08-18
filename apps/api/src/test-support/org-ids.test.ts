@@ -33,6 +33,7 @@ import { describe, expect, it } from 'vitest';
  * rather than scanning an empty directory and passing.
  */
 const API_SRC = join(process.cwd(), 'src');
+const SEED_DIR = join(process.cwd(), 'seed');
 
 /**
  * Pairs that already shared an id before this check existed. Each entry is the
@@ -49,7 +50,15 @@ const GRANDFATHERED: ReadonlyMap<string, number> = new Map([
   ['01900000-0000-7000-8000-0000000000f1', 2],
 ]);
 
-const DECLARATION = /const\s+(?:ORG_ID|OTHER_ORG_ID)\s*=\s*'([0-9a-fA-F-]{36})'/gu;
+/**
+ * Any `const …ORG_ID = '<uuid>'`, not just the two exact names. The gap was
+ * found the expensive way: `seed/seed.test.ts` declares `TEST_ORG_ID`, this
+ * pattern matched only `ORG_ID` and `OTHER_ORG_ID`, and the scan below only
+ * walked `src/` — so a new endpoint suite picked the seed's id in good faith,
+ * its four fixture employees leaked into the seed's org-scoped counts, and
+ * three seed assertions failed with numbers that named no cause.
+ */
+const DECLARATION = /const\s+\w*ORG_ID\s*=\s*'([0-9a-fA-F-]{36})'/gu;
 
 function testFilesUnder(directory: string): string[] {
   const found: string[] = [];
@@ -67,14 +76,19 @@ function testFilesUnder(directory: string): string[] {
 function claimsByOrgId(): Map<string, string[]> {
   const claims = new Map<string, string[]>();
 
-  for (const file of testFilesUnder(API_SRC)) {
-    const source = readFileSync(file, 'utf8');
-    for (const match of source.matchAll(DECLARATION)) {
-      const id = match[1]?.toLowerCase();
-      if (id === undefined) continue;
-      const holders = claims.get(id) ?? [];
-      holders.push(file.slice(API_SRC.length + 1));
-      claims.set(id, holders);
+  // Both test roots. vitest.config includes `seed/**/*.test.ts` alongside
+  // `src/**/*.test.ts`, and a scan that covers less than the runner does is
+  // exactly how the seed's organisation got claimed twice.
+  for (const root of [API_SRC, SEED_DIR]) {
+    for (const file of testFilesUnder(root)) {
+      const source = readFileSync(file, 'utf8');
+      for (const match of source.matchAll(DECLARATION)) {
+        const id = match[1]?.toLowerCase();
+        if (id === undefined) continue;
+        const holders = claims.get(id) ?? [];
+        holders.push(file.slice(root.length + 1));
+        claims.set(id, holders);
+      }
     }
   }
 
@@ -89,7 +103,11 @@ describe('test fixture organisations', () => {
     // or the pattern stops matching after a rename. Neither can report a
     // collision, so both fail here instead.
     expect(existsSync(API_SRC), `${API_SRC} is not a directory`).toBe(true);
+    expect(existsSync(SEED_DIR), `${SEED_DIR} is not a directory`).toBe(true);
     expect(claims.size).toBeGreaterThan(20);
+    // The seed suite's own ids, by name — the proof the widened pattern and
+    // the second root actually see the file this check went blind on.
+    expect(claims.get('01900000-0000-7000-8000-0000000000b9')).toEqual(['seed.test.ts']);
   });
 
   it('gives every test file an organisation of its own', () => {

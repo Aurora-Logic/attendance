@@ -5,7 +5,7 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
 
-const SW_SOURCE = path.resolve(__dirname, "./src/lib/offline/service-worker.js")
+const SW_SOURCE = path.resolve(import.meta.dirname, "./src/lib/offline/service-worker.js")
 const SW_VERSION_TOKEN = "__SW_VERSION__"
 const SW_CRITICAL_TOKEN = "__SW_BUILD_CRITICAL__"
 const SW_OPTIONAL_TOKEN = "__SW_BUILD_OPTIONAL__"
@@ -119,7 +119,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), serviceWorker()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
 })

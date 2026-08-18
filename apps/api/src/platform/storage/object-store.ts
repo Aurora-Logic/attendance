@@ -1,3 +1,7 @@
+import { createHmac } from 'node:crypto';
+import { existsSync, promises as fs } from 'node:fs';
+import path from 'node:path';
+
 import { Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
 import {
   DeleteObjectCommand,
@@ -12,8 +16,8 @@ import { env } from '../common/env.js';
 import { describeError } from '../common/errors.js';
 
 /**
- * The S3-compatible object layer (NFR-09). MinIO locally, R2 in production
- * (docs OPEN-QUESTIONS P0-4) -- nothing here is specific to either.
+ * The object storage layer (NFR-09).
+ * Supports local disk storage or S3/MinIO/R2 depending on STORAGE_DRIVER.
  *
  * Two buckets, named rather than passed as strings, because "which bucket"
  * is a security boundary: an export written into the photo bucket would
@@ -28,31 +32,42 @@ import { describeError } from '../common/errors.js';
 export const BUCKETS = { PHOTOS: 'photos', EXPORTS: 'exports' } as const;
 export type BucketName = (typeof BUCKETS)[keyof typeof BUCKETS];
 
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-
 @Injectable()
 export class ObjectStore implements OnApplicationShutdown {
   private readonly logger = new Logger(ObjectStore.name);
-  private readonly client: S3Client;
+  private readonly s3Client: S3Client | null = null;
+  private readonly diskBaseDir: string;
 
   constructor() {
-    this.client = new S3Client({
-      endpoint: env.S3_ENDPOINT,
-      region: env.S3_REGION,
-      credentials: {
-        accessKeyId: env.S3_ACCESS_KEY_ID,
-        secretAccessKey: env.S3_SECRET_ACCESS_KEY,
-      },
-      // MinIO serves buckets as a path segment; R2 and S3 accept it too. A
-      // virtual-hosted URL against `localhost` would resolve to a host that
-      // does not exist.
-      forcePathStyle: env.S3_FORCE_PATH_STYLE,
-    });
+    this.diskBaseDir = path.resolve(process.cwd(), env.STORAGE_DISK_PATH);
+
+    if (env.STORAGE_DRIVER === 's3') {
+      this.s3Client = new S3Client({
+        endpoint: env.S3_ENDPOINT,
+        region: env.S3_REGION,
+        credentials: {
+          accessKeyId: env.S3_ACCESS_KEY_ID,
+          secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+        },
+        forcePathStyle: env.S3_FORCE_PATH_STYLE,
+      });
+      this.logger.log({ msg: 'Object store configured with S3 driver.', endpoint: env.S3_ENDPOINT });
+    } else {
+      this.logger.log({ msg: 'Object store configured with disk driver.', path: this.diskBaseDir });
+    }
   }
 
   private bucketFor(bucket: BucketName): string {
     return bucket === BUCKETS.PHOTOS ? env.S3_BUCKET_PHOTOS : env.S3_BUCKET_EXPORTS;
+  }
+
+  private diskPathFor(bucket: BucketName, key: string): string {
+    const safeKey = key.replace(/^\/+/u, '');
+    const resolved = path.resolve(this.diskBaseDir, bucket, safeKey);
+    if (!resolved.startsWith(this.diskBaseDir)) {
+      throw new Error(`Path traversal attempt detected in storage key: ${key}`);
+    }
+    return resolved;
   }
 
   async put(
@@ -62,90 +77,110 @@ export class ObjectStore implements OnApplicationShutdown {
     contentType: string,
     checksumSha256Base64: string,
   ): Promise<void> {
-    try {
-      await this.client.send(
-        new PutObjectCommand({
-          Bucket: this.bucketFor(bucket),
-          Key: key,
-          Body: body,
-          ContentType: contentType,
-          // The server recomputes this and refuses the write if it disagrees,
-          // so a truncated or corrupted upload fails here rather than becoming
-          // an unreadable photo discovered months later during an enquiry.
-          ChecksumSHA256: checksumSha256Base64,
-        }),
-      );
-    } catch (error: unknown) {
-      // Fallback to local disk storage when S3/MinIO is not running
-      const localPath = resolve(process.cwd(), 'storage', bucket, key);
+    if (this.s3Client) {
       try {
-        mkdirSync(dirname(localPath), { recursive: true });
-        writeFileSync(localPath, body);
-        this.logger.log({ msg: `S3 unreachable; saved object locally to ${localPath}` });
-      } catch (fsErr: unknown) {
+        await this.s3Client.send(
+          new PutObjectCommand({
+            Bucket: this.bucketFor(bucket),
+            Key: key,
+            Body: body,
+            ContentType: contentType,
+            ChecksumSHA256: checksumSha256Base64,
+          }),
+        );
+      } catch (error: unknown) {
         throw new Error(`Could not write object ${bucket}/${key}: ${describeError(error)}`, {
           cause: error,
         });
       }
+      return;
+    }
+
+    try {
+      const destination = this.diskPathFor(bucket, key);
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      await fs.writeFile(destination, body);
+    } catch (error: unknown) {
+      throw new Error(`Could not write disk object ${bucket}/${key}: ${describeError(error)}`, {
+        cause: error,
+      });
     }
   }
 
   /**
-   * Deletes, and treats an already-absent object as success -- which is what
-   * S3 itself does. The retention job (REQ-L-03) depends on that: a re-run
-   * after a partial failure must not throw on the objects it already removed.
+   * Deletes, and treats an already-absent object as success.
    */
   async delete(bucket: BucketName, key: string): Promise<void> {
-    try {
-      await this.client.send(
-        new DeleteObjectCommand({ Bucket: this.bucketFor(bucket), Key: key }),
-      );
-    } catch {
-      const localPath = resolve(process.cwd(), 'storage', bucket, key);
-      if (existsSync(localPath)) {
-        try { unlinkSync(localPath); } catch {}
+    if (this.s3Client) {
+      try {
+        await this.s3Client.send(
+          new DeleteObjectCommand({ Bucket: this.bucketFor(bucket), Key: key }),
+        );
+      } catch (error: unknown) {
+        throw new Error(`Could not delete object ${bucket}/${key}: ${describeError(error)}`, {
+          cause: error,
+        });
       }
+      return;
+    }
+
+    try {
+      const target = this.diskPathFor(bucket, key);
+      if (existsSync(target)) {
+        await fs.unlink(target);
+      }
+    } catch (error: unknown) {
+      throw new Error(`Could not delete disk object ${bucket}/${key}: ${describeError(error)}`, {
+        cause: error,
+      });
     }
   }
 
   async exists(bucket: BucketName, key: string): Promise<boolean> {
-    try {
-      await this.client.send(new HeadObjectCommand({ Bucket: this.bucketFor(bucket), Key: key }));
-      return true;
-    } catch (error: unknown) {
-      const localPath = resolve(process.cwd(), 'storage', bucket, key);
-      if (existsSync(localPath)) return true;
-      if (isNotFound(error)) return false;
-      return false;
+    if (this.s3Client) {
+      try {
+        await this.s3Client.send(
+          new HeadObjectCommand({ Bucket: this.bucketFor(bucket), Key: key }),
+        );
+        return true;
+      } catch (error: unknown) {
+        if (isNotFound(error)) return false;
+        throw new Error(`Could not stat object ${bucket}/${key}: ${describeError(error)}`, {
+          cause: error,
+        });
+      }
     }
+
+    const target = this.diskPathFor(bucket, key);
+    return existsSync(target);
   }
 
   /**
-   * A time-limited GET URL. `ttlSeconds` is trusted because the only caller is
-   * `FileService`, which clamps it to `S3_SIGNED_URL_TTL_SECONDS` before
-   * getting here.
+   * A time-limited GET URL.
    */
   async signedUrl(bucket: BucketName, key: string, ttlSeconds: number): Promise<string> {
-    try {
-      return await getSignedUrl(
-        this.client,
+    if (this.s3Client) {
+      return getSignedUrl(
+        this.s3Client,
         new GetObjectCommand({ Bucket: this.bucketFor(bucket), Key: key }),
         { expiresIn: ttlSeconds },
       );
-    } catch {
-      const localPath = resolve(process.cwd(), 'storage', bucket, key);
-      if (existsSync(localPath)) {
-        const fileBuffer = readFileSync(localPath);
-        const mime = key.endsWith('.png') ? 'image/png' : 'image/jpeg';
-        return `data:${mime};base64,${fileBuffer.toString('base64')}`;
-      }
-      return `${env.API_BASE_URL}/storage/${bucket}/${key}`;
     }
+
+    const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
+    const signature = createHmac('sha256', env.JWT_ACCESS_SECRET)
+      .update(`${bucket}:${key}:${String(expires)}`)
+      .digest('hex');
+
+    const encodedPath = key.split('/').map(encodeURIComponent).join('/');
+    return `${env.API_BASE_URL}/api/v1/files/raw/${bucket}/${encodedPath}?expires=${String(expires)}&signature=${signature}`;
   }
 
   onApplicationShutdown(): void {
-    this.client.destroy();
-    this.logger.log({ msg: 'Object store client closed.' });
+    if (this.s3Client) {
+      this.s3Client.destroy();
+      this.logger.log({ msg: 'S3 object store client closed.' });
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
-import { PERMISSIONS } from '@vyuha/shared';
+import { declaredApprovalKeys } from '@vyuha/shared';
 
 import type { Database } from '../../../platform/db/db.provider.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
@@ -38,34 +38,24 @@ import {
  */
 
 /**
- * PRD §2.1's correction key, and nothing else.
+ * PRD §2.1's correction key, and nothing else — `regularization.approve` to
+ * act, `leave.approve.all` as the REQ-G-09 escalation override, which widens
+ * nothing on its own because `actPermissions` is checked first.
  *
- * Not `leave.approve.*`: those two keys approve leave. Before the framework
- * asked the handler which key applies, routing a correction into the shared
- * inbox would have made a leave approver an approver of corrections and left
- * `regularization.approve` deciding nothing -- a silent trade in both
- * directions. See `ApprovalSubjectHandler.actPermissions`.
+ * Read from the REQ-P-04 catalogue rather than named here: the route guards
+ * are derived from the same entries, and the registry refuses a handler whose
+ * keys disagree with them, so there is exactly one place these can be wrong.
+ * The reasoning for the split itself — why a leave approver is not an
+ * approver of corrections — is in the catalogue beside the keys.
  */
-const REGULARIZATION_ACT_PERMISSIONS = [PERMISSIONS.REGULARIZATION_APPROVE] as const;
-
-/**
- * REQ-G-09 escalates an untouched request up the reporting line and, at the
- * top, to the org-wide approvers -- who are resolved by `leave.approve.all`
- * because that is the only organisation-wide approval key PRD §2.1 defines.
- * Without this an escalated correction would land on somebody the route never
- * named and who therefore could not answer it.
- *
- * It widens nothing on its own: `actPermissions` is checked first, so a holder
- * of `leave.approve.all` who does not also hold `regularization.approve` still
- * cannot decide a correction.
- */
-const REGULARIZATION_OVERRIDE_PERMISSIONS = [PERMISSIONS.LEAVE_APPROVE_ALL] as const;
+const REGULARIZATION_KEYS = declaredApprovalKeys(REGULARIZATION_SUBJECT_TYPE);
+const ON_DUTY_KEYS = declaredApprovalKeys(ON_DUTY_SUBJECT_TYPE);
 
 @Injectable()
 export class RegularizationApprovalHandler implements ApprovalSubjectHandler, OnModuleInit {
   readonly subjectType = REGULARIZATION_SUBJECT_TYPE;
-  readonly actPermissions = REGULARIZATION_ACT_PERMISSIONS;
-  readonly overridePermissions = REGULARIZATION_OVERRIDE_PERMISSIONS;
+  readonly actPermissions = REGULARIZATION_KEYS.act;
+  readonly overridePermissions = REGULARIZATION_KEYS.override;
 
   constructor(
     private readonly regularization: RegularizationService,
@@ -88,9 +78,9 @@ export class RegularizationApprovalHandler implements ApprovalSubjectHandler, On
 @Injectable()
 export class OnDutyApprovalHandler implements ApprovalSubjectHandler, OnModuleInit {
   readonly subjectType = ON_DUTY_SUBJECT_TYPE;
-  /** The same key. REQ-F-04 is raised and decided by the same people. */
-  readonly actPermissions = REGULARIZATION_ACT_PERMISSIONS;
-  readonly overridePermissions = REGULARIZATION_OVERRIDE_PERMISSIONS;
+  /** The same keys by declaration. REQ-F-04 is raised and decided by the same people. */
+  readonly actPermissions = ON_DUTY_KEYS.act;
+  readonly overridePermissions = ON_DUTY_KEYS.override;
 
   constructor(
     private readonly regularization: RegularizationService,

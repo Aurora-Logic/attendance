@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { AppError } from '../common/errors.js';
 import { signAccessToken } from '../auth/jwt.js';
 import { env } from '../common/env.js';
+import type { AuditContext } from '../audit/audit-context.js';
+import type { AgentAuthService } from '../sync/agent-auth.service.js';
 import { AccessGuard } from './access.guard.js';
 import type { Principal } from './principal.js';
 import type { PrincipalService } from './principal.service.js';
@@ -119,7 +121,15 @@ function guardFor(principal: Principal | Error): AccessGuard {
   const principals = {
     resolve: () => (principal instanceof Error ? Promise.reject(principal) : Promise.resolve(principal)),
   } as unknown as PrincipalService;
-  return new AccessGuard(new Reflector(), principals);
+  // Refuses everything: these cases exercise the user-credential paths, and
+  // an agent resolution reaching this stub would itself be the bug.
+  const agents = {
+    resolve: () => Promise.reject(new Error('no agent credential in this test')),
+  } as unknown as AgentAuthService;
+  // Inert: nothing in these cases reaches an agent route, so nothing is
+  // attributed or suppressed.
+  const audit = { attribute: () => undefined } as unknown as AuditContext;
+  return new AccessGuard(new Reflector(), principals, agents, audit);
 }
 
 async function bearer(): Promise<Record<string, string>> {

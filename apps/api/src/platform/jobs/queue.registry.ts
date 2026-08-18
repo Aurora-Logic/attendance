@@ -75,6 +75,34 @@ export interface JobPayloads {
   };
 
   /**
+   * REQ-R-07: masters sync runs on a schedule. One sweep enqueues a pull job
+   * per eligible connection per entity type with a writer, rather than a
+   * BullMQ entry per connection -- connections are rows, and cron entries
+   * that mirror rows drift from them. The real work happens when the agent
+   * claims the job; this only makes work exist.
+   */
+  'enqueue-sync-pulls': {
+    readonly now?: string;
+  };
+
+  /**
+   * REQ-Q-04: notice the agent that stopped heartbeating, once per silence,
+   * and the recovery. The transition state lives on the connection row
+   * (`stale_notified_at`), so the payload carries nothing.
+   */
+  'check-agent-heartbeats': {
+    readonly now?: string;
+  };
+
+  /**
+   * D-20: null journal bodies past the 30-day retention window. Hashes stay
+   * forever; the sweep is the one UPDATE the journal's guard permits.
+   */
+  'sweep-sync-journal-bodies': {
+    readonly now?: string;
+  };
+
+  /**
    * REQ-M-05: everything the system holds about one employee, as a file.
    *
    * Same shape as `generate-report-export` and for the same reason -- only the
@@ -195,6 +223,9 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   // On the export queue with the jobs it starts, so a backlog of exports also
   // delays the sweep that would add to it rather than racing ahead of it.
   'run-report-schedules': QUEUES.EXPORT,
+  'enqueue-sync-pulls': QUEUES.MAINTENANCE,
+  'check-agent-heartbeats': QUEUES.MAINTENANCE,
+  'sweep-sync-journal-bodies': QUEUES.MAINTENANCE,
   'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-notification': QUEUES.NOTIFICATION,
@@ -313,6 +344,19 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // organisation what time it is there, so the cron's own timezone decides
   // nothing (NFR-05).
   { schedulerId: 'reports:run-schedules', jobName: 'run-report-schedules', pattern: '*/15 * * * *' },
+  // REQ-R-07's default cadence. The sweep is cheap when nothing is eligible
+  // -- one query -- and the one-open-job invariant on sync_jobs means an
+  // agent that has been away simply finds the same job still waiting, not
+  // fifteen copies of it.
+  { schedulerId: 'sync:enqueue-pulls', jobName: 'enqueue-sync-pulls', pattern: '*/15 * * * *' },
+  // REQ-Q-04 names five minutes of silence as the alert threshold; a
+  // two-minute cadence bounds the lag at ~seven, where a five-minute sweep
+  // would let the SLA read "five" while delivering ten. The check is one
+  // UPDATE over a table with a handful of rows.
+  { schedulerId: 'sync:check-heartbeats', jobName: 'check-agent-heartbeats', pattern: '*/2 * * * *' },
+  // D-20's retention. Nightly at 02:45, offset from the other overnight
+  // sweeps so the maintenance queue is never a convoy.
+  { schedulerId: 'sync:sweep-journal-bodies', jobName: 'sweep-sync-journal-bodies', pattern: '45 2 * * *' },
   // REQ-K-03. Every 15 minutes, because a reminder is only useful shortly
   // before the shift it names and shift start times are not on the hour. The
   // sweep costs one preference query per organisation when nobody has opted

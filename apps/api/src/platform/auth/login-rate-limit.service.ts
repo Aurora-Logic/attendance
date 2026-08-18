@@ -62,11 +62,18 @@ import { InjectRedis } from '../redis/redis.provider.js';
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILURES_PER_IP = 20;
 
-const KEY_PREFIX = 'login:failures:';
+/**
+ * What is being guessed. Each scope has its own budget per address, so an
+ * attacker spraying agent tokens cannot spend the office's sign-in budget and
+ * vice versa. 'login' keeps the original key format byte-for-byte.
+ */
+export type RateLimitScope = 'login' | 'agent';
 
 /** Exported so test support can clear an address without guessing the format. */
-export function loginRateLimitKey(ip: string): string {
-  return `${KEY_PREFIX}${ip}`;
+export function loginRateLimitKey(ip: string, scope: RateLimitScope = 'login'): string {
+  // One template for every scope; 'login' produces the pre-scope key format
+  // byte for byte, so nothing stored under the old spelling is orphaned.
+  return `${scope}:failures:${ip}`;
 }
 
 /**
@@ -78,6 +85,7 @@ export function loginRateLimitKey(ip: string): string {
 export interface LoginAttemptClaim {
   readonly ip: string;
   readonly member: string;
+  readonly scope: RateLimitScope;
 }
 
 const CLAIMED = 1;
@@ -123,10 +131,11 @@ export class LoginRateLimiter {
   async claimAttempt(
     ip: string | null,
     now: number = Date.now(),
+    scope: RateLimitScope = 'login',
   ): Promise<LoginAttemptClaim | null> {
     if (ip === null) return null;
 
-    const key = loginRateLimitKey(ip);
+    const key = loginRateLimitKey(ip, scope);
     // Unique per attempt: a sorted set deduplicates by member, so two failures
     // in the same millisecond would otherwise count once.
     const member = `${String(now)}-${randomBytes(6).toString('hex')}`;
@@ -150,7 +159,7 @@ export class LoginRateLimiter {
     }
 
     const [status, oldestScore] = readClaim(outcome);
-    if (status === CLAIMED) return { ip, member };
+    if (status === CLAIMED) return { ip, member, scope };
     if (status !== REFUSED) {
       // Unreachable unless the script above is edited. Failing open matches
       // the outage posture rather than refusing every sign-in in the company,
@@ -186,17 +195,17 @@ export class LoginRateLimiter {
   async release(claim: LoginAttemptClaim | null): Promise<void> {
     if (claim === null) return;
     try {
-      await this.redis.zrem(loginRateLimitKey(claim.ip), claim.member);
+      await this.redis.zrem(loginRateLimitKey(claim.ip, claim.scope), claim.member);
     } catch (error: unknown) {
       this.failOpen('releasing an attempt for', error);
     }
   }
 
   /** A successful sign-in clears the address; the failures were not an attack. */
-  async clear(ip: string | null): Promise<void> {
+  async clear(ip: string | null, scope: RateLimitScope = 'login'): Promise<void> {
     if (ip === null) return;
     try {
-      await this.redis.del(loginRateLimitKey(ip));
+      await this.redis.del(loginRateLimitKey(ip, scope));
     } catch (error: unknown) {
       this.failOpen('clearing', error);
     }

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "sync_jobs_one_open_uq" ON "sync_jobs" USING btree ("connection_id","entity_type") WHERE state IN ('QUEUED', 'CLAIMED');

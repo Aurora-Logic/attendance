@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
 import { apiErrorCopy, actionErrorCopy } from '@/features/leave/api-error-copy';
 import { CheckboxRow } from '@/features/leave/control-row';
@@ -133,11 +134,15 @@ export function ApprovalsPage() {
   const type = isApprovalType(typeParam) ? typeParam : null;
   const status = isApprovalStatus(statusParam) ? statusParam : null;
 
-  // An approver is asking "what is waiting on me"; anyone else can only be
-  // asking about what they raised. Sending `inbox` for a plain employee would
-  // answer with an empty list that is correct and useless, and the reader
-  // would read it as the screen being broken.
-  const view = canApprove ? 'inbox' : 'raised';
+  const rawView = searchParams.get('view');
+  const view =
+    rawView === 'inbox' || rawView === 'all' || rawView === 'raised'
+      ? rawView
+      : canApproveAll
+        ? 'all'
+        : canApprove
+          ? 'inbox'
+          : 'raised';
 
   // The permission set arrives from `/me` through an effect, so the first
   // render after the session gate opens still has an empty set -- and firing
@@ -176,6 +181,16 @@ export function ApprovalsPage() {
   const selectedTypes = new Set(selected.map((row) => row.type));
   const mixedTypes = selectedTypes.size > 1;
   const allSelected = selectable.length > 0 && selected.length === selectable.length;
+
+  function setView(nextView: string) {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      params.set('view', nextView);
+      params.delete('page');
+      return params;
+    });
+    setSelectedIds(new Set());
+  }
 
   function setParam(key: 'type' | 'status', next: string | null) {
     setSearchParams((current) => {
@@ -373,6 +388,25 @@ export function ApprovalsPage() {
       />
 
       <div className="flex flex-col gap-4">
+        {canApprove ? (
+          <Tabs
+            value={view}
+            onValueChange={(val: string) => {
+              if (typeof val === 'string' && val.length > 0) {
+                setView(val);
+              }
+            }}
+          >
+            <TabsList>
+              <TabsTrigger value="inbox">Waiting on me</TabsTrigger>
+              {canApproveAll || canApproveTeam ? (
+                <TabsTrigger value="all">All approvals</TabsTrigger>
+              ) : null}
+              <TabsTrigger value="raised">Raised by me</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        ) : null}
+
         {/* One list, of every kind (REQ-I-01). The two bands that used to sit
             above this are gone: leave, corrections and on-duty declarations all
             raise a real approval request now, so they arrive here with

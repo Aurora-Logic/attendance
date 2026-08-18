@@ -16,7 +16,7 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.esm.json && node scripts/stamp-module-type.mjs",
-    "dev": "pnpm run build --watch",
+    "dev": "node scripts/watch.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "test": "vitest run"

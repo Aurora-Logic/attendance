@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   EnvelopeSimpleIcon,
+  KeyIcon,
   ShieldCheckIcon,
   ShieldWarningIcon,
   TrashIcon,
@@ -14,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -27,6 +29,7 @@ import { useRoles } from '@/features/roles/use-roles';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { PERMISSIONS, employeeDisplayName, type EmployeeDetail } from '@vyuha/shared';
 
+import { EmployeeInviteDialog } from './invite-dialog';
 import {
   useAssignRole,
   useEmployeeAccess,
@@ -91,6 +94,7 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
   const [granting, setGranting] = useState<PickerOption | null>(null);
   const [confirmGrant, setConfirmGrant] = useState(false);
   const [revoking, setRevoking] = useState<AssignedRole | null>(null);
+  const [manageCredentialsOpen, setManageCredentialsOpen] = useState(false);
 
   const assign = useAssignRole();
   const revoke = useRevokeRole();
@@ -180,31 +184,54 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
             </EmptyMedia>
             <EmptyTitle>{name} has no login account</EmptyTitle>
             <EmptyDescription>
-              An employee record and a login are separate things (REQ-B-02), and a bulk import
-              creates the record only. There is nothing to hold a role until they are invited.
+              An employee record and a login are separate things (REQ-B-02). Click below to provide login credentials or send an invite link.
             </EmptyDescription>
           </EmptyHeader>
+          <EmptyContent>
+            <Button
+              size="sm"
+              onClick={() => {
+                setManageCredentialsOpen(true);
+              }}
+            >
+              <KeyIcon data-icon="inline-start" />
+              Set login credentials
+            </Button>
+          </EmptyContent>
         </Empty>
       ) : null}
 
       {access.isSuccess && account !== null ? (
         <div className="flex flex-col gap-4 border p-4">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-            <dt className="text-muted-foreground">Signs in as</dt>
-            <dd className="font-medium break-all">{account.email}</dd>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+              <dt className="text-muted-foreground">Signs in as</dt>
+              <dd className="font-medium break-all">{account.email}</dd>
 
-            <dt className="text-muted-foreground">Account</dt>
-            <dd>
-              <Badge variant={account.status === 'ACTIVE' ? 'secondary' : 'outline'}>
-                {ACCOUNT_STATUS_LABELS[account.status]}
-              </Badge>
-            </dd>
+              <dt className="text-muted-foreground">Account</dt>
+              <dd>
+                <Badge variant={account.status === 'ACTIVE' ? 'secondary' : 'outline'}>
+                  {ACCOUNT_STATUS_LABELS[account.status]}
+                </Badge>
+              </dd>
 
-            <dt className="text-muted-foreground">Last signed in</dt>
-            <dd className="font-medium tabular-nums">
-              {account.lastLoginAt === null ? EMPTY_VALUE : formatDate(account.lastLoginAt.slice(0, 10))}
-            </dd>
-          </dl>
+              <dt className="text-muted-foreground">Last signed in</dt>
+              <dd className="font-medium tabular-nums">
+                {account.lastLoginAt === null ? EMPTY_VALUE : formatDate(account.lastLoginAt.slice(0, 10))}
+              </dd>
+            </dl>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setManageCredentialsOpen(true);
+              }}
+            >
+              <KeyIcon data-icon="inline-start" />
+              Manage credentials / password
+            </Button>
+          </div>
 
           {account.status === 'SUSPENDED' ? (
             <Alert>
@@ -357,6 +384,11 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
         pending={revoke.isPending}
         error={revoke.error}
         onConfirm={submitRevoke}
+      />
+
+      <EmployeeInviteDialog
+        employee={manageCredentialsOpen ? employee : null}
+        onOpenChange={setManageCredentialsOpen}
       />
     </section>
   );

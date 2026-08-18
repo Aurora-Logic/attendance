@@ -3,12 +3,14 @@ import { Reflector } from '@nestjs/core';
 import { ERROR_CODES } from '@vyuha/shared';
 import type { Request } from 'express';
 
+import { AuditContext } from '../audit/audit-context.js';
 import { env } from '../common/env.js';
 import { AppError } from '../common/errors.js';
 import { verifyAccessToken } from '../auth/jwt.js';
+import { AgentAuthService } from '../sync/agent-auth.service.js';
 import { hasAnyPermission, type Principal } from './principal.js';
 import { PrincipalService } from './principal.service.js';
-import { ROUTE_POLICY_KEY, type RoutePolicy } from './route-policy.js';
+import { ROUTE_POLICY_DECORATORS, ROUTE_POLICY_KEY, type RoutePolicy } from './route-policy.js';
 
 /**
  * The single gate. Authentication and authorisation are one guard rather than
@@ -28,6 +30,8 @@ export class AccessGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly principals: PrincipalService,
+    private readonly agents: AgentAuthService,
+    private readonly auditContext: AuditContext,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -45,13 +49,30 @@ export class AccessGuard implements CanActivate {
     if (policy === undefined) {
       throw AppError.forbidden(
         'This endpoint declares no access policy and is therefore denied. ' +
-          'Annotate it with @Public(), @Authenticated(), or @RequirePermission(...).',
+          `Annotate it with ${ROUTE_POLICY_DECORATORS}.`,
       );
     }
 
     if (policy.kind === 'public') return true;
 
     const request = context.switchToHttp().getRequest<Request>();
+
+    // The two credential worlds never meet (09 §5): an agent route resolves
+    // only an agent token and sets only `request.agent`, so nothing
+    // downstream can mistake a machine for a person — and a user JWT fails
+    // here because it is not an agent credential, not because of anything a
+    // handler remembered to check.
+    if (policy.kind === 'agent') {
+      request.agent = await this.agents.resolve(bearerOf(request), request.ip ?? null);
+      // The audit interceptor reads request.principal, which agent routes
+      // never set; attributing the organisation here is what lets an agent
+      // mutation write an audit row at all instead of warning "no
+      // organisation". Whether a given endpoint then records or suppresses
+      // is that endpoint's decision, exactly as it is for user routes.
+      this.auditContext.attribute(request.agent.orgId, null);
+      return true;
+    }
+
     const principal = await this.authenticate(request);
     request.principal = principal;
 
@@ -70,15 +91,7 @@ export class AccessGuard implements CanActivate {
   }
 
   private async authenticate(request: Request): Promise<Principal> {
-    const header = request.headers.authorization;
-    if (typeof header !== 'string' || !header.startsWith('Bearer ')) {
-      throw new AppError(ERROR_CODES.TOKEN_INVALID, 'A bearer access token is required.');
-    }
-
-    const claims = await verifyAccessToken(
-      header.slice('Bearer '.length).trim(),
-      env.JWT_ACCESS_SECRET,
-    );
+    const claims = await verifyAccessToken(bearerOf(request), env.JWT_ACCESS_SECRET);
 
     return this.principals.resolve({
       userId: claims.sub,
@@ -87,4 +100,12 @@ export class AccessGuard implements CanActivate {
       issuedAtSeconds: claims.iat,
     });
   }
+}
+
+function bearerOf(request: Request): string {
+  const header = request.headers.authorization;
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) {
+    throw new AppError(ERROR_CODES.TOKEN_INVALID, 'A bearer access token is required.');
+  }
+  return header.slice('Bearer '.length).trim();
 }

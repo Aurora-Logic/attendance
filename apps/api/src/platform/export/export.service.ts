@@ -20,19 +20,19 @@ import {
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { AuditContext } from '../../../platform/audit/audit-context.js';
-import { AuditService } from '../../../platform/audit/audit.service.js';
-import { AppError, describeError } from '../../../platform/common/errors.js';
-import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
-import { exportJobs, files } from '../../../platform/db/schema/index.js';
-import { ScopedRepository, type OrgContext } from '../../../platform/db/scoped-repository.js';
-import { FileService } from '../../../platform/files/file.service.js';
-import { JobRunner } from '../../../platform/jobs/job-runner.service.js';
-import { orgContextOf, hasPermission, type Principal } from '../../../platform/rbac/principal.js';
-import { PrincipalService } from '../../../platform/rbac/principal.service.js';
-import { ReportRepository } from './report.repository.js';
-import { formatCalendarDate, writerFor } from '../../../platform/export/report-writer.js';
-import { EXPORT_BATCH_ROWS, ReportService, cellsFor } from './report.service.js';
+import { AuditContext } from '../audit/audit-context.js';
+import { AuditService } from '../audit/audit.service.js';
+import { AppError, describeError } from '../common/errors.js';
+import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { exportJobs, files } from '../db/schema/index.js';
+import { ScopedRepository, type OrgContext } from '../db/scoped-repository.js';
+import { FileService } from '../files/file.service.js';
+import { JobRunner } from '../jobs/job-runner.service.js';
+import { orgContextOf, hasPermission, type Principal } from '../rbac/principal.js';
+import { PrincipalService } from '../rbac/principal.service.js';
+import { ExportContextRepository } from './export-context.repository.js';
+import { formatCalendarDate, writerFor } from './report-writer.js';
+import { ReportSourceRegistry, type ReportSource } from './report-source.registry.js';
 
 /**
  * The export lifecycle (REQ-J-03, REQ-J-06).
@@ -41,9 +41,16 @@ import { EXPORT_BATCH_ROWS, ReportService, cellsFor } from './report.service.js'
  * is a job. The row in `export_jobs` is the only thing the two share, which is
  * what lets the tray tell the truth about a job whose worker is on another
  * machine, and what lets a retry resume without a second request.
+ *
+ * What a report *is* comes from `ReportSourceRegistry` (REQ-P-02): the module
+ * that owns the rows registered a source, and this service pages it, writes
+ * the file and runs the tray without ever importing the module.
  */
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** How many rows one round trip pulls while an export is being written. */
+export const EXPORT_BATCH_ROWS = 1_000;
 
 /**
  * What was asked for, as stored on the job row.
@@ -96,7 +103,7 @@ export class ExportService {
 
   constructor(
     @InjectDatabase() private readonly db: Database,
-    private readonly reports: ReportService,
+    private readonly sources: ReportSourceRegistry,
     private readonly filesService: FileService,
     private readonly jobs: JobRunner,
     private readonly principals: PrincipalService,
@@ -110,7 +117,9 @@ export class ExportService {
     // Checked here as well as in the job, and deliberately: a period the report
     // cannot answer for is a 400 on the button press, not a queued job that
     // fails five times with backoff before anyone is told why.
-    const filters = ReportService.assertFiltersUsable(input.reportKey, input.filters);
+    const filters = this.sources
+      .require(input.reportKey)
+      .assertFiltersUsable(input.reportKey, input.filters);
     const requestedAt = new Date();
     const filename = exportFileName(input.reportKey, requestedAt, input.format);
     const snapshot: RequestSnapshot = {
@@ -246,6 +255,13 @@ export class ExportService {
       return this.refuse(row, `This build does not know the report "${row.reportKey}".`);
     }
 
+    // Refused rather than thrown: a job for a report whose module stopped
+    // registering it must not retry five times into the same absence.
+    const source = this.sources.sourceFor(row.reportKey);
+    if (source === null) {
+      return this.refuse(row, `This build has no rows for the report "${row.reportKey}".`);
+    }
+
     const snapshot = requestSnapshotSchema.safeParse(row.filters);
     if (!snapshot.success) {
       return this.refuse(row, 'The saved filters for this export could not be read.');
@@ -259,7 +275,7 @@ export class ExportService {
     }
 
     try {
-      const produced = await this.produce(principal, row, row.reportKey, snapshot.data);
+      const produced = await this.produce(principal, row, row.reportKey, source, snapshot.data);
       return produced;
     } catch (error: unknown) {
       // Recorded on the row so the tray stops showing a spinner, then rethrown
@@ -281,9 +297,10 @@ export class ExportService {
     principal: Principal,
     row: ExportJobRow,
     reportKey: ReportKey,
+    source: ReportSource,
     snapshot: RequestSnapshot,
   ): Promise<ExportRunResult> {
-    const total = await this.reports.count(principal, reportKey, snapshot.filters);
+    const total = await source.count(principal, reportKey, snapshot.filters);
     if (total > MAX_EXPORT_ROWS) {
       return this.refuse(
         row,
@@ -291,7 +308,7 @@ export class ExportService {
       );
     }
 
-    const repository = new ReportRepository(this.db, orgContextOf(principal));
+    const repository = new ExportContextRepository(this.db, orgContextOf(principal));
     const [profile, labels] = await Promise.all([
       repository.orgProfile(),
       repository.filterLabels(snapshot.filters),
@@ -323,7 +340,7 @@ export class ExportService {
     let reportedProgress = 0;
 
     for (let offset = 0; offset < total; offset += EXPORT_BATCH_ROWS) {
-      const page = await this.reports.page(
+      const page = await source.page(
         principal,
         reportKey,
         { ...snapshot.filters, sort: snapshot.sort },
@@ -337,7 +354,7 @@ export class ExportService {
       if (length === 0) break;
 
       for (let index = 0; index < length; index += 1) {
-        writer.writeRow(cellsFor(page, index, columns));
+        writer.writeRow(source.cells(page, index, columns));
         written += 1;
       }
 
@@ -509,7 +526,7 @@ export class ExportService {
     userId: string,
     exportJobId: string,
   ): Promise<Principal | null> {
-    const repository = new ReportRepository(this.db, { orgId, actorUserId: userId });
+    const repository = new ExportContextRepository(this.db, { orgId, actorUserId: userId });
     const requester = await repository.findRequester(userId);
     if (requester === null || requester.status !== 'ACTIVE') return null;
 

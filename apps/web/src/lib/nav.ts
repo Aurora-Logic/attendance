@@ -1,4 +1,5 @@
 import {
+  BooksIcon,
   CalendarBlankIcon,
   CalendarDotsIcon,
   ChartBarIcon,
@@ -10,7 +11,9 @@ import {
   GearIcon,
   type Icon,
   LockIcon,
+  PackageIcon,
   PlugIcon,
+  TagIcon,
   BuildingsIcon,
   ChartLineUpIcon,
   ScrollIcon,
@@ -106,6 +109,15 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: PERMISSIONS.LEAVE_APPLY_SELF,
         phase: 2,
         reqs: 'REQ-G-03, G-06',
+      },
+      {
+        to: '/approvals',
+        label: 'Approvals',
+        shortLabel: 'Approvals',
+        icon: ClipboardTextIcon,
+        permission: PERMISSIONS.LEAVE_APPROVE_TEAM,
+        phase: 2,
+        reqs: 'REQ-I-03',
       },
       {
         to: '/team-attendance',
@@ -338,20 +350,92 @@ export const TOP_BAR_ITEMS: NavItem[] = [
       },
 ];
 
+/**
+ * Named rather than inlined in `MODULES` so `findModuleForPath` has a typed
+ * fallback without an index into the array — a route no module owns (the
+ * workspace screens, /profile, a bad URL) still needs a sidebar behind it.
+ */
+const ATTENDANCE_MODULE: ModuleDef = {
+  id: 'attendance',
+  label: 'Attendance',
+  icon: CalendarDotsIcon,
+  home: '/',
+  groups: NAV_GROUPS,
+};
+
 /** REQ-O-01. One entry per module; the sidebar renders only the current one. */
 export const MODULES: ModuleDef[] = [
+  ATTENDANCE_MODULE,
   {
-    id: 'attendance',
-    label: 'Attendance',
-    icon: CalendarDotsIcon,
-    home: '/',
-    groups: NAV_GROUPS,
+    id: 'masters',
+    label: 'Masters',
+    icon: BooksIcon,
+    home: '/masters/parties',
+    // 08 SS2.2's key: financial-adjacent data, not for every signed-in eye.
+    permission: PERMISSIONS.MASTERS_TALLY_VIEW,
+    groups: [
+      {
+        label: 'Masters',
+        items: [
+          {
+            to: '/masters/parties',
+            label: 'Parties',
+            icon: BooksIcon,
+            permission: PERMISSIONS.MASTERS_TALLY_VIEW,
+            phase: 6,
+            reqs: 'REQ-R-01, REQ-R-04',
+          },
+          {
+            to: '/masters/items',
+            label: 'Stock items',
+            shortLabel: 'Items',
+            icon: PackageIcon,
+            permission: PERMISSIONS.MASTERS_TALLY_VIEW,
+            phase: 6,
+            reqs: 'REQ-R-02',
+          },
+          {
+            to: '/masters/price-lists',
+            label: 'Price lists',
+            shortLabel: 'Prices',
+            icon: TagIcon,
+            permission: PERMISSIONS.MASTERS_TALLY_VIEW,
+            phase: 6,
+            reqs: 'REQ-R-03',
+          },
+        ],
+      },
+    ],
   },
 ];
 
+/**
+ * The module that owns a route, so the sidebar can render that module's
+ * groups rather than always attendance's (REQ-O-01 — without this, a second
+ * module's screens exist in the palette and nowhere a mouse can find them).
+ *
+ * Prefix matching covers detail routes: /employees/42 belongs to whichever
+ * module owns /employees. Routes no module claims — the workspace screens,
+ * /profile, an unknown URL — fall back to attendance, which keeps the sidebar
+ * stable instead of blanking it on every administrative page.
+ */
+export function findModuleForPath(pathname: string): ModuleDef {
+  return (
+    MODULES.find((module) =>
+      module.groups.some((group) =>
+        group.items.some(
+          (item) => item.to === pathname || (item.to !== '/' && pathname.startsWith(`${item.to}/`)),
+        ),
+      ),
+    ) ?? ATTENDANCE_MODULE
+  );
+}
+
 /** Every destination that has a name, wherever it is reached from. */
 export const ALL_NAV_ITEMS: NavItem[] = [
-  ...NAV_GROUPS.flatMap((g) => g.items),
+  // Every module's destinations, not only attendance's: the breadcrumb and
+  // the palette must name a screen whichever module owns it.
+  ...MODULES.flatMap((m) => m.groups.flatMap((g) => g.items)),
   ...ADMIN_GROUPS.flatMap((g) => g.items),
   ...TOP_BAR_ITEMS,
 ];
@@ -366,7 +450,7 @@ export function findNavItem(pathname: string): NavItem | undefined {
  * name and nothing else.
  */
 export function findNavGroup(pathname: string): string | undefined {
-  return [...NAV_GROUPS, ...ADMIN_GROUPS].find((group) =>
+  return [...MODULES.flatMap((m) => m.groups), ...ADMIN_GROUPS].find((group) =>
     group.items.some((item) => item.to === pathname),
   )?.label;
 }

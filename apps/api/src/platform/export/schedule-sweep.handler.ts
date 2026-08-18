@@ -5,8 +5,8 @@ import {
   type JobContext,
   type JobHandler,
   type JobResult,
-} from '../../../platform/jobs/job-handler.js';
-import type { JobPayloads } from '../../../platform/jobs/queue.registry.js';
+} from '../jobs/job-handler.js';
+import type { JobPayloads } from '../jobs/queue.registry.js';
 import { ScheduleService } from './schedule.service.js';
 
 /**
@@ -24,10 +24,9 @@ import { ScheduleService } from './schedule.service.js';
  * and remove schedules, and a sweep that reads a table cannot drift out of step
  * with the rows it reads.
  *
- * In the attendance module rather than beside the other handlers in
- * `platform/jobs/handlers/`, for the reason `ReportExportHandler` gives: it
- * needs to know what a report is, and technical design §1 forbids `platform/`
- * from importing `modules/`.
+ * Beside the export framework rather than in `platform/jobs/handlers/`, for
+ * the reason `ReportExportHandler` gives: it drives this framework, and the
+ * framework no longer needs to know what a report is (REQ-P-02).
  */
 @Injectable()
 export class ScheduleSweepHandler implements JobHandler<'run-report-schedules'>, OnModuleInit {

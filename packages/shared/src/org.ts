@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { AgentCondition } from './sync.js';
+
 import type { IntegrationStatus, IntegrationSystem } from './enums.js';
 import type { NamedRef } from './people.js';
 import { pageQuerySchema } from './pagination.js';
@@ -292,6 +294,14 @@ export interface IntegrationConnectionView {
    * hash — the hash is not selected by any read path in the application.
    */
   readonly tokenIssued: boolean;
+  /** The Tally company this connection is bound to, when known (REQ-Q-03). */
+  readonly companyName: string | null;
+  /**
+   * REQ-Q-05: the specific problem the last heartbeat carried, so an ERROR
+   * names its fix — "Tally is not running" and "the wrong company is open"
+   * are different instructions to the person walking to that machine.
+   */
+  readonly lastCondition: AgentCondition | null;
 }
 
 export interface IntegrationListResponse {

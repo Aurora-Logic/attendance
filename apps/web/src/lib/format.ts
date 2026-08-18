@@ -1,4 +1,4 @@
-import { format, parseISO } from 'date-fns';
+import { format, formatDistanceToNow, parseISO } from 'date-fns';
 
 /**
  * How dates are written on screen.
@@ -37,4 +37,16 @@ export function formatDate(value: string | null | undefined): string {
 export function humaniseEnum(value: string): string {
   const words = value.toLowerCase().replaceAll('_', ' ');
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+
+/**
+ * "3 minutes ago", or the empty-value dash for an unparseable instant. One
+ * owner for relative ages, so Integrations and Parties cannot drift apart on
+ * how the same timestamp reads.
+ */
+export function formatRelativeAge(iso: string): string {
+  const parsed = parseISO(iso);
+  if (Number.isNaN(parsed.getTime())) return EMPTY_VALUE;
+  return `${formatDistanceToNow(parsed)} ago`;
 }

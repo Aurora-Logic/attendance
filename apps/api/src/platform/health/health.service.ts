@@ -61,6 +61,9 @@ export class HealthService {
   }
 
   private async checkRedis(): Promise<DependencyResult> {
+    if (!env.JOBS_WORKER_ENABLED) {
+      return { status: 'ok', latencyMs: 0 };
+    }
     return this.timed('redis', () => redisPing(env.REDIS_URL, CHECK_TIMEOUT_MS));
   }
 

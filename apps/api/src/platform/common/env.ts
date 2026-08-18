@@ -1,6 +1,4 @@
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
-
+import { loadDotEnvFiles } from './dotenv.js';
 import { parseEnv, type Env } from './env.schema.js';
 
 export { EnvValidationError, parseEnv, envSchema } from './env.schema.js';
@@ -15,20 +13,7 @@ export type { Env, EnvIssue } from './env.schema.js';
  * instead of buried in a module-load stack trace.
  */
 
-function loadDotEnvFile(): void {
-  const envCandidates = [
-    resolve(process.cwd(), '.env'),
-    resolve(process.cwd(), '../../.env'),
-  ];
-  for (const envPath of envCandidates) {
-    if (existsSync(envPath)) {
-      try { process.loadEnvFile(envPath); } catch {}
-    }
-  }
-}
-
-
-loadDotEnvFile();
+loadDotEnvFiles();
 
 export const env: Env = parseEnv(process.env);
 

@@ -59,3 +59,10 @@ export const drizzleProvider: Provider = {
   inject: [PG_POOL],
   useFactory: (pool: Pool): Database => drizzle(pool),
 };
+
+/**
+ * One statement-executor type for code inside a `db.transaction` callback.
+ * Derived once here: four services each derived it privately, and a drizzle
+ * signature change would have needed four coordinated edits.
+ */
+export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];

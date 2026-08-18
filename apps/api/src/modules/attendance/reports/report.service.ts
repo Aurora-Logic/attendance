@@ -14,8 +14,6 @@ import {
   leaveYearOf,
   missingPunchCell,
   musterGridCell,
-  pageSlice,
-  paginated,
   parseAttendanceFlags,
   parseSort,
   punchAuditCell,
@@ -29,14 +27,12 @@ import {
   type LeaveLedgerSource,
   type MissingPunchSource,
   type MusterGridSource,
-  type Paginated,
   type PunchRecord,
   type ReportCellValue,
   type ReportColumnSpec,
   type ReportDefinition,
   type ReportFilters,
   type ReportKey,
-  type ReportRowQuery,
   type SortTerm,
 } from '@vyuha/shared';
 import { and, sql, type SQL } from 'drizzle-orm';
@@ -44,6 +40,7 @@ import type { PgColumn } from 'drizzle-orm/pg-core';
 
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
+import { ExportContextRepository } from '../../../platform/export/export-context.repository.js';
 import { EMPLOYEE_SCOPE_GRANTS } from '../../../platform/people/employee.service.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
@@ -102,12 +99,6 @@ export type ReportPage =
   | { readonly kind: 'leave-ledger'; readonly rows: LeaveLedgerSource[]; readonly total: number }
   | { readonly kind: 'leave-availed'; readonly rows: LeaveAvailedSource[]; readonly total: number }
   | { readonly kind: 'headcount'; readonly rows: HeadcountSource[]; readonly total: number };
-
-/** Any row any report serves. The endpoint's element type. */
-export type ReportRow = ReportPage['rows'][number];
-
-/** How many rows one round trip pulls while an export is being written. */
-export const EXPORT_BATCH_ROWS = 1_000;
 
 /** The column of `attendance_days` each exception report measures. */
 const EXCEPTION_MEASURES: Partial<Record<ReportKey, ExceptionMeasure>> = {
@@ -175,16 +166,6 @@ export class ReportService {
     return ALL_REPORTS.filter(
       (report) => this.scopes.breadth(principal, grantsFor(report.key)) !== 'none',
     );
-  }
-
-  async list(
-    principal: Principal,
-    reportKey: ReportKey,
-    query: ReportRowQuery,
-  ): Promise<Paginated<ReportRow>> {
-    const { limit, offset } = pageSlice(query);
-    const page = await this.page(principal, reportKey, query, limit, offset);
-    return paginated<ReportRow>([...page.rows], query, page.total);
   }
 
   /**
@@ -375,7 +356,7 @@ export class ReportService {
         };
 
       case 'leave-balance': {
-        const profile = await new ReportRepository(this.db, context).orgProfile();
+        const profile = await new ExportContextRepository(this.db, context).orgProfile();
         // The leave year the period opens in. A period straddling the year
         // boundary reports the year it began in rather than adding two
         // together, which would produce a balance nothing reconciles to.
@@ -391,7 +372,7 @@ export class ReportService {
       }
 
       case 'leave-ledger': {
-        const profile = await new ReportRepository(this.db, context).orgProfile();
+        const profile = await new ExportContextRepository(this.db, context).orgProfile();
         return {
           kind: 'leave-ledger',
           ...(await repository.leaveLedger(scoped, profile.timezone, sort, limit, offset)),

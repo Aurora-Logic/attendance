@@ -24,11 +24,25 @@ import { hasPermission, type Principal } from './principal.js';
  * The permission keys that grant each breadth for one resource. Passing the
  * whole family rather than a single key is what lets the service answer "the
  * broadest thing this caller may see", which is the only question worth asking.
+ *
+ * A band accepts a set as well as a single key, because a band can be granted
+ * by more than one key once a family spans subject types: the approvals inbox
+ * derives `self` from every raise key in the REQ-P-04 catalogue, and a holder
+ * of any one of them owns their own rows.
  */
+export type ScopeGrant = PermissionKey | readonly PermissionKey[];
+
 export interface ScopeGrants {
-  readonly self?: PermissionKey;
-  readonly team?: PermissionKey;
-  readonly all?: PermissionKey;
+  readonly self?: ScopeGrant;
+  readonly team?: ScopeGrant;
+  readonly all?: ScopeGrant;
+}
+
+/** An empty set grants nothing — the band might as well be undeclared. */
+function grantsBand(principal: Principal, grant: ScopeGrant | undefined): boolean {
+  if (grant === undefined) return false;
+  if (typeof grant === 'string') return hasPermission(principal, grant);
+  return grant.some((key) => hasPermission(principal, key));
 }
 
 export interface ResolvedScope {
@@ -61,9 +75,9 @@ export class ScopeService {
 
   /** The breadth this principal holds for the family, widest first. */
   breadth(principal: Principal, grants: ScopeGrants): DataScope | 'none' {
-    if (grants.all !== undefined && hasPermission(principal, grants.all)) return DATA_SCOPES.ALL;
-    if (grants.team !== undefined && hasPermission(principal, grants.team)) return DATA_SCOPES.TEAM;
-    if (grants.self !== undefined && hasPermission(principal, grants.self)) return DATA_SCOPES.SELF;
+    if (grantsBand(principal, grants.all)) return DATA_SCOPES.ALL;
+    if (grantsBand(principal, grants.team)) return DATA_SCOPES.TEAM;
+    if (grantsBand(principal, grants.self)) return DATA_SCOPES.SELF;
     return 'none';
   }
 
@@ -102,7 +116,7 @@ export class ScopeService {
     const branches: SQL[] = [
       sql`${employeeColumn} IN ${this.teamSubquery(principal.orgId, employeeId)}`,
     ];
-    if (grants.self !== undefined && hasPermission(principal, grants.self)) {
+    if (grantsBand(principal, grants.self)) {
       branches.push(sql`${employeeColumn} = ${employeeId}`);
     }
 

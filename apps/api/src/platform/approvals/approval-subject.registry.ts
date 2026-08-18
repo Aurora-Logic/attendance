@@ -1,8 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
-import type { PermissionKey } from '@vyuha/shared';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  APPROVAL_SUBJECT_KEYS,
+  type ApprovalSubjectKeyDeclaration,
+  type PermissionKey,
+} from '@vyuha/shared';
 
 import type { Database } from '../db/db.provider.js';
 import type { OrgContext } from '../db/scoped-repository.js';
+
+/**
+ * Keyed by plain string: subject types are an open set on the wire, and the
+ * registry meets a handler before it can know whether the type is "known".
+ */
+export type ApprovalKeyCatalogue = Readonly<Record<string, ApprovalSubjectKeyDeclaration>>;
 
 /**
  * How a slice attaches its own records to the approval framework (REQ-I-01).
@@ -118,6 +128,18 @@ export interface ApprovalSubjectHandler {
 export class ApprovalSubjectRegistry {
   private readonly logger = new Logger(ApprovalSubjectRegistry.name);
   private readonly handlers = new Map<string, ApprovalSubjectHandler>();
+  private readonly catalogue: ApprovalKeyCatalogue;
+
+  /**
+   * The catalogue is a parameter so a test can rehearse a module that does
+   * not exist yet — declaring its keys the same way the real one will, in
+   * data, rather than the test being exempt from the rule it exercises.
+   * Nothing in production passes one; `@Optional()` lets Nest construct this
+   * with no provider and the shared catalogue is the default.
+   */
+  constructor(@Optional() catalogue?: ApprovalKeyCatalogue) {
+    this.catalogue = catalogue ?? APPROVAL_SUBJECT_KEYS;
+  }
 
   register(handler: ApprovalSubjectHandler): void {
     if (this.handlers.has(handler.subjectType)) {
@@ -127,8 +149,55 @@ export class ApprovalSubjectRegistry {
         `Approval subject "${handler.subjectType}" already has a handler registered.`,
       );
     }
+    this.assertMatchesCatalogue(handler);
     this.handlers.set(handler.subjectType, handler);
     this.logger.log({ msg: `Approval subject handler registered: ${handler.subjectType}` });
+  }
+
+  /**
+   * A *declared* subject's handler must carry the catalogue's keys, and a
+   * disagreement is a boot failure rather than a review item.
+   *
+   * The route guards are derived from the catalogue at class definition; the
+   * per-request narrowing reads the handler at run time. If the two drift,
+   * one layer admits what the other refuses — an approver the guard turns
+   * away at the door, or a key the guard honours that no handler narrows —
+   * and both failures are silent until somebody is wrongly refused or
+   * wrongly allowed. Handlers therefore *read* their keys from the catalogue;
+   * this check is what catches the one that hand-writes them instead.
+   *
+   * An **undeclared** subject type registers freely, on purpose. Subject
+   * types are an open set — the framework's own tests register synthetic
+   * ones — and a module that ships without declaring only hurts itself: the
+   * guards never heard of its keys, so its approvers answer 403 at the door
+   * and its first endpoint test says so. What must never happen quietly is a
+   * declared subject meaning two different things in two layers.
+   */
+  private assertMatchesCatalogue(handler: ApprovalSubjectHandler): void {
+    const declared = Object.hasOwn(this.catalogue, handler.subjectType)
+      ? this.catalogue[handler.subjectType]
+      : undefined;
+    if (declared === undefined) return;
+
+    const same = (a: readonly PermissionKey[], b: readonly PermissionKey[]): boolean => {
+      if (a.length !== b.length) return false;
+      const sortedA = [...a].sort();
+      const sortedB = [...b].sort();
+      return sortedA.every((key, i) => key === sortedB[i]);
+    };
+
+    if (!same(declared.act, handler.actPermissions)) {
+      throw new Error(
+        `Approval subject "${handler.subjectType}" declares act keys ` +
+          `[${handler.actPermissions.join(', ')}] but the catalogue says [${declared.act.join(', ')}].`,
+      );
+    }
+    if (!same(declared.override, handler.overridePermissions)) {
+      throw new Error(
+        `Approval subject "${handler.subjectType}" declares override keys ` +
+          `[${handler.overridePermissions.join(', ')}] but the catalogue says [${declared.override.join(', ')}].`,
+      );
+    }
   }
 
   get(subjectType: string): ApprovalSubjectHandler | null {

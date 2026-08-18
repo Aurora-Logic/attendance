@@ -51,6 +51,14 @@ export const PERMISSIONS = {
   ROLES_MANAGE: 'roles.manage',
   AUDIT_VIEW: 'audit.view',
   INTEGRATION_MANAGE: 'integration.manage',
+
+  /**
+   * 08 §2.2, the first Phase 6-8 key: read the Tally masters projection.
+   * Sales, Sales manager, Purchase and Accounts gain it when those roles
+   * arrive with their phases; Admin holds it from the moment the screen
+   * exists, because a projection nobody can see cannot be reconciled.
+   */
+  MASTERS_TALLY_VIEW: 'masters.tally.view',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -80,6 +88,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'settings.manage': 'Change organisation settings',
   'roles.manage': 'Create roles and assign permissions',
   'audit.view': 'View the audit log',
+  'masters.tally.view': 'View the Tally masters projection: parties, items, price lists',
   'integration.manage': 'Manage integration connections',
 };
 
@@ -139,6 +148,7 @@ const ADMIN_PERMISSIONS = [
   PERMISSIONS.ROLES_MANAGE,
   PERMISSIONS.AUDIT_VIEW,
   PERMISSIONS.INTEGRATION_MANAGE,
+  PERMISSIONS.MASTERS_TALLY_VIEW,
 ] as const satisfies readonly PermissionKey[];
 
 /**
@@ -290,3 +300,12 @@ export const assignRoleSchema = z.object({
 });
 
 export type AssignRoleInput = z.infer<typeof assignRoleSchema>;
+
+export const setCredentialsSchema = z.object({
+  email: z.string().trim().email(),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  roleId: z.string().uuid().optional(),
+  reason: adminReasonSchema.optional(),
+});
+
+export type SetCredentialsInput = z.infer<typeof setCredentialsSchema>;

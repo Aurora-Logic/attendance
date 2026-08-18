@@ -1,6 +1,6 @@
 import {
   ArrowCounterClockwiseIcon,
-  PaperPlaneTiltIcon,
+  KeyIcon,
   PencilSimpleIcon,
   UserMinusIcon,
 } from '@phosphor-icons/react';
@@ -68,8 +68,8 @@ export function employeeActions(input: {
   if (employee.status !== 'INACTIVE') {
     actions.push({
       key: 'invite',
-      label: 'Invite to sign in',
-      icon: PaperPlaneTiltIcon,
+      label: 'Login credentials',
+      icon: KeyIcon,
       onSelect: onInvite,
       ...gate,
     });

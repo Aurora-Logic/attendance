@@ -116,7 +116,7 @@ These predate this phase and remain unanswered. Listed so they are not lost when
 | `05`-14 | Consequence rules — does 3 lates equal a half day | Attendance, unchanged |
 | `05`-15 | Regularization limits — days back, count per month | Attendance, unchanged |
 | OQ P0-6 | Icon library: phosphor in the code, lucide in the constitution | Every future screen, including all 22 new ones |
-| OQ P2-3 | Role assignment has no endpoint or UI | **Now blocking.** D-15 cannot ship without it; folded into Phase 6a |
+| OQ P2-3 | Role assignment has no endpoint or UI | **Closed 16 Aug 2026** — existed since `31f855f` (14 Aug); the entry was stale. Verified live in Phase 6a; D-15 is unblocked |
 | OQ P2-2 | Four settings recorded but read by nothing | Attendance, unchanged |
 | REQ-G-10 | Who may cancel leave once it has started | Attendance, unchanged |
 | OQ WS-A-1 | Error tracking deferred pending a Sentry decision | Becomes more pressing with an agent running outside the VPS |

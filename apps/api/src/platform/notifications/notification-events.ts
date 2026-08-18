@@ -189,4 +189,23 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     path: () => routeFor('period.unlocked'),
     defaultChannels: IN_APP_ONLY,
   },
+  /**
+   * REQ-Q-04. Email by default, unlike most of the catalogue: an agent going
+   * quiet is precisely the situation where nobody is looking at the app, and
+   * the person who can fix it is at the Tally machine, not the bell.
+   */
+  'sync.agent_stale': {
+    title: (p) => `Tally agent for ${text(p, 'connectionName', 'a connection')} has gone quiet`,
+    body: (p) =>
+      `No heartbeat since ${text(p, 'lastHeartbeatAt', 'its last report')} — sync is paused. ` +
+      'Check the machine that runs TallyPrime and the agent on it.',
+    path: () => routeFor('sync.agent_stale'),
+    defaultChannels: IN_APP_AND_EMAIL,
+  },
+  'sync.agent_recovered': {
+    title: (p) => `Tally agent for ${text(p, 'connectionName', 'a connection')} is back`,
+    body: () => 'Heartbeats resumed; queued work continues on the next poll.',
+    path: () => routeFor('sync.agent_recovered'),
+    defaultChannels: IN_APP_ONLY,
+  },
 };

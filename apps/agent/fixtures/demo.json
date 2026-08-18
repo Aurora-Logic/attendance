@@ -1,0 +1,14 @@
+{
+  "companyGuid": "slice-verify-guid",
+  "tallyVersion": "TallyPrime (fixture)",
+  "parties": [
+    { "guid": "fx-party-asha", "alterId": 1001, "name": "Asha Traders", "parentGroup": "Sundry Debtors", "gstin": "27AAAPL1234C1ZV", "creditLimit": "250000.00", "creditDays": 30 },
+    { "guid": "fx-party-behar", "alterId": 1002, "name": "Behar Supply Co", "parentGroup": "Sundry Creditors", "openingBalance": "-12345.67" }
+  ],
+  "stockItems": [
+    { "guid": "fx-item-cable", "alterId": 1101, "name": "Cat6 Cable Box", "alias": "CAT6", "unit": "Nos", "parentGroup": "Networking", "gstRate": "18" }
+  ],
+  "priceLists": [
+    { "alterId": 1201, "stockItemGuid": "fx-item-cable", "priceLevel": "Wholesale", "rate": "4150.00", "unit": "Nos" }
+  ]
+}

@@ -1,9 +1,10 @@
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
+
+import { loadDotEnvFiles } from '../common/dotenv.js';
 
 /**
  * Applies pending migrations. Run on deploy, forward-only (technical design
@@ -14,16 +15,7 @@ import { Pool } from 'pg';
  * the deploy rather than leave a half-migrated database serving traffic.
  */
 async function main(): Promise<void> {
-  const envCandidates = [
-    resolve(process.cwd(), '.env'),
-    resolve(process.cwd(), '../../.env'),
-  ];
-  for (const envPath of envCandidates) {
-    if (existsSync(envPath)) {
-      try { process.loadEnvFile(envPath); } catch {}
-    }
-  }
-
+  loadDotEnvFiles();
 
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
