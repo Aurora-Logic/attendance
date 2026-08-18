@@ -472,6 +472,10 @@ export class ApiHarness {
     );
     await this.db.execute(sql`DELETE FROM regularizations WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM on_duty_requests WHERE org_id = ${this.orgId}`);
+    // CRM records own an employee (`owner_id`, RESTRICT), so they go before
+    // the employees do — same reasoning, same raw SQL.
+    await this.db.execute(sql`DELETE FROM crm_contacts WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM crm_companies WHERE org_id = ${this.orgId}`);
 
     // Employees reference each other through reporting_manager_id and
     // departments through head_employee_id, so the links are cut before the

@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 
 import { AttendanceModule } from './modules/attendance/attendance.module.js';
+import { CrmModule } from './modules/crm/crm.module.js';
 import { AuditContextMiddleware } from './platform/audit/audit-context.middleware.js';
 import { AuditInterceptor } from './platform/audit/audit.interceptor.js';
 import { AuditModule } from './platform/audit/audit.module.js';
@@ -83,6 +84,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     // The first `modules/` entry. Everything above it is the shared kernel;
     // CRM and ERP will sit beside this one and import nothing from it.
     AttendanceModule,
+    CrmModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AppExceptionFilter },

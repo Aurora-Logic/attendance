@@ -60,6 +60,23 @@ export const PERMISSIONS = {
    */
   MASTERS_TALLY_VIEW: 'masters.tally.view',
   RECEIVABLES_VIEW: 'receivables.view',
+
+  /**
+   * Phase 7 (08 §2.2). Self/all breadths for contacts and deals; tasks are a
+   * platform concern (D-17) but keep the `crm.` spelling the PRD gave them.
+   * The Sales roles that hold the self keys arrive with the role expansion;
+   * until then Admin holds every key, as it does for every module.
+   */
+  CRM_CONTACT_VIEW_SELF: 'crm.contact.view.self',
+  CRM_CONTACT_VIEW_ALL: 'crm.contact.view.all',
+  CRM_CONTACT_MANAGE: 'crm.contact.manage',
+  CRM_DEAL_VIEW_SELF: 'crm.deal.view.self',
+  CRM_DEAL_VIEW_ALL: 'crm.deal.view.all',
+  CRM_DEAL_MANAGE: 'crm.deal.manage',
+  CRM_PIPELINE_MANAGE: 'crm.pipeline.manage',
+  CRM_TASK_VIEW_SELF: 'crm.task.view.self',
+  CRM_TASK_VIEW_TEAM: 'crm.task.view.team',
+  CRM_TASK_MANAGE: 'crm.task.manage',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -91,6 +108,16 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'audit.view': 'View the audit log',
   'masters.tally.view': 'View the Tally masters projection: parties, items, price lists',
   'receivables.view': 'View vouchers and receivables pulled from Tally: invoices, receipts, statements, ageing',
+  'crm.contact.view.self': 'View the contacts and companies you own',
+  'crm.contact.view.all': 'View every contact and company',
+  'crm.contact.manage': 'Create and edit contacts and companies',
+  'crm.deal.view.self': 'View the deals you own',
+  'crm.deal.view.all': 'View every deal',
+  'crm.deal.manage': 'Create deals and move them between stages',
+  'crm.pipeline.manage': 'Configure pipelines and their stages',
+  'crm.task.view.self': 'View tasks assigned to you or owned by you',
+  'crm.task.view.team': 'View your team’s tasks',
+  'crm.task.manage': 'Create, assign and close tasks',
   'integration.manage': 'Manage integration connections',
 };
 
@@ -153,6 +180,16 @@ const ADMIN_PERMISSIONS = [
   PERMISSIONS.MASTERS_TALLY_VIEW,
   // 08 §2.2: Sales manager and Accounts hold this too, when those roles land.
   PERMISSIONS.RECEIVABLES_VIEW,
+  PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+  PERMISSIONS.CRM_CONTACT_VIEW_ALL,
+  PERMISSIONS.CRM_CONTACT_MANAGE,
+  PERMISSIONS.CRM_DEAL_VIEW_SELF,
+  PERMISSIONS.CRM_DEAL_VIEW_ALL,
+  PERMISSIONS.CRM_DEAL_MANAGE,
+  PERMISSIONS.CRM_PIPELINE_MANAGE,
+  PERMISSIONS.CRM_TASK_VIEW_SELF,
+  PERMISSIONS.CRM_TASK_VIEW_TEAM,
+  PERMISSIONS.CRM_TASK_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 /**
