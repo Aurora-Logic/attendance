@@ -141,7 +141,12 @@ export const envSchema = z
 
     DATABASE_URL: urlWithProtocol(['postgres:', 'postgresql:'], 'postgres:// or postgresql://'),
     REDIS_URL: urlWithProtocol(['redis:', 'rediss:'], 'redis:// or rediss://'),
-    STORAGE_DRIVER: optionalChoice(['s3', 'disk'], 'disk'),
+    // S3 (MinIO locally) is the documented stack and what every storage
+    // test asserts against -- signed URLs, bucket bytes, expiry. The disk
+    // driver is an explicit opt-in for a laptop without Docker, never the
+    // default: a default that silently swaps the store makes a green suite
+    // prove nothing about the store production runs on.
+    STORAGE_DRIVER: optionalChoice(['s3', 'disk'], 's3'),
     STORAGE_DISK_PATH: optionalTextOr('./data/uploads'),
 
     S3_ENDPOINT: optionalTextOr('http://localhost:59000'),

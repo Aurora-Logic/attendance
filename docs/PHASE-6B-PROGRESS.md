@@ -29,6 +29,7 @@ Branch: **`phase-6a`** (6b work continues on it until 6a's gate closes).
 | Journal body sweep, nightly 02:45 — D-20 | `29a862e` | Ages real rows: 40-day bodies cleared, hash kept, fresh kept, repeat finds nothing; trigger side already held by `sync-journal.test.ts` |
 | Full re-pull + absent marking — REQ-R-05, REQ-R-06 | `ac6707f` | Watermark = job created_at (claimed_at moves per chunk); mark/unmark/incremental-never 32/32; CDP: confirm dialog queues 3 full jobs, cursors deleted. Vanishing price rates → OPEN-QUESTIONS P6b-1 |
 | Connector agent, loop half — REQ-Q-01, Q-02, Q-07 (`apps/agent`) | `a935690` | 5 loop tests vs a scripted server; **live run against the dev API**: UI-issued token, lease, 3 full jobs claimed in dependency order, chunks posted, absent marking landed from the real binary. Claim now carries `fromAlterId` (the server's cursor). Transport = seam + FixtureTransport; `TallyHttpTransport` and SEA packaging land with real fixtures (10 §8, D-05) |
+| **OpsTally webhook door** — the transport, answered by the API document (`0d94baa`, `3940868`) | `0d94baa` | Webhook suite 19/19 twice; secret box 3/3; live: UI handshake, signed ping/stock/ledger over HTTP, replay deduped, rival install 409, screens render the rows |
 
 New permission: `masters.tally.view` (08 §2.2), granted to Admin; other
 holders arrive with their roles. OPEN-QUESTIONS I-1 closed: staleness = lease
@@ -82,9 +83,49 @@ takeover = 5 minutes, one constant.
 - Go To sources skipping `count(*)` — measured cost is negligible at this
   size.
 
+### The transport question, answered
+
+The user supplied the **OpsTally Webhooks v1** reference: OpsTally Agent runs
+beside TallyPrime and *pushes* signed JSON events (stock, ledgers, vouchers)
+to an HTTPS endpoint we give out. That is the transport — Vyuha never
+parses Tally XML on this path, and the Tally-fixture blocker for the pull
+agent's `TallyHttpTransport` no longer gates masters sync. Built to the
+reference field for field (`packages/shared/src/opstally.ts`):
+
+- `POST /sync/webhooks/opstally/:connectionId` — `@Public()` at the guard,
+  HMAC-SHA256 over the **raw body** (`rawBody: true` on the app), 401 with
+  nothing touched on any failure, wrong signatures throttled as credential
+  guesses (limiter scope `webhook`).
+- The `whsec_` secret is the one credential stored *reversibly* — AES-GCM
+  under an HKDF key derived from `JWT_REFRESH_SECRET`
+  (`platform/auth/secret-box.ts`), never selected by a read path.
+  `PUT /integrations/:id/webhook-secret` stores it and answers the URL to
+  paste into the Agent. Transports are exclusive per connection.
+- First verified delivery **binds** install id and Tally's exact company
+  name (overwriting what the admin typed); later mismatches are 409 and set
+  `WRONG_COMPANY_OPEN`.
+- **`sync_inbox`** dedupes by event id in the same transaction as the
+  writes; a retry is a 200 no-op. Vouchers are acknowledged, journalled and
+  **retained** in the inbox (`payload`) for Phase 6c to replay.
+- Projection goes through `SyncWriterService.applyRows` (`WriterScope`
+  generalises `AgentPrincipal`): debtor/creditor ledgers → parties, stock
+  items → `stock_items` with OpsTally's held figures (`closing_qty`,
+  `sale_price`, `cost_price`; the reference's "zero is not free" rule in
+  SQL). Non-party ledgers acknowledged and skipped. Malformed-but-verified
+  events acknowledged and raised as `REJECTION` exceptions.
+- Webhook connections excluded from the heartbeat staleness alert; the
+  Integrations screen reads them as a push source.
+
+**Not done by design, recorded in OPEN-QUESTIONS P6b-2..P6b-5:** absent
+marking from `stock.snapshot` (chunks arrive out of order under failure);
+price lists (OpsTally has no per-level event); GST rate (not in the stock
+payload); voucher projection (6c); how 6c backfills history when the source
+is push-only with a 90-day lookback.
+
 ## Next, in order
 
-Nothing buildable remains; see "Blocked, and on whom".
+Nothing buildable remains for 6b; see "Blocked, and on whom". The 6c
+voucher projection now has a retained inbox to replay from.
 
 ### 6b exit gate — run, passed
 
@@ -104,8 +145,9 @@ read an employee, a punch photo, or another connection's data.
 
 ## Blocked, and on whom
 
-- **Real Tally XML fixtures from the company data** — gathering task, not
-  development; blocks the agent's transport and every parser test (10 §8).
+- **Real Tally XML fixtures from the company data** — now only blocks the
+  *pull agent's* `TallyHttpTransport` and single-binary packaging; masters
+  sync itself flows through the OpsTally webhook door.
 - **D-05** (Tally on one machine or a server?) — decides where the agent
   installs; blocks nothing in the API.
 - **6a's `/ultrareview` verdict** — the finder batches landed and were

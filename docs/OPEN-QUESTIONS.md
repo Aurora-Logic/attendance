@@ -211,3 +211,40 @@ still never delete.
 
 Not implemented without a decision because it is the one place the sync
 engine would hard-delete data on its own initiative.
+
+---
+
+## P6b-2 — Absent marking from an OpsTally `stock.snapshot` (REQ-R-06)
+
+A `stock.snapshot` is the push analogue of a full pull, so its final chunk
+*could* mark absentees. It does not: the reference says delivery is
+best-effort chronological under failure — chunk 3 can arrive before chunk 1
+is retried — so "not touched since the snapshot began" would mark items
+whose chunk is merely late. **Default in force:** snapshots upsert only. Mark
+absent from the pull path's full re-pull, or once OpsTally sends a snapshot
+completion marker. Say the word if a lag-tolerant heuristic is preferred.
+
+## P6b-3 — Price lists and GST rate under OpsTally (REQ-R-02, R-03)
+
+OpsTally's stock payload carries no GST rate and no per-price-level rates
+(its `salePrice` already resolves the Standard Price List into one number).
+Under this transport `stock_items.gst_rate` stays null and
+`price_list_entries` receives nothing; both fill from the pull agent when
+its Tally transport lands. Recorded so nobody reads an empty Price lists
+screen as a defect.
+
+## P6b-4 — Voucher projection from the retained inbox (Phase 6c)
+
+Vouchers arrive now and are retained in `sync_inbox.payload`. 6c's voucher
+writer should replay `sync_inbox WHERE payload IS NOT NULL` oldest-first per
+connection, then clear `payload` on success — the deferred index already
+exists for that read. Idempotency by voucher GUID as for every projection.
+
+## P6b-5 — Backfill when the source is push-only (REQ-S-01, S-04)
+
+OpsTally emits `voucher.*` only for changes within its lookback (90 days by
+default) and offers no on-demand voucher snapshot. A first-time historical
+backfill against a copy of the books (REQ-S-04) therefore cannot come
+through this door alone. Options for 6c: raise the Agent's lookback for one
+baseline pass; a one-off pull-agent run with the XML transport; or an
+export/import step. Needs a decision before 6c starts.
