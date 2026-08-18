@@ -20,7 +20,13 @@ class DispatchListQueryDto extends createZodDto(dispatchListQuerySchema) {}
 class MarkNotificationDto extends createZodDto(markNotificationSentSchema) {}
 
 const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL] as const;
-const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+/**
+ * The files service refuses anything over 3 MB (technical design §7), so
+ * multer stops at the same line: an 8 MB ceiling here only let a large
+ * photograph through to be refused later, after the whole body had been
+ * read. The client re-encodes gallery photographs to fit before sending.
+ */
+const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
 
 interface UploadedPart {
   readonly buffer: Buffer;
