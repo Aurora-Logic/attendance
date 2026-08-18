@@ -27,6 +27,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { ActivityTimeline } from './activity-timeline';
+import { DealDocuments } from './deal-documents';
 import { DeleteDealDialog } from './delete-dialogs';
 import type { Deal, DealDraft } from './types';
 import { useCompanyOptions } from './use-crm';
@@ -388,6 +389,11 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
             />
           </Field>
         </FieldGroup>
+        {record === null ? null : (
+          <div className="mt-6 border-t pt-4">
+            <DealDocuments deal={record} />
+          </div>
+        )}
         {initial.id === undefined ? null : (
           <div className="mt-6 border-t pt-4">
             <ActivityTimeline subject={{ type: 'deal', id: initial.id }} canLog={canManageDeal} />

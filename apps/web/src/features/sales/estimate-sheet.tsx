@@ -88,7 +88,14 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
   const itemOptions: PickerOption[] = (items.data?.data ?? []).map((i) => ({ id: i.id, label: i.name, hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' ') }));
   const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
 
-  const customerMissing = draft.partyId === null && draft.companyId === null && draft.customerName.trim() === '';
+  // Raised from a record (deal, company, party) the name arrives with the
+  // options, not the URL: "Addressed to" shows the party's or company's name
+  // until somebody types over it, and that is what is saved.
+  const presetName = pick(partyOptions, draft.partyId)?.label ?? pick(companyOptions, draft.companyId)?.label ?? null;
+  const customerName = draft.customerName.trim() === '' && presetName !== null ? presetName : draft.customerName;
+  const effectiveDraft: EstimateDraft = customerName === draft.customerName ? draft : { ...draft, customerName };
+
+  const customerMissing = draft.partyId === null && draft.companyId === null && customerName.trim() === '';
   const preview = draft.lines.map(previewLine);
   const previewSubtotal = preview.reduce((sum, p, i) => sum + (p === null ? 0 : Number(draft.lines[i]?.quantity ?? 0) * Number(draft.lines[i]?.rate ?? 0)), 0);
   const previewNet = preview.reduce((sum, p) => sum + (p?.amount ?? 0), 0);
@@ -124,7 +131,7 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
 
   function submit() {
     if (customerMissing || save.isPending || !editable) return;
-    save.mutate(draft, {
+    save.mutate(effectiveDraft, {
       onSuccess: (saved) => {
         toast.add({ type: 'success', title: isNew ? `${saved.number} raised` : `${saved.number} saved`, description: `${saved.customerName} · ${formatMoney(saved.grandTotal)}` });
         onClose();
@@ -237,7 +244,7 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
                 className="pointer-coarse:h-11"
                 placeholder="Customer name as printed"
                 disabled={!editable}
-                value={draft.customerName}
+                value={customerName}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, customerName: event.target.value }));
                 }}
