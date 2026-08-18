@@ -107,7 +107,7 @@ export function DocumentLinesEditor({
             const p = preview[index] ?? null;
             return (
             <li key={line.key} className="flex flex-col gap-2 p-3">
-              <div className="grid gap-2 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
+              <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
                 <div className="flex flex-col gap-1">
                   {canPickItems ? (
                   <RecordPicker

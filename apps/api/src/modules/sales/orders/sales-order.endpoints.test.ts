@@ -477,7 +477,7 @@ describe('dispatch (12 §3.4, §3.5)', () => {
     const text = created.body.notifications[0]?.composedText ?? '';
     expect(text).toContain('INV-0201');
     expect(text).toContain('Cat6 cable 305m: 4');
-    expect(text).toContain('6.000 BOX to follow');
+    expect(text).toContain('6 BOX to follow');
     expect(text).toContain('LR LR-77');
 
     const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdD}`, { token: salesToken });

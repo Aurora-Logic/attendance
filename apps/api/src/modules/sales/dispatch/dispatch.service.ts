@@ -211,7 +211,8 @@ export class DispatchService implements OnModuleInit {
       .map((line) => {
         const sent = input.lines.find((e) => e.lineId === line.id);
         const remaining = Number(line.quantity) - Number(line.dispatchedQty) - Number(sent?.quantity ?? 0);
-        return remaining > 1e-9 ? `- ${line.description}: ${remaining.toFixed(3)}${line.unit ? ` ${line.unit}` : ''} to follow` : null;
+        // The way a person writes it: 40, not 40.000; 2.5, not 2.500.
+        return remaining > 1e-9 ? `- ${line.description}: ${String(Number(remaining.toFixed(3)))}${line.unit ? ` ${line.unit}` : ''} to follow` : null;
       })
       .filter((s): s is string => s !== null);
     const invoices = order.invoices.map((i) => i.voucherNumber).join(', ');

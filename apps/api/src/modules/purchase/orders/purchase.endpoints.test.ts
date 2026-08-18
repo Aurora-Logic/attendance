@@ -320,7 +320,7 @@ describe('approval by value through the inbox (13 REQ-X-16)', () => {
       ['whatsapp', '+919800000000', 'pending'],
     ]);
     expect(confirmed.body.notifications[0]?.composedText).toContain(created.body.number);
-    expect(confirmed.body.notifications[0]?.composedText).toContain('Cat6 cable 305m: 1.000 BOX @ 3800.00');
+    expect(confirmed.body.notifications[0]?.composedText).toContain('Cat6 cable 305m: 1 BOX @ 3800.00');
     const marked = await harness.post<PurchaseOrderView>(`/purchase/orders/${created.body.id}/notifications/${confirmed.body.notifications[1]?.id ?? ''}`, { token: buyerToken, body: { status: 'sent' } });
     expect(marked.status).toBe(200);
     expect(marked.body.notifications.find((n) => n.channel === 'whatsapp')?.status).toBe('sent');

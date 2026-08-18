@@ -793,7 +793,8 @@ export class PurchaseOrderService implements OnModuleInit {
 
 /** REQ-X-18: what the vendor receives — the PO in words a supplier can act on, one line per item. */
 function composeVendorText(po: PurchaseOrderView): string {
-  const lines = po.lines.map((l) => `- ${l.description}: ${l.quantity}${l.unit === null ? '' : ` ${l.unit}`} @ ${l.rate}`).join('\n');
+  // The way a person writes it: 40, not 40.000.
+  const lines = po.lines.map((l) => `- ${l.description}: ${String(Number(l.quantity))}${l.unit === null ? '' : ` ${l.unit}`} @ ${l.rate}`).join('\n');
   return [
     `Purchase order ${po.number} dated ${po.date}`,
     `To: ${po.vendorName}`,

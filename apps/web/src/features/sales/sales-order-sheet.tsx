@@ -606,15 +606,7 @@ function FulfilmentSections({ record, packs, dispatches }: { record: Estimate; p
       ) : null}
 
       <div className="flex flex-col gap-2">
-        <SectionHeading
-          title="Invoices"
-          note="Raised in Tally and linked on the pull, or raised here (D-38)."
-          action={
-            <Link to={`/sales/dispatches?order=${record.id}`} className="text-xs underline-offset-4 hover:underline">
-              Dispatches against this order
-            </Link>
-          }
-        />
+        <SectionHeading title="Invoices" note="Raised in Tally and linked on the pull, or raised here (D-38)." />
         {record.invoices.length === 0 ? (
           <p className="text-muted-foreground text-xs">None yet. Dispatch waits until an invoice covers the quantity (REQ-AA-14).</p>
         ) : (
@@ -642,7 +634,15 @@ function FulfilmentSections({ record, packs, dispatches }: { record: Estimate; p
       </div>
 
       <div className="flex flex-col gap-2">
-        <SectionHeading title="Dispatches" note="REQ-AA-31: every dispatch against this order, with its date, mode, LR and quantities." />
+        <SectionHeading
+          title="Dispatches"
+          note="Every dispatch against this order, with its date, mode, LR and quantities (REQ-AA-31)."
+          action={
+            <Link to={`/sales/dispatches?order=${record.id}`} className="text-xs underline-offset-4 hover:underline">
+              Open on the board
+            </Link>
+          }
+        />
         {dispatches.isPending ? (
           <div role="status" aria-busy="true" aria-label="Loading dispatches" className="flex flex-col gap-2">
             <Skeleton className="h-3 w-56" />
