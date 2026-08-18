@@ -1,5 +1,8 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import {
+  ERROR_CODES,
+  type ConfirmSalesOrderInput,
+  type CreditPosition,
   DEFAULT_ESTIMATE_SORT,
   ESTIMATE_SORT_FIELDS,
   PERMISSIONS,
@@ -182,10 +185,24 @@ export class SalesOrderService implements OnModuleInit {
    * connection an agent can work, the order is confirmed and stays
    * NOT_PUSHED — said plainly on the screen — and Push queues it later.
    */
-  async confirm(principal: Principal, id: string): Promise<SalesDocumentView> {
+  async confirm(principal: Principal, id: string, input: ConfirmSalesOrderInput = {}): Promise<SalesDocumentView> {
     const existing = await this.find(principal, id);
     if (existing.status !== 'DRAFT') throw AppError.conflict(`${existing.number} is already ${existing.status.toLowerCase()}.`);
     if (existing.lines.length === 0) throw AppError.conflict(`${existing.number} has no lines.`);
+    // REQ-W-09: over the party's credit limit, the order stops here unless a
+    // holder of sales.credit.override releases it with a reason on record.
+    const position = existing.partyId === null ? null : await this.creditPosition(principal.orgId, existing.partyId);
+    if (position !== null && position.creditLimit !== null && Number(position.exposure) + Number(position.openOrders) + Number(existing.grandTotal) > Number(position.creditLimit)) {
+      const reason = input.creditOverrideReason?.trim() ?? '';
+      if (reason === '' || !hasPermission(principal, PERMISSIONS.SALES_CREDIT_OVERRIDE)) {
+        throw new AppError(
+          ERROR_CODES.CREDIT_BLOCKED,
+          `${position.partyName} is over its credit limit: exposure ${position.exposure} plus open orders ${position.openOrders} plus this order ${existing.grandTotal} exceeds ${position.creditLimit}. A holder of sales.credit.override may release it with a reason.`,
+          { details: { position, requiredPermission: PERMISSIONS.SALES_CREDIT_OVERRIDE, orderTotal: existing.grandTotal } },
+        );
+      }
+      this.auditContext.record({ action: 'sales.order.credit_overridden', entityType: 'sales_document', entityId: id, before: { position }, after: { reason, orderTotal: existing.grandTotal } });
+    }
     const repository = this.repository(principal);
     await repository.setStatus(id, 'CONFIRMED');
     const queued = await this.enqueuePush(principal, { ...existing, status: 'CONFIRMED' }, false);
@@ -331,6 +348,47 @@ export class SalesOrderService implements OnModuleInit {
              last_pushed_at = now(), last_error = NULL, updated_at = now()
        WHERE org_id = ${orgId} AND id = ${payload.documentId} AND deleted_at IS NULL
     `);
+  }
+
+  /**
+   * REQ-W-09 / REQ-Y-03: the party's exposure the way the credit cycle report
+   * counts it — debits less credits over the classified voucher types — plus
+   * the money already committed in confirmed Vyuha orders that have not yet
+   * become invoices. Overdue-by-bill waits on bill-wise allocations (P6b-5);
+   * until then the limit is the rule and credit days are shown, not enforced.
+   */
+  async creditPositionOf(principal: Principal, id: string): Promise<CreditPosition | null> {
+    const order = await this.find(principal, id);
+    return order.partyId === null ? null : this.creditPosition(principal.orgId, order.partyId);
+  }
+
+  async creditPosition(orgId: string, partyId: string): Promise<CreditPosition | null> {
+    const rows = await this.db.execute<{ id: string; name: string; credit_limit: string | null; credit_days: number | null; exposure: string; open_orders: string }>(sql`
+      SELECT p.id, p.name, p.credit_limit::text AS credit_limit, p.credit_days,
+             round(COALESCE((
+               SELECT sum(CASE WHEN v.voucher_type IN ('Sales', 'Debit Note', 'Payment') THEN v.amount ELSE 0 END)
+                        - sum(CASE WHEN v.voucher_type IN ('Receipt', 'Credit Note') THEN v.amount ELSE 0 END)
+                 FROM vouchers v WHERE v.org_id = p.org_id AND v.party_id = p.id AND NOT v.is_cancelled
+             ), 0), 2)::text AS exposure,
+             round(COALESCE((
+               SELECT sum((l.quantity - l.invoiced_qty) * l.rate * (1 - l.discount_pct / 100) * (1 + l.tax_pct / 100))
+                 FROM sales_documents d JOIN sales_document_lines l ON l.document_id = d.id AND l.deleted_at IS NULL
+                WHERE d.org_id = p.org_id AND d.party_id = p.id AND d.doc_type = 'SALES_ORDER' AND d.status = 'CONFIRMED' AND d.short_closed_at IS NULL AND d.deleted_at IS NULL
+             ), 0), 2)::text AS open_orders
+        FROM parties p WHERE p.org_id = ${orgId} AND p.id = ${partyId}
+    `);
+    const r = rows.rows[0];
+    if (r === undefined) return null;
+    const limit = r.credit_limit === null ? null : Number(r.credit_limit);
+    return {
+      partyId: r.id,
+      partyName: r.name,
+      creditLimit: r.credit_limit,
+      creditDays: r.credit_days,
+      exposure: r.exposure,
+      openOrders: r.open_orders,
+      headroom: limit === null || !Number.isFinite(limit) ? null : (limit - Number(r.exposure) - Number(r.open_orders)).toFixed(2),
+    };
   }
 
   /** REQ-AA-28: the party master's email and phone stand in wherever the order does not say. */

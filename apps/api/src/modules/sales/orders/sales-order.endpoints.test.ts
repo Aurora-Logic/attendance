@@ -619,6 +619,38 @@ describe('invoices raised here (D-38: both places, kept in sync)', () => {
   });
 });
 
+describe('the credit block (08 REQ-W-09, REQ-Y-03)', () => {
+  it('an order that would take the party past its limit is blocked with the position; the manager releases it with a reason, and the release is audited', async () => {
+    // Asha Traders: limit 50,000; the books show 30,000 outstanding.
+    await harness.db.execute(sql`UPDATE parties SET credit_limit = '50000' WHERE id = ${partyId}`);
+    await harness.db.execute(sql`
+      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, amount)
+      VALUES (${ORG_ID}, ${connectionId}, 'inv-credit', 1, '2026-08-01', 'Sales', 'INV-CR-1', 'Asha Traders', ${partyId}, '', '30000.00')
+    `);
+    const created = await harness.post<SalesDocumentView>('/sales/orders', { token: salesToken, body: { partyId, lines: [{ stockItemId: cableId, quantity: '10', rate: '4000' }] } });
+    // 47,200 with tax: exposure 30,000 + earlier open orders + this > 50,000.
+    const position = await harness.get<{ creditLimit: string; exposure: string; headroom: string }>(`/sales/orders/${created.body.id}/credit-position`, { token: salesToken });
+    expect(position.body.creditLimit).toBe('50000');
+    expect(Number(position.body.exposure)).toBeGreaterThanOrEqual(30000);
+
+    const blocked = await harness.post<ErrorBody>(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.code).toBe('CREDIT_BLOCKED');
+    expect(blocked.body.error.details?.requiredPermission).toBe('sales.credit.override');
+    // The salesperson cannot talk their way past it.
+    const talked = await harness.post<ErrorBody>(`/sales/orders/${created.body.id}/confirm`, { token: salesToken, body: { creditOverrideReason: 'Customer promised a cheque' } });
+    expect(talked.status).toBe(409);
+    // The manager holds the key, and the reason is required.
+    const bare = await harness.post<ErrorBody>(`/sales/orders/${created.body.id}/confirm`, { token: managerToken, body: {} });
+    expect(bare.status).toBe(409);
+    const released = await harness.post<SalesDocumentView>(`/sales/orders/${created.body.id}/confirm`, { token: managerToken, body: { creditOverrideReason: 'Cheque for 30,000 received today, banking tomorrow' } });
+    expect(released.status).toBe(200);
+    expect(released.body.status).toBe('CONFIRMED');
+    expect(await harness.waitForAuditAction('sales.order.credit_overridden')).toBe(true);
+    await harness.db.execute(sql`UPDATE parties SET credit_limit = NULL WHERE id = ${partyId}`);
+  });
+});
+
 describe('the customer’s contact (12 REQ-AA-28)', () => {
   it('comes from the party master, is overridable per order, and the dispatch overrides both', async () => {
     await harness.db.execute(sql`UPDATE parties SET email = 'accounts@asha.example', phone = '+919900000000' WHERE id = ${partyId}`);

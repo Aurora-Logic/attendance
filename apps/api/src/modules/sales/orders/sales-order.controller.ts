@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import {
   PERMISSIONS,
+  confirmSalesOrderSchema,
   convertEstimateSchema,
   createSalesOrderSchema,
   salesOrderListQuerySchema,
@@ -8,6 +9,7 @@ import {
   type Paginated,
   type SalesDocumentSummary,
   type SalesDocumentView,
+  type CreditPosition,
 } from '@vyuha/shared';
 
 import { createZodDto } from '../../../platform/common/zod-validation.pipe.js';
@@ -19,6 +21,7 @@ class SalesOrderListQueryDto extends createZodDto(salesOrderListQuerySchema) {}
 class CreateSalesOrderDto extends createZodDto(createSalesOrderSchema) {}
 class UpdateSalesOrderDto extends createZodDto(updateSalesOrderSchema) {}
 class ConvertEstimateDto extends createZodDto(convertEstimateSchema) {}
+class ConfirmSalesOrderDto extends createZodDto(confirmSalesOrderSchema) {}
 
 const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL] as const;
 
@@ -70,8 +73,15 @@ export class SalesOrderController {
   @Post('orders/:id/confirm')
   @RequirePermission(PERMISSIONS.SALES_DOCUMENT_CREATE)
   @HttpCode(HttpStatus.OK)
-  confirm(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<SalesDocumentView> {
-    return this.orders.confirm(principal, id);
+  confirm(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() body: ConfirmSalesOrderDto): Promise<SalesDocumentView> {
+    return this.orders.confirm(principal, id, body);
+  }
+
+  /** REQ-W-09 / REQ-Y-03: the party's credit position, as the block would state it. */
+  @Get('orders/:id/credit-position')
+  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL)
+  creditPosition(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<CreditPosition | null> {
+    return this.orders.creditPositionOf(principal, id);
   }
 
   @Post('orders/:id/push')

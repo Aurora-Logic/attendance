@@ -364,6 +364,29 @@ export const updateSalesOrderSchema = z.object({
 });
 export type UpdateSalesOrderInput = z.infer<typeof updateSalesOrderSchema>;
 
+/** REQ-W-09: confirming past a credit block needs the override key and a reason; empty otherwise. */
+export const confirmSalesOrderSchema = z.preprocess(
+  // Confirm has always been a bare POST; a missing body is the common case, not a malformed one.
+  (value) => (value === undefined || value === null || value === '' ? {} : value),
+  z.object({
+    creditOverrideReason: z.string().trim().min(3).max(1000).optional(),
+  }),
+);
+export type ConfirmSalesOrderInput = z.infer<typeof confirmSalesOrderSchema>;
+
+/** What the block says (REQ-W-09, REQ-Y-03): the party's limit, exposure and headroom, so the person can act. */
+export interface CreditPosition {
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly creditLimit: string | null;
+  readonly creditDays: number | null;
+  /** Debits less credits across the party's classified vouchers, as the credit cycle report counts them. */
+  readonly exposure: string;
+  /** Confirmed, undispatched Vyuha orders not yet in Tally as invoices — committed money, the way stock is committed. */
+  readonly openOrders: string;
+  readonly headroom: string | null;
+}
+
 export const convertEstimateSchema = z.object({
   /** The Tally party the order is for; required when the estimate was addressed to a prospect. */
   partyId: z.uuid().optional(),
