@@ -116,6 +116,7 @@ function serviceWorker(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
+  envDir: path.resolve(import.meta.dirname, "../../"),
   plugins: [react(), tailwindcss(), serviceWorker()],
   resolve: {
     alias: {
