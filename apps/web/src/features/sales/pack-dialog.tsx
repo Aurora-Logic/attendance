@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PackageIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { CheckCircleIcon, CircleIcon, PackageIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -95,6 +95,14 @@ function PackForm({ order, onClose, onPacked }: { order: Estimate; onClose: () =
 
   const problems = lines.map((line) => problemFor(line, entries[line.id]?.quantity ?? ''));
   const named = lines.filter((line) => Number(entries[line.id]?.quantity ?? '0') > 0);
+  // D-44: a line is fulfilled when what is typed is its whole balance.
+  const isFulfilled = (line: SalesLine) => Math.abs(Number(entries[line.id]?.quantity ?? '0') - lineBalances(line).toPack) < 1e-9 && lineBalances(line).toPack > 0;
+  const fulfilledCount = lines.filter(isFulfilled).length;
+  function toggleFulfilled(line: SalesLine) {
+    const entry = entries[line.id] ?? { quantity: '', comment: '' };
+    const next = isFulfilled(line) ? '' : trimZeros(lineBalances(line).toPack.toFixed(3));
+    setEntries((current) => ({ ...current, [line.id]: { ...entry, quantity: next } }));
+  }
   const boxes = Number(boxCount);
   const boxesValid = Number.isInteger(boxes) && boxes >= 1 && boxes <= 999;
   const packable = order.status === 'CONFIRMED' && order.shortClosedAt === null;
@@ -161,15 +169,33 @@ function PackForm({ order, onClose, onPacked }: { order: Estimate; onClose: () =
               const entry = entries[line.id] ?? { quantity: '', comment: '' };
               return (
                 <li key={line.id} className="flex flex-col gap-2 p-3">
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                    <span className="min-w-0 text-sm font-medium">
-                      <span className="text-muted-foreground mr-2 text-xs tabular-nums">{String(line.lineNo)}.</span>
-                      {line.description}
-                    </span>
-                    <span className="text-muted-foreground text-xs tabular-nums">
-                      Ordered {trimZeros(line.quantity)} · Packed {trimZeros(line.packedQty)} · Balance {trimZeros(balance.toPack.toFixed(3))}
-                      {line.unit ? ` ${line.unit}` : ''}
-                    </span>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="min-w-0 text-sm font-medium">
+                        <span className="text-muted-foreground mr-2 text-xs tabular-nums">{String(line.lineNo)}.</span>
+                        {line.description}
+                      </span>
+                      <span className="text-muted-foreground text-xs tabular-nums">
+                        Ordered {trimZeros(line.quantity)} · Packed {trimZeros(line.packedQty)} · Balance {trimZeros(balance.toPack.toFixed(3))}
+                        {line.unit ? ` ${line.unit}` : ''}
+                      </span>
+                    </div>
+                    {/* D-44: one tap says "this line is done" — the whole balance goes in the box; a partial is typed below. */}
+                    <Button
+                      type="button"
+                      variant={isFulfilled(line) ? 'default' : 'outline'}
+                      size="sm"
+                      className="pointer-coarse:min-h-11 shrink-0"
+                      aria-pressed={isFulfilled(line)}
+                      aria-label={`Line ${String(line.lineNo)} fulfilled`}
+                      disabled={!packable}
+                      onClick={() => {
+                        toggleFulfilled(line);
+                      }}
+                    >
+                      {isFulfilled(line) ? <CheckCircleIcon data-icon="inline-start" weight="fill" /> : <CircleIcon data-icon="inline-start" />}
+                      Fulfilled
+                    </Button>
                   </div>
                   <div className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-2">
                     <Input
@@ -249,7 +275,13 @@ function PackForm({ order, onClose, onPacked }: { order: Estimate; onClose: () =
         {packable && lines.length > 0 ? (
           <Button className="pointer-coarse:min-h-11" disabled={!canSubmit} onClick={submit}>
             {pack.isPending ? <Spinner data-icon="inline-start" /> : <PackageIcon data-icon="inline-start" />}
-            {pack.isPending ? 'Packing' : named.length === 0 ? 'Pack' : `Pack ${String(named.length)} line${named.length === 1 ? '' : 's'}`}
+            {pack.isPending
+              ? 'Packing'
+              : named.length === 0
+                ? 'Pack'
+                : fulfilledCount === lines.length
+                  ? `Pack all ${String(lines.length)}`
+                  : `Pack ${String(named.length)} line${named.length === 1 ? '' : 's'}${fulfilledCount > 0 ? ` (${String(fulfilledCount)} fulfilled)` : ''}`}
             <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
           </Button>
         ) : null}

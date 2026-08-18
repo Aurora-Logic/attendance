@@ -127,9 +127,12 @@ export class InvoiceService implements OnModuleInit {
     if (order.status !== 'CONFIRMED') throw AppError.conflict(`${order.number} is ${order.status.toLowerCase()}; only a confirmed order is invoiced.`);
     if (order.partyId === null) throw AppError.conflict(`${order.number} has no Tally party; an invoice needs one.`);
     const requested = new Map((input.lines ?? []).map((l) => [l.lineId, Number(l.quantity)]));
+    // Invoices confirmed but not yet accepted by Tally have not moved the
+    // order's invoiced_qty; their lines are spoken for all the same.
+    const inFlight = await this.inFlightByLine(principal.orgId, order);
     const lines = order.lines
       .map((line) => {
-        const balance = Number(line.packedQty) - Number(line.invoicedQty);
+        const balance = Number(line.packedQty) - Number(line.invoicedQty) - (inFlight.get(line.id) ?? 0);
         const wanted = requested.size === 0 ? balance : (requested.get(line.id) ?? 0);
         if (wanted > balance + 1e-9) throw AppError.validation(`Line ${String(line.lineNo)} (${line.description}) has ${balance.toFixed(3)} packed and uninvoiced.`, { lineId: line.id });
         return { line, quantity: wanted };
@@ -174,31 +177,19 @@ export class InvoiceService implements OnModuleInit {
    * the order's lines with a packed balance), the link row is written with
    * method `vyuha`, and the Sales voucher is queued.
    */
+  /**
+   * Confirming queues the Sales voucher; nothing on the order moves yet. The
+   * owner's word (18 Aug, P8-2): dispatch waits until Tally has accepted the
+   * invoice, so the order's invoiced_qty and the link are written when the
+   * agent reports acceptance — see `applyOutcome` — never at confirm. A
+   * rejected push leaves the order exactly as it was; push again after the
+   * accountant fixes the cause.
+   */
   async confirm(principal: Principal, id: string): Promise<SalesDocumentView> {
     const invoice = await this.find(principal, id);
     if (invoice.status !== 'DRAFT') throw AppError.conflict(`${invoice.number} is already ${invoice.status.toLowerCase()}.`);
     if (invoice.sourceDocumentId === null) throw AppError.conflict(`${invoice.number} is not against an order.`);
-    await this.db.transaction(async (tx) => {
-      await tx.execute(sql`UPDATE sales_documents SET status = 'CONFIRMED', updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
-      for (const line of invoice.lines) {
-        // Match the order line by item then description, taking only what is packed and uninvoiced.
-        await tx.execute(sql`
-          UPDATE sales_document_lines l
-             SET invoiced_qty = LEAST(l.packed_qty, l.invoiced_qty + ${line.quantity}::numeric), updated_at = now()
-           WHERE l.id = (
-             SELECT l2.id FROM sales_document_lines l2
-              WHERE l2.document_id = ${invoice.sourceDocumentId} AND l2.deleted_at IS NULL AND l2.packed_qty > l2.invoiced_qty
-                AND (${line.stockItemId === null ? sql`false` : sql`l2.stock_item_id = ${line.stockItemId}`} OR l2.description = ${line.description})
-              ORDER BY l2.line_no LIMIT 1
-           )
-        `);
-      }
-      await tx.execute(sql`
-        INSERT INTO sales_order_invoices (org_id, document_id, voucher_id, invoice_document_id, method, linked_by)
-        VALUES (${principal.orgId}, ${invoice.sourceDocumentId}, NULL, ${id}, 'vyuha', ${principal.userId})
-        ON CONFLICT (invoice_document_id) DO NOTHING
-      `);
-    });
+    await this.db.execute(sql`UPDATE sales_documents SET status = 'CONFIRMED', updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
     await this.enqueuePush(principal, id);
     this.auditContext.record({ action: 'sales.invoice.confirmed', entityType: 'sales_document', entityId: id, before: null, after: { orderId: invoice.sourceDocumentId } });
     return this.find(principal, id);
@@ -218,6 +209,22 @@ export class InvoiceService implements OnModuleInit {
     await this.repository(principal).setStatus(id, 'CANCELLED');
     this.auditContext.record({ action: 'sales.invoice.cancelled', entityType: 'sales_document', entityId: id, before: null, after: null });
     return this.find(principal, id);
+  }
+
+  /** Quantities on this order's CONFIRMED-but-unaccepted invoices, matched to order lines the way acceptance will match them. */
+  private async inFlightByLine(orgId: string, order: SalesDocumentView): Promise<Map<string, number>> {
+    const rows = await this.db.execute<{ stock_item_id: string | null; description: string; quantity: string }>(sql`
+      SELECT l.stock_item_id, l.description, l.quantity::text AS quantity
+        FROM sales_documents d JOIN sales_document_lines l ON l.document_id = d.id AND l.deleted_at IS NULL
+       WHERE d.org_id = ${orgId} AND d.doc_type = 'INVOICE' AND d.source_document_id = ${order.id} AND d.status = 'CONFIRMED' AND d.sync_state <> 'PUSHED' AND d.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM sales_order_invoices i WHERE i.invoice_document_id = d.id)
+    `);
+    const byLine = new Map<string, number>();
+    for (const row of rows.rows) {
+      const target = order.lines.find((line) => (row.stock_item_id !== null && line.stockItemId === row.stock_item_id) || line.description === row.description);
+      if (target !== undefined) byLine.set(target.id, (byLine.get(target.id) ?? 0) + Number(row.quantity));
+    }
+    return byLine;
   }
 
   private async enqueuePush(principal: Principal, id: string): Promise<boolean> {
@@ -248,6 +255,37 @@ export class InvoiceService implements OnModuleInit {
     await tx.execute(sql`
       UPDATE sales_documents SET sync_state = 'PUSHED', remote_guid = ${outcome.remoteGuid}, remote_voucher_number = ${outcome.remoteVoucherNumber}, last_pushed_at = now(), last_error = NULL, updated_at = now()
        WHERE org_id = ${orgId} AND id = ${payload.documentId}
+    `);
+    // The invoice exists in Tally now: the order's invoiced_qty advances and
+    // the link is written — once, whichever way the acceptance arrived
+    // (accepted, or found on retry after a lost response).
+    const linked = await tx.execute<{ one: number }>(sql`SELECT 1 AS one FROM sales_order_invoices WHERE invoice_document_id = ${payload.documentId}`);
+    if (linked.rows.length > 0) return;
+    const header = await tx.execute<{ source_document_id: string | null; created_by: string | null }>(sql`
+      SELECT source_document_id, created_by FROM sales_documents WHERE org_id = ${orgId} AND id = ${payload.documentId}
+    `);
+    const orderId = header.rows[0]?.source_document_id ?? null;
+    if (orderId === null) return;
+    const lines = await tx.execute<{ stock_item_id: string | null; description: string; quantity: string }>(sql`
+      SELECT stock_item_id, description, quantity::text AS quantity FROM sales_document_lines WHERE document_id = ${payload.documentId} AND deleted_at IS NULL ORDER BY line_no
+    `);
+    for (const line of lines.rows) {
+      // Match the order line by item then description, taking only what is packed and uninvoiced.
+      await tx.execute(sql`
+        UPDATE sales_document_lines l
+           SET invoiced_qty = LEAST(l.packed_qty, l.invoiced_qty + ${line.quantity}::numeric), updated_at = now()
+         WHERE l.id = (
+           SELECT l2.id FROM sales_document_lines l2
+            WHERE l2.document_id = ${orderId} AND l2.deleted_at IS NULL AND l2.packed_qty > l2.invoiced_qty
+              AND (${line.stock_item_id === null ? sql`false` : sql`l2.stock_item_id = ${line.stock_item_id}`} OR l2.description = ${line.description})
+            ORDER BY l2.line_no LIMIT 1
+         )
+      `);
+    }
+    await tx.execute(sql`
+      INSERT INTO sales_order_invoices (org_id, document_id, voucher_id, invoice_document_id, method, linked_by)
+      VALUES (${orgId}, ${orderId}, NULL, ${payload.documentId}, 'vyuha', ${header.rows[0]?.created_by ?? null})
+      ON CONFLICT (invoice_document_id) DO NOTHING
     `);
   }
 

@@ -95,17 +95,19 @@ function InvoiceSheetBody({ invoice, onClose }: { invoice: Estimate; onClose: ()
     <ShortcutLayer id={`modal:invoice-${invoice.id}`}>
       <SheetHeader className="shrink-0 border-b">
         <SheetTitle className="flex flex-wrap items-center gap-2">
-          Invoice {invoice.number}
+          {/* P8-1: the customer's number is Tally's; ours is the internal reference until Tally has answered. */}
+          {invoice.syncState === 'PUSHED' && invoice.remoteVoucherNumber ? `Invoice #${invoice.remoteVoucherNumber}` : `Invoice ${invoice.number}`}
+          {invoice.syncState === 'PUSHED' && invoice.remoteVoucherNumber ? <span className="text-muted-foreground text-sm font-normal">{invoice.number}</span> : null}
           <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[invoice.status]}</Badge>
           <SyncStateBadge record={invoice} />
         </SheetTitle>
         <SheetDescription>
           {invoice.syncState === 'PUSHED'
-            ? `In Tally as voucher #${invoice.remoteVoucherNumber ?? '?'}${invoice.lastPushedAt ? `, ${formatRelativeAge(invoice.lastPushedAt)}` : ''}.`
+            ? `In Tally as voucher #${invoice.remoteVoucherNumber ?? '?'}${invoice.lastPushedAt ? `, ${formatRelativeAge(invoice.lastPushedAt)}` : ''}. That is the number the customer sees; the order's invoiced quantity moved when Tally accepted it.`
             : invoice.syncState === 'QUEUED'
-              ? 'Queued: the agent will push it as a Sales voucher on its next poll and report back.'
+              ? 'Queued: the agent will push it as a Sales voucher on its next poll and report back. The order moves, and dispatch may follow, once Tally accepts it (P8-2).'
               : isDraft
-                ? 'A draft: confirm it to advance the order’s invoiced quantities and queue the Sales voucher.'
+                ? 'A draft: confirm it to queue the Sales voucher. The order’s invoiced quantities advance when Tally accepts it.'
                 : `${SALES_DOCUMENT_STATUS_LABELS[invoice.status]}.`}
         </SheetDescription>
       </SheetHeader>

@@ -177,7 +177,8 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       this.docType === 'SALES_ORDER'
         ? await this.db.execute<{ voucher_id: string | null; invoice_document_id: string | null; voucher_number: string; voucher_date: string; amount: string; method: string; linked_at: Date }>(sql`
             SELECT i.voucher_id, i.invoice_document_id,
-                   COALESCE(v.voucher_number, d.number) AS voucher_number,
+                   -- P8-1: the customer sees Tally's number; Vyuha's INV-nnnn only until Tally has answered.
+                   COALESCE(v.voucher_number, d.remote_voucher_number, d.number) AS voucher_number,
                    COALESCE(v.voucher_date, d.date) AS voucher_date,
                    COALESCE(v.amount, d.grand_total)::text AS amount,
                    i.method, i.linked_at

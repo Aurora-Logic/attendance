@@ -558,18 +558,21 @@ describe('invoices raised here (D-38: both places, kept in sync)', () => {
     expect(order.body.fulfilment).toBe('awaiting_invoice');
   });
 
-  it('confirming advances the order’s invoiced_qty, links with method vyuha, and queues a Sales voucher', async () => {
+  it('confirming queues a Sales voucher and moves nothing on the order until Tally accepts; a second invoice cannot take the same packed quantity meanwhile', async () => {
     const confirmed = await harness.post<SalesDocumentView>(`/sales/invoices/${invoiceId}/confirm`, { token: salesToken });
     expect(confirmed.status).toBe(200);
     expect(confirmed.body.status).toBe('CONFIRMED');
     expect(confirmed.body.syncState).toBe('QUEUED');
 
+    // P8-2: dispatch waits for Tally's acceptance, so the order still awaits its invoice.
     const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdI}`, { token: salesToken });
-    expect(order.body.lines[0]?.invoicedQty).toBe('6.000');
-    expect(order.body.fulfilment).toBe('ready_to_dispatch');
-    expect(order.body.invoices.map((i) => [i.voucherNumber, i.method, i.voucherId, i.invoiceDocumentId])).toEqual([['INV-0001', 'vyuha', null, invoiceId]]);
-    const waiting = await harness.get<AwaitingInvoiceEntry[]>('/sales/awaiting-invoice', { token: salesToken });
-    expect(waiting.body.find((e) => e.documentId === orderIdI)).toBeUndefined();
+    expect(order.body.lines[0]?.invoicedQty).toBe('0.000');
+    expect(order.body.fulfilment).toBe('awaiting_invoice');
+    expect(order.body.invoices).toEqual([]);
+    // The packed 6 are spoken for by the invoice in flight.
+    const again = await harness.post<ErrorBody>(`/sales/orders/${orderIdI}/invoices`, { token: salesToken, body: {} });
+    expect(again.status).toBe(409);
+    expect(again.body.error.message).toContain('nothing packed and uninvoiced');
 
     const job = await claimFor(invoiceId);
     expect(job).not.toBeNull();
@@ -589,6 +592,13 @@ describe('invoices raised here (D-38: both places, kept in sync)', () => {
     const pushed = await harness.get<SalesDocumentView>(`/sales/invoices/${invoiceId}`, { token: salesToken });
     expect(pushed.body.syncState).toBe('PUSHED');
     expect(pushed.body.remoteVoucherNumber).toBe('77');
+    // Accepted: now the order's invoiced_qty advances, the link is written with method vyuha under Tally's number (P8-1), and dispatch may follow.
+    const accepted = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdI}`, { token: salesToken });
+    expect(accepted.body.lines[0]?.invoicedQty).toBe('6.000');
+    expect(accepted.body.fulfilment).toBe('ready_to_dispatch');
+    expect(accepted.body.invoices.map((i) => [i.voucherNumber, i.method, i.voucherId, i.invoiceDocumentId])).toEqual([['77', 'vyuha', null, invoiceId]]);
+    const waiting = await harness.get<AwaitingInvoiceEntry[]>('/sales/awaiting-invoice', { token: salesToken });
+    expect(waiting.body.find((e) => e.documentId === orderIdI)).toBeUndefined();
   });
 
   it('its own voucher, pulled back, attaches to the link and is not a second invoice', async () => {

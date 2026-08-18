@@ -27,8 +27,9 @@ import { useCreateInvoice } from './use-invoices';
  * D-38: an invoice raised here, against an order, for the packed-and-
  * uninvoiced balance of its lines at the order's rates. The boxes start at
  * the full balance; a line typed down to zero is left for a later invoice.
- * It lands as a draft and opens for confirming, which is the moment the
- * order's invoiced quantities advance and the Sales voucher is queued.
+ * It lands as a draft and opens for confirming, which queues the Sales
+ * voucher; the order's invoiced quantities advance when Tally accepts it
+ * (P8-2), and the invoice's packed quantities are spoken for meanwhile.
  */
 
 const QUANTITY = /^\d{1,12}(\.\d{1,3})?$/u;
