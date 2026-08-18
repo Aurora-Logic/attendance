@@ -482,6 +482,12 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM pack_record_lines WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM pack_records WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM sales_order_invoices WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM grn_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM grns WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM po_line_requirements WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM purchase_order_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM purchase_orders WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM item_vendors WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM procurement_requirements WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM item_settings WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM document_sequences WHERE org_id = ${this.orgId}`);
