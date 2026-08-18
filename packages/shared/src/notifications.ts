@@ -39,6 +39,10 @@ export const NOTIFICATION_EVENTS = {
 
   SYNC_AGENT_STALE: 'sync.agent_stale',
   SYNC_AGENT_RECOVERED: 'sync.agent_recovered',
+
+  TASK_ASSIGNED: 'task.assigned',
+  TASK_DUE_TODAY: 'task.due_today',
+  TASK_OVERDUE: 'task.overdue',
 } as const;
 
 export type NotificationEventType =
@@ -70,6 +74,7 @@ export const NOTIFICATION_EVENT_GROUPS = [
   'Approvals',
   'Attendance',
   'Integrations',
+  'Tasks',
 ] as const;
 export type NotificationEventGroup = (typeof NOTIFICATION_EVENT_GROUPS)[number];
 
@@ -159,6 +164,21 @@ export const NOTIFICATION_EVENT_DESCRIPTORS: Record<
     label: 'Tally agent back',
     note: 'When a quiet connection starts heartbeating again.',
   },
+  'task.assigned': {
+    group: 'Tasks',
+    label: 'Task assigned to you',
+    note: 'When somebody assigns you a task, or moves one onto you.',
+  },
+  'task.due_today': {
+    group: 'Tasks',
+    label: 'Task due today',
+    note: 'On the morning a task of yours falls due.',
+  },
+  'task.overdue': {
+    group: 'Tasks',
+    label: 'Task overdue',
+    note: 'The morning after a task of yours went past its date. Once per task.',
+  },
 };
 
 /**
@@ -198,6 +218,9 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   'period.unlocked': '/period-lock',
   'sync.agent_stale': '/integrations',
   'sync.agent_recovered': '/integrations',
+  'task.assigned': '/tasks',
+  'task.due_today': '/tasks',
+  'task.overdue': '/tasks',
 };
 
 /** Only the channels this phase actually delivers on (REQ-K-02). */

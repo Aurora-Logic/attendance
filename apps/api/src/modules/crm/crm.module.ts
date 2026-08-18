@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { CompanyController, ContactController } from './contacts/crm.controller.js';
 import { CompanyGoToSource, ContactGoToSource } from './contacts/contact-goto.source.js';
 import { CrmService } from './contacts/crm.service.js';
+import { CrmTaskSubjects } from './contacts/crm-task-subjects.js';
 
 /**
  * The CRM module (09 §4.4, 08 §7). Contacts and companies now; pipelines,
@@ -16,6 +17,6 @@ import { CrmService } from './contacts/crm.service.js';
  */
 @Module({
   controllers: [ContactController, CompanyController],
-  providers: [CrmService, ContactGoToSource, CompanyGoToSource],
+  providers: [CrmService, ContactGoToSource, CompanyGoToSource, CrmTaskSubjects],
 })
 export class CrmModule {}

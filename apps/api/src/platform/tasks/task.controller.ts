@@ -1,0 +1,138 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
+import {
+  PERMISSIONS,
+  createBoardColumnSchema,
+  createTaskSchema,
+  reorderBoardColumnsSchema,
+  taskBoardQuerySchema,
+  taskListQuerySchema,
+  updateBoardColumnSchema,
+  updateTaskSchema,
+  type Paginated,
+  type TaskBoardColumnView,
+  type TaskBoardView,
+  type TaskView,
+} from '@vyuha/shared';
+
+import { createZodDto } from '../common/zod-validation.pipe.js';
+import { CurrentUser, type Principal } from '../rbac/principal.js';
+import { RequirePermission } from '../rbac/route-policy.js';
+import { TaskService } from './task.service.js';
+
+class TaskListQueryDto extends createZodDto(taskListQuerySchema) {}
+class TaskBoardQueryDto extends createZodDto(taskBoardQuerySchema) {}
+class CreateTaskDto extends createZodDto(createTaskSchema) {}
+class UpdateTaskDto extends createZodDto(updateTaskSchema) {}
+class CreateBoardColumnDto extends createZodDto(createBoardColumnSchema) {}
+class UpdateBoardColumnDto extends createZodDto(updateBoardColumnSchema) {}
+class ReorderBoardColumnsDto extends createZodDto(reorderBoardColumnsSchema) {}
+
+const VIEW_KEYS = [PERMISSIONS.CRM_TASK_VIEW_SELF, PERMISSIONS.CRM_TASK_VIEW_TEAM] as const;
+
+/**
+ * `/api/v1/tasks` (09 §5, platform-level). `board` and `columns` are
+ * declared before `:id` so the literal segments are never read as an id.
+ *
+ * Column configuration sits under `settings.manage`: 08 §2.2 has no key for
+ * it, the board is organisation-wide configuration (REQ-V-03), and the
+ * settings key is what already gates the rest of that.
+ */
+@Controller('tasks')
+export class TaskController {
+  constructor(private readonly tasksService: TaskService) {}
+
+  @Get()
+  @RequirePermission(...VIEW_KEYS)
+  list(@CurrentUser() principal: Principal, @Query() query: TaskListQueryDto): Promise<Paginated<TaskView>> {
+    return this.tasksService.list(principal, query);
+  }
+
+  @Get('board')
+  @RequirePermission(...VIEW_KEYS)
+  board(@CurrentUser() principal: Principal, @Query() query: TaskBoardQueryDto): Promise<TaskBoardView> {
+    return this.tasksService.board(principal, query);
+  }
+
+  @Get('columns')
+  @RequirePermission(...VIEW_KEYS)
+  columns(@CurrentUser() principal: Principal): Promise<TaskBoardColumnView[]> {
+    return this.tasksService.listColumns(principal);
+  }
+
+  @Post('columns')
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  @HttpCode(HttpStatus.CREATED)
+  createColumn(@CurrentUser() principal: Principal, @Body() body: CreateBoardColumnDto): Promise<TaskBoardColumnView> {
+    return this.tasksService.createColumn(principal, body);
+  }
+
+  @Put('columns/order')
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  reorderColumns(
+    @CurrentUser() principal: Principal,
+    @Body() body: ReorderBoardColumnsDto,
+  ): Promise<TaskBoardColumnView[]> {
+    return this.tasksService.reorderColumns(principal, body);
+  }
+
+  @Patch('columns/:id')
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  updateColumn(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateBoardColumnDto,
+  ): Promise<TaskBoardColumnView> {
+    return this.tasksService.updateColumn(principal, id, body);
+  }
+
+  @Delete('columns/:id')
+  @RequirePermission(PERMISSIONS.SETTINGS_MANAGE)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteColumn(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    return this.tasksService.deleteColumn(principal, id);
+  }
+
+  @Get(':id')
+  @RequirePermission(...VIEW_KEYS)
+  find(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<TaskView> {
+    return this.tasksService.find(principal, id);
+  }
+
+  /** Any viewer may raise a task for themselves; assigning it to another needs `manage` (checked in the service). */
+  @Post()
+  @RequirePermission(...VIEW_KEYS)
+  @HttpCode(HttpStatus.CREATED)
+  create(@CurrentUser() principal: Principal, @Body() body: CreateTaskDto): Promise<TaskView> {
+    return this.tasksService.create(principal, body);
+  }
+
+  @Patch(':id')
+  @RequirePermission(...VIEW_KEYS)
+  update(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateTaskDto,
+  ): Promise<TaskView> {
+    return this.tasksService.update(principal, id, body);
+  }
+
+  @Delete(':id')
+  @RequirePermission(PERMISSIONS.CRM_TASK_MANAGE)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    return this.tasksService.remove(principal, id);
+  }
+}

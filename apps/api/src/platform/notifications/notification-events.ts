@@ -208,4 +208,26 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     path: () => routeFor('sync.agent_recovered'),
     defaultChannels: IN_APP_ONLY,
   },
+  // REQ-V-08. Paths carry the task id so the bell opens the task's sheet.
+  'task.assigned': {
+    title: (p) => `${text(p, 'assignedBy', 'Somebody')} assigned you a task`,
+    body: (p) =>
+      `${text(p, 'title')}${text(p, 'dueDate') === '' ? '' : `, due ${text(p, 'dueDate')}`}` +
+      `${text(p, 'subjectLabel') === '' ? '' : ` — on ${text(p, 'subjectLabel')}`}.`,
+    path: (p) => `${routeFor('task.assigned')}/${text(p, 'taskId')}`,
+    defaultChannels: IN_APP_AND_EMAIL,
+  },
+  'task.due_today': {
+    title: (p) => `Due today: ${text(p, 'title')}`,
+    body: (p) =>
+      text(p, 'subjectLabel') === '' ? 'Assigned to you, due today.' : `On ${text(p, 'subjectLabel')}, due today.`,
+    path: (p) => `${routeFor('task.due_today')}/${text(p, 'taskId')}`,
+    defaultChannels: IN_APP_ONLY,
+  },
+  'task.overdue': {
+    title: (p) => `Overdue: ${text(p, 'title')}`,
+    body: (p) => `Was due ${text(p, 'dueDate')} and is still open.`,
+    path: (p) => `${routeFor('task.overdue')}/${text(p, 'taskId')}`,
+    defaultChannels: IN_APP_AND_EMAIL,
+  },
 };

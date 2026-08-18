@@ -137,6 +137,14 @@ export interface JobPayloads {
     readonly requestedAt: string;
   };
 
+  /**
+   * REQ-V-08: due-today and overdue task reminders, each morning in each
+   * organisation's own day. `date` overrides the clock for a replay.
+   */
+  'send-task-reminders': {
+    readonly date?: string;
+  };
+
   /** REQ-K-02: one queued envelope per domain event, fanned out by channel. */
   'send-notification': {
     readonly orgId: string;
@@ -238,6 +246,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'replay-sync-inbox': QUEUES.MAINTENANCE,
   'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
+  'send-task-reminders': QUEUES.NOTIFICATION,
   'send-notification': QUEUES.NOTIFICATION,
   'deliver-password-reset': QUEUES.NOTIFICATION,
   'accrue-leave': QUEUES.LEAVE,
@@ -338,6 +347,9 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // weekly sweep would turn "escalate after 3 days" into "escalate after
   // somewhere between 3 and 10". 02:00 keeps it clear of the working day.
   { schedulerId: 'notification:escalate-stale-approvals', jobName: 'escalate-stale-approvals', pattern: '0 2 * * *' },
+  // REQ-V-08. Early enough to be read with the first coffee; the handler
+  // works out each organisation's own date, so one server-time cron serves all.
+  { schedulerId: 'notification:send-task-reminders', jobName: 'send-task-reminders', pattern: '30 2 * * *' },
   // REQ-G-05. On the 1st, for the month that has just finished. Accruing on
   // the last day of a month instead would need a cron that can say "last day",
   // and would pro-rate a leaver's final month before their last day had ended.

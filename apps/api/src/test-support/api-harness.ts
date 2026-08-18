@@ -476,6 +476,9 @@ export class ApiHarness {
     // the employees do — same reasoning, same raw SQL.
     await this.db.execute(sql`DELETE FROM crm_contacts WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM crm_companies WHERE org_id = ${this.orgId}`);
+    // Tasks point at employees twice (assignee, owner) and at their column.
+    await this.db.execute(sql`DELETE FROM tasks WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM task_board_columns WHERE org_id = ${this.orgId}`);
 
     // Employees reference each other through reporting_manager_id and
     // departments through head_employee_id, so the links are cut before the

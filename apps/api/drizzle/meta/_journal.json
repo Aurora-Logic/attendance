@@ -204,6 +204,13 @@
       "when": 1787035295056,
       "tag": "0028_crm_companies_contacts",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1787036736123,
+      "tag": "0029_tasks",
+      "breakpoints": true
     }
   ]
 }

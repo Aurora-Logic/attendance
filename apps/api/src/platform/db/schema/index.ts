@@ -19,3 +19,4 @@ export * from './report.schema.js';
 export * from './integration.schema.js';
 export * from './sync.schema.js';
 export * from './projections.schema.js';
+export * from './task.schema.js';
