@@ -275,7 +275,7 @@ manager cannot be assigned a task today. Recommended default: give
 Sales roles land, since REQ-V-02 lets a task hang off an employee and
 REQ-V-07 makes tasks a landing screen. Held at Admin only until then.
 
-## P8-1 — Which number the customer sees on a Vyuha-raised invoice (D-38, REQ-AA-11)
+## P8-1 — Which number the customer sees on a Vyuha-raised invoice (D-38, REQ-AA-11) — closed 18 Aug 2026: Tally's number
 
 A Vyuha-raised invoice carries INV-0001 here and is pushed as a Sales
 voucher whose `REFERENCE` is INV-0001; Tally then assigns its own voucher
@@ -285,7 +285,7 @@ the voucher and on the customer's dispatch message; Tally's number is
 shown alongside and never printed as the invoice number. Say the word if
 Tally's number should be the customer's.
 
-## P8-2 — Should dispatch wait for the pushed invoice to be accepted by Tally? (D-38, REQ-AA-14)
+## P8-2 — Should dispatch wait for the pushed invoice to be accepted by Tally? (D-38, REQ-AA-14) — closed 18 Aug 2026: it waits
 
 Confirming a Vyuha-raised invoice advances `invoiced_qty` at once, so a
 dispatch may follow while the Sales voucher is still queued or after Tally
@@ -295,13 +295,13 @@ invoice is the accountant's signal to fix a rejection. The stricter rule —
 count `invoiced_qty` only when the push is accepted — is a one-line change
 in `InvoiceService.confirm` if you prefer it.
 
-## P8-3 — Credit days (REQ-W-09's overdue half) — blocked on P6b-5
+## P8-3 — Credit days (REQ-W-09's overdue half) — blocked on P6b-5 — accepted for go-live 18 Aug 2026
 
 The credit block enforces the limit (D-40). "Overdue bills beyond credit
 days" needs bill-wise allocations from Tally. Until then credit days are
 shown, not enforced. Confirm this is acceptable for go-live.
 
-## P8-4 — Attendance push shape (D-06, Phase 6e) — still unanswered
+## P8-4 — Attendance push shape (D-06, Phase 6e) — closed 18 Aug 2026: attendance is not linked to Tally; 6e dropped
 
 Vouchers (Tally Payroll's Attendance voucher, which needs Payroll enabled
 with employee masters and attendance types in the company) or a file

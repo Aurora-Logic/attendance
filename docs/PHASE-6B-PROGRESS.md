@@ -246,9 +246,9 @@ vouchers, reconciliation), 6d (statement, credit cycle, sales analysis),
 inputs outside this branch:
 
 1. **A live TallyPrime the agent can reach** — proves the push XML and the
-   6e exit gate (lost response, retry, one voucher). The pipeline, the
-   sales order and the agent executor are built; challans/POs/GRNs and 6e's
-   attendance voucher (D-06) are a document type each on the same path.
+   idempotency gate (lost response, retry, one voucher). The pipeline, every
+   document type and the agent executor are built. (6e's attendance voucher
+   is dropped: D-06 answered — attendance is not linked to Tally.)
 2. **Bill-wise allocations / backfill decision (P6b-5)** — ageing (REQ-Y-02),
    payment analysis (REQ-Y-04), overdue-by-bill on the credit cycle.
 3. **Tally XML fixtures + D-05** — the pull agent's transport and packaging.
@@ -260,7 +260,7 @@ salesperson for a fortnight), and merging `phase-6a` back to `main`.
 Still open after docs 12/13 and D-38 (18 Aug evening):
 
 - **REQ-W-09's overdue half** (credit days) waits on bill-wise allocations
-  (P6b-5); the limit half is enforced (D-40).
+  (P6b-5); the limit half is enforced (D-40). Accepted for go-live (P8-3).
 - **REQ-T-05** (Tally period lock) needs the agent to read Tally's lock date.
 - **The Delivery Note / Receipt Note / Sales / Purchase Order XML** the
   agent renders is unproven against a live TallyPrime, like the Sales
