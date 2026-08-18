@@ -1,4 +1,5 @@
-import { index, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { boolean, date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { ALIVE, primaryId, standardColumns } from '../../../platform/db/columns.js';
 import { employees, organizations, parties } from '../../../platform/db/schema/index.js';
@@ -76,5 +77,89 @@ export const crmContacts = pgTable(
     index('crm_contacts_org_company_idx').on(t.orgId, t.companyId).where(ALIVE),
     index('crm_contacts_org_phone_key_idx').on(t.orgId, t.phoneKey).where(ALIVE),
     index('crm_contacts_org_email_idx').on(t.orgId, t.email).where(ALIVE),
+  ],
+);
+
+/**
+ * REQ-U-04: pipelines and their stages are rows, not code. `is_default` names
+ * the one a new deal lands in when none is chosen; the unique partial index
+ * keeps it to one per organisation.
+ */
+export const crmPipelines = pgTable(
+  'crm_pipelines',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    isDefault: boolean('is_default').notNull().default(false),
+    ...standardColumns(),
+  },
+  (t) => [
+    uniqueIndex('crm_pipelines_org_name_uq').on(t.orgId, t.name).where(ALIVE),
+    uniqueIndex('crm_pipelines_org_default_uq').on(t.orgId).where(sql`is_default AND deleted_at IS NULL`),
+  ],
+);
+
+export const crmPipelineStages = pgTable(
+  'crm_pipeline_stages',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    pipelineId: uuid('pipeline_id')
+      .notNull()
+      .references(() => crmPipelines.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    /** 0–100. The stage's default; a deal's own probability is this until a later phase says otherwise. */
+    probability: integer('probability').notNull().default(0),
+    isWon: boolean('is_won').notNull().default(false),
+    isLost: boolean('is_lost').notNull().default(false),
+    ...standardColumns(),
+  },
+  (t) => [
+    uniqueIndex('crm_pipeline_stages_pipeline_name_uq').on(t.pipelineId, t.name).where(ALIVE),
+    index('crm_pipeline_stages_pipeline_sort_idx').on(t.pipelineId, t.sortOrder),
+  ],
+);
+
+/**
+ * REQ-U-05: a deal has no accounting existence and is never pushed. `value`
+ * is numeric text end to end (see the shared contract). `closed_at` is set
+ * when the deal enters a won or lost stage and cleared if it is moved back —
+ * the task table's `closed_at`, for the same reason.
+ */
+export const crmDeals = pgTable(
+  'crm_deals',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    companyId: uuid('company_id').references(() => crmCompanies.id, { onDelete: 'set null' }),
+    contactId: uuid('contact_id').references(() => crmContacts.id, { onDelete: 'set null' }),
+    pipelineId: uuid('pipeline_id')
+      .notNull()
+      .references(() => crmPipelines.id, { onDelete: 'restrict' }),
+    stageId: uuid('stage_id')
+      .notNull()
+      .references(() => crmPipelineStages.id, { onDelete: 'restrict' }),
+    value: numeric('value', { precision: 16, scale: 2 }),
+    expectedCloseDate: date('expected_close_date', { mode: 'string' }),
+    ownerId: uuid('owner_id').references(() => employees.id, { onDelete: 'restrict' }),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    notes: text('notes'),
+    ...standardColumns(),
+  },
+  (t) => [
+    index('crm_deals_org_stage_idx').on(t.orgId, t.stageId).where(ALIVE),
+    index('crm_deals_org_owner_idx').on(t.orgId, t.ownerId).where(ALIVE),
+    index('crm_deals_org_company_idx').on(t.orgId, t.companyId).where(ALIVE),
+    index('crm_deals_org_contact_idx').on(t.orgId, t.contactId).where(ALIVE),
+    index('crm_deals_org_name_idx').on(t.orgId, t.name).where(ALIVE),
   ],
 );

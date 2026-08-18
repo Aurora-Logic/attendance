@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -18,6 +19,7 @@ import {
   contactListQuerySchema,
   createCompanySchema,
   createContactSchema,
+  linkCompanyPartySchema,
   updateCompanySchema,
   updateContactSchema,
   type CompanyView,
@@ -38,6 +40,7 @@ class UpdateContactDto extends createZodDto(updateContactSchema) {}
 class CompanyListQueryDto extends createZodDto(companyListQuerySchema) {}
 class CreateCompanyDto extends createZodDto(createCompanySchema) {}
 class UpdateCompanyDto extends createZodDto(updateCompanySchema) {}
+class LinkCompanyPartyDto extends createZodDto(linkCompanyPartySchema) {}
 
 /**
  * `/api/v1/crm/contacts` and `/api/v1/crm/companies` (09 §5). The guard keeps
@@ -126,6 +129,17 @@ export class CompanyController {
     @Body() body: UpdateCompanyDto,
   ): Promise<CompanyView> {
     return this.crm.updateCompany(principal, id, body);
+  }
+
+  /** REQ-U-03: link (or unlink, with null) the Tally party this company became. */
+  @Put(':id/party')
+  @RequirePermission(PERMISSIONS.CRM_CONTACT_MANAGE)
+  linkParty(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: LinkCompanyPartyDto,
+  ): Promise<CompanyView> {
+    return this.crm.linkParty(principal, id, body);
   }
 
   @Delete(':id')

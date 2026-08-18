@@ -4,6 +4,9 @@ import { CompanyController, ContactController } from './contacts/crm.controller.
 import { CompanyGoToSource, ContactGoToSource } from './contacts/contact-goto.source.js';
 import { CrmService } from './contacts/crm.service.js';
 import { CrmTaskSubjects } from './contacts/crm-task-subjects.js';
+import { DealGoToSource } from './deals/deal-goto.source.js';
+import { DealController, PipelineController } from './deals/deal.controller.js';
+import { DealService } from './deals/deal.service.js';
 
 /**
  * The CRM module (09 §4.4, 08 §7). Contacts and companies now; pipelines,
@@ -16,7 +19,7 @@ import { CrmTaskSubjects } from './contacts/crm-task-subjects.js';
  * `modules/attendance` or the sales module when it exists.
  */
 @Module({
-  controllers: [ContactController, CompanyController],
-  providers: [CrmService, ContactGoToSource, CompanyGoToSource, CrmTaskSubjects],
+  controllers: [ContactController, CompanyController, PipelineController, DealController],
+  providers: [CrmService, ContactGoToSource, CompanyGoToSource, CrmTaskSubjects, DealService, DealGoToSource],
 })
 export class CrmModule {}

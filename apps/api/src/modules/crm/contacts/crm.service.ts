@@ -18,6 +18,7 @@ import {
   type ContactView,
   type CreateCompanyInput,
   type CreateContactInput,
+  type LinkCompanyPartyInput,
   type Paginated,
   type UpdateCompanyInput,
   type UpdateContactInput,
@@ -249,6 +250,39 @@ export class CrmService {
 
     this.auditContext.record({
       action: 'crm.company.updated',
+      entityType: 'crm_company',
+      entityId: id,
+      before: companyAuditView(existing),
+      after: companyAuditView(company),
+    });
+    return company;
+  }
+
+  /**
+   * REQ-U-03: the link to the Tally party a company became, made by a person
+   * on conversion and never inferred (technical design §14.2: a name match is
+   * a suggestion, not a link). Leads are never pushed; this is the one place
+   * the CRM touches the projection, and it only points at a row that Tally
+   * already owns.
+   */
+  async linkParty(principal: Principal, id: string, input: LinkCompanyPartyInput): Promise<CompanyView> {
+    const repository = this.companies(principal);
+    const existing = await this.findCompany(principal, id);
+    if (input.partyId !== null) {
+      // A projection row: no deleted_at — a party removed in Tally is marked
+      // absent and retained (REQ-R-06), and linking to an absent one is still
+      // linking to the party it was.
+      const rows = await this.db.execute<{ id: string }>(
+        sql`SELECT id FROM parties WHERE org_id = ${principal.orgId} AND id = ${input.partyId} LIMIT 1`,
+      );
+      if (rows.rows.length === 0) throw AppError.validation('The party was not found.', { partyId: input.partyId });
+    }
+    const updated = await repository.update(id, { partyId: input.partyId });
+    if (updated === null) throw AppError.notFound('Company', id);
+    const company = await repository.view(SQL_TRUE, id);
+    if (company === null) throw AppError.notFound('Company', id);
+    this.auditContext.record({
+      action: input.partyId === null ? 'crm.company.party_unlinked' : 'crm.company.party_linked',
       entityType: 'crm_company',
       entityId: id,
       before: companyAuditView(existing),

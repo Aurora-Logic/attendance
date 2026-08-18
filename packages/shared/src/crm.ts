@@ -168,3 +168,189 @@ export interface ContactDuplicate {
   /** Which field matched — the form points at the right one. */
   readonly matchedOn: readonly ('phone' | 'email')[];
 }
+
+// ------------------------------------------------------------ pipelines/deals
+
+/**
+ * REQ-U-04: pipelines and stages are configuration. One ships (the default
+ * pipeline is created on first read); more may be added. A stage carries a
+ * probability and, at the ends, a won or lost flag — entering such a stage
+ * closes the deal, the way a done column closes a task.
+ */
+export interface PipelineStageView {
+  readonly id: string;
+  readonly name: string;
+  readonly sortOrder: number;
+  /** 0–100, the default probability of a deal sitting here. */
+  readonly probability: number;
+  readonly isWon: boolean;
+  readonly isLost: boolean;
+}
+
+export interface PipelineView {
+  readonly id: string;
+  readonly name: string;
+  readonly isDefault: boolean;
+  readonly stages: readonly PipelineStageView[];
+}
+
+export const createPipelineSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  isDefault: z.boolean().default(false),
+});
+export type CreatePipelineInput = z.infer<typeof createPipelineSchema>;
+
+export const updatePipelineSchema = createPipelineSchema.partial();
+export type UpdatePipelineInput = z.infer<typeof updatePipelineSchema>;
+
+const probabilityField = z.number().int().min(0).max(100);
+
+export const createPipelineStageSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    probability: probabilityField.default(0),
+    isWon: z.boolean().default(false),
+    isLost: z.boolean().default(false),
+  })
+  .refine((s) => !(s.isWon && s.isLost), { message: 'a stage is won or lost, not both', path: ['isLost'] });
+export type CreatePipelineStageInput = z.infer<typeof createPipelineStageSchema>;
+
+export const updatePipelineStageSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60).optional(),
+    probability: probabilityField.optional(),
+    isWon: z.boolean().optional(),
+    isLost: z.boolean().optional(),
+  })
+  .refine((s) => !(s.isWon === true && s.isLost === true), { message: 'a stage is won or lost, not both', path: ['isLost'] });
+export type UpdatePipelineStageInput = z.infer<typeof updatePipelineStageSchema>;
+
+export const reorderPipelineStagesSchema = z.object({ stageIds: z.array(z.uuid()).min(1).max(50) });
+export type ReorderPipelineStagesInput = z.infer<typeof reorderPipelineStagesSchema>;
+
+/** The pipeline an organisation starts with; renamed and reshaped from there. */
+export const DEFAULT_PIPELINE = {
+  name: 'Sales',
+  stages: [
+    { name: 'Lead', probability: 10, isWon: false, isLost: false },
+    { name: 'Qualified', probability: 30, isWon: false, isLost: false },
+    { name: 'Proposal', probability: 60, isWon: false, isLost: false },
+    { name: 'Negotiation', probability: 80, isWon: false, isLost: false },
+    { name: 'Won', probability: 100, isWon: true, isLost: false },
+    { name: 'Lost', probability: 0, isWon: false, isLost: true },
+  ],
+} as const;
+
+export const DEAL_STATUSES = ['open', 'won', 'lost', 'all'] as const;
+export type DealStatusFilter = (typeof DEAL_STATUSES)[number];
+
+export const DEAL_SORT_FIELDS = ['name', 'value', 'expectedCloseDate', 'createdAt', 'updatedAt'] as const;
+export type DealSortField = (typeof DEAL_SORT_FIELDS)[number];
+export const DEFAULT_DEAL_SORT = '-updatedAt';
+
+/**
+ * REQ-U-05. `value` is exact decimal text end to end: it is a figure a
+ * salesperson types and reads, summed nowhere in Vyuha, and a float would
+ * turn 1,00,000.10 into something else on the way back.
+ */
+export interface DealView {
+  readonly id: string;
+  readonly name: string;
+  readonly companyId: string | null;
+  readonly companyName: string | null;
+  /** The Tally party the company is linked to (REQ-U-03), when it is. */
+  readonly partyId: string | null;
+  readonly contactId: string | null;
+  readonly contactName: string | null;
+  readonly pipelineId: string;
+  readonly pipelineName: string;
+  readonly stageId: string;
+  readonly stageName: string;
+  readonly probability: number;
+  readonly value: string | null;
+  readonly expectedCloseDate: string | null;
+  readonly ownerId: string | null;
+  readonly ownerName: string | null;
+  readonly status: 'open' | 'won' | 'lost';
+  readonly closedAt: string | null;
+  readonly notes: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export const dealFilterSchema = z.object({
+  q: z.string().trim().min(1).max(80).optional(),
+  pipelineId: z.uuid().optional(),
+  stageId: z.uuid().optional(),
+  ownerId: z.uuid().optional(),
+  companyId: z.uuid().optional(),
+  contactId: z.uuid().optional(),
+  /** Defaults to open. */
+  status: z.enum(DEAL_STATUSES).optional(),
+});
+export type DealFilter = z.infer<typeof dealFilterSchema>;
+
+export const dealListQuerySchema = pageQuerySchema.extend(dealFilterSchema.shape).extend({
+  sort: z.string().max(200).optional(),
+});
+export type DealListQuery = z.infer<typeof dealListQuerySchema>;
+
+export const dealBoardQuerySchema = dealFilterSchema;
+export type DealBoardQuery = z.infer<typeof dealBoardQuerySchema>;
+
+export interface DealBoardLane {
+  readonly stage: PipelineStageView;
+  readonly deals: readonly DealView[];
+  readonly total: number;
+  /** Sum of `value` over every deal in the lane (not only the capped page), exact decimal text. */
+  readonly valueTotal: string;
+}
+
+export interface DealBoardView {
+  readonly pipeline: PipelineView;
+  readonly lanes: readonly DealBoardLane[];
+}
+
+export const DEAL_BOARD_LANE_CAP = 100;
+
+/** Up to 14 integer digits and 2 decimals, optionally signed off — a deal value, not a ledger. */
+const moneyTextField = z
+  .string()
+  .trim()
+  .regex(/^\d{1,14}(\.\d{1,2})?$/u, 'a number with up to two decimals');
+
+export const createDealSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  companyId: z.uuid().nullish(),
+  contactId: z.uuid().nullish(),
+  /** Defaults to the default pipeline. */
+  pipelineId: z.uuid().nullish(),
+  /** Defaults to the pipeline's first open stage. */
+  stageId: z.uuid().nullish(),
+  value: moneyTextField.nullish(),
+  expectedCloseDate: z.iso.date().nullish(),
+  ownerId: z.uuid().nullish(),
+  notes: z.string().trim().max(4000).nullish(),
+});
+export type CreateDealInput = z.infer<typeof createDealSchema>;
+
+export const updateDealSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  companyId: z.uuid().nullish(),
+  contactId: z.uuid().nullish(),
+  /** A move; must belong to the deal's pipeline. */
+  stageId: z.uuid().optional(),
+  value: moneyTextField.nullish(),
+  expectedCloseDate: z.iso.date().nullish(),
+  ownerId: z.uuid().nullish(),
+  notes: z.string().trim().max(4000).nullish(),
+});
+export type UpdateDealInput = z.infer<typeof updateDealSchema>;
+
+/**
+ * REQ-U-03: linking a company to the Tally party it became. Offered when a
+ * deal is won, but a property of the company — the party is who invoices go
+ * to, whichever deal opened the door.
+ */
+export const linkCompanyPartySchema = z.object({ partyId: z.uuid().nullable() });
+export type LinkCompanyPartyInput = z.infer<typeof linkCompanyPartySchema>;
