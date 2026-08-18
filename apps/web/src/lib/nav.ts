@@ -1,4 +1,5 @@
 import {
+  AddressBookIcon,
   BooksIcon,
   CalendarBlankIcon,
   CalendarDotsIcon,
@@ -9,6 +10,7 @@ import {
   DownloadSimpleIcon,
   FingerprintIcon,
   GearIcon,
+  HandshakeIcon,
   type Icon,
   LockIcon,
   PackageIcon,
@@ -422,6 +424,38 @@ export const MODULES: ModuleDef[] = [
       },
     ],
   },
+  {
+    id: 'crm',
+    label: 'CRM',
+    icon: HandshakeIcon,
+    home: '/crm/contacts',
+    // 08 §2.2 gives view.self to everyone who holds view.all, so the narrower
+    // key is the module gate: whoever may see any contact may open the module.
+    permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+    groups: [
+      {
+        label: 'People',
+        items: [
+          {
+            to: '/crm/contacts',
+            label: 'Contacts',
+            icon: AddressBookIcon,
+            permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-U-01, REQ-U-08',
+          },
+          {
+            to: '/crm/companies',
+            label: 'Companies',
+            icon: BuildingsIcon,
+            permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-U-02, REQ-U-03',
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 /**
@@ -522,6 +556,8 @@ const OFF_NAV_LABELS: Record<string, string> = {
 const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }[] = [
   { pattern: /^\/employees\/[^/]+$/u, parent: '/employees', label: 'Employee' },
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
+  { pattern: /^\/crm\/contacts\/[^/]+$/u, parent: '/crm/contacts', label: 'Contact' },
+  { pattern: /^\/crm\/companies\/[^/]+$/u, parent: '/crm/companies', label: 'Company' },
 ];
 
 export function findBreadcrumbs(pathname: string): [Crumb, ...Crumb[]] {

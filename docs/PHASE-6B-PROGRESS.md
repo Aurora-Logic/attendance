@@ -137,11 +137,25 @@ bill-wise allocations (not in the OpsTally voucher payload — ageing waits),
 the daily drift check (REQ-T-08 needs to ask Tally). Recorded, not
 forgotten.
 
+## Phase 7 (CRM) on this branch
+
+| Deliverable | Commit | Proof |
+|---|---|---|
+| Ten `crm.*` keys from 08 §2.2 in the catalogue (Admin holds them until the Sales roles are seeded) | `097d64c` | seed reconciles; dev Admin holds 10/10 |
+| `crm_companies`, `crm_contacts` (migration 0028): owner is an employee so `ScopeService` resolves `view.self` with the existing chain walk; `party_id` waits for conversion (REQ-U-03) | `097d64c` | — |
+| `GET/POST/PATCH/DELETE /crm/contacts`, `/crm/companies`, `GET /crm/contacts/duplicates` (REQ-U-01, U-02, U-08); self/all scoping, owner reassignment only for `view.all`, company delete refused while contacts remain | `097d64c` | crm endpoints 16/16 |
+| Contacts and companies in Go To (REQ-O-05), scoped through the same service | `097d64c` | search suite green |
+| CRM module in the sidebar (People: Contacts, Companies), Contacts and Companies screens — URL-addressable sheet, Alt+C create, duplicate warning that names and links the match and never blocks, owner picker for `view.all` holders, 360px cards + bottom sheet | — | live drive: create company, create contact against it, duplicate warning on `09811122333` vs `+91 98111 22333` and on the email, Go To opens contact and company, zero console errors |
+
+Next in Phase 7: tasks in the platform (REQ-V-01…V-08, D-17), then
+pipelines and deals with the won → party link, then activities through the
+audit interceptor (REQ-U-07).
+
 ## Next, in order
 
 Nothing further is buildable in 6b/6c without the blocked inputs. Phase 6d
-(push into Tally) needs a write transport OpsTally does not offer. **Phase
-7 (CRM) is entirely Vyuha's own and is next.**
+(push into Tally) needs a write transport OpsTally does not offer. Phase 7
+(CRM) is under way above.
 
 ### 6b exit gate — run, passed
 

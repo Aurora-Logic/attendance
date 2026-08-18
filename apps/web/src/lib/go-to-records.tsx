@@ -1,4 +1,4 @@
-import { BooksIcon, ReceiptIcon, UserIcon, type Icon } from '@phosphor-icons/react';
+import { AddressBookIcon, BooksIcon, BuildingsIcon, ReceiptIcon, UserIcon, type Icon } from '@phosphor-icons/react';
 
 import type { GoToRecord } from '@vyuha/shared';
 
@@ -46,6 +46,16 @@ const GO_TO_RECORD_KINDS: Record<string, GoToRecordKind> = {
     icon: ReceiptIcon,
     // 09 §6: typing a voucher number opens that voucher.
     route: (record) => `/masters/vouchers/${record.id}`,
+  },
+  contact: {
+    group: 'Contacts',
+    icon: AddressBookIcon,
+    route: (record) => `/crm/contacts/${record.id}`,
+  },
+  company: {
+    group: 'Companies',
+    icon: BuildingsIcon,
+    route: (record) => `/crm/companies/${record.id}`,
   },
 };
 

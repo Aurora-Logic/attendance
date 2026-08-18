@@ -24,6 +24,8 @@ import { AdministrationScreen } from '@/features/administration/administration-s
 import { RolesPage } from '@/features/roles';
 import { SettingsPage } from '@/features/settings';
 import { NotificationsPage } from '@/features/notifications';
+import { CompaniesPage } from '@/features/crm/companies-page';
+import { ContactsPage } from '@/features/crm/contacts-page';
 import { PartiesPage } from '@/features/masters/parties-page';
 import { PriceListsPage } from '@/features/masters/price-lists-page';
 import { StockItemsPage } from '@/features/masters/stock-items-page';
@@ -42,6 +44,8 @@ import { ALL_NAV_ITEMS } from '@/lib/nav';
  * that would go stale the next time a screen ships.
  */
 const BUILT_ROUTES = new Set([
+  '/crm/contacts',
+  '/crm/companies',
   '/masters/parties',
   '/masters/items',
   '/masters/price-lists',
@@ -112,6 +116,10 @@ export default function App() {
               <Route path="masters/price-lists" element={<PriceListsPage />} />
               <Route path="masters/vouchers" element={<VouchersPage />} />
               <Route path="masters/vouchers/:id" element={<VouchersPage />} />
+              <Route path="crm/contacts" element={<ContactsPage />} />
+              <Route path="crm/contacts/:id" element={<ContactsPage />} />
+              <Route path="crm/companies" element={<CompaniesPage />} />
+              <Route path="crm/companies/:id" element={<CompaniesPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />
