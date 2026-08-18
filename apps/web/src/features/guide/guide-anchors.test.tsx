@@ -119,6 +119,8 @@ describe('guided tour length', () => {
     // so the tour they get is the shell plus whatever the masters key unlocks.
     Sales: { desktop: 5, phone: 4 },
     'Sales manager': { desktop: 5, phone: 4 },
+    Purchase: { desktop: 5, phone: 4 },
+    Accounts: { desktop: 5, phone: 4 },
   };
 
   for (const [role, expected] of Object.entries(EXPECTED) as [

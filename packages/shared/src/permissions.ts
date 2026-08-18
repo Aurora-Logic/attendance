@@ -165,11 +165,13 @@ export const SYSTEM_ROLES = {
   /**
    * 08 §2 (Phase 7). Held alongside Employee, never instead of it (D-15: a
    * salesperson is also an employee who punches, so attendance keys are not
-   * duplicated here). Purchase and Accounts arrive with the phases that give
-   * them something to do.
+   * duplicated here). Purchase and Accounts arrived with docs 12 and 13,
+   * which gave them screens to reach.
    */
   SALES: 'Sales',
   SALES_MANAGER: 'Sales manager',
+  PURCHASE: 'Purchase',
+  ACCOUNTS: 'Accounts',
 } as const;
 
 export type SystemRoleName = (typeof SYSTEM_ROLES)[keyof typeof SYSTEM_ROLES];
@@ -268,6 +270,33 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.SALES_CREDIT_OVERRIDE,
 ] as const satisfies readonly PermissionKey[];
 
+/** 08 §2.2, the Purchase column: the procurement queue, POs and receipts, tasks, and the masters. */
+const PURCHASE_PERMISSIONS = [
+  PERMISSIONS.MASTERS_TALLY_VIEW,
+  PERMISSIONS.CRM_TASK_VIEW_SELF,
+  PERMISSIONS.CRM_TASK_MANAGE,
+  PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+  PERMISSIONS.PURCHASE_DOCUMENT_CREATE,
+] as const satisfies readonly PermissionKey[];
+
+/**
+ * 08 §2.2, the Accounts column: every sales document (the awaiting-invoice
+ * queue is theirs), receivables, the purchase approval line and the credit
+ * override, tasks, and the masters. No create keys — accounts decides and
+ * bills; it does not raise orders.
+ */
+const ACCOUNTS_PERMISSIONS = [
+  PERMISSIONS.MASTERS_TALLY_VIEW,
+  PERMISSIONS.CRM_TASK_VIEW_SELF,
+  PERMISSIONS.CRM_TASK_MANAGE,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
+  PERMISSIONS.SALES_CREDIT_OVERRIDE,
+  PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+  PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
+  PERMISSIONS.RECEIVABLES_VIEW,
+] as const satisfies readonly PermissionKey[];
+
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {
   Employee: EMPLOYEE_PERMISSIONS,
   Operations: OPERATIONS_PERMISSIONS,
@@ -275,6 +304,8 @@ export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionK
   Admin: ADMIN_PERMISSIONS,
   Sales: SALES_PERMISSIONS,
   'Sales manager': SALES_MANAGER_PERMISSIONS,
+  Purchase: PURCHASE_PERMISSIONS,
+  Accounts: ACCOUNTS_PERMISSIONS,
 };
 
 /**
