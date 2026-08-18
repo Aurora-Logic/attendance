@@ -1,0 +1,1 @@
+ALTER TYPE "public"."file_purpose" ADD VALUE 'DISPATCH_PHOTO';

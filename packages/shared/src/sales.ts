@@ -470,3 +470,112 @@ export interface StockAvailability {
   readonly minimumOrderQty: string | null;
   readonly asOf: string | null;
 }
+
+
+// ------------------------------------------------------------------ dispatch
+
+export const DISPATCH_MODES = ['local_auto', 'local_own_vehicle', 'outstation'] as const;
+export type DispatchMode = (typeof DISPATCH_MODES)[number];
+export const DISPATCH_MODE_LABELS: Record<DispatchMode, string> = {
+  local_auto: 'Local — auto',
+  local_own_vehicle: 'Local — own vehicle',
+  outstation: 'Outstation',
+};
+
+/**
+ * REQ-AA-16…AA-19: a dispatch is its own record with its own lines. Mode
+ * decides which fields are required — the refinements below name each
+ * missing one (12 §7). Photographs travel as multipart parts beside this
+ * JSON and are checked in the service (REQ-AA-20).
+ */
+export const createDispatchSchema = z
+  .object({
+    mode: z.enum(DISPATCH_MODES),
+    lines: z.array(z.object({ lineId: z.uuid(), quantity: z.string().trim().regex(/^\d{1,12}(\.\d{1,3})?$/u, 'a quantity') })).min(1).max(200),
+    lrNumber: z.string().trim().max(60).nullish(),
+    transporterName: z.string().trim().max(120).nullish(),
+    transporterContact: z.string().trim().max(60).nullish(),
+    vehicleNumber: z.string().trim().max(30).nullish(),
+    driverName: z.string().trim().max(120).nullish(),
+    expectedDeliveryDate: z.iso.date().nullish(),
+    notes: z.string().trim().max(2000).nullish(),
+    /** REQ-AA-28: overrides for this dispatch's notification. */
+    customerEmail: z.email().max(254).nullish(),
+    customerWhatsapp: z.string().trim().min(6).max(24).nullish(),
+  })
+  .superRefine((d, ctx) => {
+    const need = (field: keyof typeof d, label: string) => {
+      const value = d[field];
+      if (value === undefined || value === null || value === '') ctx.addIssue({ code: 'custom', path: [field], message: `${label} is required for ${DISPATCH_MODE_LABELS[d.mode]}` });
+    };
+    if (d.mode === 'local_own_vehicle') {
+      need('vehicleNumber', 'Vehicle number');
+      need('driverName', 'Driver name');
+    }
+    if (d.mode === 'outstation') {
+      need('lrNumber', 'LR number');
+      need('transporterName', 'Transporter name');
+      need('transporterContact', 'Transporter contact');
+    }
+  });
+export type CreateDispatchInput = z.infer<typeof createDispatchSchema>;
+
+export interface DispatchLineView {
+  readonly lineId: string;
+  readonly description: string;
+  readonly quantity: string;
+  readonly unit: string | null;
+}
+
+export interface DispatchAttachmentView {
+  readonly fileId: string;
+  readonly kind: 'box' | 'lr';
+}
+
+export interface DispatchNotificationView {
+  readonly id: string;
+  readonly channel: 'email' | 'whatsapp';
+  readonly recipient: string | null;
+  /** `pending` until somebody sends it by hand (`manual`, REQ-AA-26); `sent`; `failed`. */
+  readonly status: 'pending' | 'sent' | 'failed';
+  readonly composedText: string;
+  readonly sentAt: string | null;
+  readonly error: string | null;
+}
+
+export interface DispatchView {
+  readonly id: string;
+  readonly number: string;
+  readonly documentId: string;
+  readonly orderNumber: string;
+  readonly customerName: string;
+  readonly mode: DispatchMode;
+  readonly dispatchedById: string | null;
+  readonly dispatchedByName: string | null;
+  readonly dispatchedAt: string;
+  readonly lrNumber: string | null;
+  readonly transporterName: string | null;
+  readonly transporterContact: string | null;
+  readonly vehicleNumber: string | null;
+  readonly driverName: string | null;
+  readonly expectedDeliveryDate: string | null;
+  readonly notes: string | null;
+  readonly syncState: DocumentSyncState;
+  readonly remoteGuid: string | null;
+  readonly remoteVoucherNumber: string | null;
+  readonly lastError: string | null;
+  readonly lines: readonly DispatchLineView[];
+  readonly attachments: readonly DispatchAttachmentView[];
+  readonly notifications: readonly DispatchNotificationView[];
+}
+
+export const dispatchListQuerySchema = pageQuerySchema.extend({
+  documentId: z.uuid().optional(),
+  mode: z.enum(DISPATCH_MODES).optional(),
+  syncState: z.enum(SYNC_STATES).optional(),
+  q: z.string().trim().min(1).max(80).optional(),
+});
+export type DispatchListQuery = z.infer<typeof dispatchListQuerySchema>;
+
+export const markNotificationSentSchema = z.object({ status: z.enum(['sent', 'failed']), error: z.string().trim().max(1000).nullish() });
+export type MarkNotificationSentInput = z.infer<typeof markNotificationSentSchema>;

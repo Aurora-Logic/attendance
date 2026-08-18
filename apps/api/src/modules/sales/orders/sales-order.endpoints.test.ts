@@ -2,6 +2,7 @@ import {
   SYSTEM_ROLES,
   type AgentClaimResponse,
   type AwaitingInvoiceEntry,
+  type DispatchView,
   type EstimateView,
   type PackRecordView,
   type PickQueueEntry,
@@ -13,6 +14,7 @@ import {
   type VoucherPushPayload,
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
+import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
@@ -49,6 +51,17 @@ async function claim(): Promise<AgentClaimResponse['job']> {
   });
   expect(response.status).toBe(200);
   return response.body.job;
+}
+
+/** Claims until the named document's push comes up, failing any other job in the way (an earlier test's leftovers). */
+async function claimFor(documentId: string): Promise<AgentClaimResponse['job']> {
+  for (let i = 0; i < 10; i += 1) {
+    const job = await claim();
+    if (job === null) return null;
+    if (job.entityType === `voucher_push:${documentId}`) return job;
+    await harness.post('/sync/agent/errors', { token: agentToken, body: { agentInstanceId: AGENT, jobId: job.id, errorText: 'test: not the job under test' } });
+  }
+  return null;
 }
 
 beforeAll(async () => {
@@ -385,5 +398,121 @@ describe('pick, pack, and the billing handshake (12 §3.2, §3.3; 13 REQ-X-08)',
     expect(requirement.rows[0]?.state).toBe('closed');
     const queue = await harness.get<PickQueueEntry[]>('/sales/pick-queue', { token: salesToken });
     expect(queue.body.some((e) => e.documentId === created.body.id)).toBe(false);
+  });
+});
+
+
+async function multipart<T>(path: string, token: string, payload: unknown, photos: readonly { field: string; bytes: Buffer }[] = []): Promise<{ status: number; body: T }> {
+  const form = new FormData();
+  for (const photo of photos) form.append(photo.field, new Blob([new Uint8Array(photo.bytes)], { type: 'image/jpeg' }), 'photo.jpg');
+  form.append('payload', JSON.stringify(payload));
+  const response = await fetch(`${harness.baseUrl}${path}`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form });
+  const text = await response.text();
+  return { status: response.status, body: (text.length > 0 ? JSON.parse(text) : null) as T };
+}
+
+describe('dispatch (12 §3.4, §3.5)', () => {
+  let orderIdD = '';
+  let lineIdD = '';
+  let jpeg: Buffer;
+
+  beforeAll(async () => {
+    jpeg = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#888' } }).jpeg({ quality: 80 }).toBuffer();
+    const created = await harness.post<SalesDocumentView>('/sales/orders', { token: salesToken, body: { partyId, lines: [{ stockItemId: cableId, quantity: '10', rate: '100' }] } });
+    orderIdD = created.body.id;
+    lineIdD = created.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${orderIdD}/confirm`, { token: salesToken });
+    await harness.post(`/sales/orders/${orderIdD}/packs`, { token: salesToken, body: { lines: [{ lineId: lineIdD, quantity: '10' }] } });
+    // Invoice for 6 of the 10, by narration.
+    const voucher = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, amount)
+      VALUES (${ORG_ID}, ${connectionId}, 'inv-d', 9, '2026-08-19', 'Sales', 'INV-0201', 'Asha Traders', ${partyId}, ${`For ${created.body.number}`}, '600.00') RETURNING id
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_name, stock_item_id, actual_qty, billed_qty, rate, amount)
+      VALUES (${ORG_ID}, ${voucher.rows[0]?.id ?? ''}, 1, 'inventory', 'Cat6 cable 305m', ${cableId}, '6 BOX', '6 BOX', '100.00', '600.00')
+    `);
+    await harness.get('/sales/awaiting-invoice', { token: salesToken });
+  });
+
+  it('nothing leaves ahead of the invoice: 7 refused when 6 are invoiced, and the refusal says so', async () => {
+    const refused = await multipart<ErrorBody>(`/sales/orders/${orderIdD}/dispatches`, salesToken, { mode: 'local_auto', lines: [{ lineId: lineIdD, quantity: '7' }] });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.message).toContain('6.000 invoiced and not yet dispatched');
+  });
+
+  it('outstation names every missing field and photograph', async () => {
+    const missing = await multipart<{ error: { details?: { fields?: { path: string; message: string }[] } } }>(`/sales/orders/${orderIdD}/dispatches`, salesToken, {
+      mode: 'outstation',
+      lines: [{ lineId: lineIdD, quantity: '4' }],
+    });
+    expect(missing.status).toBe(400);
+    const paths = (missing.body.error.details?.fields ?? []).map((f) => f.path);
+    expect(paths).toEqual(expect.arrayContaining(['lrNumber', 'transporterName', 'transporterContact']));
+
+    const noPhotos = await multipart<{ error: { details?: { fields?: { path: string }[] } } }>(`/sales/orders/${orderIdD}/dispatches`, salesToken, {
+      mode: 'outstation', lines: [{ lineId: lineIdD, quantity: '4' }], lrNumber: 'LR-77', transporterName: 'VRL', transporterContact: '9800000000',
+    });
+    expect(noPhotos.status).toBe(400);
+    expect((noPhotos.body.error.details?.fields ?? []).map((f) => f.path)).toEqual(['box', 'lr']);
+  });
+
+  it('an outstation dispatch of 4 with both photographs is recorded, queued as a Delivery Note, and composes the customer notification with the balance', async () => {
+    const created = await multipart<DispatchView>(
+      `/sales/orders/${orderIdD}/dispatches`,
+      salesToken,
+      { mode: 'outstation', lines: [{ lineId: lineIdD, quantity: '4' }], lrNumber: 'LR-77', transporterName: 'VRL', transporterContact: '9800000000', vehicleNumber: 'KA01AB1234', customerWhatsapp: '9811122333' },
+      [{ field: 'box', bytes: jpeg }, { field: 'lr', bytes: jpeg }],
+    );
+    expect(created.status).toBe(201);
+    expect(created.body.number).toBe('DN-0001');
+    expect(created.body.mode).toBe('outstation');
+    expect(created.body.attachments.map((a) => a.kind).sort()).toEqual(['box', 'lr']);
+    expect(created.body.syncState).toBe('QUEUED');
+    expect(created.body.notifications.map((n) => [n.channel, n.recipient, n.status])).toEqual([['email', null, 'pending'], ['whatsapp', '9811122333', 'pending']]);
+    const text = created.body.notifications[0]?.composedText ?? '';
+    expect(text).toContain('INV-0201');
+    expect(text).toContain('Cat6 cable 305m: 4');
+    expect(text).toContain('6.000 BOX to follow');
+    expect(text).toContain('LR LR-77');
+
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdD}`, { token: salesToken });
+    expect(order.body.lines[0]?.dispatchedQty).toBe('4.000');
+    expect(order.body.fulfilment).toBe('partially_dispatched');
+
+    const url = await harness.get<{ url: string }>(`/sales/dispatches/${created.body.id}/attachments/${created.body.attachments[0]?.fileId ?? ''}/url`, { token: salesToken });
+    expect(url.status).toBe(200);
+    expect(url.body.url).toContain('http');
+
+    // The agent reports the Delivery Note landed.
+    const job = await claimFor(created.body.id);
+    expect(job?.entityType).toBe(`voucher_push:${created.body.id}`);
+    expect((job?.payload as VoucherPushPayload).voucherType).toBe('Delivery Note');
+    await harness.post('/sync/agent/results', {
+      token: agentToken,
+      body: { agentInstanceId: AGENT, openCompanyGuid: COMPANY_GUID, jobId: job?.id, entityType: 'voucher_push', outcome: 'accepted', remoteGuid: 'tally-dn-1', remoteVoucherNumber: '5', requestHash: 'h', responseHash: 'h', final: true },
+    });
+    const pushed = await harness.get<DispatchView>(`/sales/dispatches/${created.body.id}`, { token: salesToken });
+    expect(pushed.body.syncState).toBe('PUSHED');
+    expect(pushed.body.remoteVoucherNumber).toBe('5');
+
+    // The manual channel: a person sent the WhatsApp and says so.
+    const marked = await harness.post<DispatchView>(`/sales/dispatches/${created.body.id}/notifications/${created.body.notifications[1]?.id ?? ''}`, { token: salesToken, body: { status: 'sent' } });
+    expect(marked.body.notifications.find((n) => n.channel === 'whatsapp')?.status).toBe('sent');
+    expect(await harness.waitForAuditAction('sales.dispatch.notification_sent')).toBe(true);
+
+    const board = await harness.get<Paginated<DispatchView>>('/sales/dispatches?mode=outstation', { token: salesToken });
+    expect(board.body.data.map((d) => d.number)).toEqual(['DN-0001']);
+  });
+
+  it('a local auto dispatch of the remaining invoiced 2 needs no LR and no photographs; the second dispatch shows in the order history', async () => {
+    const created = await multipart<DispatchView>(`/sales/orders/${orderIdD}/dispatches`, salesToken, { mode: 'local_auto', lines: [{ lineId: lineIdD, quantity: '2' }] });
+    expect(created.status).toBe(201);
+    expect(created.body.number).toBe('DN-0002');
+    const history = await harness.get<Paginated<DispatchView>>(`/sales/dispatches?documentId=${orderIdD}`, { token: salesToken });
+    expect(history.body.data.map((d) => [d.number, d.lines[0]?.quantity])).toEqual([['DN-0002', '2.000'], ['DN-0001', '4.000']]);
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdD}`, { token: salesToken });
+    expect(order.body.lines[0]?.dispatchedQty).toBe('6.000');
+    expect(order.body.fulfilment).toBe('partially_dispatched');
   });
 });

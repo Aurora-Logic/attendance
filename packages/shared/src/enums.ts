@@ -112,6 +112,8 @@ export const FILE_PURPOSES = [
   'ATTACHMENT',
   'ORG_LOGO',
   'IMPORT',
+  /** REQ-AA-20: a dispatch's box and LR photographs, through the same pipeline. */
+  'DISPATCH_PHOTO',
 ] as const;
 export type FilePurpose = (typeof FILE_PURPOSES)[number];
 

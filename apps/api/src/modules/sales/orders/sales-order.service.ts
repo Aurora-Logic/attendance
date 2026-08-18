@@ -24,6 +24,7 @@ import { InjectDatabase, type Database, type Transaction } from '../../../platfo
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
 import { PushOutcomeRegistry, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
+import { PushQueueService } from '../../../platform/sync/push-queue.service.js';
 import { orgToday, resolveDocumentCustomer, resolveDocumentLines, resolveDocumentOwner } from '../../../platform/documents/document-support.js';
 import { EstimateRepository, type EstimateHeaderInput } from '../estimates/estimate.repository.js';
 import { salesDocuments } from '../schema/index.js';
@@ -55,6 +56,7 @@ export class SalesOrderService implements OnModuleInit {
     private readonly auditContext: AuditContext,
     private readonly scopes: ScopeService,
     private readonly pushOutcomes: PushOutcomeRegistry,
+    private readonly pushQueue: PushQueueService,
   ) {}
 
   onModuleInit(): void {
@@ -276,19 +278,7 @@ export class SalesOrderService implements OnModuleInit {
    * renders the XML from the payload; the API never writes Tally XML.
    */
   private async enqueuePush(principal: Principal, order: SalesDocumentView, alter: boolean): Promise<boolean> {
-    const connection = await this.db.execute<{ id: string }>(sql`
-      SELECT id FROM integration_connections
-       WHERE org_id = ${principal.orgId} AND deleted_at IS NULL
-         AND company_guid IS NOT NULL AND agent_token_hash IS NOT NULL
-       ORDER BY created_at
-       LIMIT 1
-    `);
-    const connectionId = connection.rows[0]?.id;
     const repository = this.repository(principal);
-    if (connectionId === undefined) {
-      await repository.setSync(order.id, { syncState: 'NOT_PUSHED', pushJobId: null });
-      return false;
-    }
     const payload: VoucherPushPayload = {
       documentId: order.id,
       kind: 'SALES_ORDER',
@@ -308,16 +298,11 @@ export class SalesOrderService implements OnModuleInit {
         amount: line.amount,
       })),
     };
-    const ctx = orgContextOf(principal);
-    const inserted = await this.db.execute<{ id: string }>(sql`
-      INSERT INTO sync_jobs (org_id, connection_id, direction, entity_type, payload, created_by)
-      VALUES (${ctx.orgId}, ${connectionId}, 'PUSH', ${`voucher_push:${order.id}`}, ${JSON.stringify(payload)}::jsonb, ${ctx.actorUserId})
-      ON CONFLICT (connection_id, entity_type) WHERE state IN ('QUEUED', 'CLAIMED')
-      DO NOTHING
-      RETURNING id
-    `);
-    const jobId = inserted.rows[0]?.id;
-    if (jobId === undefined) return false;
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    if (jobId === null) {
+      await repository.setSync(order.id, { syncState: 'NOT_PUSHED', pushJobId: null });
+      return false;
+    }
     await repository.setSync(order.id, { syncState: 'QUEUED', pushJobId: jobId, lastError: null });
     return true;
   }
