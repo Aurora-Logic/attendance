@@ -1,12 +1,27 @@
 import { Injectable } from '@nestjs/common';
-import { ERROR_CODES, type AssignRoleInput, type EmployeeAccess } from '@vyuha/shared';
+import {
+  ERROR_CODES,
+  SYSTEM_ROLES,
+  type AssignRoleInput,
+  type EmployeeAccess,
+} from '@vyuha/shared';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
+import { hashPassword } from '../auth/password.js';
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { employees, roles, userRoles, users } from '../db/schema/index.js';
 import { orgContextOf, type Principal } from '../rbac/principal.js';
 import { RbacAdminService } from '../rbac/rbac-admin.service.js';
 import { EmployeeAccessRepository } from './employee-access.repository.js';
+
+export interface SetCredentialsInput {
+  readonly email: string;
+  readonly password: string;
+  readonly roleId?: string | undefined;
+  readonly reason?: string | undefined;
+}
 
 /**
  * REQ-B-07's missing half: granting and revoking a role on a person.
@@ -38,6 +53,116 @@ export class EmployeeAccessService {
   async read(principal: Principal, employeeId: string): Promise<EmployeeAccess> {
     const repository = this.repository(principal);
     await this.requireEmployee(repository, employeeId);
+    return this.compose(repository, employeeId);
+  }
+
+  async setCredentials(
+    principal: Principal,
+    employeeId: string,
+    input: SetCredentialsInput,
+  ): Promise<EmployeeAccess> {
+    const repository = this.repository(principal);
+    const employee = await this.requireEmployee(repository, employeeId);
+    const existingAccount = await repository.findAccount(employeeId);
+    const passwordHash = await hashPassword(input.password);
+    const targetEmail = input.email.toLowerCase().trim();
+
+    if (existingAccount === null) {
+      // Check if email already in use
+      const emailConflict = await this.db
+        .select({ id: users.id, orgId: users.orgId })
+        .from(users)
+        .where(and(sql`lower(${users.email}) = ${targetEmail}`, isNull(users.deletedAt)))
+        .limit(1);
+
+      if (emailConflict[0] !== undefined) {
+        throw AppError.conflict('That email address is already in use by another account.');
+      }
+
+      await this.db.transaction(async (tx) => {
+        const [insertedUser] = await tx
+          .insert(users)
+          .values({
+            orgId: principal.orgId,
+            employeeId,
+            email: targetEmail,
+            passwordHash,
+            status: 'ACTIVE',
+            passwordChangedAt: new Date(),
+            createdBy: principal.userId,
+            updatedBy: principal.userId,
+          })
+          .returning({ id: users.id });
+
+        if (insertedUser === undefined) {
+          throw new Error('User creation returned no row.');
+        }
+
+        // Update employee's work email if not set
+        await tx
+          .update(employees)
+          .set({ workEmail: targetEmail, updatedAt: new Date(), updatedBy: principal.userId })
+          .where(and(eq(employees.id, employeeId), isNull(employees.workEmail)));
+
+        // Assign specified role or default Employee role
+        let roleIdToAssign = input.roleId;
+        if (roleIdToAssign === undefined) {
+          const defaultRole = await tx
+            .select({ id: roles.id })
+            .from(roles)
+            .where(
+              and(
+                eq(roles.orgId, principal.orgId),
+                eq(roles.name, SYSTEM_ROLES.EMPLOYEE),
+                isNull(roles.deletedAt),
+              ),
+            )
+            .limit(1);
+          roleIdToAssign = defaultRole[0]?.id;
+        }
+
+        if (roleIdToAssign !== undefined) {
+          await tx
+            .insert(userRoles)
+            .values({ userId: insertedUser.id, roleId: roleIdToAssign, createdBy: principal.userId })
+            .onConflictDoNothing({ target: [userRoles.userId, userRoles.roleId] });
+        }
+      });
+
+      this.auditContext.record({
+        action: 'user.created',
+        entityType: 'employee',
+        entityId: employee.id,
+        after: { email: targetEmail, reason: input.reason ?? 'Direct credential provisioning' },
+      });
+    } else {
+      // Update existing account
+      await this.db
+        .update(users)
+        .set({
+          email: targetEmail,
+          passwordHash,
+          passwordChangedAt: new Date(),
+          status: 'ACTIVE',
+          failedAttempts: 0,
+          lockedUntil: null,
+          updatedAt: new Date(),
+          updatedBy: principal.userId,
+        })
+        .where(eq(users.id, existingAccount.id));
+
+      if (input.roleId !== undefined) {
+        await this.rbacAdmin.assignRoleToUser(principal.orgId, existingAccount.id, input.roleId);
+      }
+
+      this.auditContext.record({
+        action: 'user.password_reset',
+        entityType: 'employee',
+        entityId: employee.id,
+        after: { accountId: existingAccount.id, email: targetEmail, reason: input.reason ?? 'Direct password update' },
+      });
+    }
+
     return this.compose(repository, employeeId);
   }
 

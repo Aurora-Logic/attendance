@@ -1,4 +1,4 @@
-import { assignRoleSchema, reasonBodySchema } from '@vyuha/shared';
+import { assignRoleSchema, reasonBodySchema, setCredentialsSchema } from '@vyuha/shared';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
 
@@ -16,3 +16,4 @@ import { createZodDto } from '../common/zod-validation.pipe.js';
  */
 export class AssignRoleDto extends createZodDto(assignRoleSchema) {}
 export class RevokeRoleDto extends createZodDto(reasonBodySchema) {}
+export class SetCredentialsDto extends createZodDto(setCredentialsSchema) {}

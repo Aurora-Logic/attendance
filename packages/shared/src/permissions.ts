@@ -300,3 +300,12 @@ export const assignRoleSchema = z.object({
 });
 
 export type AssignRoleInput = z.infer<typeof assignRoleSchema>;
+
+export const setCredentialsSchema = z.object({
+  email: z.string().trim().email(),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  roleId: z.string().uuid().optional(),
+  reason: adminReasonSchema.optional(),
+});
+
+export type SetCredentialsInput = z.infer<typeof setCredentialsSchema>;

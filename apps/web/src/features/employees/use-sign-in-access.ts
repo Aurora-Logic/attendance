@@ -123,3 +123,31 @@ export function useIssuePasswordResetLink(): UseMutationResult<
     },
   });
 }
+
+export interface SetCredentialsVariables {
+  employeeId: string;
+  email: string;
+  password: string;
+  roleId?: string;
+  reason?: string;
+}
+
+export function useSetCredentials(): UseMutationResult<
+  unknown,
+  Error,
+  SetCredentialsVariables
+> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ employeeId, email, password, roleId, reason }: SetCredentialsVariables) =>
+      apiRequest<unknown>(`/employees/${employeeId}/access/credentials`, {
+        method: 'POST',
+        body: { email, password, roleId, reason },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['employees'] });
+      void queryClient.invalidateQueries({ queryKey: ['audit-logs'] });
+    },
+  });
+}
