@@ -26,6 +26,7 @@ import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
+import { ActivityTimeline } from './activity-timeline';
 import { DeleteDealDialog } from './delete-dialogs';
 import type { Deal, DealDraft } from './types';
 import { useCompanyOptions } from './use-crm';
@@ -70,6 +71,7 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
   const save = useSaveDeal();
   const link = useLinkCompanyParty();
   const canAssign = usePermission(PERMISSIONS.CRM_DEAL_VIEW_ALL);
+  const canManageDeal = usePermission(PERMISSIONS.CRM_DEAL_MANAGE);
   const canSeeParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
   const pipelines = usePipelines();
   const companies = useCompanyOptions();
@@ -386,6 +388,11 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
             />
           </Field>
         </FieldGroup>
+        {initial.id === undefined ? null : (
+          <div className="mt-6 border-t pt-4">
+            <ActivityTimeline subject={{ type: 'deal', id: initial.id }} canLog={canManageDeal} />
+          </div>
+        )}
       </Form>
 
       <SheetFooter className="shrink-0 flex-row justify-end gap-2 border-t">

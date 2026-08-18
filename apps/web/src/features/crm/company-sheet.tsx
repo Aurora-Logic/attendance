@@ -21,6 +21,7 @@ import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
+import { ActivityTimeline } from './activity-timeline';
 import { DeleteCompanyDialog } from './delete-dialogs';
 import type { Company, CompanyDraft } from './types';
 import { useSaveCompany } from './use-crm';
@@ -79,6 +80,7 @@ function CompanySheetBody({
   const [deleting, setDeleting] = useState(false);
   const save = useSaveCompany();
   const canAssign = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_ALL);
+  const canManage = usePermission(PERMISSIONS.CRM_CONTACT_MANAGE);
   const owners = useManagerOptions();
   const isNew = initial.id === undefined;
 
@@ -262,6 +264,11 @@ function CompanySheetBody({
             </FieldDescription>
           ) : null}
         </FieldGroup>
+        {initial.id === undefined ? null : (
+          <div className="mt-6 border-t pt-4">
+            <ActivityTimeline subject={{ type: 'company', id: initial.id }} canLog={canManage} />
+          </div>
+        )}
       </Form>
 
       <SheetFooter className="shrink-0 flex-row justify-end gap-2 border-t">

@@ -225,3 +225,20 @@ export function dealToDraft(deal: Deal): DealDraft {
     notes: deal.notes ?? '',
   };
 }
+
+// ------------------------------------------------------------- activities
+
+export const activitySchema = z.object({
+  id: z.string(),
+  kind: z.enum(['call', 'meeting', 'note', 'email', 'system']),
+  action: z.string(),
+  title: z.string(),
+  body: z.string().nullable(),
+  actorName: z.string().nullable(),
+  occurredAt: z.string(),
+  recordedAt: z.string(),
+});
+export type Activity = z.infer<typeof activitySchema>;
+
+export const activityPageSchema = z.object({ data: z.array(activitySchema), nextCursor: z.string().nullable() });
+export type ActivityPageView = z.infer<typeof activityPageSchema>;

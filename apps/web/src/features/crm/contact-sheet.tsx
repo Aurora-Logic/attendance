@@ -21,6 +21,7 @@ import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
+import { ActivityTimeline } from './activity-timeline';
 import { DeleteContactDialog } from './delete-dialogs';
 import type { Contact, ContactDraft } from './types';
 import { useCompanyOptions, useContactDuplicates, useSaveContact } from './use-crm';
@@ -81,6 +82,7 @@ function ContactSheetBody({
   const [deleting, setDeleting] = useState(false);
   const save = useSaveContact();
   const canAssign = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_ALL);
+  const canManage = usePermission(PERMISSIONS.CRM_CONTACT_MANAGE);
   const companies = useCompanyOptions();
   const owners = useManagerOptions();
   const isNew = initial.id === undefined;
@@ -307,6 +309,11 @@ function ContactSheetBody({
             />
           </Field>
         </FieldGroup>
+        {initial.id === undefined ? null : (
+          <div className="mt-6 border-t pt-4">
+            <ActivityTimeline subject={{ type: 'contact', id: initial.id }} canLog={canManage} />
+          </div>
+        )}
       </Form>
 
       <SheetFooter className="shrink-0 flex-row justify-end gap-2 border-t">

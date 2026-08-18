@@ -153,6 +153,8 @@ forgotten.
 | Pipelines and deals (REQ-U-04, U-05; link half of REQ-U-03): `crm_pipelines`, `crm_pipeline_stages`, `crm_deals` (migration 0030); default pipeline on first read; stage move is one audited write, won/lost stages close (`crm.deal.won` / `.lost`); board = list by stage with a value total per lane; `PUT /crm/companies/:id/party` links a company to the Tally party by hand; deals in Go To | `0819766` | deals 10/10 |
 | Deals screen: list and board (shared `KanbanBoard`, also now behind the task board), Alt+C create with company → contact pickers, drag to Won opens the sheet with the party-link picker over the parties projection, stages sheet under `crm.pipeline.manage`, `/crm/deals/:id` | — | live drive: created with company and contact, value shown 1,25,000.50, dragged to Won ("Deal won"), party linked from the prompt ("Party linked", note shown), stage added and removed, Go To opens it, 360px cards, no failing requests |
 
+| Activities (REQ-U-07) as the audit trail: `POST /crm/activities` is one `AuditContext.record()` on the record, `GET /crm/activities` pages that record's audit rows through `AuditLogRepository`, so logged calls and system events (created, stage changed, won, party linked) are one ordered list with actor; timeline + composer embedded in the contact, company and deal sheets (Ctrl+Enter logs) | `a075c8d`, — | activities 4/4; live: deal timeline shows Won, Lead → Won, Linked to a Tally party, Created; call logged and listed with actor; contact timeline shows Created |
+
 Not in this slice: REQ-U-06 (a won deal shows its estimate, sales order and
 invoice) — those documents are Phase 8's; the deal sheet gains a documents
 section when they exist.
