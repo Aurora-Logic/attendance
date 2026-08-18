@@ -1,0 +1,633 @@
+import { Injectable, type OnModuleInit } from '@nestjs/common';
+import {
+  NOTIFICATION_EVENTS,
+  PERMISSIONS,
+  PUSH_KIND_VOUCHER_TYPE,
+  pageSlice,
+  paginated,
+  type AllocateReceiptInput,
+  type CreateGrnInput,
+  type CreatePurchaseOrderInput,
+  type GrnView,
+  type ItemVendorView,
+  type Paginated,
+  type PurchaseHistoryEntry,
+  type PurchaseHistoryQuery,
+  type PurchaseLineInput,
+  type PurchaseOrderFromRequirementsInput,
+  type PurchaseOrderListQuery,
+  type PurchaseOrderSummary,
+  type PurchaseOrderView,
+  type PutItemSettingsInput,
+  type PutItemVendorsInput,
+  type UpdatePurchaseOrderInput,
+  type VoucherPushPayload,
+} from '@vyuha/shared';
+import { sql } from 'drizzle-orm';
+
+import { AuditContext } from '../../../platform/audit/audit-context.js';
+import { AppError } from '../../../platform/common/errors.js';
+import { InjectDatabase, type Database, type Transaction } from '../../../platform/db/db.provider.js';
+import { orgToday, resolveDocumentLines } from '../../../platform/documents/document-support.js';
+import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
+import { hasPermission, type Principal } from '../../../platform/rbac/principal.js';
+import { PushOutcomeRegistry, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
+import { PushQueueService } from '../../../platform/sync/push-queue.service.js';
+
+/**
+ * Purchase orders and GRNs (13 §4.2–4.4; 08 REQ-X-01…X-05). A PO is built
+ * from selected requirements or standalone; confirming it pushes a Purchase
+ * Order voucher (REQ-X-17) unless its value crosses the approval threshold
+ * (REQ-X-16), in which case a holder of `purchase.document.approve` releases
+ * it. A GRN receives against the PO — received and rejected, with a reason
+ * (REQ-X-21) — pushes as a Receipt Note (REQ-X-22), and satisfies the
+ * requirements the lines took up. Where one receipt is short of several
+ * waiting orders, allocation is a person's decision (REQ-X-27, D-30); where
+ * only one waits it is automatic; the order's owner is told (REQ-X-28).
+ *
+ * The approval is a status and a key here rather than an approvals-inbox
+ * subject: the inbox integration is a follow-up recorded in the progress
+ * document, and nothing about it changes who may release a PO.
+ */
+
+const SETTING_THRESHOLD = 'purchase.approvalThreshold';
+
+@Injectable()
+export class PurchaseOrderService implements OnModuleInit {
+  constructor(
+    @InjectDatabase() private readonly db: Database,
+    private readonly auditContext: AuditContext,
+    private readonly pushQueue: PushQueueService,
+    private readonly pushOutcomes: PushOutcomeRegistry,
+    private readonly notifications: NotificationDispatcher,
+  ) {}
+
+  onModuleInit(): void {
+    this.pushOutcomes.register({ kind: 'PURCHASE_ORDER', onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, 'purchase_orders', payload, outcome) });
+    this.pushOutcomes.register({ kind: 'RECEIPT_NOTE', onOutcome: (tx, orgId, payload, outcome) => this.applyOutcome(tx, orgId, 'grns', payload, outcome) });
+  }
+
+  // -------------------------------------------------------- purchase orders
+
+  async list(principal: Principal, query: PurchaseOrderListQuery): Promise<Paginated<PurchaseOrderSummary>> {
+    const { limit, offset } = pageSlice(query);
+    const where = sql`po.org_id = ${principal.orgId} AND po.deleted_at IS NULL
+      ${query.q === undefined ? sql`` : sql`AND (po.number ILIKE ${`%${query.q}%`} OR po.vendor_name ILIKE ${`%${query.q}%`})`}
+      ${query.status === undefined ? sql`` : sql`AND po.status = ${query.status}`}
+      ${query.syncState === undefined ? sql`` : sql`AND po.sync_state = ${query.syncState}`}
+      ${query.partyId === undefined ? sql`` : sql`AND po.party_id = ${query.partyId}`}
+      ${query.salesOrderId === undefined ? sql`` : sql`AND po.sales_order_id = ${query.salesOrderId}`}`;
+    const ids = await this.db.execute<{ id: string }>(sql`SELECT po.id FROM purchase_orders po WHERE ${where} ORDER BY po.date DESC, po.created_at DESC LIMIT ${limit} OFFSET ${offset}`);
+    const total = await this.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM purchase_orders po WHERE ${where}`);
+    const rows = await Promise.all(ids.rows.map((r) => this.view(principal.orgId, r.id)));
+    return paginated(
+      rows.filter((r): r is PurchaseOrderView => r !== null).map(({ lines: _lines, ...summary }) => summary),
+      query,
+      Number(total.rows[0]?.n ?? 0),
+    );
+  }
+
+  async find(principal: Principal, id: string): Promise<PurchaseOrderView> {
+    const po = await this.view(principal.orgId, id);
+    if (po === null) throw AppError.notFound('Purchase order', id);
+    return po;
+  }
+
+  async create(principal: Principal, input: CreatePurchaseOrderInput): Promise<PurchaseOrderView> {
+    const vendor = await this.vendor(principal.orgId, input.partyId);
+    const lines = await resolveDocumentLines(this.db, principal, input.lines);
+    const id = await this.db.transaction(async (tx) => {
+      const number = await this.nextNumber(tx, principal.orgId, 'PURCHASE_ORDER', 'PO');
+      const inserted = await tx.execute<{ id: string }>(sql`
+        INSERT INTO purchase_orders (org_id, number, date, party_id, vendor_name, sales_order_id, expected_date, owner_id, notes, created_by, updated_by)
+        VALUES (${principal.orgId}, ${number}, ${input.date ?? (await orgToday(this.db, principal.orgId))}, ${input.partyId}, ${vendor}, ${input.salesOrderId ?? null},
+                ${input.expectedDate ?? null}, ${input.ownerId ?? principal.employeeId}, ${input.notes ?? null}, ${principal.userId}, ${principal.userId})
+        RETURNING id
+      `);
+      const poId = inserted.rows[0]?.id;
+      if (poId === undefined) throw new Error('Purchase order insert returned no row.');
+      await this.replaceLines(tx, principal, poId, input.lines.map((line, i) => ({ ...line, ...lines[i] })));
+      return poId;
+    });
+    this.auditContext.record({ action: 'purchase.order.created', entityType: 'purchase_order', entityId: id, before: null, after: { partyId: input.partyId, lines: input.lines.length } });
+    return this.find(principal, id);
+  }
+
+  /** REQ-X-13: one line per item, quantities summed across the chosen requirements, each linked. */
+  async createFromRequirements(principal: Principal, input: PurchaseOrderFromRequirementsInput): Promise<PurchaseOrderView> {
+    const rows = await this.db.execute<{ id: string; stock_item_id: string; open: string; name: string; unit: string }>(sql`
+      SELECT r.id, r.stock_item_id, (r.quantity - r.ordered_qty)::text AS open, s.name, s.unit
+        FROM procurement_requirements r JOIN stock_items s ON s.id = r.stock_item_id
+       WHERE r.org_id = ${principal.orgId} AND r.state = 'open' AND r.deleted_at IS NULL
+         AND r.id = ANY(${sql.raw(`ARRAY[${input.requirementIds.map((id) => `'${id}'::uuid`).join(',')}]`)})
+    `);
+    if (rows.rows.length === 0) throw AppError.validation('None of those requirements is open.', { requirementIds: input.requirementIds });
+    const byItem = new Map<string, { name: string; unit: string; qty: number; requirementIds: string[] }>();
+    for (const r of rows.rows) {
+      const entry = byItem.get(r.stock_item_id) ?? { name: r.name, unit: r.unit, qty: 0, requirementIds: [] };
+      entry.qty += Number(r.open);
+      entry.requirementIds.push(r.id);
+      byItem.set(r.stock_item_id, entry);
+    }
+    const lines: PurchaseLineInput[] = [...byItem.entries()].map(([stockItemId, entry]) => ({
+      stockItemId,
+      description: entry.name,
+      quantity: entry.qty.toFixed(3),
+      unit: entry.unit,
+      rate: '0',
+      discountPct: '0',
+      taxPct: '0',
+      requirementIds: entry.requirementIds,
+    }));
+    return this.create(principal, { partyId: input.partyId, expectedDate: input.expectedDate ?? null, lines });
+  }
+
+  async update(principal: Principal, id: string, input: UpdatePurchaseOrderInput): Promise<PurchaseOrderView> {
+    const existing = await this.find(principal, id);
+    if (existing.status !== 'DRAFT') throw AppError.conflict(`${existing.number} is ${existing.status.toLowerCase()}; only a draft is edited.`);
+    const vendor = input.partyId === undefined ? null : await this.vendor(principal.orgId, input.partyId);
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`
+        UPDATE purchase_orders SET
+          party_id = COALESCE(${input.partyId ?? null}, party_id), vendor_name = COALESCE(${vendor}, vendor_name),
+          date = COALESCE(${input.date ?? null}, date), expected_date = ${input.expectedDate === undefined ? sql`expected_date` : (input.expectedDate ?? null)},
+          sales_order_id = ${input.salesOrderId === undefined ? sql`sales_order_id` : (input.salesOrderId ?? null)},
+          notes = ${input.notes === undefined ? sql`notes` : (input.notes ?? null)}, updated_at = now(), updated_by = ${principal.userId}
+         WHERE id = ${id} AND org_id = ${principal.orgId}
+      `);
+      if (input.lines !== undefined) {
+        const resolved = await resolveDocumentLines(this.db, principal, input.lines);
+        await this.replaceLines(tx, principal, id, input.lines.map((line, i) => ({ ...line, ...resolved[i] })));
+      }
+    });
+    this.auditContext.record({ action: 'purchase.order.updated', entityType: 'purchase_order', entityId: id, before: { grandTotal: existing.grandTotal }, after: null });
+    return this.find(principal, id);
+  }
+
+  /** Draft → confirmed and pushed, or → awaiting approval when the value crosses the threshold (REQ-X-16). */
+  async confirm(principal: Principal, id: string): Promise<PurchaseOrderView> {
+    const existing = await this.find(principal, id);
+    if (existing.status !== 'DRAFT') throw AppError.conflict(`${existing.number} is already ${existing.status.toLowerCase()}.`);
+    if (existing.approvalRequired && !hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) {
+      await this.db.execute(sql`UPDATE purchase_orders SET status = 'PENDING_APPROVAL', updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
+      this.auditContext.record({ action: 'purchase.order.submitted_for_approval', entityType: 'purchase_order', entityId: id, before: null, after: { grandTotal: existing.grandTotal } });
+      return this.find(principal, id);
+    }
+    return this.release(principal, id, existing.approvalRequired ? 'purchase.order.approved' : 'purchase.order.confirmed');
+  }
+
+  async approve(principal: Principal, id: string): Promise<PurchaseOrderView> {
+    if (!hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) throw AppError.forbidden('Approving a purchase order needs purchase.document.approve.');
+    const existing = await this.find(principal, id);
+    if (existing.status !== 'PENDING_APPROVAL') throw AppError.conflict(`${existing.number} is not awaiting approval.`);
+    return this.release(principal, id, 'purchase.order.approved');
+  }
+
+  private async release(principal: Principal, id: string, action: string): Promise<PurchaseOrderView> {
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`UPDATE purchase_orders SET status = 'CONFIRMED', updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
+      // REQ-X-10: the requirements this PO took up move to `ordered`.
+      await tx.execute(sql`
+        UPDATE procurement_requirements r SET ordered_qty = r.ordered_qty + t.qty, state = CASE WHEN r.ordered_qty + t.qty >= r.quantity THEN 'ordered' ELSE r.state END, updated_at = now()
+          FROM (SELECT plr.requirement_id, sum(plr.quantity) AS qty FROM po_line_requirements plr JOIN purchase_order_lines pl ON pl.id = plr.purchase_order_line_id WHERE pl.purchase_order_id = ${id} GROUP BY plr.requirement_id) t
+         WHERE r.id = t.requirement_id
+      `);
+    });
+    await this.enqueuePush(principal, id);
+    this.auditContext.record({ action, entityType: 'purchase_order', entityId: id, before: null, after: null });
+    return this.find(principal, id);
+  }
+
+  async push(principal: Principal, id: string): Promise<PurchaseOrderView> {
+    const existing = await this.find(principal, id);
+    if (existing.status !== 'CONFIRMED') throw AppError.conflict(`${existing.number} is ${existing.status.toLowerCase()}; confirm it first.`);
+    if (existing.syncState === 'PUSHED' || existing.syncState === 'QUEUED') throw AppError.conflict(`${existing.number} is already ${existing.syncState === 'PUSHED' ? 'in Tally' : 'queued'}.`);
+    if (!(await this.enqueuePush(principal, id))) throw AppError.conflict('No Tally connection can carry a push.');
+    return this.find(principal, id);
+  }
+
+  /** REQ-X-23: the vendor will not supply the balance. */
+  async shortClose(principal: Principal, id: string, reason: string): Promise<PurchaseOrderView> {
+    if (!hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) throw AppError.forbidden('Short-closing a purchase order needs purchase.document.approve.');
+    const existing = await this.find(principal, id);
+    if (existing.status !== 'CONFIRMED') throw AppError.conflict(`${existing.number} is ${existing.status.toLowerCase()}.`);
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`UPDATE purchase_orders SET short_closed_at = now(), short_close_reason = ${reason}, updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
+      // The requirements it carried go back to open for the part it will never bring.
+      await tx.execute(sql`
+        UPDATE procurement_requirements r SET ordered_qty = GREATEST(0, r.ordered_qty - t.qty), state = CASE WHEN r.received_qty >= r.quantity THEN r.state ELSE 'open' END, updated_at = now()
+          FROM (SELECT plr.requirement_id, sum(plr.quantity - plr.allocated_qty) AS qty FROM po_line_requirements plr JOIN purchase_order_lines pl ON pl.id = plr.purchase_order_line_id WHERE pl.purchase_order_id = ${id} GROUP BY plr.requirement_id) t
+         WHERE r.id = t.requirement_id AND r.state <> 'closed'
+      `);
+    });
+    this.auditContext.record({ action: 'purchase.order.short_closed', entityType: 'purchase_order', entityId: id, before: null, after: { reason } });
+    return this.find(principal, id);
+  }
+
+  async cancel(principal: Principal, id: string): Promise<PurchaseOrderView> {
+    const existing = await this.find(principal, id);
+    if (existing.status !== 'DRAFT' && existing.status !== 'PENDING_APPROVAL') throw AppError.conflict(`${existing.number} is confirmed; short-close it instead.`);
+    await this.db.execute(sql`UPDATE purchase_orders SET status = 'CANCELLED', updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
+    this.auditContext.record({ action: 'purchase.order.cancelled', entityType: 'purchase_order', entityId: id, before: null, after: null });
+    return this.find(principal, id);
+  }
+
+  // -------------------------------------------------------------------- GRN
+
+  async listGrns(principal: Principal, purchaseOrderId: string | undefined): Promise<GrnView[]> {
+    const ids = await this.db.execute<{ id: string }>(sql`
+      SELECT id FROM grns WHERE org_id = ${principal.orgId} AND deleted_at IS NULL ${purchaseOrderId === undefined ? sql`` : sql`AND purchase_order_id = ${purchaseOrderId}`}
+      ORDER BY received_at DESC LIMIT 200
+    `);
+    const rows = await Promise.all(ids.rows.map((r) => this.grnView(principal.orgId, r.id)));
+    return rows.filter((r): r is GrnView => r !== null);
+  }
+
+  async findGrn(principal: Principal, id: string): Promise<GrnView> {
+    const grn = await this.grnView(principal.orgId, id);
+    if (grn === null) throw AppError.notFound('GRN', id);
+    return grn;
+  }
+
+  /**
+   * REQ-X-19…X-22: received and rejected against the PO's lines under the
+   * CHECK; then each line's requirements take their share — automatically
+   * when one waits, by a person when several do (REQ-X-27).
+   */
+  async receive(principal: Principal, purchaseOrderId: string, input: CreateGrnInput): Promise<GrnView> {
+    const po = await this.find(principal, purchaseOrderId);
+    if (po.status !== 'CONFIRMED') throw AppError.conflict(`${po.number} is ${po.status.toLowerCase()}; only a confirmed order receives.`);
+    if (po.shortClosedAt !== null) throw AppError.conflict(`${po.number} was short-closed.`);
+    const byId = new Map(po.lines.map((l) => [l.id, l]));
+    for (const [index, entry] of input.lines.entries()) {
+      const line = byId.get(entry.purchaseOrderLineId);
+      if (line === undefined) throw AppError.validation('A GRN line names a line that is not on this order.', { purchaseOrderLineId: entry.purchaseOrderLineId });
+      const outstanding = Number(line.quantity) - Number(line.receivedQty) - Number(line.rejectedQty);
+      if (Number(entry.receivedQty) + Number(entry.rejectedQty) > outstanding + 1e-9) {
+        throw AppError.validation(`Line ${String(line.lineNo)} (${line.description}) has ${outstanding.toFixed(3)} outstanding.`, { fields: [{ path: `lines.${String(index)}.receivedQty`, message: 'exceeds the outstanding quantity' }] });
+      }
+      if (Number(entry.rejectedQty) > 0 && !entry.rejectionReason) {
+        throw AppError.validation('A rejected quantity needs a reason.', { fields: [{ path: `lines.${String(index)}.rejectionReason`, message: 'is required' }] });
+      }
+    }
+    const grnId = await this.db.transaction(async (tx) => {
+      const number = await this.nextNumber(tx, principal.orgId, 'GRN', 'GRN');
+      const inserted = await tx.execute<{ id: string }>(sql`
+        INSERT INTO grns (org_id, number, purchase_order_id, received_by, vendor_invoice_ref, notes, created_by, updated_by)
+        VALUES (${principal.orgId}, ${number}, ${purchaseOrderId}, ${principal.employeeId}, ${input.vendorInvoiceRef ?? null}, ${input.notes ?? null}, ${principal.userId}, ${principal.userId})
+        RETURNING id
+      `);
+      const id = inserted.rows[0]?.id;
+      if (id === undefined) throw new Error('GRN insert returned no row.');
+      for (const entry of input.lines) {
+        await tx.execute(sql`
+          INSERT INTO grn_lines (org_id, grn_id, purchase_order_line_id, received_qty, rejected_qty, rejection_reason, created_by, updated_by)
+          VALUES (${principal.orgId}, ${id}, ${entry.purchaseOrderLineId}, ${entry.receivedQty}, ${entry.rejectedQty}, ${entry.rejectionReason ?? null}, ${principal.userId}, ${principal.userId})
+        `);
+        await tx.execute(sql`
+          UPDATE purchase_order_lines SET received_qty = received_qty + ${entry.receivedQty}::numeric, rejected_qty = rejected_qty + ${entry.rejectedQty}::numeric, updated_at = now()
+           WHERE id = ${entry.purchaseOrderLineId}
+        `);
+        // Automatic allocation when exactly one requirement waits on this line.
+        const waiting = await tx.execute<{ requirement_id: string; outstanding: string }>(sql`
+          SELECT plr.requirement_id, (plr.quantity - plr.allocated_qty)::text AS outstanding
+            FROM po_line_requirements plr JOIN procurement_requirements r ON r.id = plr.requirement_id
+           WHERE plr.purchase_order_line_id = ${entry.purchaseOrderLineId} AND plr.quantity > plr.allocated_qty AND r.state <> 'closed'
+        `);
+        if (waiting.rows.length === 1 && waiting.rows[0] !== undefined) {
+          const share = Math.min(Number(entry.receivedQty), Number(waiting.rows[0].outstanding));
+          if (share > 0) await this.allocate(tx, principal, id, entry.purchaseOrderLineId, waiting.rows[0].requirement_id, share.toFixed(3));
+        }
+      }
+      return id;
+    });
+    await this.enqueueGrnPush(principal, grnId);
+    this.auditContext.record({ action: 'purchase.grn.created', entityType: 'grn', entityId: grnId, before: null, after: { purchaseOrderId, lines: input.lines } });
+    return this.findGrn(principal, grnId);
+  }
+
+  /** REQ-X-27 / D-30: the explicit decision, by a holder of the approve key. */
+  async allocateReceipt(principal: Principal, grnId: string, input: AllocateReceiptInput): Promise<GrnView> {
+    if (!hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) throw AppError.forbidden('Allocating a receipt across waiting orders needs purchase.document.approve.');
+    const grn = await this.findGrn(principal, grnId);
+    await this.db.transaction(async (tx) => {
+      for (const allocation of input.allocations) {
+        const pending = grn.pendingAllocations.find((p) => p.waiting.some((w) => w.requirementId === allocation.requirementId));
+        if (pending === undefined) throw AppError.validation('That requirement is not waiting on this receipt.', { requirementId: allocation.requirementId });
+        if (Number(allocation.quantity) > Number(pending.unallocatedQty) + 1e-9) throw AppError.validation(`Only ${pending.unallocatedQty} of ${pending.stockItemName} is left to allocate.`, { requirementId: allocation.requirementId });
+        await this.allocate(tx, principal, grnId, pending.purchaseOrderLineId, allocation.requirementId, allocation.quantity);
+      }
+    });
+    this.auditContext.record({ action: 'purchase.grn.allocated', entityType: 'grn', entityId: grnId, before: null, after: { allocations: input.allocations } });
+    return this.findGrn(principal, grnId);
+  }
+
+  private async allocate(tx: Transaction, principal: Principal, grnId: string, purchaseOrderLineId: string, requirementId: string, quantity: string): Promise<void> {
+    await tx.execute(sql`UPDATE po_line_requirements SET allocated_qty = allocated_qty + ${quantity}::numeric WHERE purchase_order_line_id = ${purchaseOrderLineId} AND requirement_id = ${requirementId}`);
+    const updated = await tx.execute<{ sales_order_id: string | null; stock_item_id: string; state: string; received: string; quantity: string }>(sql`
+      UPDATE procurement_requirements SET received_qty = received_qty + ${quantity}::numeric,
+             state = CASE WHEN received_qty + ${quantity}::numeric >= quantity THEN 'received' ELSE state END, updated_at = now()
+       WHERE id = ${requirementId}
+      RETURNING sales_order_id, stock_item_id, state, received_qty::text AS received, quantity::text AS quantity
+    `);
+    const row = updated.rows[0];
+    if (row?.sales_order_id) {
+      // REQ-X-25/X-28: the order is packable again; its owner hears so.
+      const order = await tx.execute<{ owner_id: string | null; number: string; grn: string; item: string }>(sql`
+        SELECT d.owner_id, d.number, (SELECT number FROM grns WHERE id = ${grnId}) AS grn, (SELECT name FROM stock_items WHERE id = ${row.stock_item_id}) AS item
+          FROM sales_documents d WHERE d.id = ${row.sales_order_id}
+      `);
+      const o = order.rows[0];
+      if (o?.owner_id) {
+        await this.notifications.emit({
+          orgId: principal.orgId,
+          type: NOTIFICATION_EVENTS.PROCUREMENT_STOCK_ARRIVED,
+          audience: { kind: 'employees', employeeIds: [o.owner_id] },
+          payload: { orderId: row.sales_order_id, orderNumber: o.number, grnNumber: o.grn, stockItemName: o.item, quantity },
+          idempotencyKey: `stock-arrived-${grnId}-${requirementId}`,
+        });
+      }
+    }
+  }
+
+  // ------------------------------------------------ item facts and history
+
+  async itemVendors(orgId: string, stockItemId: string): Promise<ItemVendorView[]> {
+    const rows = await this.db.execute<{ party_id: string; name: string; is_preferred: boolean; lead_time_days: number | null }>(sql`
+      SELECT v.party_id, p.name, v.is_preferred, v.lead_time_days FROM item_vendors v JOIN parties p ON p.id = v.party_id
+       WHERE v.org_id = ${orgId} AND v.stock_item_id = ${stockItemId} AND v.deleted_at IS NULL ORDER BY v.is_preferred DESC, p.name
+    `);
+    return rows.rows.map((r) => ({ partyId: r.party_id, partyName: r.name, isPreferred: r.is_preferred, leadTimeDays: r.lead_time_days }));
+  }
+
+  /** D-27: the whole set replaces the old — one preferred at most, held by the index. */
+  async putItemVendors(principal: Principal, stockItemId: string, input: PutItemVendorsInput): Promise<ItemVendorView[]> {
+    if (input.vendors.filter((v) => v.isPreferred).length > 1) throw AppError.validation('One preferred vendor per item.', { fields: [{ path: 'vendors', message: 'more than one preferred' }] });
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`UPDATE item_vendors SET deleted_at = now(), updated_at = now() WHERE org_id = ${principal.orgId} AND stock_item_id = ${stockItemId} AND deleted_at IS NULL`);
+      for (const v of input.vendors) {
+        await tx.execute(sql`
+          INSERT INTO item_vendors (org_id, stock_item_id, party_id, is_preferred, lead_time_days, created_by, updated_by)
+          VALUES (${principal.orgId}, ${stockItemId}, ${v.partyId}, ${v.isPreferred}, ${v.leadTimeDays ?? null}, ${principal.userId}, ${principal.userId})
+        `);
+      }
+    });
+    this.auditContext.record({ action: 'purchase.item_vendors.set', entityType: 'stock_item', entityId: stockItemId, before: null, after: { vendors: input.vendors } });
+    return this.itemVendors(principal.orgId, stockItemId);
+  }
+
+  /** D-28: reorder level and minimum order quantity, Vyuha's for now. */
+  async putItemSettings(principal: Principal, stockItemId: string, input: PutItemSettingsInput): Promise<void> {
+    await this.db.execute(sql`
+      INSERT INTO item_settings (org_id, stock_item_id, reorder_level, minimum_order_qty, created_by, updated_by)
+      VALUES (${principal.orgId}, ${stockItemId}, ${input.reorderLevel ?? null}, ${input.minimumOrderQty ?? null}, ${principal.userId}, ${principal.userId})
+      ON CONFLICT (stock_item_id) DO UPDATE SET reorder_level = EXCLUDED.reorder_level, minimum_order_qty = EXCLUDED.minimum_order_qty, updated_at = now(), updated_by = EXCLUDED.updated_by, deleted_at = NULL
+    `);
+    this.auditContext.record({ action: 'purchase.item_settings.set', entityType: 'stock_item', entityId: stockItemId, before: null, after: { ...input } });
+  }
+
+  /** REQ-X-14: Purchase vouchers and earlier POs for this item, this vendor. */
+  async purchaseHistory(orgId: string, query: PurchaseHistoryQuery): Promise<PurchaseHistoryEntry[]> {
+    const vouchers = await this.db.execute<{ date: string; number: string; vendor: string; qty: string | null; rate: string | null; amount: string | null }>(sql`
+      SELECT v.voucher_date AS date, v.voucher_number AS number, v.party_name AS vendor, l.billed_qty AS qty, l.rate::text AS rate, l.amount::text AS amount
+        FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+       WHERE l.org_id = ${orgId} AND l.stock_item_id = ${query.stockItemId} AND v.voucher_type = 'Purchase' AND NOT v.is_cancelled
+         ${query.partyId === undefined ? sql`` : sql`AND v.party_id = ${query.partyId}`}
+       ORDER BY v.voucher_date DESC LIMIT ${query.limit}
+    `);
+    const orders = await this.db.execute<{ date: string; number: string; vendor: string; qty: string; rate: string; amount: string }>(sql`
+      SELECT po.date, po.number, po.vendor_name AS vendor, pl.quantity::text AS qty, pl.rate::text AS rate, pl.amount::text AS amount
+        FROM purchase_order_lines pl JOIN purchase_orders po ON po.id = pl.purchase_order_id
+       WHERE pl.org_id = ${orgId} AND pl.stock_item_id = ${query.stockItemId} AND pl.deleted_at IS NULL AND po.deleted_at IS NULL AND po.status <> 'CANCELLED'
+         ${query.partyId === undefined ? sql`` : sql`AND po.party_id = ${query.partyId}`}
+       ORDER BY po.date DESC LIMIT ${query.limit}
+    `);
+    return [
+      ...vouchers.rows.map((r): PurchaseHistoryEntry => ({ source: 'voucher', date: r.date, reference: `Purchase ${r.number}`, vendorName: r.vendor, quantity: r.qty, rate: r.rate, amount: r.amount })),
+      ...orders.rows.map((r): PurchaseHistoryEntry => ({ source: 'purchase_order', date: r.date, reference: r.number, vendorName: r.vendor, quantity: r.qty, rate: r.rate, amount: r.amount })),
+    ]
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+      .slice(0, query.limit);
+  }
+
+  // ---------------------------------------------------------------- helpers
+
+  private async vendor(orgId: string, partyId: string): Promise<string> {
+    const rows = await this.db.execute<{ name: string; parent_group: string }>(sql`SELECT name, parent_group FROM parties WHERE org_id = ${orgId} AND id = ${partyId}`);
+    const row = rows.rows[0];
+    if (row === undefined) throw AppError.validation('The vendor was not found among the parties.', { partyId });
+    return row.name;
+  }
+
+  private async replaceLines(tx: Transaction, principal: Principal, poId: string, lines: readonly PurchaseLineInput[]): Promise<void> {
+    await tx.execute(sql`DELETE FROM purchase_order_lines WHERE purchase_order_id = ${poId}`);
+    for (const [index, line] of lines.entries()) {
+      const inserted = await tx.execute<{ id: string }>(sql`
+        INSERT INTO purchase_order_lines (org_id, purchase_order_id, line_no, stock_item_id, description, quantity, unit, rate, tax_pct, amount, tax_amount, created_by, updated_by)
+        VALUES (${principal.orgId}, ${poId}, ${index + 1}, ${line.stockItemId ?? null}, ${line.description}, ${line.quantity}, ${line.unit ?? null}, ${line.rate}, ${line.taxPct},
+                round(${line.quantity}::numeric * ${line.rate}::numeric, 2), round(round(${line.quantity}::numeric * ${line.rate}::numeric, 2) * ${line.taxPct}::numeric / 100, 2), ${principal.userId}, ${principal.userId})
+        RETURNING id
+      `);
+      const lineId = inserted.rows[0]?.id;
+      if (lineId === undefined) throw new Error('Purchase order line insert returned no row.');
+      let remaining = Number(line.quantity);
+      for (const requirementId of line.requirementIds) {
+        if (remaining <= 0) break;
+        const req = await tx.execute<{ open: string }>(sql`SELECT (quantity - ordered_qty)::text AS open FROM procurement_requirements WHERE id = ${requirementId} AND org_id = ${principal.orgId} AND state = 'open' AND deleted_at IS NULL`);
+        const open = Number(req.rows[0]?.open ?? '0');
+        if (open <= 0) continue;
+        const take = Math.min(open, remaining);
+        await tx.execute(sql`INSERT INTO po_line_requirements (org_id, purchase_order_line_id, requirement_id, quantity) VALUES (${principal.orgId}, ${lineId}, ${requirementId}, ${take.toFixed(3)})`);
+        remaining -= take;
+      }
+    }
+    await tx.execute(sql`
+      UPDATE purchase_orders po SET subtotal = t.subtotal, tax_total = t.tax, grand_total = t.subtotal + t.tax, updated_at = now()
+        FROM (SELECT COALESCE(sum(amount), 0) AS subtotal, COALESCE(sum(tax_amount), 0) AS tax FROM purchase_order_lines WHERE purchase_order_id = ${poId} AND deleted_at IS NULL) t
+       WHERE po.id = ${poId}
+    `);
+  }
+
+  /** REQ-X-16: the value above which a PO waits for approval; zero (the default) means none does. */
+  private async threshold(orgId: string): Promise<number> {
+    const rows = await this.db.execute<{ value: unknown }>(sql`
+      SELECT value FROM settings WHERE org_id = ${orgId} AND scope = 'ORG' AND key = ${SETTING_THRESHOLD} AND deleted_at IS NULL LIMIT 1
+    `);
+    const value = rows.rows[0]?.value;
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : 0;
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private async enqueuePush(principal: Principal, id: string): Promise<boolean> {
+    const po = await this.find(principal, id);
+    const payload: VoucherPushPayload = {
+      documentId: po.id,
+      kind: 'PURCHASE_ORDER',
+      voucherType: PUSH_KIND_VOUCHER_TYPE.PURCHASE_ORDER,
+      reference: po.number,
+      date: po.date,
+      partyName: po.vendorName,
+      narration: `${po.notes ?? ''}\nvyuha:${po.number}:${po.id}`.trim(),
+      idempotencyKey: `vyuha:${po.id}`,
+      remoteGuid: null,
+      lines: po.lines.map((l) => ({ stockItemName: l.description, quantity: l.quantity, unit: l.unit, rate: l.rate, discountPct: '0', amount: l.amount })),
+    };
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    await this.db.execute(sql`UPDATE purchase_orders SET sync_state = ${jobId === null ? 'NOT_PUSHED' : 'QUEUED'}, push_job_id = ${jobId}, last_error = NULL, updated_at = now() WHERE id = ${id}`);
+    return jobId !== null;
+  }
+
+  private async enqueueGrnPush(principal: Principal, grnId: string): Promise<boolean> {
+    const grn = await this.findGrn(principal, grnId);
+    const payload: VoucherPushPayload = {
+      documentId: grn.id,
+      kind: 'RECEIPT_NOTE',
+      voucherType: PUSH_KIND_VOUCHER_TYPE.RECEIPT_NOTE,
+      reference: grn.number,
+      date: grn.receivedAt.slice(0, 10),
+      partyName: grn.vendorName,
+      narration: `${grn.purchaseOrderNumber}${grn.vendorInvoiceRef ? ` ${grn.vendorInvoiceRef}` : ''}\nvyuha:${grn.number}:${grn.id}`,
+      idempotencyKey: `vyuha:${grn.id}`,
+      remoteGuid: null,
+      lines: grn.lines.filter((l) => Number(l.receivedQty) > 0).map((l) => ({ stockItemName: l.description, quantity: l.receivedQty, unit: null, rate: '0', discountPct: '0', amount: '0' })),
+    };
+    if (payload.lines.length === 0) return false;
+    const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
+    await this.db.execute(sql`UPDATE grns SET sync_state = ${jobId === null ? 'NOT_PUSHED' : 'QUEUED'}, push_job_id = ${jobId}, last_error = NULL, updated_at = now() WHERE id = ${grnId}`);
+    return jobId !== null;
+  }
+
+  private async applyOutcome(tx: Transaction, orgId: string, table: 'purchase_orders' | 'grns', payload: VoucherPushPayload, outcome: PushOutcome): Promise<void> {
+    const t = sql.raw(table);
+    if (outcome.outcome === 'rejected') {
+      await tx.execute(sql`UPDATE ${t} SET sync_state = 'FAILED', last_error = ${outcome.errorText}, updated_at = now() WHERE org_id = ${orgId} AND id = ${payload.documentId}`);
+      return;
+    }
+    await tx.execute(sql`UPDATE ${t} SET sync_state = 'PUSHED', remote_guid = ${outcome.remoteGuid}, remote_voucher_number = ${outcome.remoteVoucherNumber}, last_pushed_at = now(), last_error = NULL, updated_at = now() WHERE org_id = ${orgId} AND id = ${payload.documentId}`);
+  }
+
+  private async nextNumber(tx: Transaction, orgId: string, kind: string, prefix: string): Promise<string> {
+    await tx.execute(sql`INSERT INTO document_sequences (org_id, kind, last_number) VALUES (${orgId}, ${kind}, 0) ON CONFLICT (org_id, kind) DO NOTHING`);
+    const bumped = await tx.execute<{ last_number: number }>(sql`UPDATE document_sequences SET last_number = last_number + 1 WHERE org_id = ${orgId} AND kind = ${kind} RETURNING last_number`);
+    return `${prefix}-${String(bumped.rows[0]?.last_number ?? 0).padStart(4, '0')}`;
+  }
+
+  private async view(orgId: string, id: string): Promise<PurchaseOrderView | null> {
+    const threshold = await this.threshold(orgId);
+    const rows = await this.db.execute<{
+      id: string; number: string; status: PurchaseOrderView['status']; date: string; party_id: string; vendor_name: string; sales_order_id: string | null; expected_date: string | null;
+      owner_id: string | null; owner_name: string | null; notes: string | null; subtotal: string; tax_total: string; grand_total: string; sync_state: PurchaseOrderView['syncState'];
+      remote_guid: string | null; remote_voucher_number: string | null; last_error: string | null; short_closed_at: Date | null; short_close_reason: string | null; created_at: Date; updated_at: Date;
+      lines: PurchaseOrderView['lines'];
+    }>(sql`
+      SELECT po.id, po.number, po.status, po.date, po.party_id, po.vendor_name, po.sales_order_id, po.expected_date, po.owner_id,
+             CASE WHEN e.id IS NULL THEN NULL ELSE concat_ws(' ', e.first_name, e.last_name) END AS owner_name,
+             po.notes, po.subtotal::text AS subtotal, po.tax_total::text AS tax_total, po.grand_total::text AS grand_total,
+             po.sync_state, po.remote_guid, po.remote_voucher_number, po.last_error, po.short_closed_at, po.short_close_reason, po.created_at, po.updated_at,
+             COALESCE((
+               SELECT json_agg(json_build_object(
+                 'id', pl.id, 'lineNo', pl.line_no, 'stockItemId', pl.stock_item_id, 'description', pl.description, 'quantity', pl.quantity::text, 'unit', pl.unit,
+                 'rate', pl.rate::text, 'taxPct', pl.tax_pct::text, 'amount', pl.amount::text, 'taxAmount', pl.tax_amount::text,
+                 'receivedQty', pl.received_qty::text, 'rejectedQty', pl.rejected_qty::text,
+                 'requirements', COALESCE((
+                   SELECT json_agg(json_build_object('requirementId', plr.requirement_id, 'quantity', plr.quantity::text, 'salesOrderNumber', d.number, 'customerName', d.customer_name))
+                     FROM po_line_requirements plr JOIN procurement_requirements r ON r.id = plr.requirement_id LEFT JOIN sales_documents d ON d.id = r.sales_order_id
+                    WHERE plr.purchase_order_line_id = pl.id
+                 ), '[]'::json)
+               ) ORDER BY pl.line_no)
+                 FROM purchase_order_lines pl WHERE pl.purchase_order_id = po.id AND pl.deleted_at IS NULL
+             ), '[]'::json) AS lines
+        FROM purchase_orders po LEFT JOIN employees e ON e.id = po.owner_id
+       WHERE po.org_id = ${orgId} AND po.id = ${id} AND po.deleted_at IS NULL
+    `);
+    const r = rows.rows[0];
+    if (r === undefined) return null;
+    const lines = r.lines;
+    const fulfilment: PurchaseOrderView['fulfilment'] =
+      r.short_closed_at !== null
+        ? 'short_closed'
+        : lines.length > 0 && lines.every((l) => Number(l.receivedQty) + Number(l.rejectedQty) >= Number(l.quantity))
+          ? 'received'
+          : lines.some((l) => Number(l.receivedQty) + Number(l.rejectedQty) > 0)
+            ? 'partially_received'
+            : 'open';
+    return {
+      id: r.id,
+      number: r.number,
+      status: r.status,
+      fulfilment,
+      date: r.date,
+      partyId: r.party_id,
+      vendorName: r.vendor_name,
+      salesOrderId: r.sales_order_id,
+      expectedDate: r.expected_date,
+      ownerId: r.owner_id,
+      ownerName: r.owner_name,
+      notes: r.notes,
+      subtotal: r.subtotal,
+      taxTotal: r.tax_total,
+      grandTotal: r.grand_total,
+      approvalRequired: threshold > 0 && Number(r.grand_total) > threshold,
+      syncState: r.sync_state,
+      remoteGuid: r.remote_guid,
+      remoteVoucherNumber: r.remote_voucher_number,
+      lastError: r.last_error,
+      shortClosedAt: r.short_closed_at === null ? null : new Date(r.short_closed_at).toISOString(),
+      shortCloseReason: r.short_close_reason,
+      lines,
+      createdAt: new Date(r.created_at).toISOString(),
+      updatedAt: new Date(r.updated_at).toISOString(),
+    };
+  }
+
+  private async grnView(orgId: string, id: string): Promise<GrnView | null> {
+    const rows = await this.db.execute<{
+      id: string; number: string; purchase_order_id: string; po_number: string; vendor_name: string; received_by: string | null; received_by_name: string | null; received_at: Date;
+      vendor_invoice_ref: string | null; notes: string | null; sync_state: GrnView['syncState']; remote_guid: string | null; remote_voucher_number: string | null; last_error: string | null;
+      lines: GrnView['lines']; pending: GrnView['pendingAllocations'];
+    }>(sql`
+      SELECT g.id, g.number, g.purchase_order_id, po.number AS po_number, po.vendor_name, g.received_by,
+             CASE WHEN e.id IS NULL THEN NULL ELSE concat_ws(' ', e.first_name, e.last_name) END AS received_by_name,
+             g.received_at, g.vendor_invoice_ref, g.notes, g.sync_state, g.remote_guid, g.remote_voucher_number, g.last_error,
+             COALESCE((SELECT json_agg(json_build_object('purchaseOrderLineId', gl.purchase_order_line_id, 'description', pl.description, 'receivedQty', gl.received_qty::text, 'rejectedQty', gl.rejected_qty::text, 'rejectionReason', gl.rejection_reason) ORDER BY pl.line_no)
+                         FROM grn_lines gl JOIN purchase_order_lines pl ON pl.id = gl.purchase_order_line_id WHERE gl.grn_id = g.id), '[]'::json) AS lines,
+             COALESCE((
+               SELECT json_agg(json_build_object(
+                 'purchaseOrderLineId', pl.id, 'stockItemName', pl.description,
+                 'unallocatedQty', (pl.received_qty - COALESCE((SELECT sum(plr2.allocated_qty) FROM po_line_requirements plr2 WHERE plr2.purchase_order_line_id = pl.id), 0))::text,
+                 'waiting', COALESCE((
+                   SELECT json_agg(json_build_object('requirementId', plr.requirement_id, 'salesOrderNumber', d.number, 'customerName', d.customer_name, 'outstandingQty', (plr.quantity - plr.allocated_qty)::text))
+                     FROM po_line_requirements plr JOIN procurement_requirements r ON r.id = plr.requirement_id LEFT JOIN sales_documents d ON d.id = r.sales_order_id
+                    WHERE plr.purchase_order_line_id = pl.id AND plr.quantity > plr.allocated_qty AND r.state <> 'closed'
+                 ), '[]'::json)
+               ))
+                 FROM purchase_order_lines pl
+                WHERE pl.purchase_order_id = g.purchase_order_id AND pl.deleted_at IS NULL
+                  AND pl.received_qty > COALESCE((SELECT sum(plr3.allocated_qty) FROM po_line_requirements plr3 WHERE plr3.purchase_order_line_id = pl.id), 0)
+                  AND (SELECT count(*) FROM po_line_requirements plr4 JOIN procurement_requirements r4 ON r4.id = plr4.requirement_id WHERE plr4.purchase_order_line_id = pl.id AND plr4.quantity > plr4.allocated_qty AND r4.state <> 'closed') > 0
+             ), '[]'::json) AS pending
+        FROM grns g JOIN purchase_orders po ON po.id = g.purchase_order_id LEFT JOIN employees e ON e.id = g.received_by
+       WHERE g.org_id = ${orgId} AND g.id = ${id} AND g.deleted_at IS NULL
+    `);
+    const r = rows.rows[0];
+    if (r === undefined) return null;
+    return {
+      id: r.id,
+      number: r.number,
+      purchaseOrderId: r.purchase_order_id,
+      purchaseOrderNumber: r.po_number,
+      vendorName: r.vendor_name,
+      receivedById: r.received_by,
+      receivedByName: r.received_by_name,
+      receivedAt: new Date(r.received_at).toISOString(),
+      vendorInvoiceRef: r.vendor_invoice_ref,
+      notes: r.notes,
+      syncState: r.sync_state,
+      remoteGuid: r.remote_guid,
+      remoteVoucherNumber: r.remote_voucher_number,
+      lastError: r.last_error,
+      lines: r.lines,
+      pendingAllocations: r.pending,
+    };
+  }
+}

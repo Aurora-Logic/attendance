@@ -150,6 +150,11 @@ export interface JobPayloads {
     readonly now?: string;
   };
 
+  /** REQ-X-09: the nightly reorder check. */
+  'raise-reorder-requirements': {
+    readonly now?: string;
+  };
+
   /** REQ-K-02: one queued envelope per domain event, fanned out by channel. */
   'send-notification': {
     readonly orgId: string;
@@ -253,6 +258,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-task-reminders': QUEUES.NOTIFICATION,
   'link-sales-invoices': QUEUES.MAINTENANCE,
+  'raise-reorder-requirements': QUEUES.MAINTENANCE,
   'send-notification': QUEUES.NOTIFICATION,
   'deliver-password-reset': QUEUES.NOTIFICATION,
   'accrue-leave': QUEUES.LEAVE,
@@ -358,6 +364,8 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   { schedulerId: 'notification:send-task-reminders', jobName: 'send-task-reminders', pattern: '30 2 * * *' },
   // The accountant bills in Tally; the link lands within a few minutes of the pull.
   { schedulerId: 'sales:link-invoices', jobName: 'link-sales-invoices', pattern: '*/5 * * * *' },
+  // After the night's pulls have landed and before the purchase team sits down.
+  { schedulerId: 'purchase:reorder-sweep', jobName: 'raise-reorder-requirements', pattern: '15 1 * * *' },
   // REQ-G-05. On the 1st, for the month that has just finished. Accruing on
   // the last day of a month instead would need a cron that can say "last day",
   // and would pro-rate a leaver's final month before their last day had ended.

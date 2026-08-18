@@ -43,6 +43,9 @@ export const NOTIFICATION_EVENTS = {
   TASK_ASSIGNED: 'task.assigned',
   TASK_DUE_TODAY: 'task.due_today',
   TASK_OVERDUE: 'task.overdue',
+
+  /** 13 REQ-X-28: stock arrived for an order that was waiting on it. */
+  PROCUREMENT_STOCK_ARRIVED: 'procurement.stock_arrived',
 } as const;
 
 export type NotificationEventType =
@@ -75,6 +78,7 @@ export const NOTIFICATION_EVENT_GROUPS = [
   'Attendance',
   'Integrations',
   'Tasks',
+  'Orders',
 ] as const;
 export type NotificationEventGroup = (typeof NOTIFICATION_EVENT_GROUPS)[number];
 
@@ -179,6 +183,11 @@ export const NOTIFICATION_EVENT_DESCRIPTORS: Record<
     label: 'Task overdue',
     note: 'The morning after a task of yours went past its date. Once per task.',
   },
+  'procurement.stock_arrived': {
+    group: 'Orders',
+    label: 'Stock arrived for your order',
+    note: 'When a receipt releases a sales order of yours back to the pick queue.',
+  },
 };
 
 /**
@@ -221,6 +230,7 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   'task.assigned': '/tasks',
   'task.due_today': '/tasks',
   'task.overdue': '/tasks',
+  'procurement.stock_arrived': '/sales/orders',
 };
 
 /** Only the channels this phase actually delivers on (REQ-K-02). */

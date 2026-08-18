@@ -230,4 +230,11 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     path: (p) => `${routeFor('task.overdue')}/${text(p, 'taskId')}`,
     defaultChannels: IN_APP_AND_EMAIL,
   },
+  // 13 REQ-X-28: the order's owner hears that the balance is packable again.
+  'procurement.stock_arrived': {
+    title: (p) => `Stock arrived for ${text(p, 'orderNumber', 'your order')}`,
+    body: (p) => `${text(p, 'stockItemName')}: ${text(p, 'quantity')} received on ${text(p, 'grnNumber')}. The balance is back on the pick queue.`,
+    path: (p) => `${routeFor('procurement.stock_arrived')}/${text(p, 'orderId')}`,
+    defaultChannels: IN_APP_ONLY,
+  },
 };

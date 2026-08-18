@@ -84,6 +84,11 @@ export const PERMISSIONS = {
   SALES_DOCUMENT_CREATE: 'sales.document.create',
   SALES_DOCUMENT_ALTER: 'sales.document.alter',
   SALES_DISCOUNT_APPROVE: 'sales.discount.approve',
+
+  /** 08 §2.2 / 13. Purchase and Accounts roles arrive with their phases; Admin holds these meanwhile. */
+  PURCHASE_DOCUMENT_VIEW: 'purchase.document.view',
+  PURCHASE_DOCUMENT_CREATE: 'purchase.document.create',
+  PURCHASE_DOCUMENT_APPROVE: 'purchase.document.approve',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -130,6 +135,9 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'sales.document.create': 'Raise estimates, sales orders and challans',
   'sales.document.alter': 'Alter an accepted document (re-pushed against its GUID)',
   'sales.discount.approve': 'Approve a discount above the threshold',
+  'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
+  'purchase.document.create': 'Raise purchase orders and record receipts',
+  'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
   'integration.manage': 'Manage integration connections',
 };
 
@@ -215,6 +223,9 @@ const ADMIN_PERMISSIONS = [
   PERMISSIONS.SALES_DOCUMENT_CREATE,
   PERMISSIONS.SALES_DOCUMENT_ALTER,
   PERMISSIONS.SALES_DISCOUNT_APPROVE,
+  PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+  PERMISSIONS.PURCHASE_DOCUMENT_CREATE,
+  PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
 ] as const satisfies readonly PermissionKey[];
 
 /**
