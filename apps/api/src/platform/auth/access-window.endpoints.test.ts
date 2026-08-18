@@ -1,7 +1,7 @@
 import { SYSTEM_ROLES, type AccessWindow } from '@vyuha/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { ApiHarness, CookieJar, scopedEmail } from '../../test-support/api-harness.js';
+import { ApiHarness, scopedEmail, type CookieJar } from '../../test-support/api-harness.js';
 
 /**
  * 12 Area AB, end to end: a window that is closed *now* (set to cover the
