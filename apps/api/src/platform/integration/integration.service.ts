@@ -17,8 +17,23 @@ import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { isUniqueViolation } from '../db/pg-error.js';
 import { orgContextOf, type Principal } from '../rbac/principal.js';
+import { sealSecret } from '../auth/secret-box.js';
+import { API_PREFIX } from '../common/constants.js';
+import { env } from '../common/env.js';
 import { AgentAuthService } from '../sync/agent-auth.service.js';
 import { IntegrationRepository, type ConnectionRow } from './integration.repository.js';
+
+/** The HKDF info for webhook secrets; changing it orphans every stored one. */
+export const WEBHOOK_SECRET_PURPOSE = 'opstally-webhook';
+
+/**
+ * Where OpsTally must POST for this connection. The API's own public origin,
+ * because the person configuring the Agent is on a Tally machine, not in a
+ * terminal with the deployment topology in their head.
+ */
+export function webhookUrlFor(connectionId: string): string {
+  return `${env.API_BASE_URL}/${API_PREFIX}/sync/webhooks/opstally/${connectionId}`;
+}
 
 
 /**
@@ -116,6 +131,17 @@ export class IntegrationService {
   async issueToken(principal: Principal, connectionId: string): Promise<IssuedAgentToken> {
     const repository = new IntegrationRepository(this.db, orgContextOf(principal));
 
+    // One connection, one door: a webhook connection has no agent token.
+    const rows = await repository.list();
+    const current = rows.find((row) => row.id === connectionId);
+    if (current === undefined) throw AppError.notFound('Connection', connectionId);
+    if (current.transport === 'webhook') {
+      throw AppError.conflict(
+        'This connection receives OpsTally webhooks; it has no agent token. Create a separate ' +
+          'connection for a Vyuha agent.',
+      );
+    }
+
     const { token, tokenHash } = this.agentAuth.mint();
     const { found, rotated } = await repository.rotateTokenHash(connectionId, tokenHash);
     if (!found) throw AppError.notFound('Connection', connectionId);
@@ -128,6 +154,40 @@ export class IntegrationService {
     });
 
     return { connectionId, token };
+  }
+
+  /**
+   * Stores the OpsTally signing secret an administrator pasted from the
+   * Agent's settings (the reference: "copy it into your own environment").
+   * Sealed before it touches the row; the response is the URL to paste back
+   * into OpsTally, because the two halves of the handshake are done in two
+   * screens by one person and the second half should not have to be looked
+   * up. Audited without the secret, as every credential event is.
+   */
+  async setWebhookSecret(
+    principal: Principal,
+    connectionId: string,
+    secret: string,
+  ): Promise<{ connectionId: string; webhookUrl: string }> {
+    const repository = new IntegrationRepository(this.db, orgContextOf(principal));
+    const sealed = sealSecret(secret, env.JWT_REFRESH_SECRET, WEBHOOK_SECRET_PURPOSE);
+    const outcome = await repository.setWebhookSecret(connectionId, sealed);
+    if (outcome === 'not-found') throw AppError.notFound('Connection', connectionId);
+    if (outcome === 'agent-connection') {
+      throw AppError.conflict(
+        'This connection has an agent token issued; it cannot also receive webhooks. Create a ' +
+          'separate connection for OpsTally.',
+      );
+    }
+
+    this.auditContext.record({
+      action: 'integration.webhook_secret_set',
+      entityType: 'integration_connection',
+      entityId: connectionId,
+      after: { transport: 'webhook' },
+    });
+
+    return { connectionId, webhookUrl: webhookUrlFor(connectionId) };
   }
 
   /**
@@ -260,6 +320,8 @@ function toView(row: ConnectionRow, now: Date): IntegrationConnectionView {
     tokenIssued: row.tokenIssued,
     companyName: row.companyName,
     lastCondition: row.lastCondition,
+    transport: row.transport,
+    webhookInstallId: row.webhookInstallId,
   };
 }
 
@@ -281,8 +343,12 @@ function statusOf(row: ConnectionRow, now: Date): IntegrationStatus {
   if (row.lastHeartbeatAt === null) return 'DISCONNECTED';
   if (row.storedStatus === 'ERROR') return 'ERROR';
 
+  // A webhook connection is heard from only when something changed in Tally
+  // (OpsTally polls, diffs, and emits on change), so a quiet afternoon is not
+  // a silence to alarm about. It is CONNECTED once it has ever delivered; the
+  // screen shows the last event's age beside it and lets the reader judge.
   const silentMs = now.getTime() - row.lastHeartbeatAt.getTime();
-  if (silentMs > STALE_AFTER_MINUTES * 60_000) return 'STALE';
+  if (row.transport !== 'webhook' && silentMs > STALE_AFTER_MINUTES * 60_000) return 'STALE';
 
   // A row that heartbeated a minute ago and still says DISCONNECTED is a
   // writer that forgot to clear the column; the heartbeat is the better

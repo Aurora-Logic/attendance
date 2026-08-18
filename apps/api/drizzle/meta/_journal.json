@@ -183,6 +183,13 @@
       "when": 1786897801463,
       "tag": "0025_stock_projections",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1787030368061,
+      "tag": "0026_opstally_webhooks",
+      "breakpoints": true
     }
   ]
 }

@@ -47,6 +47,10 @@ export interface StockItemView {
   readonly parentGroup: string;
   /** GST percentage as exact decimal text, or null where none is set. */
   readonly gstRate: string | null;
+  /** Held figures, exact decimal text, null when the source carried none (D-01). */
+  readonly closingQty: string | null;
+  readonly salePrice: string | null;
+  readonly costPrice: string | null;
   readonly absentInTally: boolean;
   readonly lastPulledAt: string;
 }

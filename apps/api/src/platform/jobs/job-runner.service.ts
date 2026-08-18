@@ -138,14 +138,10 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
     payload: JobPayloads[TName],
     options: EnqueueOptions = {},
   ): Promise<string> {
-    if (!env.JOBS_WORKER_ENABLED) {
-      this.logger.debug({
-        msg: 'JOBS_WORKER_ENABLED is false; skipping background enqueue.',
-        jobName,
-      });
-      return options.jobId ?? `noop-${Date.now()}`;
-    }
-
+    // No worker-flag short-circuit here, deliberately: JOBS_WORKER_ENABLED
+    // means "this process does not consume", never "this process does not
+    // enqueue". The API under test enqueues real jobs into a real Redis with
+    // the flag off, and every queue assertion in the suite depends on that.
     const job = await this.withinDeadline(
       this.queueFor(JOB_QUEUE[jobName]).add(jobName, payload, {
         ...(options.jobId === undefined ? {} : { jobId: options.jobId }),

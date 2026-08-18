@@ -87,49 +87,9 @@ function ioredisOptions(): RedisOptions {
   };
 }
 
-function createDisabledRedis(): Redis {
-  const logger = new Logger('Redis');
-  logger.log({ msg: 'JOBS_WORKER_ENABLED is false; Redis connection is disabled.' });
-
-  const handler: ProxyHandler<object> = {
-    get(_target, prop) {
-      // Very important: do NOT trap 'then', 'catch', or 'finally', otherwise
-      // JavaScript/NestJS treats this object as a Promise and hangs forever.
-      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
-        return undefined;
-      }
-      if (prop === 'status') return 'ready';
-      if (
-        prop === 'on' ||
-        prop === 'once' ||
-        prop === 'addListener' ||
-        prop === 'removeListener' ||
-        prop === 'off'
-      ) {
-        return () => proxy;
-      }
-      if (prop === 'quit' || prop === 'disconnect') {
-        return () => Promise.resolve('OK');
-      }
-      if (prop === 'evalsha' || prop === 'eval') {
-        // Return claimed slot for Lua scripts: [status: 1, oldestScore: '']
-        return () => Promise.resolve([1, '']);
-      }
-      return () => Promise.resolve(1);
-    },
-  };
-
-  const proxy = new Proxy({}, handler) as unknown as Redis;
-  return proxy;
-}
-
 export const redisProvider: Provider = {
   provide: REDIS_CLIENT,
   useFactory: (): Redis => {
-    if (!env.JOBS_WORKER_ENABLED) {
-      return createDisabledRedis();
-    }
-
     const logger = new Logger('Redis');
     const client = new Redis({
       ...ioredisOptions(),

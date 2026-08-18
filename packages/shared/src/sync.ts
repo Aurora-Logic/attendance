@@ -161,6 +161,15 @@ export const stockItemPullRowSchema = z.object({
   /** The stock group, verbatim from the parent. */
   parentGroup: z.string().min(1).max(120),
   gstRate: decimalString.optional(),
+  /**
+   * Held figures a source may carry (OpsTally does; Tally XML pulls need
+   * not). Exact decimals as text, stored, never computed on (D-01). A sale
+   * or cost price of "0" means the source could not resolve one, and the
+   * writer keeps a stored non-zero figure over it — zero is not "free".
+   */
+  closingQty: decimalString.optional(),
+  salePrice: decimalString.optional(),
+  costPrice: decimalString.optional(),
 });
 
 export type StockItemPullRow = z.infer<typeof stockItemPullRowSchema>;

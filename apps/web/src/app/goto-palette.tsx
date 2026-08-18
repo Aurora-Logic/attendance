@@ -53,11 +53,32 @@ import { useGoToRecords } from './use-go-to-records';
  * invisible here. Deriving from `MODULES` is what ends the class. Approvals
  * sits under "Inbox" because REQ-O-03's whole argument is that it is one.
  */
-const SCREEN_GROUPS: NavGroup[] = [
+/**
+ * One entry per destination, whichever surfaces reach it. A screen can sit in
+ * a module sidebar and in the top bar at once (Approvals does, since main
+ * re-added it to Work beside REQ-O-03's Inbox), and a palette that listed it
+ * twice would make the arrow keys land on the same place two rows apart.
+ * First surface wins; the route is what matters, not which door.
+ */
+function dedupeDestinations(groups: NavGroup[]): NavGroup[] {
+  const seen = new Set<string>();
+  return groups
+    .map((group) => ({
+      label: group.label,
+      items: group.items.filter((item) => {
+        if (seen.has(item.to)) return false;
+        seen.add(item.to);
+        return true;
+      }),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+const SCREEN_GROUPS: NavGroup[] = dedupeDestinations([
   ...MODULES.flatMap((module) => module.groups),
   { label: 'Inbox', items: TOP_BAR_ITEMS },
   ...ADMIN_GROUPS,
-];
+]);
 
 export function GoToPalette() {
   const navigate = useNavigate();

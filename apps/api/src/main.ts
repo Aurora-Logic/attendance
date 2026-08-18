@@ -28,7 +28,9 @@ async function bootstrap(): Promise<void> {
 
   // Buffered until the pino logger is attached, so startup lines are not
   // emitted in Nest's format and then everything else in JSON.
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // rawBody: the OpsTally webhook verifies an HMAC over the exact bytes it
+  // was sent, so the parsed body is not enough — see SyncWebhookController.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   app.useLogger(app.get(Logger));
 
   // OPEN-QUESTIONS P0-11. Behind a reverse proxy, `req.ip` is the proxy's

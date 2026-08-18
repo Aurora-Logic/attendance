@@ -39,6 +39,17 @@ interface MappingDecision {
   readonly internalId: string | null;
 }
 
+/**
+ * The two facts every projection write is scoped by. `AgentPrincipal`
+ * satisfies it structurally; so does a verified webhook delivery. Nothing
+ * below reads more than these, which is what lets one writer serve both
+ * doors without a second copy of the ownership rules.
+ */
+export interface WriterScope {
+  readonly orgId: string;
+  readonly connectionId: string;
+}
+
 @Injectable()
 export class SyncWriterService {
   private readonly logger = new Logger(SyncWriterService.name);
@@ -177,7 +188,7 @@ export class SyncWriterService {
   /** REQ-R-06's marking half; see the final-chunk comment for the licence. */
   private async markAbsentees(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     entityType: 'party' | 'stock_item',
     watermark: Date,
   ): Promise<void> {
@@ -227,6 +238,26 @@ export class SyncWriterService {
     }
   }
 
+  /**
+   * The projection writes alone, for a source that owns its own transaction,
+   * journal row and idempotency (the OpsTally webhook receiver). Same rows,
+   * same ownership rules, same "Tally wins": a master reaching Vyuha by push
+   * lands exactly as one reaching it by pull would.
+   */
+  async applyRows(
+    tx: Transaction,
+    scope: WriterScope,
+    rows:
+      | { entityType: 'party'; rows: readonly PartyPullRow[] }
+      | { entityType: 'stock_item'; rows: readonly StockItemPullRow[] },
+  ): Promise<void> {
+    if (rows.entityType === 'party') {
+      for (const row of rows.rows) await this.upsertParty(tx, scope, row);
+    } else {
+      for (const row of rows.rows) await this.upsertStockItem(tx, scope, row);
+    }
+  }
+
   /*
    * One org-wide lookup, but the decision reads the mapping's OWNER.
    * GUIDs are per-company in Tally, so a mapping held by a *living* other
@@ -242,7 +273,7 @@ export class SyncWriterService {
    */
   private async resolveMapping(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     entityType: 'party' | 'stock_item',
     guid: string,
   ): Promise<MappingDecision> {
@@ -278,7 +309,7 @@ export class SyncWriterService {
   /** Advances the mapping row alongside whichever projection row it anchors. */
   private async touchMapping(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     entityType: 'party' | 'stock_item',
     guid: string,
     alterId: number,
@@ -299,7 +330,7 @@ export class SyncWriterService {
 
   private async insertMapping(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     entityType: 'party' | 'stock_item',
     guid: string,
     alterId: number,
@@ -335,7 +366,7 @@ export class SyncWriterService {
    */
   private async upsertParty(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     row: PartyPullRow,
   ): Promise<void> {
     const mapping = await this.resolveMapping(tx, agent, 'party', row.guid);
@@ -378,18 +409,34 @@ export class SyncWriterService {
   /** REQ-R-02, the same shape as parties: GUID-anchored, Tally wins. */
   private async upsertStockItem(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     row: StockItemPullRow,
   ): Promise<void> {
     const mapping = await this.resolveMapping(tx, agent, 'stock_item', row.guid);
     if (mapping.internalId !== null) {
+      /*
+       * Held figures: a source that carries none (undefined) leaves what is
+       * stored; a source that carries "0" for a price is saying it could not
+       * resolve one -- the OpsTally reference is explicit that zero is not
+       * "free" and that a stored non-zero should survive it. Quantity has no
+       * such reading: zero on hand is a fact, and lands.
+       */
       await tx.execute(sql`
         UPDATE stock_items
            SET name = ${row.name},
                alias = ${row.alias ?? null},
                unit = ${row.unit},
                parent_group = ${row.parentGroup},
-               gst_rate = ${row.gstRate ?? null},
+               gst_rate = COALESCE(${row.gstRate ?? null}, gst_rate),
+               closing_qty = COALESCE(${row.closingQty ?? null}, closing_qty),
+               sale_price = CASE
+                 WHEN ${row.salePrice ?? null}::numeric IS NULL THEN sale_price
+                 WHEN ${row.salePrice ?? null}::numeric = 0 AND sale_price IS NOT NULL AND sale_price <> 0 THEN sale_price
+                 ELSE ${row.salePrice ?? null}::numeric END,
+               cost_price = CASE
+                 WHEN ${row.costPrice ?? null}::numeric IS NULL THEN cost_price
+                 WHEN ${row.costPrice ?? null}::numeric = 0 AND cost_price IS NOT NULL AND cost_price <> 0 THEN cost_price
+                 ELSE ${row.costPrice ?? null}::numeric END,
                connection_id = ${agent.connectionId},
                absent_in_tally = false,
                last_pulled_at = now(),
@@ -402,10 +449,12 @@ export class SyncWriterService {
 
     const inserted = await tx.execute<{ id: string }>(sql`
       INSERT INTO stock_items
-        (org_id, connection_id, name, alias, unit, parent_group, gst_rate)
+        (org_id, connection_id, name, alias, unit, parent_group, gst_rate,
+         closing_qty, sale_price, cost_price)
       VALUES
         (${agent.orgId}, ${agent.connectionId}, ${row.name}, ${row.alias ?? null},
-         ${row.unit}, ${row.parentGroup}, ${row.gstRate ?? null})
+         ${row.unit}, ${row.parentGroup}, ${row.gstRate ?? null},
+         ${row.closingQty ?? null}, ${row.salePrice ?? null}, ${row.costPrice ?? null})
       RETURNING id
     `);
     const itemId = inserted.rows[0]?.id;
@@ -424,7 +473,7 @@ export class SyncWriterService {
    */
   private async upsertPriceEntry(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     row: PriceListPullRow,
   ): Promise<void> {
     const mapping = await this.resolveMapping(tx, agent, 'stock_item', row.stockItemGuid);

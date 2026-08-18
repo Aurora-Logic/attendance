@@ -302,6 +302,19 @@ export interface IntegrationConnectionView {
    * are different instructions to the person walking to that machine.
    */
   readonly lastCondition: AgentCondition | null;
+  /**
+   * How data reaches this connection. 'agent' once a Vyuha agent token has
+   * been issued; 'webhook' once an OpsTally signing secret has been stored;
+   * 'unset' before either. The first credential decides, and the two are
+   * mutually exclusive — one company, one connection, one door.
+   */
+  readonly transport: 'unset' | 'agent' | 'webhook';
+  /**
+   * OpsTally's install id, bound on the first verified delivery. A second
+   * install pointed at the same connection is refused, the way a second
+   * agent instance is refused by the lease.
+   */
+  readonly webhookInstallId: string | null;
 }
 
 export interface IntegrationListResponse {

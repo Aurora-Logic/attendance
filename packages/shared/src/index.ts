@@ -18,4 +18,5 @@ export * from './regularization.js';
 export * from './reports.js';
 export * from './shifts.js';
 export * from './sync.js';
+export * from './opstally.js';
 export * from './notifications.js';

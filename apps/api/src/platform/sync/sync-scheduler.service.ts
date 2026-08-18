@@ -83,6 +83,9 @@ export class SyncSchedulerService {
          AND last_heartbeat_at IS NOT NULL
          AND last_heartbeat_at < now() - make_interval(mins => ${AGENT_LEASE_TAKEOVER_MINUTES})
          AND stale_notified_at IS NULL
+         -- Webhook connections are heard from only when Tally changed; a
+         -- quiet afternoon there is not a silence to alarm about.
+         AND webhook_secret_enc IS NULL
        RETURNING id, org_id, name, last_heartbeat_at
     `);
 

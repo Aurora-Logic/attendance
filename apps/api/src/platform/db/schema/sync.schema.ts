@@ -197,3 +197,45 @@ export const syncExceptions = pgTable(
     index('sync_exceptions_connection_idx').on(t.connectionId, t.state),
   ],
 );
+
+/**
+ * Every webhook delivery Vyuha has accepted, one row per event id
+ * (REQ-Q-06's evidence is the journal; this is the *processing* record).
+ *
+ * The unique index is the idempotency rule the OpsTally reference asks for:
+ * "retries reuse the exact same id — store it and treat repeats as no-ops".
+ * The insert runs inside the same transaction as the projection writes, so a
+ * delivery that fails midway rolls its inbox row back too and the Agent's
+ * retry reprocesses it; only a fully committed delivery counts as seen.
+ *
+ * `payload` is retained only for events Vyuha accepted but could not yet
+ * project (vouchers, until Phase 6c) — acknowledged with a 2xx so the Agent
+ * does not retry for ten hours, held here so 6c can replay them instead of
+ * losing ninety days of vouchers to a phase boundary.
+ */
+export const syncInbox = pgTable(
+  'sync_inbox',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => integrationConnections.id, { onDelete: 'restrict' }),
+    /** OpsTally's evt_… id — the idempotency key. */
+    eventId: text('event_id').notNull(),
+    eventType: text('event_type').notNull(),
+    result: text('result').notNull(),
+    /** Set only when the event was deferred; null once projected or when nothing to keep. */
+    payload: jsonb('payload'),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('sync_inbox_event_uq').on(t.connectionId, t.eventId),
+    // 6c's voucher replay reads "deferred, oldest first, per connection".
+    index('sync_inbox_deferred_idx')
+      .on(t.connectionId, t.receivedAt)
+      .where(sql`payload IS NOT NULL`),
+  ],
+);

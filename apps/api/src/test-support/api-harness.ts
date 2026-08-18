@@ -181,7 +181,7 @@ export class ApiHarness {
       .useClass(RecordingMailer)
       .compile();
 
-    const app = moduleRef.createNestApplication({ logger: false });
+    const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
     app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
     await app.listen(0);
 
@@ -214,7 +214,7 @@ export class ApiHarness {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
 
-    const app = moduleRef.createNestApplication({ logger: false });
+    const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
     app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
     await app.listen(0);
 
@@ -251,6 +251,7 @@ export class ApiHarness {
       ...['::1', '127.0.0.1', '::ffff:127.0.0.1'].flatMap((ip) => [
         loginRateLimitKey(ip),
         loginRateLimitKey(ip, 'agent'),
+        loginRateLimitKey(ip, 'webhook'),
       ]),
     );
   }
@@ -374,6 +375,10 @@ export class ApiHarness {
 
   patch<T = unknown>(path: string, options?: RequestOptions, jar?: CookieJar): Promise<HttpResult<T>> {
     return this.request<T>('PATCH', path, options, jar);
+  }
+
+  put<T = unknown>(path: string, options?: RequestOptions, jar?: CookieJar): Promise<HttpResult<T>> {
+    return this.request<T>('PUT', path, options, jar);
   }
 
   /**

@@ -88,6 +88,14 @@ export const stockItems = pgTable(
     parentGroup: text('parent_group').notNull(),
     /** GST percentage as numeric: 2.5 stays 2.5 (D-01). */
     gstRate: numeric('gst_rate'),
+    /**
+     * Held figures a source may carry (OpsTally does). Stored as they arrived,
+     * never computed on; a zero price from the source is "unresolvable", not
+     * "free", and the writer keeps a stored non-zero over it.
+     */
+    closingQty: numeric('closing_qty'),
+    salePrice: numeric('sale_price'),
+    costPrice: numeric('cost_price'),
     absentInTally: boolean('absent_in_tally').notNull().default(false),
     lastPulledAt: timestamp('last_pulled_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

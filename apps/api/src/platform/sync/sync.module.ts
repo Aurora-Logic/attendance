@@ -9,7 +9,9 @@ import { SyncPullSweepHandler } from './sync-pull-sweep.handler.js';
 import { SyncJournalSweepHandler } from './sync-journal-sweep.handler.js';
 import { SyncStalenessHandler } from './sync-staleness.handler.js';
 import { SyncSchedulerService } from './sync-scheduler.service.js';
+import { SyncWebhookController } from './sync-webhook.controller.js';
 import { SyncWriterService } from './sync-writer.service.js';
+import { OpsTallyWebhookService } from './opstally-webhook.service.js';
 
 /**
  * The sync engine's platform module (09 §1: "integration, sync" in the shared
@@ -26,8 +28,8 @@ import { SyncWriterService } from './sync-writer.service.js';
   // sign-in's sliding window machinery, in their own scope. Notifications
   // for REQ-Q-04: the staleness sweep announces transitions.
   imports: [AuthModule, NotificationsModule],
-  controllers: [SyncAgentController],
-  providers: [AgentAuthService, SyncAgentService, SyncWriterService, SyncSchedulerService, SyncPullSweepHandler, SyncStalenessHandler, SyncJournalSweepHandler],
+  controllers: [SyncAgentController, SyncWebhookController],
+  providers: [AgentAuthService, SyncAgentService, SyncWriterService, OpsTallyWebhookService, SyncSchedulerService, SyncPullSweepHandler, SyncStalenessHandler, SyncJournalSweepHandler],
   exports: [AgentAuthService, SyncSchedulerService],
 })
 export class SyncModule {}

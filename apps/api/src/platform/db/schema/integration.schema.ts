@@ -90,6 +90,21 @@ export const integrationConnections = pgTable(
      * minutes about the same silence teaches people to silence the bell.
      */
     staleNotifiedAt: timestamp('stale_notified_at', { withTimezone: true }),
+    /**
+     * The OpsTally webhook signing secret (whsec_…), sealed with AES-GCM
+     * under a key derived from the app secret — reversible on purpose, and
+     * unlike the agent token hash: verifying an HMAC over a delivery needs
+     * the secret itself, not a digest of it. Present means this connection's
+     * transport is the webhook; it and `agent_token_hash` are exclusive.
+     */
+    webhookSecretEnc: text('webhook_secret_enc'),
+    /**
+     * OpsTally's install id, bound on the first verified delivery. A second
+     * install pointing at the same connection is refused, the way a second
+     * agent instance is refused by the lease (REQ-Q-03: one company, one
+     * connection).
+     */
+    webhookInstallId: text('webhook_install_id'),
     ...standardColumns(),
   },
   (t) => [
