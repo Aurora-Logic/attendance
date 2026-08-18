@@ -261,7 +261,11 @@ administrator can see and reassign every task the way it can every contact.
 Until decided, tasks are built exactly to the table as written; the dev
 account with an employee record (`info@example.com`) is unaffected.
 
-## P7-2 — Which roles hold the task keys (REQ-V-01)
+## P7-2 — Which roles hold the task keys (REQ-V-01) — partly closed 18 Aug 2026
+
+Sales and Sales manager now exist as system roles with the §2.2 keys that
+exist. Still open: whether Employee/Operations/HR should hold
+`crm.task.view.self` and `crm.task.manage`.
 
 08 §2.2's task rows cover Sales, Sales manager, Purchase, Accounts and
 Admin — the four roles that do not exist yet plus Admin. The existing

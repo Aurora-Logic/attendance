@@ -155,6 +155,16 @@ forgotten.
 
 | Activities (REQ-U-07) as the audit trail: `POST /crm/activities` is one `AuditContext.record()` on the record, `GET /crm/activities` pages that record's audit rows through `AuditLogRepository`, so logged calls and system events (created, stage changed, won, party linked) are one ordered list with actor; timeline + composer embedded in the contact, company and deal sheets (Ctrl+Enter logs) | `a075c8d`, — | activities 4/4; live: deal timeline shows Won, Lead → Won, Linked to a Tally party, Created; call logged and listed with actor; contact timeline shows Created |
 
+| Sales and Sales manager system roles (08 §2, §2.2 columns for the keys that exist), held beside Employee per D-15; the seed creates them, the role picker and preview list them | — | shared+web 420/420; rbac/people/auth 194/194; seed: Sales +7, Sales manager +12 |
+
+Two decisions made without asking, both cheap to reverse: the company →
+party link is a `party_id` column on `crm_companies` rather than a hop
+through `external_refs` (that table already pins `parties.id` to the GUID,
+so a second GUID-keyed row would only restate it — see the schema comment);
+and the link is a company property offered when a deal is won, not a
+deal-only action, because the party is who invoices go to whichever deal
+opened the door.
+
 Not in this slice: REQ-U-06 (a won deal shows its estimate, sales order and
 invoice) — those documents are Phase 8's; the deal sheet gains a documents
 section when they exist.

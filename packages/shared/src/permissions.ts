@@ -135,6 +135,14 @@ export const SYSTEM_ROLES = {
   OPERATIONS: 'Operations',
   HR: 'HR',
   ADMIN: 'Admin',
+  /**
+   * 08 §2 (Phase 7). Held alongside Employee, never instead of it (D-15: a
+   * salesperson is also an employee who punches, so attendance keys are not
+   * duplicated here). Purchase and Accounts arrive with the phases that give
+   * them something to do.
+   */
+  SALES: 'Sales',
+  SALES_MANAGER: 'Sales manager',
 } as const;
 
 export type SystemRoleName = (typeof SYSTEM_ROLES)[keyof typeof SYSTEM_ROLES];
@@ -196,11 +204,34 @@ const ADMIN_PERMISSIONS = [
  * Seed only. Admin can edit any of these in the UI afterwards (REQ-B-07), so
  * this matrix is a starting point, not an invariant the code may rely on.
  */
+/** 08 §2.2, the Sales column, for the keys that exist so far. */
+const SALES_PERMISSIONS = [
+  PERMISSIONS.MASTERS_TALLY_VIEW,
+  PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+  PERMISSIONS.CRM_CONTACT_MANAGE,
+  PERMISSIONS.CRM_DEAL_VIEW_SELF,
+  PERMISSIONS.CRM_DEAL_MANAGE,
+  PERMISSIONS.CRM_TASK_VIEW_SELF,
+  PERMISSIONS.CRM_TASK_MANAGE,
+] as const satisfies readonly PermissionKey[];
+
+/** 08 §2.2, the Sales manager column: all of Sales at full scope, plus receivables. */
+const SALES_MANAGER_PERMISSIONS = [
+  ...SALES_PERMISSIONS,
+  PERMISSIONS.CRM_CONTACT_VIEW_ALL,
+  PERMISSIONS.CRM_DEAL_VIEW_ALL,
+  PERMISSIONS.CRM_PIPELINE_MANAGE,
+  PERMISSIONS.CRM_TASK_VIEW_TEAM,
+  PERMISSIONS.RECEIVABLES_VIEW,
+] as const satisfies readonly PermissionKey[];
+
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {
   Employee: EMPLOYEE_PERMISSIONS,
   Operations: OPERATIONS_PERMISSIONS,
   HR: HR_PERMISSIONS,
   Admin: ADMIN_PERMISSIONS,
+  Sales: SALES_PERMISSIONS,
+  'Sales manager': SALES_MANAGER_PERMISSIONS,
 };
 
 /**
