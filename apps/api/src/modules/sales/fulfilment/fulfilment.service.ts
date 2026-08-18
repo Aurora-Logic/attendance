@@ -246,6 +246,10 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
         FROM vouchers v
        WHERE v.org_id = ${principal.orgId} AND v.voucher_type = 'Sales' AND NOT v.is_cancelled
          AND NOT EXISTS (SELECT 1 FROM sales_order_invoices i WHERE i.voucher_id = v.id)
+         AND NOT EXISTS (
+           SELECT 1 FROM external_refs xv JOIN external_refs xi ON xi.external_guid = xv.external_guid AND xi.internal_type = 'SALES_INVOICE' AND xi.deleted_at IS NULL
+            WHERE xv.internal_id = v.id AND xv.internal_type = 'voucher' AND xv.deleted_at IS NULL
+         )
          AND EXISTS (SELECT 1 FROM sales_documents d WHERE d.org_id = v.org_id AND d.doc_type = 'SALES_ORDER' AND d.deleted_at IS NULL)
        ORDER BY v.voucher_date DESC, v.voucher_number DESC
        LIMIT 200
@@ -299,6 +303,15 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
    * each is linked through the same path the manual screen uses.
    */
   private async linkByNarration(orgId: string, actorUserId: string | null): Promise<number> {
+    // D-38: a Vyuha-raised invoice's own voucher, pulled back, attaches to
+    // its link and is not a second invoice. `external_refs` holds the GUID.
+    await this.db.execute(sql`
+      UPDATE sales_order_invoices i SET voucher_id = v.id
+        FROM external_refs x JOIN vouchers v ON v.org_id = x.org_id AND v.connection_id = x.connection_id
+       WHERE i.invoice_document_id = x.internal_id AND x.internal_type = 'SALES_INVOICE' AND x.entity_type = 'voucher_push' AND x.deleted_at IS NULL
+         AND i.voucher_id IS NULL AND i.org_id = ${orgId}
+         AND EXISTS (SELECT 1 FROM external_refs xv WHERE xv.internal_id = v.id AND xv.internal_type = 'voucher' AND xv.external_guid = x.external_guid AND xv.deleted_at IS NULL)
+    `);
     const pairs = await this.db.execute<{ voucher_id: string; document_id: string }>(sql`
       SELECT v.id AS voucher_id, d.id AS document_id
         FROM vouchers v

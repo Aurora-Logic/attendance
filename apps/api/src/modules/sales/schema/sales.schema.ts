@@ -18,7 +18,7 @@ import { employees, files, organizations, parties, stockItems, vouchers } from '
  * link REQ-U-06 wants is read from this side by deal id.
  */
 
-export const salesDocumentTypeEnum = pgEnum('sales_document_type', ['ESTIMATE', 'SALES_ORDER']);
+export const salesDocumentTypeEnum = pgEnum('sales_document_type', ['ESTIMATE', 'SALES_ORDER', 'INVOICE']);
 /** One status enum for every document type; which values a type may hold is the service's table. */
 export const estimateStatusEnum = pgEnum('estimate_status', ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CONFIRMED', 'CANCELLED']);
 /** REQ-W-06: what the agent reported, never inferred. */
@@ -196,14 +196,15 @@ export const salesOrderInvoices = pgTable(
     documentId: uuid('document_id')
       .notNull()
       .references(() => salesDocuments.id, { onDelete: 'cascade' }),
-    voucherId: uuid('voucher_id')
-      .notNull()
-      .references(() => vouchers.id, { onDelete: 'cascade' }),
+    /** Null until a Vyuha-raised invoice's own voucher pulls back (D-38). */
+    voucherId: uuid('voucher_id').references(() => vouchers.id, { onDelete: 'cascade' }),
+    /** The Vyuha invoice document, when it was raised here (D-38). */
+    invoiceDocumentId: uuid('invoice_document_id'),
     method: text('method').notNull(),
     linkedBy: uuid('linked_by'),
     linkedAt: timestamp('linked_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('sales_order_invoices_voucher_uq').on(t.voucherId), index('sales_order_invoices_document_idx').on(t.documentId)],
+  (t) => [uniqueIndex('sales_order_invoices_voucher_uq').on(t.voucherId), uniqueIndex('sales_order_invoices_invoice_uq').on(t.invoiceDocumentId), index('sales_order_invoices_document_idx').on(t.documentId)],
 );
 
 export const dispatchModeEnum = pgEnum('dispatch_mode', ['local_auto', 'local_own_vehicle', 'outstation']);

@@ -172,11 +172,17 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       .orderBy(asc(salesDocumentLines.lineNo));
     const invoices =
       this.docType === 'SALES_ORDER'
-        ? await this.db.execute<{ voucher_id: string; voucher_number: string; voucher_date: string; amount: string; method: string; linked_at: Date }>(sql`
-            SELECT i.voucher_id, v.voucher_number, v.voucher_date, v.amount::text AS amount, i.method, i.linked_at
-              FROM sales_order_invoices i JOIN vouchers v ON v.id = i.voucher_id
+        ? await this.db.execute<{ voucher_id: string | null; invoice_document_id: string | null; voucher_number: string; voucher_date: string; amount: string; method: string; linked_at: Date }>(sql`
+            SELECT i.voucher_id, i.invoice_document_id,
+                   COALESCE(v.voucher_number, d.number) AS voucher_number,
+                   COALESCE(v.voucher_date, d.date) AS voucher_date,
+                   COALESCE(v.amount, d.grand_total)::text AS amount,
+                   i.method, i.linked_at
+              FROM sales_order_invoices i
+              LEFT JOIN vouchers v ON v.id = i.voucher_id
+              LEFT JOIN sales_documents d ON d.id = i.invoice_document_id
              WHERE i.document_id = ${id}
-             ORDER BY v.voucher_date, v.voucher_number
+             ORDER BY 3, 2
           `)
         : { rows: [] };
     return {
@@ -184,10 +190,11 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       lines: lines.map(toLineView),
       invoices: invoices.rows.map((i) => ({
         voucherId: i.voucher_id,
+        invoiceDocumentId: i.invoice_document_id,
         voucherNumber: i.voucher_number,
         date: i.voucher_date,
         amount: i.amount,
-        method: i.method === 'manual' ? 'manual' : 'narration',
+        method: i.method === 'manual' ? 'manual' : i.method === 'vyuha' ? 'vyuha' : 'narration',
         linkedAt: new Date(i.linked_at).toISOString(),
       })),
     };

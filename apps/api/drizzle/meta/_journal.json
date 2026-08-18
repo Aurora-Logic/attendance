@@ -253,6 +253,13 @@
       "when": 1787052644690,
       "tag": "0035_dispatch_photo_purpose",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1787056972488,
+      "tag": "0036_vyuha_invoices",
+      "breakpoints": true
     }
   ]
 }

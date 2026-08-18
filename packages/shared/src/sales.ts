@@ -13,13 +13,13 @@ import { pageQuerySchema } from './pagination.js';
  * save; the client shows what the server computed and never re-derives it.
  */
 
-export const SALES_DOCUMENT_TYPES = ['ESTIMATE', 'SALES_ORDER'] as const;
+export const SALES_DOCUMENT_TYPES = ['ESTIMATE', 'SALES_ORDER', 'INVOICE'] as const;
 export type SalesDocumentType = (typeof SALES_DOCUMENT_TYPES)[number];
 
-export const SALES_DOCUMENT_TYPE_LABELS: Record<SalesDocumentType, string> = { ESTIMATE: 'Estimate', SALES_ORDER: 'Sales order' };
-export const SALES_DOCUMENT_TYPE_PREFIX: Record<SalesDocumentType, string> = { ESTIMATE: 'EST', SALES_ORDER: 'SO' };
+export const SALES_DOCUMENT_TYPE_LABELS: Record<SalesDocumentType, string> = { ESTIMATE: 'Estimate', SALES_ORDER: 'Sales order', INVOICE: 'Invoice' };
+export const SALES_DOCUMENT_TYPE_PREFIX: Record<SalesDocumentType, string> = { ESTIMATE: 'EST', SALES_ORDER: 'SO', INVOICE: 'INV' };
 /** The Tally voucher type a pushed document becomes (09 §3.1). Estimates have none: they are never pushed (D-04). */
-export const SALES_DOCUMENT_VOUCHER_TYPE: Record<SalesDocumentType, string | null> = { ESTIMATE: null, SALES_ORDER: 'Sales Order' };
+export const SALES_DOCUMENT_VOUCHER_TYPE: Record<SalesDocumentType, string | null> = { ESTIMATE: null, SALES_ORDER: 'Sales Order', INVOICE: 'Sales' };
 
 /**
  * A document's life. Estimates: draft → sent → accepted / rejected / expired.
@@ -192,11 +192,14 @@ export interface EstimateView {
 }
 
 export interface OrderInvoiceView {
-  readonly voucherId: string;
+  /** The Tally voucher, when it has arrived; null for a Vyuha-raised invoice not yet pulled back. */
+  readonly voucherId: string | null;
+  /** The Vyuha invoice document, when it was raised here (D-38). */
+  readonly invoiceDocumentId: string | null;
   readonly voucherNumber: string;
   readonly date: string;
   readonly amount: string;
-  readonly method: 'narration' | 'manual';
+  readonly method: 'narration' | 'manual' | 'vyuha';
   readonly linkedAt: string;
 }
 
@@ -359,13 +362,15 @@ export type ConvertEstimateInput = z.infer<typeof convertEstimateSchema>;
  * Everything that pushes (D-37). One outcome handler per kind; every pushed
  * record carries the same sync-state columns and the same Alter semantics.
  */
-export const PUSH_KINDS = ['SALES_ORDER', 'DELIVERY_NOTE', 'PURCHASE_ORDER', 'RECEIPT_NOTE'] as const;
+export const PUSH_KINDS = ['SALES_ORDER', 'DELIVERY_NOTE', 'PURCHASE_ORDER', 'RECEIPT_NOTE', 'SALES_INVOICE'] as const;
 export type PushKind = (typeof PUSH_KINDS)[number];
 export const PUSH_KIND_VOUCHER_TYPE: Record<PushKind, string> = {
   SALES_ORDER: 'Sales Order',
   DELIVERY_NOTE: 'Delivery Note',
   PURCHASE_ORDER: 'Purchase Order',
   RECEIPT_NOTE: 'Receipt Note',
+  /** D-38: a Vyuha-raised invoice is a Sales voucher in Tally. */
+  SALES_INVOICE: 'Sales',
 };
 
 export const voucherPushPayloadSchema = z.object({
@@ -579,3 +584,30 @@ export type DispatchListQuery = z.infer<typeof dispatchListQuerySchema>;
 
 export const markNotificationSentSchema = z.object({ status: z.enum(['sent', 'failed']), error: z.string().trim().max(1000).nullish() });
 export type MarkNotificationSentInput = z.infer<typeof markNotificationSentSchema>;
+
+
+// ------------------------------------------------------------- invoices (D-38)
+
+/**
+ * A Vyuha-raised invoice against a sales order: the packed-and-uninvoiced
+ * balance of the named lines (all of them when none is named), at the
+ * order's rates. Confirming pushes it as a Sales voucher and advances the
+ * order's invoiced quantities; the pulled-back voucher then attaches to
+ * the same link rather than counting twice.
+ */
+export const createInvoiceSchema = z.object({
+  date: z.iso.date().optional(),
+  lines: z.array(z.object({ lineId: z.uuid(), quantity: z.string().trim().regex(/^\d{1,12}(\.\d{1,3})?$/u, 'a quantity') })).max(200).optional(),
+  notes: z.string().trim().max(4000).nullish(),
+});
+export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
+
+export const invoiceListQuerySchema = pageQuerySchema.extend({
+  q: z.string().trim().min(1).max(80).optional(),
+  status: z.enum(SALES_ORDER_STATUSES).optional(),
+  syncState: z.enum(SYNC_STATES).optional(),
+  partyId: z.uuid().optional(),
+  sourceDocumentId: z.uuid().optional(),
+  sort: z.string().max(200).optional(),
+});
+export type InvoiceListQuery = z.infer<typeof invoiceListQuerySchema>;

@@ -393,7 +393,12 @@ export class SyncWriterService {
    * 09 §3.3's three outcomes, in one transaction with the job: the journal
    * row (direction PUSH, Tally's words verbatim), the job DONE or FAILED,
    * `external_refs` anchored on the GUID Tally answered with (with the
-   * idempotency key beside it, REQ-W-07's alter target), an exception when
+   * idempotency key beside it, REQ-W-07's alter target) under entity_type
+   * `voucher_push`, not `voucher`: the pull maps the same GUID to its
+   * projection row under `voucher`, and one key cannot point at both the
+   * document and the voucher — an outcome ref under `voucher` would make
+   * the pull update a vouchers row that does not exist, and the pushed
+   * voucher would never appear in the books here. An exception when
    * Tally refused (REQ-T-01), and the owning module told through the
    * registry so its document shows the state (REQ-W-06).
    */
@@ -449,7 +454,7 @@ export class SyncWriterService {
           (org_id, system, entity_type, external_guid, internal_type, internal_id, connection_id,
            remote_voucher_number, remote_voucher_type, sync_state, idempotency_key, last_pushed_at)
         VALUES
-          (${agent.orgId}, 'TALLY', 'voucher', ${outcome.remoteGuid}, ${payload.kind}, ${payload.documentId},
+          (${agent.orgId}, 'TALLY', 'voucher_push', ${outcome.remoteGuid}, ${payload.kind}, ${payload.documentId},
            ${agent.connectionId}, ${outcome.remoteVoucherNumber}, ${payload.voucherType}, 'pushed', ${payload.idempotencyKey}, now())
         ON CONFLICT (org_id, system, internal_type, internal_id) WHERE deleted_at IS NULL
         DO UPDATE SET external_guid = EXCLUDED.external_guid,

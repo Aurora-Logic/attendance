@@ -69,6 +69,8 @@ beforeAll(async () => {
   await harness.db.execute(sql`DELETE FROM sync_exceptions WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM sync_jobs WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM external_refs WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM voucher_lines WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM vouchers WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM parties WHERE org_id = ${ORG_ID}`);
   // The journal is append-only and points at connections, so a past run's
@@ -514,5 +516,103 @@ describe('dispatch (12 §3.4, §3.5)', () => {
     const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdD}`, { token: salesToken });
     expect(order.body.lines[0]?.dispatchedQty).toBe('6.000');
     expect(order.body.fulfilment).toBe('partially_dispatched');
+  });
+});
+
+describe('invoices raised here (D-38: both places, kept in sync)', () => {
+  let orderIdI = '';
+  let lineIdI = '';
+  let invoiceId = '';
+
+  it('is raised for the packed-and-uninvoiced balance at the order’s rates, and refuses more than that', async () => {
+    const created = await harness.post<SalesDocumentView>('/sales/orders', {
+      token: salesToken,
+      body: { partyId, lines: [{ stockItemId: cableId, quantity: '10', rate: '4000' }] },
+    });
+    orderIdI = created.body.id;
+    lineIdI = created.body.lines[0]?.id ?? '';
+    const nothing = await harness.post<ErrorBody>(`/sales/orders/${orderIdI}/invoices`, { token: salesToken, body: {} });
+    expect(nothing.status).toBe(409);
+    await harness.post(`/sales/orders/${orderIdI}/confirm`, { token: salesToken });
+    await harness.post(`/sales/orders/${orderIdI}/packs`, { token: salesToken, body: { lines: [{ lineId: lineIdI, quantity: '6' }] } });
+
+    const tooMany = await harness.post<ErrorBody>(`/sales/orders/${orderIdI}/invoices`, { token: salesToken, body: { lines: [{ lineId: lineIdI, quantity: '7' }] } });
+    expect(tooMany.status).toBe(400);
+    expect(tooMany.body.error.message).toContain('6.000 packed and uninvoiced');
+
+    const invoice = await harness.post<SalesDocumentView>(`/sales/orders/${orderIdI}/invoices`, { token: salesToken, body: {} });
+    expect(invoice.status).toBe(201);
+    expect(invoice.body.docType).toBe('INVOICE');
+    expect(invoice.body.number).toBe('INV-0001');
+    expect(invoice.body.status).toBe('DRAFT');
+    expect(invoice.body.sourceDocumentId).toBe(orderIdI);
+    expect(invoice.body.lines.map((l) => [l.quantity, l.rate])).toEqual([['6.000', '4000.00']]);
+    invoiceId = invoice.body.id;
+    // A draft has not happened yet: the order still waits for its invoice.
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdI}`, { token: salesToken });
+    expect(order.body.lines[0]?.invoicedQty).toBe('0.000');
+    expect(order.body.fulfilment).toBe('awaiting_invoice');
+  });
+
+  it('confirming advances the order’s invoiced_qty, links with method vyuha, and queues a Sales voucher', async () => {
+    const confirmed = await harness.post<SalesDocumentView>(`/sales/invoices/${invoiceId}/confirm`, { token: salesToken });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.status).toBe('CONFIRMED');
+    expect(confirmed.body.syncState).toBe('QUEUED');
+
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdI}`, { token: salesToken });
+    expect(order.body.lines[0]?.invoicedQty).toBe('6.000');
+    expect(order.body.fulfilment).toBe('ready_to_dispatch');
+    expect(order.body.invoices.map((i) => [i.voucherNumber, i.method, i.voucherId, i.invoiceDocumentId])).toEqual([['INV-0001', 'vyuha', null, invoiceId]]);
+    const waiting = await harness.get<AwaitingInvoiceEntry[]>('/sales/awaiting-invoice', { token: salesToken });
+    expect(waiting.body.find((e) => e.documentId === orderIdI)).toBeUndefined();
+
+    const job = await claimFor(invoiceId);
+    expect(job).not.toBeNull();
+    const payload = job?.payload as VoucherPushPayload;
+    expect(payload.kind).toBe('SALES_INVOICE');
+    expect(payload.voucherType).toBe('Sales');
+    expect(payload.lines[0]?.quantity).toBe('6.000');
+    const landed = await harness.post('/sync/agent/results', {
+      token: agentToken,
+      body: {
+        agentInstanceId: AGENT, openCompanyGuid: COMPANY_GUID, jobId: job?.id, entityType: 'voucher_push',
+        outcome: 'accepted', remoteGuid: 'guid-inv-1', remoteVoucherNumber: '77',
+        requestHash: 'sha256:req', responseHash: 'sha256:res', final: true,
+      },
+    });
+    expect(landed.status).toBe(200);
+    const pushed = await harness.get<SalesDocumentView>(`/sales/invoices/${invoiceId}`, { token: salesToken });
+    expect(pushed.body.syncState).toBe('PUSHED');
+    expect(pushed.body.remoteVoucherNumber).toBe('77');
+  });
+
+  it('its own voucher, pulled back, attaches to the link and is not a second invoice', async () => {
+    const voucher = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO vouchers (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, amount)
+      VALUES (${ORG_ID}, ${connectionId}, 'inv-vyuha-1', 9, '2026-08-19', 'Sales', '77', 'Asha Traders', ${partyId}, 'vyuha:INV-0001', '28320.00') RETURNING id
+    `);
+    const voucherId = voucher.rows[0]?.id ?? '';
+    await harness.db.execute(sql`
+      INSERT INTO external_refs (org_id, system, entity_type, external_guid, internal_type, internal_id, connection_id, sync_state)
+      VALUES (${ORG_ID}, 'TALLY', 'voucher', 'guid-inv-1', 'voucher', ${voucherId}, ${connectionId}, 'pushed')
+    `);
+    // The link job runs on the awaiting-invoice read.
+    await harness.get('/sales/awaiting-invoice', { token: salesToken });
+    const unlinked = await harness.get<UnlinkedInvoice[]>('/sales/invoices/unlinked', { token: salesToken });
+    expect(unlinked.body.find((u) => u.voucherNumber === '77')).toBeUndefined();
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdI}`, { token: salesToken });
+    expect(order.body.lines[0]?.invoicedQty).toBe('6.000');
+    expect(order.body.invoices).toHaveLength(1);
+    expect(order.body.invoices[0]?.voucherId).toBe(voucherId);
+    expect(order.body.invoices[0]?.invoiceDocumentId).toBe(invoiceId);
+  });
+
+  it('lists by order and refuses to cancel once confirmed', async () => {
+    const list = await harness.get<Paginated<SalesDocumentSummary>>(`/sales/invoices?sourceDocumentId=${orderIdI}`, { token: salesToken });
+    expect(list.body.data.map((d) => d.number)).toEqual(['INV-0001']);
+    const cancel = await harness.post<ErrorBody>(`/sales/invoices/${invoiceId}/cancel`, { token: salesToken });
+    expect(cancel.status).toBe(409);
+    expect(await harness.waitForAuditAction('sales.invoice.confirmed')).toBe(true);
   });
 });

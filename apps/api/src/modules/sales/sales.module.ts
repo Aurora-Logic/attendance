@@ -10,6 +10,8 @@ import { FulfilmentService } from './fulfilment/fulfilment.service.js';
 import { DispatchController } from './dispatch/dispatch.controller.js';
 import { DispatchService } from './dispatch/dispatch.service.js';
 import { SalesReportSource } from './reports/sales-report.source.js';
+import { InvoiceController } from './invoices/invoice.controller.js';
+import { InvoiceService } from './invoices/invoice.service.js';
 
 /**
  * The sales module (08 Areas W and Y). Opens with the estimate (Phase 8a);
@@ -18,7 +20,7 @@ import { SalesReportSource } from './reports/sales-report.source.js';
  * ESLint keeps it from reaching into `modules/crm` or `modules/purchase`.
  */
 @Module({
-  controllers: [EstimateController, SalesOrderController, FulfilmentController, DispatchController],
-  providers: [EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, SalesReportSource],
+  controllers: [EstimateController, SalesOrderController, FulfilmentController, DispatchController, InvoiceController],
+  providers: [EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, SalesReportSource, InvoiceService],
 })
 export class SalesModule {}
