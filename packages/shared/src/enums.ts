@@ -71,6 +71,8 @@ export const APPROVAL_TYPES = [
   'ON_DUTY',
   'FLAGGED_PUNCH',
   'DEVICE_REBIND',
+  /** 13 REQ-X-16: a purchase order over the configured value. */
+  'PURCHASE_ORDER',
 ] as const;
 export type ApprovalType = (typeof APPROVAL_TYPES)[number];
 

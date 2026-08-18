@@ -237,4 +237,11 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     path: (p) => `${routeFor('procurement.stock_arrived')}/${text(p, 'orderId')}`,
     defaultChannels: IN_APP_ONLY,
   },
+  // 12 REQ-AA-15: accounts hears once per order that packed goods are waiting on a bill.
+  'sales.invoice_waiting': {
+    title: (p) => `${text(p, 'orderNumber', 'An order')} has waited ${text(p, 'waitingHours')}h for its invoice`,
+    body: (p) => `${text(p, 'customerName')}: ${text(p, 'packedUninvoicedQty')} packed and uninvoiced since ${text(p, 'waitingSince')}. Nothing leaves until it is billed.`,
+    path: () => routeFor('sales.invoice_waiting'),
+    defaultChannels: IN_APP_AND_EMAIL,
+  },
 };

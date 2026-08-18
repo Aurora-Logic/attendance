@@ -1,5 +1,7 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import {
+  DEFAULT_PURCHASE_SETTINGS,
+  NOTIFICATION_EVENTS,
   PERMISSIONS,
   type AwaitingInvoiceEntry,
   type CreatePackRecordInput,
@@ -15,6 +17,7 @@ import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
 import { JobRegistry, type JobContext, type JobHandler, type JobResult } from '../../../platform/jobs/job-handler.js';
 import type { JobPayloads } from '../../../platform/jobs/queue.registry.js';
+import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
 import { RequirementsService } from '../../../platform/procurement/requirements.service.js';
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService } from '../../../platform/rbac/scope.service.js';
@@ -49,18 +52,67 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
     private readonly scopes: ScopeService,
     private readonly requirements: RequirementsService,
     private readonly jobs: JobRegistry,
+    private readonly notifications: NotificationDispatcher,
   ) {}
 
   onModuleInit(): void {
     this.jobs.register(this);
   }
 
-  /** The sweep: link what the narration names, for every organisation. */
+  /** The sweep: link what the narration names, then remind accounts of what has waited too long (REQ-AA-15), for every organisation. */
   async run(_payload: JobPayloads['link-sales-invoices'], _context: JobContext): Promise<JobResult> {
     const orgs = await this.db.execute<{ id: string }>(sql`SELECT id FROM organizations WHERE deleted_at IS NULL`);
     let linked = 0;
-    for (const org of orgs.rows) linked += await this.linkByNarration(org.id, null);
-    return { linked };
+    let reminded = 0;
+    for (const org of orgs.rows) {
+      linked += await this.linkByNarration(org.id, null);
+      reminded += await this.remindWaiting(org.id);
+    }
+    return { linked, reminded };
+  }
+
+  /**
+   * REQ-AA-15: once per order, when its packed goods have waited longer than
+   * the configured hours (`sales.invoiceWaitingHours`, 0 disables). Sent to
+   * every holder of receivables.view — accounts — and stamped on the order
+   * so the next sweep does not send it again.
+   */
+  private async remindWaiting(orgId: string): Promise<number> {
+    const setting = await this.db.execute<{ value: unknown }>(sql`
+      SELECT value FROM settings WHERE org_id = ${orgId} AND scope = 'ORG' AND key = 'sales.invoiceWaitingHours' AND deleted_at IS NULL LIMIT 1
+    `);
+    const raw = setting.rows[0]?.value;
+    const hours = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : DEFAULT_PURCHASE_SETTINGS.invoiceWaitingHours;
+    if (!Number.isFinite(hours) || hours <= 0) return 0;
+    const rows = await this.db.execute<{ id: string; number: string; customer_name: string; qty: string; since: Date }>(sql`
+      SELECT d.id, d.number, d.customer_name, sum(l.packed_qty - l.invoiced_qty)::text AS qty,
+             COALESCE((SELECT min(p.packed_at) FROM pack_records p WHERE p.document_id = d.id AND p.deleted_at IS NULL
+                          AND p.packed_at > COALESCE((SELECT max(i.linked_at) FROM sales_order_invoices i WHERE i.document_id = d.id), 'epoch'::timestamptz)),
+                      d.updated_at) AS since
+        FROM sales_documents d JOIN sales_document_lines l ON l.document_id = d.id AND l.deleted_at IS NULL
+       WHERE d.org_id = ${orgId} AND d.doc_type = 'SALES_ORDER' AND d.status = 'CONFIRMED'
+         AND d.short_closed_at IS NULL AND d.deleted_at IS NULL AND d.invoice_reminder_sent_at IS NULL
+       GROUP BY d.id
+      HAVING sum(l.packed_qty - l.invoiced_qty) > 0
+         AND COALESCE((SELECT min(p.packed_at) FROM pack_records p WHERE p.document_id = d.id AND p.deleted_at IS NULL
+                          AND p.packed_at > COALESCE((SELECT max(i.linked_at) FROM sales_order_invoices i WHERE i.document_id = d.id), 'epoch'::timestamptz)),
+                      d.updated_at) < now() - make_interval(hours => ${hours})
+       LIMIT 200
+    `);
+    let sent = 0;
+    for (const r of rows.rows) {
+      const waitingHours = Math.max(0, Math.floor((Date.now() - new Date(r.since).getTime()) / 3_600_000));
+      await this.notifications.emit({
+        orgId,
+        type: NOTIFICATION_EVENTS.SALES_INVOICE_WAITING,
+        audience: { kind: 'permission', key: PERMISSIONS.RECEIVABLES_VIEW },
+        payload: { orderId: r.id, orderNumber: r.number, customerName: r.customer_name, packedUninvoicedQty: r.qty, waitingSince: new Date(r.since).toISOString().slice(0, 10), waitingHours },
+        idempotencyKey: `invoice-waiting-${r.id}`,
+      });
+      await this.db.execute(sql`UPDATE sales_documents SET invoice_reminder_sent_at = now() WHERE id = ${r.id}`);
+      sent += 1;
+    }
+    return sent;
   }
 
   // -------------------------------------------------------------- picking

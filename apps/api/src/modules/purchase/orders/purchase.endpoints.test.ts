@@ -1,4 +1,4 @@
-import { SYSTEM_ROLES, type GrnView, type PurchaseOrderView, type RequirementView, type SalesDocumentView, type StockAvailability } from '@vyuha/shared';
+import { PERMISSIONS, SYSTEM_ROLES, type ApprovalRequestSummary, type GrnView, type Paginated, type PurchaseOrderView, type PurchaseSettings, type RequirementView, type SalesDocumentView, type StockAvailability } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -21,6 +21,7 @@ interface ErrorBody {
 let harness: ApiHarness;
 let adminToken: string;
 let salesToken: string;
+let buyerToken: string;
 let raviId = '';
 let customerId = '';
 let vendorId = '';
@@ -45,8 +46,12 @@ beforeAll(async () => {
   raviId = await harness.createEmployee({ code: 'PR-001', firstName: 'Ravi', lastName: 'Kumar' });
   const admin = await harness.createUser({ email: scopedEmail('pr-admin'), roleIds: [adminRoleId] });
   const sales = await harness.createUser({ email: scopedEmail('pr-sales'), roleIds: [salesRoleId], employeeId: raviId });
+  // A buyer: raises purchase orders, cannot approve them (REQ-X-16).
+  const buyerRoleId = await harness.createRole('Buyer', [PERMISSIONS.PURCHASE_DOCUMENT_VIEW, PERMISSIONS.PURCHASE_DOCUMENT_CREATE, PERMISSIONS.MASTERS_TALLY_VIEW]);
+  const buyer = await harness.createUser({ email: scopedEmail('pr-buyer'), roleIds: [buyerRoleId] });
   adminToken = (await harness.login(admin.email, admin.password)).token;
   salesToken = (await harness.login(sales.email, sales.password)).token;
+  buyerToken = (await harness.login(buyer.email, buyer.password)).token;
 
   const connection = await harness.db.execute<{ id: string }>(sql`
     INSERT INTO integration_connections (org_id, system, name, company_guid) VALUES (${ORG_ID}, 'TALLY', 'Procurement Co', 'guid-procurement') RETURNING id
@@ -218,5 +223,83 @@ describe('shortage → requirement → PO → GRN → allocation (13 §1)', () =
 
     const history = await harness.get<{ source: string; reference: string; rate: string | null }[]>(`/purchase/item-history?stockItemId=${cableId}&partyId=${vendorId}`, { token: adminToken });
     expect(history.body.map((h) => [h.source, h.reference, h.rate])).toEqual([['purchase_order', 'PO-0001', '3800.00']]);
+  });
+});
+
+describe('approval by value through the inbox (13 REQ-X-16)', () => {
+  let bigPoId = '';
+
+  it('the threshold is a setting an approver writes; a PO over it waits in the approvals inbox, and its author cannot approve it', async () => {
+    const asBuyer = await harness.put<ErrorBody>('/purchase/settings', { token: buyerToken, body: { approvalThreshold: '10000', invoiceWaitingHours: 24 } });
+    expect(asBuyer.status).toBe(403);
+    const written = await harness.put<PurchaseSettings>('/purchase/settings', { token: adminToken, body: { approvalThreshold: '10000', invoiceWaitingHours: 24 } });
+    expect(written.body).toEqual({ approvalThreshold: '10000.00', invoiceWaitingHours: 24 });
+
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: buyerToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '10', rate: '3800' }] },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.approvalRequired).toBe(true);
+    bigPoId = created.body.id;
+
+    const confirmed = await harness.post<PurchaseOrderView>(`/purchase/orders/${bigPoId}/confirm`, { token: buyerToken });
+    expect(confirmed.body.status).toBe('PENDING_APPROVAL');
+    expect(confirmed.body.syncState).toBe('NOT_PUSHED');
+
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
+    const request = inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.subject.startsWith(created.body.number));
+    expect(request).toBeDefined();
+    expect(request?.status).toBe('PENDING');
+
+    const self = await harness.post<ErrorBody>(`/purchase/orders/${bigPoId}/approve`, { token: buyerToken });
+    expect(self.status).toBe(403);
+  });
+
+  it('approving in the inbox confirms the PO and runs the push settlement; the two never disagree', async () => {
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
+    const request = inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING');
+    const decided = await harness.post(`/approvals/${request?.id ?? ''}/approve`, { token: adminToken, body: {} });
+    expect(decided.status).toBe(201);
+    const po = await harness.get<PurchaseOrderView>(`/purchase/orders/${bigPoId}`, { token: adminToken });
+    expect(po.body.status).toBe('CONFIRMED');
+    // Same fixture, same honesty: no agent token here, so the push settlement ran and found no carrier.
+    expect(po.body.syncState).toBe('NOT_PUSHED');
+    expect(await harness.waitForAuditAction('purchase.order.approved')).toBe(true);
+  });
+
+  it('a rejection sends the PO back to draft with the reason; the PO’s own Approve button decides the same request', async () => {
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: buyerToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '20', rate: '3800' }] },
+    });
+    await harness.post(`/purchase/orders/${created.body.id}/confirm`, { token: buyerToken });
+    let inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
+    let request = inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING');
+    const rejected = await harness.post(`/approvals/${request?.id ?? ''}/reject`, { token: adminToken, body: { reason: 'Too much cable for one month' } });
+    expect(rejected.status).toBe(201);
+    const back = await harness.get<PurchaseOrderView>(`/purchase/orders/${created.body.id}`, { token: buyerToken });
+    expect(back.body.status).toBe('DRAFT');
+
+    // Resubmitted, then approved from the PO itself: same ledger, same outcome.
+    await harness.post(`/purchase/orders/${created.body.id}/confirm`, { token: buyerToken });
+    const approved = await harness.post<PurchaseOrderView>(`/purchase/orders/${created.body.id}/approve`, { token: adminToken });
+    expect(approved.status).toBe(200);
+    expect(approved.body.status).toBe('CONFIRMED');
+    inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
+    request = inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING');
+    expect(request).toBeUndefined();
+  });
+
+  it('cancelling a pending PO withdraws its request', async () => {
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: buyerToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '30', rate: '3800' }] },
+    });
+    await harness.post(`/purchase/orders/${created.body.id}/confirm`, { token: buyerToken });
+    const cancelled = await harness.post<PurchaseOrderView>(`/purchase/orders/${created.body.id}/cancel`, { token: buyerToken });
+    expect(cancelled.body.status).toBe('CANCELLED');
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
+    expect(inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING')).toBeUndefined();
   });
 });

@@ -229,3 +229,13 @@ export interface PurchaseHistoryEntry {
   readonly rate: string | null;
   readonly amount: string | null;
 }
+
+/** REQ-X-16 / REQ-AA-15: the purchase and billing thresholds, org-wide. */
+export const purchaseSettingsSchema = z.object({
+  /** A PO whose grand total is at or above this needs approval; 0 or null means never. */
+  approvalThreshold: z.string().trim().regex(/^\d{1,12}(\.\d{1,2})?$/u, 'an amount').nullable(),
+  /** REQ-AA-15: hours a packed order may wait for its invoice before accounts is told; 0 disables. */
+  invoiceWaitingHours: z.number().int().min(0).max(720),
+});
+export type PurchaseSettings = z.infer<typeof purchaseSettingsSchema>;
+export const DEFAULT_PURCHASE_SETTINGS: PurchaseSettings = { approvalThreshold: null, invoiceWaitingHours: 24 };

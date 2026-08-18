@@ -9,6 +9,8 @@ import {
   purchaseHistoryQuerySchema,
   purchaseOrderFromRequirementsSchema,
   purchaseOrderListQuerySchema,
+  purchaseSettingsSchema,
+  type PurchaseSettings,
   putItemSettingsSchema,
   putItemVendorsSchema,
   requirementListQuerySchema,
@@ -34,6 +36,7 @@ import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js
 import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { PurchaseOrderService } from './purchase-order.service.js';
 
+class PurchaseSettingsDto extends createZodDto(purchaseSettingsSchema) {}
 class RequirementListQueryDto extends createZodDto(requirementListQuerySchema) {}
 class CreateRequirementDto extends createZodDto(createRequirementSchema) {}
 class CloseRequirementDto extends createZodDto(closeRequirementSchema) {}
@@ -65,6 +68,19 @@ export class PurchaseController {
   // ----------------------------------------------------------- requirements
 
   /** REQ-X-12: the purchase team's home — by needed-by, with who waits behind each. */
+  /** REQ-X-16 / REQ-AA-15: the thresholds. Read by anyone who may see purchasing; set by an approver. */
+  @Get('settings')
+  @RequirePermission(VIEW)
+  readSettings(@CurrentUser() principal: Principal): Promise<PurchaseSettings> {
+    return this.orders.readSettings(principal.orgId);
+  }
+
+  @Put('settings')
+  @RequirePermission(APPROVE)
+  writeSettings(@CurrentUser() principal: Principal, @Body() body: PurchaseSettingsDto): Promise<PurchaseSettings> {
+    return this.orders.writeSettings(principal, body);
+  }
+
   @Get('requirements')
   @RequirePermission(VIEW)
   listRequirements(@CurrentUser() principal: Principal, @Query() query: RequirementListQueryDto): Promise<RequirementView[]> {

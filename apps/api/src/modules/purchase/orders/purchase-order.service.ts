@@ -8,6 +8,7 @@ import {
   type AllocateReceiptInput,
   type CreateGrnInput,
   type CreatePurchaseOrderInput,
+  DEFAULT_PURCHASE_SETTINGS,
   type GrnView,
   type ItemVendorView,
   type Paginated,
@@ -18,6 +19,7 @@ import {
   type PurchaseOrderListQuery,
   type PurchaseOrderSummary,
   type PurchaseOrderView,
+  type PurchaseSettings,
   type PutItemSettingsInput,
   type PutItemVendorsInput,
   type UpdatePurchaseOrderInput,
@@ -25,12 +27,15 @@ import {
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
+import { ApprovalService } from '../../../platform/approvals/approval.service.js';
+import type { ApprovalSubjectDecision, ApprovalSubjectSettlement } from '../../../platform/approvals/approval-subject.registry.js';
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database, type Transaction } from '../../../platform/db/db.provider.js';
 import { orgToday, resolveDocumentLines } from '../../../platform/documents/document-support.js';
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
-import { hasPermission, type Principal } from '../../../platform/rbac/principal.js';
+import type { OrgContext } from '../../../platform/db/scoped-repository.js';
+import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { PushOutcomeRegistry, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
 import { PushQueueService } from '../../../platform/sync/push-queue.service.js';
 
@@ -51,6 +56,9 @@ import { PushQueueService } from '../../../platform/sync/push-queue.service.js';
  */
 
 const SETTING_THRESHOLD = 'purchase.approvalThreshold';
+const SETTING_INVOICE_WAITING_HOURS = 'sales.invoiceWaitingHours';
+/** `snake_case`, the approval framework's spelling (see APPROVAL_SUBJECT_TYPES). */
+export const PURCHASE_ORDER_SUBJECT_TYPE = 'purchase_order';
 
 @Injectable()
 export class PurchaseOrderService implements OnModuleInit {
@@ -60,6 +68,7 @@ export class PurchaseOrderService implements OnModuleInit {
     private readonly pushQueue: PushQueueService,
     private readonly pushOutcomes: PushOutcomeRegistry,
     private readonly notifications: NotificationDispatcher,
+    private readonly approvals: ApprovalService,
   ) {}
 
   onModuleInit(): void {
@@ -164,38 +173,148 @@ export class PurchaseOrderService implements OnModuleInit {
     return this.find(principal, id);
   }
 
-  /** Draft → confirmed and pushed, or → awaiting approval when the value crosses the threshold (REQ-X-16). */
+  /**
+   * Draft → confirmed and pushed, or → awaiting approval when the value
+   * crosses the threshold (REQ-X-16). The wait is a request in the approvals
+   * inbox, routed to every holder of purchase.document.approve, and the PO
+   * moves only when that request is decided — the same ledger leave uses,
+   * so a purchase is never approved in two places.
+   */
   async confirm(principal: Principal, id: string): Promise<PurchaseOrderView> {
     const existing = await this.find(principal, id);
     if (existing.status !== 'DRAFT') throw AppError.conflict(`${existing.number} is already ${existing.status.toLowerCase()}.`);
     if (existing.approvalRequired && !hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) {
-      await this.db.execute(sql`UPDATE purchase_orders SET status = 'PENDING_APPROVAL', updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
+      const approvers = await this.approvers(principal.orgId);
+      const ctx = orgContextOf(principal);
+      await this.db.transaction(async (tx) => {
+        const approval = await this.approvals.raise(
+          ctx,
+          {
+            type: 'PURCHASE_ORDER',
+            subjectType: PURCHASE_ORDER_SUBJECT_TYPE,
+            subjectId: id,
+            subject: `${existing.number} · ${existing.vendorName} · ${existing.grandTotal}`,
+            requesterUserId: principal.userId,
+            approverUserIds: approvers,
+          },
+          tx,
+        );
+        await tx.execute(sql`UPDATE purchase_orders SET status = 'PENDING_APPROVAL', approval_request_id = ${approval.id}, updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
+      });
       this.auditContext.record({ action: 'purchase.order.submitted_for_approval', entityType: 'purchase_order', entityId: id, before: null, after: { grandTotal: existing.grandTotal } });
       return this.find(principal, id);
     }
     return this.release(principal, id, existing.approvalRequired ? 'purchase.order.approved' : 'purchase.order.confirmed');
   }
 
+  /**
+   * The button on the PO itself. It decides the inbox request rather than
+   * moving the PO directly, so the framework's rules — the requester may
+   * not approve their own, the route is honoured, the ledger is written —
+   * hold whichever door the approver came through.
+   */
   async approve(principal: Principal, id: string): Promise<PurchaseOrderView> {
     if (!hasPermission(principal, PERMISSIONS.PURCHASE_DOCUMENT_APPROVE)) throw AppError.forbidden('Approving a purchase order needs purchase.document.approve.');
     const existing = await this.find(principal, id);
     if (existing.status !== 'PENDING_APPROVAL') throw AppError.conflict(`${existing.number} is not awaiting approval.`);
+    const row = await this.db.execute<{ approval_request_id: string | null }>(sql`SELECT approval_request_id FROM purchase_orders WHERE id = ${id}`);
+    const approvalRequestId = row.rows[0]?.approval_request_id ?? null;
+    if (approvalRequestId !== null) {
+      await this.approvals.decide(principal, approvalRequestId, 'APPROVE', null);
+      return this.find(principal, id);
+    }
     return this.release(principal, id, 'purchase.order.approved');
+  }
+
+  /** Called by the framework through the registry, inside its transaction. */
+  async applyApprovalDecision(ctx: OrgContext, decision: ApprovalSubjectDecision, tx: Database): Promise<ApprovalSubjectSettlement | null> {
+    const row = await tx.execute<{ id: string; status: string; number: string }>(sql`
+      SELECT id, status, number FROM purchase_orders WHERE org_id = ${ctx.orgId} AND id = ${decision.subjectId} AND deleted_at IS NULL
+    `);
+    const po = row.rows[0];
+    if (po === undefined) throw AppError.notFound('Purchase order', decision.subjectId);
+    if (decision.status === 'ESCALATED') return null;
+    if (po.status !== 'PENDING_APPROVAL') throw AppError.conflict(`${po.number} is ${po.status.toLowerCase()}, not awaiting approval.`);
+    if (decision.status === 'REJECTED') {
+      await tx.execute(sql`UPDATE purchase_orders SET status = 'DRAFT', approval_request_id = NULL, updated_at = now(), updated_by = ${decision.decidedByUserId} WHERE id = ${po.id}`);
+      return () => {
+        this.auditContext.record({ action: 'purchase.order.rejected', entityType: 'purchase_order', entityId: po.id, before: null, after: { reason: decision.reason } });
+        return Promise.resolve();
+      };
+    }
+    await this.releaseWithin(tx, ctx.orgId, po.id, decision.decidedByUserId);
+    return async () => {
+      await this.enqueuePush({ orgId: ctx.orgId, userId: decision.decidedByUserId }, po.id);
+      this.auditContext.record({ action: 'purchase.order.approved', entityType: 'purchase_order', entityId: po.id, before: null, after: { approvalRequestId: decision.approvalRequestId } });
+    };
   }
 
   private async release(principal: Principal, id: string, action: string): Promise<PurchaseOrderView> {
     await this.db.transaction(async (tx) => {
-      await tx.execute(sql`UPDATE purchase_orders SET status = 'CONFIRMED', updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
-      // REQ-X-10: the requirements this PO took up move to `ordered`.
-      await tx.execute(sql`
-        UPDATE procurement_requirements r SET ordered_qty = r.ordered_qty + t.qty, state = CASE WHEN r.ordered_qty + t.qty >= r.quantity THEN 'ordered' ELSE r.state END, updated_at = now()
-          FROM (SELECT plr.requirement_id, sum(plr.quantity) AS qty FROM po_line_requirements plr JOIN purchase_order_lines pl ON pl.id = plr.purchase_order_line_id WHERE pl.purchase_order_id = ${id} GROUP BY plr.requirement_id) t
-         WHERE r.id = t.requirement_id
-      `);
+      await this.releaseWithin(tx, principal.orgId, id, principal.userId);
     });
     await this.enqueuePush(principal, id);
     this.auditContext.record({ action, entityType: 'purchase_order', entityId: id, before: null, after: null });
     return this.find(principal, id);
+  }
+
+  private async releaseWithin(tx: Database, orgId: string, id: string, actorUserId: string | null): Promise<void> {
+    await tx.execute(sql`UPDATE purchase_orders SET status = 'CONFIRMED', updated_at = now(), updated_by = ${actorUserId} WHERE org_id = ${orgId} AND id = ${id}`);
+    // REQ-X-10: the requirements this PO took up move to `ordered`.
+    await tx.execute(sql`
+      UPDATE procurement_requirements r SET ordered_qty = r.ordered_qty + t.qty, state = CASE WHEN r.ordered_qty + t.qty >= r.quantity THEN 'ordered' ELSE r.state END, updated_at = now()
+        FROM (SELECT plr.requirement_id, sum(plr.quantity) AS qty FROM po_line_requirements plr JOIN purchase_order_lines pl ON pl.id = plr.purchase_order_line_id WHERE pl.purchase_order_id = ${id} GROUP BY plr.requirement_id) t
+       WHERE r.id = t.requirement_id
+    `);
+  }
+
+  /** Every active holder of purchase.document.approve; the framework drops the requester (REQ-I-05). */
+  private async approvers(orgId: string): Promise<string[]> {
+    const rows = await this.db.execute<{ user_id: string }>(sql`
+      SELECT DISTINCT u.id AS user_id, u.email
+        FROM users u
+        JOIN user_roles ur ON ur.user_id = u.id
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        JOIN permissions p ON p.id = rp.permission_id
+        JOIN roles r ON r.id = ur.role_id AND r.deleted_at IS NULL
+       WHERE u.org_id = ${orgId} AND u.deleted_at IS NULL AND u.status = 'ACTIVE' AND p.key = ${PERMISSIONS.PURCHASE_DOCUMENT_APPROVE}
+       ORDER BY u.email
+    `);
+    return rows.rows.map((r) => r.user_id);
+  }
+
+  // ------------------------------------------------------------ settings
+
+  async readSettings(orgId: string): Promise<PurchaseSettings> {
+    const rows = await this.db.execute<{ key: string; value: unknown }>(sql`
+      SELECT key, value FROM settings WHERE org_id = ${orgId} AND scope = 'ORG' AND key IN (${SETTING_THRESHOLD}, ${SETTING_INVOICE_WAITING_HOURS}) AND deleted_at IS NULL
+    `);
+    const byKey = new Map(rows.rows.map((r) => [r.key, r.value]));
+    const threshold = byKey.get(SETTING_THRESHOLD);
+    const hours = byKey.get(SETTING_INVOICE_WAITING_HOURS);
+    const parsedHours = typeof hours === 'number' ? hours : typeof hours === 'string' ? Number(hours) : DEFAULT_PURCHASE_SETTINGS.invoiceWaitingHours;
+    return {
+      approvalThreshold: threshold === undefined || threshold === null || Number(threshold) <= 0 ? null : Number(threshold).toFixed(2),
+      invoiceWaitingHours: Number.isFinite(parsedHours) ? parsedHours : DEFAULT_PURCHASE_SETTINGS.invoiceWaitingHours,
+    };
+  }
+
+  async writeSettings(principal: Principal, input: PurchaseSettings): Promise<PurchaseSettings> {
+    const before = await this.readSettings(principal.orgId);
+    for (const [key, value] of [
+      [SETTING_THRESHOLD, input.approvalThreshold === null ? 0 : Number(input.approvalThreshold)],
+      [SETTING_INVOICE_WAITING_HOURS, input.invoiceWaitingHours],
+    ] as const) {
+      await this.db.execute(sql`
+        INSERT INTO settings (org_id, scope, scope_id, key, value, created_by, updated_by)
+        VALUES (${principal.orgId}, 'ORG', NULL, ${key}, ${JSON.stringify(value)}::jsonb, ${principal.userId}, ${principal.userId})
+        ON CONFLICT (org_id, scope, (coalesce(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)), key) WHERE deleted_at IS NULL
+        DO UPDATE SET value = EXCLUDED.value, updated_at = now(), updated_by = EXCLUDED.updated_by
+      `);
+    }
+    const after = await this.readSettings(principal.orgId);
+    this.auditContext.record({ action: 'purchase.settings.updated', entityType: 'organization', entityId: principal.orgId, before: { ...before }, after: { ...after } });
+    return after;
   }
 
   async push(principal: Principal, id: string): Promise<PurchaseOrderView> {
@@ -227,7 +346,11 @@ export class PurchaseOrderService implements OnModuleInit {
   async cancel(principal: Principal, id: string): Promise<PurchaseOrderView> {
     const existing = await this.find(principal, id);
     if (existing.status !== 'DRAFT' && existing.status !== 'PENDING_APPROVAL') throw AppError.conflict(`${existing.number} is confirmed; short-close it instead.`);
-    await this.db.execute(sql`UPDATE purchase_orders SET status = 'CANCELLED', updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
+    if (existing.status === 'PENDING_APPROVAL') {
+      // The inbox request goes with it, or an approver decides a PO that no longer exists.
+      await this.approvals.cancelForSubject(orgContextOf(principal), PURCHASE_ORDER_SUBJECT_TYPE, id, `${existing.number} cancelled by its author.`);
+    }
+    await this.db.execute(sql`UPDATE purchase_orders SET status = 'CANCELLED', approval_request_id = NULL, updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
     this.auditContext.record({ action: 'purchase.order.cancelled', entityType: 'purchase_order', entityId: id, before: null, after: null });
     return this.find(principal, id);
   }
@@ -458,8 +581,9 @@ export class PurchaseOrderService implements OnModuleInit {
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
-  private async enqueuePush(principal: Principal, id: string): Promise<boolean> {
-    const po = await this.find(principal, id);
+  private async enqueuePush(principal: Pick<Principal, 'orgId' | 'userId'> | { orgId: string; userId: string | null }, id: string): Promise<boolean> {
+    const po = await this.view(principal.orgId, id);
+    if (po === null) throw AppError.notFound('Purchase order', id);
     const payload: VoucherPushPayload = {
       documentId: po.id,
       kind: 'PURCHASE_ORDER',

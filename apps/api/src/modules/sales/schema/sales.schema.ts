@@ -63,6 +63,8 @@ export const salesDocuments = pgTable(
     pushJobId: uuid('push_job_id'),
     lastPushedAt: timestamp('last_pushed_at', { withTimezone: true }),
     lastError: text('last_error'),
+    /** REQ-AA-15: when accounts was told this order has waited too long; once per order. */
+    invoiceReminderSentAt: timestamp('invoice_reminder_sent_at', { withTimezone: true }),
     /** REQ-AA-05: the balance written off, by whom, why. Never silent. */
     shortClosedAt: timestamp('short_closed_at', { withTimezone: true }),
     shortCloseReason: text('short_close_reason'),

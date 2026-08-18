@@ -15,9 +15,11 @@ import {
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import sharp from 'sharp';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { NotificationDispatcher, type NotificationEvent } from '../../../platform/notifications/notification.dispatcher.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import { FulfilmentService } from '../fulfilment/fulfilment.service.js';
 
 /**
  * Sales orders and the push path (REQ-W-03, W-06, W-07; 09 §3.3). The agent
@@ -614,5 +616,48 @@ describe('invoices raised here (D-38: both places, kept in sync)', () => {
     const cancel = await harness.post<ErrorBody>(`/sales/invoices/${invoiceId}/cancel`, { token: salesToken });
     expect(cancel.status).toBe(409);
     expect(await harness.waitForAuditAction('sales.invoice.confirmed')).toBe(true);
+  });
+});
+
+describe('the accountant’s reminder (12 REQ-AA-15)', () => {
+  it('after the configured hours, accounts hears once per order; a second sweep stays quiet', async () => {
+    const emitted: NotificationEvent[] = [];
+    const spy = vi.spyOn(harness.resolve(NotificationDispatcher), 'emit').mockImplementation((event) => {
+      emitted.push(event);
+      return Promise.resolve('spied');
+    });
+    try {
+      await harness.db.execute(sql`
+        INSERT INTO settings (org_id, scope, scope_id, key, value, created_by, updated_by)
+        VALUES (${ORG_ID}, 'ORG', NULL, 'sales.invoiceWaitingHours', '2'::jsonb, NULL, NULL)
+        ON CONFLICT (org_id, scope, (coalesce(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)), key) WHERE deleted_at IS NULL
+        DO UPDATE SET value = EXCLUDED.value
+      `);
+      const created = await harness.post<SalesDocumentView>('/sales/orders', {
+        token: salesToken,
+        body: { partyId, lines: [{ stockItemId: cableId, quantity: '3', rate: '4000' }] },
+      });
+      const lineId = created.body.lines[0]?.id ?? '';
+      await harness.post(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+      await harness.post(`/sales/orders/${created.body.id}/packs`, { token: salesToken, body: { lines: [{ lineId, quantity: '3' }] } });
+
+      const fulfilment = harness.resolve(FulfilmentService);
+      const context = { jobId: 'test', attempt: 1 };
+      await fulfilment.run({}, context);
+      // Packed a moment ago: under two hours, nothing said.
+      expect(emitted.filter((e) => e.type === 'sales.invoice_waiting' && e.payload?.orderId === created.body.id)).toHaveLength(0);
+
+      await harness.db.execute(sql`UPDATE pack_records SET packed_at = now() - interval '3 hours' WHERE document_id = ${created.body.id}`);
+      await fulfilment.run({}, context);
+      const told = emitted.filter((e) => e.type === 'sales.invoice_waiting' && e.payload?.orderId === created.body.id);
+      expect(told).toHaveLength(1);
+      expect(told[0]?.audience).toEqual({ kind: 'permission', key: 'receivables.view' });
+      expect(told[0]?.payload?.orderNumber).toBe(created.body.number);
+
+      await fulfilment.run({}, context);
+      expect(emitted.filter((e) => e.type === 'sales.invoice_waiting' && e.payload?.orderId === created.body.id)).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

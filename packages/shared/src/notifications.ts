@@ -46,6 +46,8 @@ export const NOTIFICATION_EVENTS = {
 
   /** 13 REQ-X-28: stock arrived for an order that was waiting on it. */
   PROCUREMENT_STOCK_ARRIVED: 'procurement.stock_arrived',
+  /** 12 REQ-AA-15: an order has waited for its invoice longer than the configured hours. */
+  SALES_INVOICE_WAITING: 'sales.invoice_waiting',
 } as const;
 
 export type NotificationEventType =
@@ -188,6 +190,11 @@ export const NOTIFICATION_EVENT_DESCRIPTORS: Record<
     label: 'Stock arrived for your order',
     note: 'When a receipt releases a sales order of yours back to the pick queue.',
   },
+  'sales.invoice_waiting': {
+    group: 'Orders',
+    label: 'Packed order waiting for its invoice',
+    note: 'To accounts, once per order, when packed goods have waited longer than the configured hours (REQ-AA-15).',
+  },
 };
 
 /**
@@ -231,6 +238,7 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   'task.due_today': '/tasks',
   'task.overdue': '/tasks',
   'procurement.stock_arrived': '/sales/orders',
+  'sales.invoice_waiting': '/sales/awaiting-invoice',
 };
 
 /** Only the channels this phase actually delivers on (REQ-K-02). */

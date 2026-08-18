@@ -75,6 +75,15 @@ export const APPROVAL_SUBJECT_KEYS: Partial<
     raise: [PERMISSIONS.REGULARIZATION_RAISE],
     scope: {},
   },
+  // 13 REQ-X-16: a PO over the threshold is decided by holders of
+  // purchase.document.approve, and by nobody else -- HR's leave key does
+  // not buy a purchase.
+  purchase_order: {
+    act: [PERMISSIONS.PURCHASE_DOCUMENT_APPROVE],
+    override: [PERMISSIONS.PURCHASE_DOCUMENT_APPROVE],
+    raise: [PERMISSIONS.PURCHASE_DOCUMENT_CREATE],
+    scope: { all: [PERMISSIONS.PURCHASE_DOCUMENT_APPROVE] },
+  },
 };
 
 /**
