@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, MethodNotAllowedException, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import {
   PERMISSIONS,
   allocateReceiptSchema,
@@ -58,6 +58,8 @@ const CREATE = PERMISSIONS.PURCHASE_DOCUMENT_CREATE;
 const APPROVE = PERMISSIONS.PURCHASE_DOCUMENT_APPROVE;
 
 /** `/api/v1/purchase/*` (13): the queue, purchase orders, GRNs, allocation, and the item facts. */
+const STOCK_WRITE_REFUSAL = 'Vyuha never writes a stock figure (REQ-AC-07). Stock moves only through a Delivery Note or a Receipt Note in Tally.';
+
 @Controller('purchase')
 export class PurchaseController {
   constructor(
@@ -264,9 +266,32 @@ export class PurchaseController {
   }
 
   /** There is no route that writes a stock figure (REQ-AC-07); this one exists to say so. */
+  /**
+   * REQ-AC-07, stated as 405 like the masters (13 §6: "verified by asserting
+   * 405 on every plausible route"): there is no adjustment path, no
+   * opening-stock entry, no correction screen — under any permission.
+   */
+  @Put('items/:stockItemId/stock')
+  @RequirePermission(VIEW)
+  refuseStockSet(): never {
+    throw new MethodNotAllowedException(STOCK_WRITE_REFUSAL);
+  }
+
+  @Patch('items/:stockItemId/stock')
+  @RequirePermission(VIEW)
+  refuseStockAdjust(): never {
+    throw new MethodNotAllowedException(STOCK_WRITE_REFUSAL);
+  }
+
+  @Post('items/:stockItemId/stock')
+  @RequirePermission(VIEW)
+  refuseStockEntry(): never {
+    throw new MethodNotAllowedException(STOCK_WRITE_REFUSAL);
+  }
+
   @Delete('items/:stockItemId/stock')
   @RequirePermission(VIEW)
   refuseStockWrite(): never {
-    throw AppError.conflict('Vyuha never writes a stock figure (REQ-AC-07). Stock moves only through a Delivery Note or a Receipt Note in Tally.');
+    throw new MethodNotAllowedException(STOCK_WRITE_REFUSAL);
   }
 }

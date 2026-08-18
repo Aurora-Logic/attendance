@@ -96,8 +96,15 @@ describe('availability (13 §2, REQ-AC-03/04)', () => {
     const after = await harness.get<StockAvailability>(`/purchase/items/${cableId}/availability`, { token: adminToken });
     expect(after.body).toMatchObject({ committedQty: '20.000', availableQty: '-8.000' });
 
+    // 13 §6: no route writes a stock figure, under any permission including Admin — 405 on every plausible verb.
     const forbidden = await harness.del<ErrorBody>(`/purchase/items/${cableId}/stock`, { token: adminToken });
-    expect(forbidden.status).toBe(409);
+    expect(forbidden.status).toBe(405);
+    const set = await harness.put<ErrorBody>(`/purchase/items/${cableId}/stock`, { token: adminToken, body: { closingQty: '999' } });
+    expect(set.status).toBe(405);
+    const entry = await harness.post<ErrorBody>(`/purchase/items/${cableId}/stock`, { token: adminToken, body: { quantity: '999' } });
+    expect(entry.status).toBe(405);
+    const items = await harness.post<ErrorBody>('/masters/items', { token: adminToken, body: { name: 'x' } });
+    expect(items.status).toBe(405);
   });
 });
 

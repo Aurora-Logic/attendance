@@ -123,6 +123,23 @@ export class MastersController {
       'Masters are read-only in Vyuha (REQ-R-04). Edit the party in Tally; the change arrives on the next pull.',
     );
   }
+
+  /** 13 REQ-AC-07: a stock figure is never written here — not the item, not its closing balance. */
+  @Post('items')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  refuseCreateItem(): never {
+    throw new MethodNotAllowedException(
+      'Stock items are read-only in Vyuha (REQ-R-04, REQ-AC-07). Create the item in Tally; it appears here on the next pull.',
+    );
+  }
+
+  @Patch('items/:id')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  refuseEditItem(): never {
+    throw new MethodNotAllowedException(
+      'Stock items are read-only in Vyuha (REQ-R-04, REQ-AC-07). Stock moves only through a Delivery Note or a Receipt Note in Tally.',
+    );
+  }
 }
 
 /*
