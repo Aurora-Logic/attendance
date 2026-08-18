@@ -116,9 +116,37 @@ These predate this phase and remain unanswered. Listed so they are not lost when
 | `05`-14 | Consequence rules — does 3 lates equal a half day | Attendance, unchanged |
 | `05`-15 | Regularization limits — days back, count per month | Attendance, unchanged |
 | OQ P0-6 | Icon library: phosphor in the code, lucide in the constitution | Every future screen, including all 22 new ones |
-| OQ P2-3 | Role assignment has no endpoint or UI | **Closed 16 Aug 2026** — existed since `31f855f` (14 Aug); the entry was stale. Verified live in Phase 6a; D-15 is unblocked |
+| OQ P2-3 | Role assignment has no endpoint or UI | **Now blocking.** D-15 cannot ship without it; folded into Phase 6a |
 | OQ P2-2 | Four settings recorded but read by nothing | Attendance, unchanged |
 | REQ-G-10 | Who may cancel leave once it has started | Attendance, unchanged |
 | OQ WS-A-1 | Error tracking deferred pending a Sentry decision | Becomes more pressing with an agent running outside the VPS |
 
 **On P0-6 in particular:** twenty-two new screens are about to be built. Deciding the icon library before them costs a two-line documentation change; deciding it after costs a second sweep across a codebase twice the size.
+
+---
+
+## Decisions taken for the order-to-dispatch and procurement flows (`12`, `13`)
+
+Taken 18 August 2026, at the owner's instruction to proceed on the
+recommended defaults. Each is reversible; each is recorded so it is a
+decision and not a drift.
+
+| # | Decision | Note |
+|---|---|---|
+| D-21 | Invoice ↔ sales order link: **the sales order number in the Sales voucher's narration** (`SO-0001`) for the same party, else the manual link screen. | The OpsTally payload carries no order reference field, so Tally's own reference cannot be read; the narration is what the accountant already types. Never guessed by party and date. |
+| D-22 | No punch gate on the pick queue. | |
+| D-23 | Punch endpoints (and the offline punch sync) are exempt from the access window; everything else refused. | |
+| D-24 | Short-close needs `sales.document.alter`. | |
+| D-25 | No POD stage. | |
+| D-26 | Balance returns to the shared pick queue. | |
+| D-27 | `item_vendors` is Vyuha-owned — the single exception to D-01. | |
+| D-28 | Reorder level and minimum order quantity are Vyuha fields on the item until Tally is shown to hold them. | |
+| D-29 | One godown. | OpsTally carries a single closing quantity per item. |
+| D-30 | Sales manager allocates an insufficient receipt. | |
+| D-31 | A short pack raises the requirement automatically. | |
+| D-32 | No requisition step; approval sits on the PO by value. | |
+| D-33 | Vendor lead time tracked on `item_vendors`, used for expected dates, not enforced. | |
+| D-34 | Fulfilment word between *awaiting invoice* and *partially dispatched*: **`ready_to_dispatch`** (invoiced, nothing dispatched yet). | `12` REQ-AA-03 folds it into *partially dispatched*; a badge saying "partially dispatched" over zero dispatched misleads, and the numbers beside it are what count. |
+| D-35 | Procurement requirements live in **the platform** (`platform/procurement`), not in the purchase module. | A requirement hangs off a sales order line and a purchase order line; the two modules may not import each other (technical design §1) — the same reasoning as D-17 for tasks. |
+| D-36 | Purchase orders, GRNs and `item_vendors` live in **`modules/purchase`**; the shared document helpers (owner, customer, lines, arithmetic) move to `platform/documents`. | Sales and purchase share a shape and may not import each other. |
+| D-37 | The push path is keyed by a **push kind** (`SALES_ORDER`, `DELIVERY_NOTE`, `PURCHASE_ORDER`, `RECEIPT_NOTE`), one outcome handler each; every pushed record carries the same five sync-state columns. | REQ-W-06/W-07 semantics identical across documents. |
