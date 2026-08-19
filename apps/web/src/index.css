@@ -333,6 +333,13 @@
 .a4-paper[data-scale='sm'] { font-size: 11px; }
 .a4-paper[data-scale='md'] { font-size: 12px; }
 .a4-paper[data-scale='lg'] { font-size: 13.5px; }
+/* The face is the design's; system stacks only, so nothing is fetched and every printer agrees. */
+.a4-paper, .a4-paper[data-font='sans'] { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+.a4-paper[data-font='serif'] { font-family: Georgia, 'Times New Roman', Times, serif; }
+.a4-paper[data-font='humanist'] { font-family: 'Trebuchet MS', 'Gill Sans', Verdana, 'DejaVu Sans', sans-serif; }
+.a4-paper[data-font='mono'] { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; }
+/* Figures are always monospaced and tabular, whatever the face, so columns of money line up. */
+.a4-paper .tabular-nums { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; font-variant-numeric: tabular-nums; }
 /* On paper the field boxes vanish; what was typed is what prints. */
 .a4-paper .paper-field {
   border-color: transparent;

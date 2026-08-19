@@ -32,9 +32,10 @@ import { moneyToIndianWords } from './words';
  * reads: boxed seller, consignee and buyer, the details grid, HSN/SAC on
  * every line, CGST+SGST or IGST rows, the quantity total, the amount in
  * words, the HSN summary, the declaration, the signatory. The other four
- * templates share a letterhead layout that differs in weight and colour.
- * Neither says anything the other cannot; a document that moves between
- * them loses nothing.
+ * templates share a letterhead layout that differs in weight and rule —
+ * and carries every one of those fields, so a document that moves between
+ * templates loses nothing. The face is the design's font; figures are
+ * always monospaced so columns of money line up (index.css).
  *
  * Nothing here is styled inline: the accent is a palette class the sheet
  * reads through `--paper-accent`, and every template is a set of classes.
@@ -77,6 +78,7 @@ export interface PaperModel {
   readonly number: string | null;
   readonly statusLabel: string | null;
   readonly date: string;
+  /** An estimate's validity; a purchase order's expected date. */
   readonly validUntil: string | null;
   /** Buyer (Bill to). */
   readonly buyer: PaperParty;
@@ -177,6 +179,18 @@ function hsnSummary(lines: readonly PaperLine[]): HsnRow[] {
   return [...byKey.values()];
 }
 
+/**
+ * The quantity total Tally prints under the column: only when every counted
+ * line is in the same unit (3 NOS + 1 box is not 4 of anything). A blank
+ * line (no description, nothing priced) is a row waiting to be typed.
+ */
+function quantityTotal(lines: readonly PaperLine[]): { totalQty: number; unit: string } {
+  const counted = lines.filter((l) => l.description.trim() !== '' || l.amount !== null);
+  const units = new Set(counted.map((l) => l.unit.trim()));
+  if (units.size > 1) return { totalQty: 0, unit: '' };
+  return { totalQty: counted.reduce((sum, l) => sum + Number(l.quantity || 0), 0), unit: counted[0]?.unit ?? '' };
+}
+
 /** Move down a column on Enter; on the last row, Enter adds a line (Tally's voucher entry, on paper). */
 function useEnterMoves(editing: PaperEditing | undefined, lines: readonly PaperLine[]) {
   return (rowIndex: number, cell: string) => (event: KeyboardEvent<HTMLInputElement>) => {
@@ -205,6 +219,7 @@ export function DocumentPaper(props: DocumentPaperProps) {
     <article
       className={cn('a4-paper shadow-sm ring-1 ring-black/5', className)}
       data-accent={design.accent}
+      data-font={design.fontFamily}
       data-scale={design.fontScale}
       data-mode={editing !== undefined ? 'edit' : 'print'}
       data-template={design.templateId}
@@ -228,9 +243,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
   const shipTo = model.shipTo;
   const showShipTo = design.showShipTo && (editable || (shipTo !== null && (shipTo.name ?? '').trim() !== ''));
   // A blank line (no description, nothing priced) is a row waiting to be typed, not a quantity.
-  const counted = model.lines.filter((l) => l.description.trim() !== '' || l.amount !== null);
-  const totalQty = counted.reduce((sum, l) => sum + Number(l.quantity || 0), 0);
-  const unit = counted[0]?.unit ?? '';
+  const { totalQty, unit } = quantityTotal(model.lines);
   const summary = design.showHsn ? hsnSummary(model.lines) : [];
   const details = model.details;
   const detailBox = (label: string, key: keyof DocumentDetails, placeholder = '') => (
@@ -246,7 +259,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
   const colCount = 5 + (design.showHsn ? 1 : 0) + (design.showUnit ? 1 : 0) + (design.showDiscount ? 1 : 0);
 
   return (
-    <div className="flex min-h-[269mm] flex-col p-[10mm] font-sans">
+    <div className="flex min-h-[297mm] flex-col p-[10mm]">
       {/* Title row: the document's name centred, e-Invoice facts to the right when they exist. */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 pb-2">
         <div className="flex items-start gap-3">
@@ -324,7 +337,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
             {model.buyer.gstin ? <div className="text-[0.95em]">GSTIN/UIN : {model.buyer.gstin}</div> : null}
             <div className="flex items-baseline gap-2 text-[0.95em]">
               <span>State Name :</span>
-              {editable ? (
+              {editable && model.type !== 'PURCHASE_ORDER' ? (
                 <span className="flex items-baseline gap-1">
                   <span>{model.buyer.stateName || gstStateName(model.buyer.stateCode) || '—'}</span>
                   <span>, Code :</span>
@@ -345,9 +358,9 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
             <span className="text-[0.85em] text-neutral-600">Dated</span>
             <span className="min-h-[1.4em] text-[0.95em] font-bold">{editable ? editing.date : formatDate(model.date)}</span>
           </div>
-          {model.type === 'ESTIMATE' ? (
+          {model.type === 'ESTIMATE' || model.type === 'PURCHASE_ORDER' ? (
             <div className={cn('col-span-2 flex flex-col gap-0.5 px-2 py-1', BOX, '-mt-px -ml-px')}>
-              <span className="text-[0.85em] text-neutral-600">Valid until</span>
+              <span className="text-[0.85em] text-neutral-600">{model.type === 'ESTIMATE' ? 'Valid until' : 'Expected by'}</span>
               <span className="min-h-[1.4em] text-[0.95em] font-medium">{editable && editing.validUntil !== undefined ? editing.validUntil : model.validUntil ? formatDate(model.validUntil) : '—'}</span>
             </div>
           ) : null}
@@ -564,7 +577,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
         <div className={cn(BOX, '-mt-px grid gap-2 px-2 py-1 sm:grid-cols-2')}>
           <div>
             <div className="text-[0.85em] text-neutral-600">Notes</div>
-            {editable ? <PaperArea label="Notes" rows={2} value={model.notes} placeholder="Anything the customer should read" onChange={editing.setNotes} className="text-[0.95em]" /> : <p className="whitespace-pre-line text-[0.95em]">{model.notes}</p>}
+            {editable ? <PaperArea label="Notes" rows={2} value={model.notes} placeholder={model.type === 'PURCHASE_ORDER' ? 'Anything the vendor should read' : 'Anything the customer should read'} onChange={editing.setNotes} className="text-[0.95em]" /> : <p className="whitespace-pre-line text-[0.95em]">{model.notes}</p>}
           </div>
           {design.showTerms ? (
             <div>
@@ -602,7 +615,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
           <div className="border-l border-neutral-800" />
         )}
       </div>
-      <PaperFoot design={design} footerLogoUrls={footerLogoUrls} />
+      <PaperFoot design={design} profile={profile} footerLogoUrls={footerLogoUrls} />
     </div>
   );
 }
@@ -618,18 +631,25 @@ function TaxRow({ label, value, colCount, editable, muted = false }: { label: st
   );
 }
 
-function PaperFoot({ design, footerLogoUrls }: { design: DocumentDesign; footerLogoUrls: readonly string[] }) {
-  if (design.footerNote.trim() === '' && footerLogoUrls.length === 0) return null;
+/**
+ * The foot of the page, on the bottom margin: the footer line, then the
+ * caption ("Authorised channel partners of"), then the partner logos in a
+ * row — the last thing on the sheet, touching the margin, on every template.
+ */
+function PaperFoot({ design, profile, footerLogoUrls, className }: { design: DocumentDesign; profile: DocumentProfile; footerLogoUrls: readonly string[]; className?: string }) {
+  const caption = profile.footerCaption.trim();
+  if (design.footerNote.trim() === '' && footerLogoUrls.length === 0 && caption === '') return null;
   return (
-    <div className="mt-auto flex flex-col items-center gap-2 pt-3">
+    <div className={cn('mt-auto flex flex-col items-center gap-1.5 pt-3', className)}>
+      {design.footerNote.trim() !== '' ? <div className="text-center text-[0.85em]">{design.footerNote}</div> : null}
+      {caption !== '' ? <div className="text-center text-[0.8em] tracking-wide text-neutral-600 uppercase">{caption}</div> : null}
       {footerLogoUrls.length > 0 ? (
-        <div className="flex flex-wrap items-center justify-center gap-4">
+        <div className="flex w-full flex-wrap items-center justify-center gap-x-6 gap-y-2">
           {footerLogoUrls.map((url) => (
-            <img key={url} src={url} alt="" className="max-h-9 max-w-[30mm] object-contain" />
+            <img key={url} src={url} alt="" className="max-h-10 max-w-[32mm] object-contain" />
           ))}
         </div>
       ) : null}
-      {design.footerNote.trim() !== '' ? <div className="text-center text-[0.85em]">{design.footerNote}</div> : null}
     </div>
   );
 }
@@ -638,6 +658,8 @@ function PaperFoot({ design, footerLogoUrls }: { design: DocumentDesign; footerL
 
 interface TemplateStyle {
   sheet: string;
+  /** A wrapper inside the margins; the bordered template draws its frame here. */
+  frame: string;
   header: string;
   title: string;
   business: string;
@@ -646,31 +668,22 @@ interface TemplateStyle {
   tableHeadCell: string;
   row: string;
   cell: string;
+  /** The ruled line under the totals area: the summary tables and the HSN table wear it. */
+  summaryHead: string;
+  summaryCell: string;
   totalsBox: string;
   grandTotal: string;
   footer: string;
   section: string;
+  /** The band templates pad their body; the margin templates pad the sheet. */
+  body: string;
 }
 
 const TEMPLATES: Record<Exclude<DocumentTemplateId, 'tally'>, TemplateStyle> = {
-  classic: {
-    sheet: 'p-[14mm] font-sans',
-    header: 'flex items-start justify-between gap-6 border-b-2 border-[var(--paper-accent)] pb-4',
-    title: 'font-serif text-[2.2em] leading-none tracking-tight text-[var(--paper-accent)]',
-    business: 'text-right',
-    metaBox: 'grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5',
-    metaLabel: 'text-[0.85em] uppercase tracking-wide text-neutral-500',
-    tableHeadCell: 'border-b-2 border-[var(--paper-accent)] text-[0.85em] uppercase tracking-wide text-neutral-600',
-    row: 'border-b border-neutral-200',
-    cell: 'align-top py-1.5',
-    totalsBox: 'ml-auto w-[38%] min-w-[220px] border-t-2 border-[var(--paper-accent)] pt-2',
-    grandTotal: 'border-t border-neutral-300 pt-1 text-[1.15em] font-semibold',
-    footer: 'border-t border-neutral-200 pt-3 text-[0.85em] text-neutral-500',
-    section: 'text-[0.85em] uppercase tracking-wide text-neutral-500',
-  },
   modern: {
-    sheet: 'p-0 font-sans',
-    header: 'flex items-start justify-between gap-6 bg-[var(--paper-accent)] px-[14mm] py-6 text-white',
+    sheet: 'p-0',
+    frame: '',
+    header: 'flex items-start justify-between gap-6 bg-[var(--paper-accent)] px-[12mm] py-6 text-white',
     title: 'text-[2em] font-semibold leading-none tracking-tight',
     business: 'text-right text-white/90',
     metaBox: 'grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5',
@@ -678,13 +691,17 @@ const TEMPLATES: Record<Exclude<DocumentTemplateId, 'tally'>, TemplateStyle> = {
     tableHeadCell: 'bg-[var(--paper-accent-soft)] text-[0.85em] font-semibold text-[var(--paper-accent)] first:rounded-l last:rounded-r',
     row: 'border-b border-neutral-100',
     cell: 'align-top py-2',
+    summaryHead: 'bg-[var(--paper-accent-soft)] text-[0.85em] font-semibold text-[var(--paper-accent)]',
+    summaryCell: 'border-b border-neutral-100 py-1',
     totalsBox: 'ml-auto w-[38%] min-w-[220px] rounded bg-[var(--paper-accent-soft)] p-3',
     grandTotal: 'mt-1 border-t border-[var(--paper-accent)]/30 pt-1 text-[1.2em] font-semibold text-[var(--paper-accent)]',
     footer: 'text-[0.85em] text-neutral-500',
     section: 'text-[0.85em] font-semibold text-[var(--paper-accent)]',
+    body: 'px-[12mm] pb-[10mm] pt-6',
   },
   minimal: {
-    sheet: 'p-[16mm] font-sans',
+    sheet: 'p-[14mm]',
+    frame: '',
     header: 'flex items-start justify-between gap-6 pb-6',
     title: 'text-[1.1em] uppercase tracking-[0.3em] text-neutral-500',
     business: 'text-right',
@@ -693,39 +710,70 @@ const TEMPLATES: Record<Exclude<DocumentTemplateId, 'tally'>, TemplateStyle> = {
     tableHeadCell: 'border-b border-neutral-300 pb-2 text-[0.8em] font-medium uppercase tracking-wider text-neutral-500',
     row: 'border-b border-neutral-100',
     cell: 'align-top py-2.5',
+    summaryHead: 'border-b border-neutral-300 text-[0.8em] font-medium uppercase tracking-wider text-neutral-500',
+    summaryCell: 'border-b border-neutral-100 py-1',
     totalsBox: 'ml-auto w-[38%] min-w-[220px] pt-2',
     grandTotal: 'border-t border-neutral-900 pt-1.5 text-[1.15em] font-medium',
     footer: 'pt-4 text-[0.8em] text-neutral-400',
     section: 'text-[0.8em] uppercase tracking-wider text-neutral-400',
+    body: 'pt-6',
   },
-  bold: {
-    sheet: 'p-0 font-sans',
-    header: 'flex items-start justify-between gap-6 bg-[var(--paper-accent)] px-[14mm] py-8 text-white',
-    title: 'text-[3em] font-black uppercase leading-none tracking-tighter',
-    business: 'text-right text-white/90',
+  bordered: {
+    sheet: 'p-[8mm]',
+    frame: 'border border-neutral-800 p-[6mm]',
+    header: 'flex items-start justify-between gap-6 border-b border-neutral-800 pb-4',
+    title: 'text-[1.6em] font-semibold tracking-tight',
+    business: 'text-right',
+    metaBox: 'grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border border-neutral-800 px-3 py-2',
+    metaLabel: 'text-[0.85em] text-neutral-500',
+    tableHeadCell: 'border-y border-neutral-800 text-[0.85em] font-semibold',
+    row: 'border-b border-neutral-300',
+    cell: 'align-top py-1.5',
+    summaryHead: 'border-y border-neutral-800 text-[0.85em] font-semibold',
+    summaryCell: 'border-b border-neutral-300 py-1',
+    totalsBox: 'ml-auto w-[38%] min-w-[220px] border border-neutral-800 px-3 py-2',
+    grandTotal: 'border-t border-neutral-800 pt-1 text-[1.15em] font-semibold',
+    footer: 'border-t border-neutral-800 pt-3 text-[0.85em]',
+    section: 'text-[0.85em] font-semibold',
+    body: 'pt-5',
+  },
+  ledger: {
+    sheet: 'p-[12mm]',
+    frame: '',
+    header: 'flex items-start justify-between gap-6 border-b-4 border-double border-neutral-800 pb-3',
+    title: 'text-[1.7em] font-semibold uppercase tracking-wide',
+    business: 'text-right',
     metaBox: 'grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5',
-    metaLabel: 'text-[0.85em] font-semibold uppercase text-neutral-500',
-    tableHeadCell: 'bg-neutral-900 text-[0.85em] font-semibold uppercase tracking-wide text-white',
-    row: 'border-b-2 border-neutral-100',
-    cell: 'align-top py-2 font-medium',
-    totalsBox: 'ml-auto w-[42%] min-w-[240px]',
-    grandTotal: 'mt-2 bg-[var(--paper-accent)] px-3 py-2 text-[1.35em] font-black text-white',
-    footer: 'text-[0.85em] font-medium text-neutral-500',
-    section: 'text-[0.85em] font-black uppercase tracking-wide',
+    metaLabel: 'text-[0.85em] text-neutral-600',
+    tableHeadCell: 'border-y-2 border-neutral-800 text-[0.85em] font-semibold uppercase tracking-wide',
+    row: 'border-b border-neutral-400 [&>td]:border-l [&>td]:border-neutral-400 [&>td:first-child]:border-l-0',
+    cell: 'align-top py-1.5',
+    summaryHead: 'border-y-2 border-neutral-800 text-[0.85em] font-semibold uppercase tracking-wide',
+    summaryCell: 'border-b border-neutral-400 py-1',
+    totalsBox: 'ml-auto w-[38%] min-w-[220px]',
+    grandTotal: 'mt-1 border-y-4 border-double border-neutral-800 py-1 text-[1.15em] font-semibold',
+    footer: 'border-t border-neutral-800 pt-3 text-[0.85em]',
+    section: 'text-[0.85em] uppercase tracking-wide text-neutral-600',
+    body: 'pt-5',
   },
 };
 
 function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, model, editing }: DocumentPaperProps) {
-  const t = TEMPLATES[design.templateId === 'tally' ? 'classic' : design.templateId];
+  const t = TEMPLATES[design.templateId === 'tally' ? 'bordered' : design.templateId];
   const editable = editing !== undefined;
   const enter = useEnterMoves(editing, model.lines);
-  const banded = design.templateId === 'modern' || design.templateId === 'bold';
   const businessName = profile.legalName.trim() === '' ? orgName : profile.legalName;
   const addressLines = profile.addressLines.split('\n').filter((line) => line.trim() !== '');
   const split = splitOf(profile, model.buyer.stateCode);
   const columns = 3 + (design.showHsn ? 1 : 0) + (design.showUnit ? 1 : 0) + 1 + (design.showDiscount ? 1 : 0) + (design.showTax ? 1 : 0);
   const details = model.details;
   const filledDetails = (Object.entries(details) as [keyof DocumentDetails, string | undefined][]).filter(([, v]) => (v ?? '').trim() !== '');
+  const shipTo = model.shipTo;
+  const showShipTo = design.showShipTo && (editable || (shipTo?.name ?? '').trim() !== '');
+  const showEInvoice = design.showEInvoice && (editable || (details.irn ?? '') !== '');
+  const { totalQty, unit } = quantityTotal(model.lines);
+  const summary = design.showHsn ? hsnSummary(model.lines) : [];
+  const taxed = Number(model.totals.taxTotal) > 0;
 
   const logo = logoUrl !== null && design.logoPlacement !== 'none' ? <img src={logoUrl} alt="" className="max-h-16 max-w-[48mm] object-contain" /> : null;
   const business = (
@@ -735,7 +783,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
         <div key={line} className="text-[0.9em]">{line}</div>
       ))}
       <div className="text-[0.85em]">
-        {[profile.gstin ? `GSTIN ${profile.gstin}` : null, profile.pan ? `PAN ${profile.pan}` : null, profile.stateName ? `${profile.stateName}${profile.stateCode ? ` (${profile.stateCode})` : ''}` : null].filter(Boolean).join(' · ')}
+        {[profile.gstin ? `GSTIN ${profile.gstin}` : null, profile.pan ? `PAN ${profile.pan}` : null, profile.stateName || profile.stateCode ? `${profile.stateName || gstStateName(profile.stateCode)}${profile.stateCode ? ` (${profile.stateCode})` : ''}` : null].filter(Boolean).join(' · ')}
       </div>
       <div className="text-[0.85em]">{[profile.phone, profile.email, profile.website].filter((p) => p.trim() !== '').join(' · ')}</div>
     </div>
@@ -743,225 +791,331 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
 
   return (
     <div className={cn('flex min-h-[297mm] flex-col', t.sheet)}>
-      <header className={t.header}>
-        <div className="flex flex-col gap-3">
-          <div className={cn('flex items-start gap-4', design.logoPlacement === 'right' && 'flex-row-reverse text-right')}>{logo}</div>
-          <div className={t.title}>{PRINTED_DOCUMENT_TITLES[model.type]}</div>
-          {model.copyLabel ? <div className="text-[0.85em] font-medium uppercase tracking-wide opacity-80">{model.copyLabel}</div> : null}
-        </div>
-        {business}
-      </header>
-
-      <div className={cn('flex flex-1 flex-col gap-6', banded ? 'px-[14mm] pb-[14mm] pt-6' : 'pt-6')}>
-        <div className="grid gap-6 sm:grid-cols-[1fr_auto]">
+      <div className={cn('flex flex-1 flex-col', t.frame)}>
+        <header className={t.header}>
           <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1">
-              <div className={t.section}>{model.type === 'PURCHASE_ORDER' ? 'Vendor' : 'Bill to'}</div>
-              {editable ? editing.customer : <div className="text-[1.05em] font-semibold">{model.buyer.name || '—'}</div>}
-              {model.buyer.address ? <div className="whitespace-pre-line text-[0.9em] text-neutral-600">{model.buyer.address}</div> : null}
-              <div className="text-[0.9em] text-neutral-600">
-                {[model.buyer.gstin ? `GSTIN ${model.buyer.gstin}` : null, model.buyer.stateName || model.buyer.stateCode ? `${model.buyer.stateName || gstStateName(model.buyer.stateCode)}${model.buyer.stateCode ? ` (${model.buyer.stateCode})` : ''}` : null].filter(Boolean).join(' · ')}
-                {editable ? (
-                  <span className="ml-2 inline-flex items-baseline gap-1">
-                    Place of supply
-                    <PaperField label="Place of supply (state code)" value={model.buyer.stateCode} placeholder="29" onChange={(v) => { editing.setPlaceOfSupply(v); }} className="w-10 min-h-[1.2em]" />
-                  </span>
-                ) : null}
-              </div>
-            </div>
-            {design.showShipTo && (editable || (model.shipTo?.name ?? '').trim() !== '') ? (
-              <div className="flex flex-col gap-1">
-                <div className={t.section}>Ship to</div>
-                {editable ? (
-                  <div className="flex flex-col">
-                    <PaperField label="Consignee name" value={model.shipTo?.name ?? ''} placeholder="Same as buyer when blank" onChange={(v) => { editing.updateShipTo({ name: v }); }} className="font-medium" />
-                    <PaperArea label="Consignee address" rows={2} value={model.shipTo?.address ?? ''} placeholder="Address" onChange={(v) => { editing.updateShipTo({ address: v }); }} className="text-[0.9em]" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="font-medium">{model.shipTo?.name}</div>
-                    <div className="whitespace-pre-line text-[0.9em] text-neutral-600">{model.shipTo?.address}</div>
-                  </>
-                )}
-              </div>
-            ) : null}
+            <div className={cn('flex items-start gap-4', design.logoPlacement === 'right' && 'flex-row-reverse text-right')}>{logo}</div>
+            <div className={t.title}>{PRINTED_DOCUMENT_TITLES[model.type]}</div>
+            {model.copyLabel ? <div className="text-[0.85em] font-medium uppercase tracking-wide opacity-80">{model.copyLabel}</div> : null}
           </div>
-          <div className={cn(t.metaBox, 'min-w-[60mm] self-start text-[0.95em]')}>
-            <span className={t.metaLabel}>Number</span>
-            <span className="font-medium tabular-nums">{model.number ?? 'Draft'}</span>
-            <span className={t.metaLabel}>Date</span>
-            <span className="tabular-nums">{editable ? editing.date : formatDate(model.date)}</span>
-            {model.type === 'ESTIMATE' ? (
-              <>
-                <span className={t.metaLabel}>Valid until</span>
-                <span className="tabular-nums">{editable && editing.validUntil !== undefined ? editing.validUntil : model.validUntil ? formatDate(model.validUntil) : '—'}</span>
-              </>
-            ) : null}
-            {model.reference ? (
-              <>
-                <span className={t.metaLabel}>Reference</span>
-                <span>{model.reference}</span>
-              </>
-            ) : null}
-            {design.showDetailsGrid
-              ? (editable ? DETAIL_ORDER : filledDetails.map(([k]) => k)).map((key) => (
-                  <DetailPair key={key} label={DETAIL_LABELS[key]} value={details[key] ?? ''} editable={editable} labelClass={t.metaLabel} onChange={(v) => { editing?.updateDetails({ [key]: v }); }} />
-                ))
-              : null}
-          </div>
-        </div>
+          {business}
+        </header>
 
-        <Table className="text-[1em]">
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className={cn(t.tableHeadCell, 'w-8')}>#</TableHead>
-              <TableHead className={t.tableHeadCell}>Description</TableHead>
-              {design.showHsn ? <TableHead className={cn(t.tableHeadCell, 'w-[10%]')}>HSN/SAC</TableHead> : null}
-              <TableHead className={cn(t.tableHeadCell, 'w-[12%] text-right')}>Qty</TableHead>
-              {design.showUnit ? <TableHead className={cn(t.tableHeadCell, 'w-[8%]')}>Unit</TableHead> : null}
-              <TableHead className={cn(t.tableHeadCell, 'w-[13%] text-right')}>Rate</TableHead>
-              {design.showDiscount ? <TableHead className={cn(t.tableHeadCell, 'w-[8%] text-right')}>Disc %</TableHead> : null}
-              {design.showTax ? <TableHead className={cn(t.tableHeadCell, 'w-[8%] text-right')}>Tax %</TableHead> : null}
-              <TableHead className={cn(t.tableHeadCell, 'w-[15%] text-right')}>Amount</TableHead>
-              {editable ? <TableHead className={cn(t.tableHeadCell, 'w-8 print-hidden')}> </TableHead> : null}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {model.lines.map((line, index) => (
-              <TableRow key={line.key} className={cn(t.row, 'hover:bg-transparent')}>
-                <TableCell className={cn(t.cell, 'text-neutral-500 tabular-nums')}>{index + 1}</TableCell>
-                <TableCell className={cn(t.cell, 'whitespace-normal')}>
+        <div className={cn('flex flex-1 flex-col gap-5', t.body)}>
+          <div className="grid gap-6 sm:grid-cols-[1fr_auto]">
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                <div className={t.section}>{model.type === 'PURCHASE_ORDER' ? 'Vendor' : 'Bill to'}</div>
+                {editable ? editing.customer : <div className="text-[1.05em] font-semibold">{model.buyer.name || '—'}</div>}
+                {model.buyer.address ? <div className="whitespace-pre-line text-[0.9em] text-neutral-600">{model.buyer.address}</div> : null}
+                <div className="text-[0.9em] text-neutral-600">
+                  {[model.buyer.gstin ? `GSTIN ${model.buyer.gstin}` : null, model.buyer.stateName || model.buyer.stateCode ? `${model.buyer.stateName || gstStateName(model.buyer.stateCode)}${model.buyer.stateCode ? ` (${model.buyer.stateCode})` : ''}` : null].filter(Boolean).join(' · ')}
+                  {editable && model.type !== 'PURCHASE_ORDER' ? (
+                    <span className="ml-2 inline-flex items-baseline gap-1">
+                      Place of supply
+                      <PaperField label="Place of supply (state code)" value={model.buyer.stateCode} placeholder="29" onChange={(v) => { editing.setPlaceOfSupply(v); }} className="w-10 min-h-[1.2em]" />
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              {showShipTo ? (
+                <div className="flex flex-col gap-1">
+                  <div className={t.section}>Ship to</div>
                   {editable ? (
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-start gap-1">
-                        <div className="min-w-0 flex-1">{editing.itemPicker(line)}</div>
-                        {editing.itemHistory?.(line)}
+                    <div className="flex flex-col">
+                      <PaperField label="Consignee name" value={shipTo?.name ?? ''} placeholder="Same as buyer when blank" onChange={(v) => { editing.updateShipTo({ name: v }); }} className="font-medium" />
+                      <PaperArea label="Consignee address" rows={2} value={shipTo?.address ?? ''} placeholder="Address" onChange={(v) => { editing.updateShipTo({ address: v }); }} className="text-[0.9em]" />
+                      <div className="grid grid-cols-[auto_1fr_auto_3rem] items-baseline gap-x-2 text-[0.9em] text-neutral-600">
+                        <span>GSTIN</span>
+                        <PaperField label="Consignee GSTIN" value={shipTo?.gstin ?? ''} onChange={(v) => { editing.updateShipTo({ gstin: v.toUpperCase() }); }} className="min-h-[1.2em]" />
+                        <span>State code</span>
+                        <PaperField label="Consignee state code" value={shipTo?.stateCode ?? ''} onChange={(v) => { editing.updateShipTo({ stateCode: v }); }} className="min-h-[1.2em]" />
                       </div>
-                      <PaperField dataCell={`description-${String(index)}`} label={`Line ${String(index + 1)} description`} value={line.description} placeholder="Description" onChange={(value) => { editing.updateLine(line.key, { description: value }); }} onKeyDown={enter(index, 'description')} />
                     </div>
                   ) : (
-                    line.description
+                    <>
+                      <div className="font-medium">{shipTo?.name}</div>
+                      <div className="whitespace-pre-line text-[0.9em] text-neutral-600">{shipTo?.address}</div>
+                      <div className="text-[0.9em] text-neutral-600">
+                        {[shipTo?.gstin ? `GSTIN ${shipTo.gstin}` : null, shipTo?.stateName || shipTo?.stateCode ? `${shipTo.stateName || gstStateName(shipTo.stateCode ?? '')}${shipTo.stateCode ? ` (${shipTo.stateCode})` : ''}` : null].filter(Boolean).join(' · ')}
+                      </div>
+                    </>
                   )}
-                </TableCell>
-                {design.showHsn ? (
-                  <TableCell className={cn(t.cell, 'tabular-nums')}>
-                    {editable ? <PaperField dataCell={`hsn-${String(index)}`} label={`Line ${String(index + 1)} HSN or SAC`} value={line.hsnCode} placeholder="HSN" onChange={(v) => { editing.updateLine(line.key, { hsnCode: v }); }} onKeyDown={enter(index, 'hsn')} /> : line.hsnCode}
+                </div>
+              ) : null}
+              {showEInvoice ? (
+                <div className="flex flex-col gap-1">
+                  <div className={t.section}>e-Invoice</div>
+                  <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[0.9em]">
+                    <span className="text-neutral-600">IRN</span>
+                    {editable ? <PaperField label="IRN" value={details.irn ?? ''} onChange={(v) => { editing.updateDetails({ irn: v }); }} className="min-h-[1.2em]" /> : <span className="break-all">{details.irn}</span>}
+                    <span className="text-neutral-600">Ack no.</span>
+                    {editable ? <PaperField label="Acknowledgement number" value={details.ackNo ?? ''} onChange={(v) => { editing.updateDetails({ ackNo: v }); }} className="min-h-[1.2em]" /> : <span>{details.ackNo}</span>}
+                    <span className="text-neutral-600">Ack date</span>
+                    {editable ? <PaperField label="Acknowledgement date" value={details.ackDate ?? ''} onChange={(v) => { editing.updateDetails({ ackDate: v }); }} className="min-h-[1.2em]" /> : <span>{details.ackDate}</span>}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className={cn(t.metaBox, 'min-w-[62mm] self-start text-[0.95em]')}>
+              <span className={t.metaLabel}>Number</span>
+              <span className="font-medium tabular-nums">{model.number ?? 'Draft'}</span>
+              <span className={t.metaLabel}>Date</span>
+              <span className="tabular-nums">{editable ? editing.date : formatDate(model.date)}</span>
+              {model.type === 'ESTIMATE' || model.type === 'PURCHASE_ORDER' ? (
+                <>
+                  <span className={t.metaLabel}>{model.type === 'ESTIMATE' ? 'Valid until' : 'Expected by'}</span>
+                  <span className="tabular-nums">{editable && editing.validUntil !== undefined ? editing.validUntil : model.validUntil ? formatDate(model.validUntil) : '—'}</span>
+                </>
+              ) : null}
+              {model.reference ? (
+                <>
+                  <span className={t.metaLabel}>Reference</span>
+                  <span>{model.reference}</span>
+                </>
+              ) : null}
+              {design.showDetailsGrid
+                ? (editable ? DETAIL_ORDER : filledDetails.map(([k]) => k).filter((k) => !E_INVOICE_KEYS.has(k))).map((key) => (
+                    <DetailPair key={key} label={DETAIL_LABELS[key]} value={details[key] ?? ''} editable={editable} labelClass={t.metaLabel} onChange={(v) => { editing?.updateDetails({ [key]: v }); }} />
+                  ))
+                : null}
+            </div>
+          </div>
+
+          <Table className="text-[1em]">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className={cn(t.tableHeadCell, 'w-8')}>#</TableHead>
+                <TableHead className={t.tableHeadCell}>Description</TableHead>
+                {design.showHsn ? <TableHead className={cn(t.tableHeadCell, 'w-[10%]')}>HSN/SAC</TableHead> : null}
+                <TableHead className={cn(t.tableHeadCell, 'w-[12%] text-right')}>Qty</TableHead>
+                {design.showUnit ? <TableHead className={cn(t.tableHeadCell, 'w-[8%]')}>Unit</TableHead> : null}
+                <TableHead className={cn(t.tableHeadCell, 'w-[13%] text-right')}>Rate</TableHead>
+                {design.showDiscount ? <TableHead className={cn(t.tableHeadCell, 'w-[8%] text-right')}>Disc %</TableHead> : null}
+                {design.showTax ? <TableHead className={cn(t.tableHeadCell, 'w-[8%] text-right')}>Tax %</TableHead> : null}
+                <TableHead className={cn(t.tableHeadCell, 'w-[15%] text-right')}>Amount</TableHead>
+                {editable ? <TableHead className={cn(t.tableHeadCell, 'w-8 print-hidden')}> </TableHead> : null}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {model.lines.map((line, index) => (
+                <TableRow key={line.key} className={cn(t.row, 'hover:bg-transparent')}>
+                  <TableCell className={cn(t.cell, 'text-neutral-500 tabular-nums')}>{index + 1}</TableCell>
+                  <TableCell className={cn(t.cell, 'whitespace-normal')}>
+                    {editable ? (
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-start gap-1">
+                          <div className="min-w-0 flex-1">{editing.itemPicker(line)}</div>
+                          {editing.itemHistory?.(line)}
+                        </div>
+                        <PaperField dataCell={`description-${String(index)}`} label={`Line ${String(index + 1)} description`} value={line.description} placeholder="Description" onChange={(value) => { editing.updateLine(line.key, { description: value }); }} onKeyDown={enter(index, 'description')} />
+                      </div>
+                    ) : (
+                      line.description
+                    )}
                   </TableCell>
-                ) : null}
-                <TableCell className={cn(t.cell, 'text-right tabular-nums')}>
-                  {editable ? <PaperField dataCell={`qty-${String(index)}`} align="right" label={`Line ${String(index + 1)} quantity`} value={line.quantity} onChange={(value) => { editing.updateLine(line.key, { quantity: value }); }} onKeyDown={enter(index, 'qty')} /> : trimQty(line.quantity)}
-                </TableCell>
-                {design.showUnit ? (
-                  <TableCell className={t.cell}>{editable ? <PaperField dataCell={`unit-${String(index)}`} label={`Line ${String(index + 1)} unit`} value={line.unit} placeholder="Unit" onChange={(value) => { editing.updateLine(line.key, { unit: value }); }} onKeyDown={enter(index, 'unit')} /> : line.unit}</TableCell>
-                ) : null}
-                <TableCell className={cn(t.cell, 'text-right tabular-nums')}>
-                  {editable ? <PaperField dataCell={`rate-${String(index)}`} align="right" label={`Line ${String(index + 1)} rate`} value={line.rate} placeholder="0.00" onChange={(value) => { editing.updateLine(line.key, { rate: value }); }} onKeyDown={enter(index, 'rate')} /> : formatMoney(line.rate)}
-                </TableCell>
-                {design.showDiscount ? (
+                  {design.showHsn ? (
+                    <TableCell className={cn(t.cell, 'tabular-nums')}>
+                      {editable ? <PaperField dataCell={`hsn-${String(index)}`} label={`Line ${String(index + 1)} HSN or SAC`} value={line.hsnCode} placeholder="HSN" onChange={(v) => { editing.updateLine(line.key, { hsnCode: v }); }} onKeyDown={enter(index, 'hsn')} /> : line.hsnCode}
+                    </TableCell>
+                  ) : null}
                   <TableCell className={cn(t.cell, 'text-right tabular-nums')}>
-                    {editable ? <PaperField dataCell={`disc-${String(index)}`} align="right" label={`Line ${String(index + 1)} discount percent`} value={line.discountPct} onChange={(value) => { editing.updateLine(line.key, { discountPct: value }); }} onKeyDown={enter(index, 'disc')} /> : trimQty(line.discountPct)}
+                    {editable ? <PaperField dataCell={`qty-${String(index)}`} align="right" label={`Line ${String(index + 1)} quantity`} value={line.quantity} onChange={(value) => { editing.updateLine(line.key, { quantity: value }); }} onKeyDown={enter(index, 'qty')} /> : trimQty(line.quantity)}
                   </TableCell>
-                ) : null}
-                {design.showTax ? (
+                  {design.showUnit ? (
+                    <TableCell className={t.cell}>{editable ? <PaperField dataCell={`unit-${String(index)}`} label={`Line ${String(index + 1)} unit`} value={line.unit} placeholder="Unit" onChange={(value) => { editing.updateLine(line.key, { unit: value }); }} onKeyDown={enter(index, 'unit')} /> : line.unit}</TableCell>
+                  ) : null}
                   <TableCell className={cn(t.cell, 'text-right tabular-nums')}>
-                    {editable ? <PaperField dataCell={`tax-${String(index)}`} align="right" label={`Line ${String(index + 1)} tax percent`} value={line.taxPct} onChange={(value) => { editing.updateLine(line.key, { taxPct: value }); }} onKeyDown={enter(index, 'tax')} /> : trimQty(line.taxPct)}
+                    {editable ? <PaperField dataCell={`rate-${String(index)}`} align="right" label={`Line ${String(index + 1)} rate`} value={line.rate} placeholder="0.00" onChange={(value) => { editing.updateLine(line.key, { rate: value }); }} onKeyDown={enter(index, 'rate')} /> : formatMoney(line.rate)}
                   </TableCell>
-                ) : null}
-                <TableCell className={cn(t.cell, 'text-right font-medium tabular-nums')}>{formatMoney(line.amount)}</TableCell>
-                {editable ? (
-                  <TableCell className={cn(t.cell, 'print-hidden')}>
-                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove line ${String(index + 1)}`} onClick={() => { editing.removeLine(line.key); }}>
-                      <XIcon />
+                  {design.showDiscount ? (
+                    <TableCell className={cn(t.cell, 'text-right tabular-nums')}>
+                      {editable ? <PaperField dataCell={`disc-${String(index)}`} align="right" label={`Line ${String(index + 1)} discount percent`} value={line.discountPct} onChange={(value) => { editing.updateLine(line.key, { discountPct: value }); }} onKeyDown={enter(index, 'disc')} /> : trimQty(line.discountPct)}
+                    </TableCell>
+                  ) : null}
+                  {design.showTax ? (
+                    <TableCell className={cn(t.cell, 'text-right tabular-nums')}>
+                      {editable ? <PaperField dataCell={`tax-${String(index)}`} align="right" label={`Line ${String(index + 1)} tax percent`} value={line.taxPct} onChange={(value) => { editing.updateLine(line.key, { taxPct: value }); }} onKeyDown={enter(index, 'tax')} /> : trimQty(line.taxPct)}
+                    </TableCell>
+                  ) : null}
+                  <TableCell className={cn(t.cell, 'text-right font-medium tabular-nums')}>{formatMoney(line.amount)}</TableCell>
+                  {editable ? (
+                    <TableCell className={cn(t.cell, 'print-hidden')}>
+                      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove line ${String(index + 1)}`} onClick={() => { editing.removeLine(line.key); }}>
+                        <XIcon />
+                      </Button>
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+              ))}
+              {editable ? (
+                <TableRow className="print-hidden hover:bg-transparent">
+                  <TableCell colSpan={columns + 1} className="py-1">
+                    <Button type="button" variant="ghost" size="sm" onClick={editing.addLine} className="text-[var(--paper-accent)]">
+                      <PlusIcon data-icon="inline-start" />
+                      Add line
+                      <span className="text-muted-foreground ml-2 text-xs">or press Enter on the last line</span>
                     </Button>
                   </TableCell>
-                ) : null}
-              </TableRow>
-            ))}
-            {editable ? (
-              <TableRow className="print-hidden hover:bg-transparent">
-                <TableCell colSpan={columns + 1} className="py-1">
-                  <Button type="button" variant="ghost" size="sm" onClick={editing.addLine} className="text-[var(--paper-accent)]">
-                    <PlusIcon data-icon="inline-start" />
-                    Add line
-                    <span className="text-muted-foreground ml-2 text-xs">or press Enter on the last line</span>
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
+                </TableRow>
+              ) : null}
+              {totalQty > 0 ? (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell className={cn(t.cell, 'py-1')} />
+                  <TableCell className={cn(t.cell, 'py-1 text-right text-[0.9em] text-neutral-600')}>Total quantity</TableCell>
+                  {design.showHsn ? <TableCell className={cn(t.cell, 'py-1')} /> : null}
+                  <TableCell className={cn(t.cell, 'py-1 text-right font-medium tabular-nums')}>{`${trimQty(totalQty.toFixed(3))}${unit ? ` ${unit}` : ''}`}</TableCell>
+                  <TableCell colSpan={columns - 3 - (design.showHsn ? 1 : 0) + (editable ? 1 : 0)} className={cn(t.cell, 'py-1')} />
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
 
-        <div className="grid gap-6 sm:grid-cols-[1fr_auto]">
-          <div className="flex flex-col gap-4">
-            {design.showAmountInWords ? (
-              <div className="flex flex-col gap-0.5">
-                <div className={t.section}>Amount in words</div>
-                <div className="text-[0.95em] font-medium">{moneyToIndianWords(model.totals.grandTotal)}</div>
-              </div>
-            ) : null}
-            {editable || model.notes.trim() !== '' ? (
-              <div className="flex flex-col gap-1">
-                <div className={t.section}>Notes</div>
-                {editable ? <PaperArea label="Notes" value={model.notes} placeholder="Anything the customer should read" onChange={editing.setNotes} /> : <p className="whitespace-pre-line text-[0.95em]">{model.notes}</p>}
-              </div>
-            ) : null}
-            {design.showTerms && (editable || model.terms.trim() !== '') ? (
-              <div className="flex flex-col gap-1">
-                <div className={t.section}>Terms</div>
-                {editable ? <PaperArea label="Terms" value={model.terms} placeholder={design.defaultTerms || 'Payment terms, delivery, validity'} onChange={editing.setTerms} /> : <p className="whitespace-pre-line text-[0.9em] text-neutral-700">{model.terms}</p>}
-              </div>
-            ) : null}
-            {design.showBank && profile.bankAccount.trim() !== '' ? (
-              <div className="flex flex-col gap-0.5">
-                <div className={t.section}>Bank</div>
-                <div className="text-[0.9em]">{[profile.bankName, profile.bankBranch].filter((p) => p.trim() !== '').join(', ')}</div>
-                <div className="text-[0.9em] tabular-nums">A/c {profile.bankAccount}{profile.bankIfsc ? ` · IFSC ${profile.bankIfsc}` : ''}</div>
-              </div>
-            ) : null}
-            {design.showDeclaration && profile.declaration.trim() !== '' ? (
-              <div className="flex flex-col gap-0.5">
-                <div className={t.section}>Declaration</div>
-                <div className="text-[0.85em] text-neutral-600">{profile.declaration}</div>
-              </div>
-            ) : null}
-          </div>
-          <div className={cn(t.totalsBox, 'flex flex-col gap-1 text-[0.95em]')}>
-            <Row label="Subtotal" value={model.totals.subtotal} />
-            {design.showDiscount ? <Row label="Discount" value={model.totals.discountTotal} /> : null}
-            {design.showTax ? (
-              split.kind === 'intra' ? (
-                <>
-                  <Row label="CGST" value={half(model.totals.taxTotal)} />
-                  <Row label="SGST" value={half(model.totals.taxTotal)} />
-                </>
-              ) : (
-                <Row label={split.kind === 'inter' ? 'IGST' : 'Tax'} value={model.totals.taxTotal} />
-              )
-            ) : null}
-            <div className={cn('flex items-baseline justify-between gap-4', t.grandTotal)}>
-              <span>Total</span>
-              <span className="tabular-nums">{formatMoney(model.totals.grandTotal)}</span>
+          <div className="grid gap-6 sm:grid-cols-[1fr_auto]">
+            <div className="flex flex-col gap-4">
+              {design.showAmountInWords ? (
+                <div className="flex flex-col gap-0.5">
+                  <div className={t.section}>Amount in words</div>
+                  <div className="text-[0.95em] font-medium">{moneyToIndianWords(model.totals.grandTotal)}</div>
+                  {design.showHsn && taxed ? <div className="text-[0.85em] text-neutral-600">Tax amount in words: {moneyToIndianWords(model.totals.taxTotal)}</div> : null}
+                </div>
+              ) : null}
+              {editable || model.notes.trim() !== '' ? (
+                <div className="flex flex-col gap-1">
+                  <div className={t.section}>Notes</div>
+                  {editable ? <PaperArea label="Notes" value={model.notes} placeholder={model.type === 'PURCHASE_ORDER' ? 'Anything the vendor should read' : 'Anything the customer should read'} onChange={editing.setNotes} /> : <p className="whitespace-pre-line text-[0.95em]">{model.notes}</p>}
+                </div>
+              ) : null}
+              {design.showTerms && (editable || model.terms.trim() !== '') ? (
+                <div className="flex flex-col gap-1">
+                  <div className={t.section}>Terms</div>
+                  {editable ? <PaperArea label="Terms" value={model.terms} placeholder={design.defaultTerms || 'Payment terms, delivery, validity'} onChange={editing.setTerms} /> : <p className="whitespace-pre-line text-[0.9em] text-neutral-700">{model.terms}</p>}
+                </div>
+              ) : null}
             </div>
-            {model.totals.preview && editable ? <div className="print-hidden text-[0.8em] text-neutral-500">Preview — the server prices it on save.</div> : null}
+            <div className={cn(t.totalsBox, 'flex flex-col gap-1 text-[0.95em]')}>
+              <Row label="Subtotal" value={model.totals.subtotal} />
+              {design.showDiscount && Number(model.totals.discountTotal) > 0 ? <Row label="Discount" value={model.totals.discountTotal} /> : null}
+              {design.showTax ? (
+                split.kind === 'intra' ? (
+                  <>
+                    <Row label="CGST" value={half(model.totals.taxTotal)} />
+                    <Row label="SGST" value={half(model.totals.taxTotal)} />
+                  </>
+                ) : (
+                  <Row label={split.kind === 'inter' ? 'IGST' : 'Tax'} value={model.totals.taxTotal} />
+                )
+              ) : null}
+              <div className={cn('flex items-baseline justify-between gap-4', t.grandTotal)}>
+                <span>Total</span>
+                <span className="tabular-nums">₹ {formatMoney(model.totals.grandTotal)}</span>
+              </div>
+              <div className="text-right text-[0.8em] text-neutral-500 italic">E. &amp; O.E</div>
+              {model.totals.preview && editable ? <div className="print-hidden text-[0.8em] text-neutral-500">Preview — the server prices it on save.</div> : null}
+            </div>
           </div>
-        </div>
 
-        <footer className={cn('mt-auto flex flex-col gap-3', t.footer)}>
-          {design.showSignature ? (
-            <div className="flex items-end justify-end">
-              <div className="flex flex-col items-end gap-8 text-right">
-                <div>For {businessName}</div>
-                <div className="border-t border-neutral-400 pt-1">{profile.signatoryName.trim() === '' ? 'Authorised signatory' : profile.signatoryName}</div>
-              </div>
-            </div>
+          {design.showHsn && summary.length > 0 && taxed ? (
+            <Table className="text-[0.9em]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className={t.summaryHead}>HSN/SAC</TableHead>
+                  <TableHead className={cn(t.summaryHead, 'text-right')}>Taxable value</TableHead>
+                  {split.kind === 'intra' ? (
+                    <>
+                      <TableHead className={cn(t.summaryHead, 'text-right')}>CGST rate</TableHead>
+                      <TableHead className={cn(t.summaryHead, 'text-right')}>CGST</TableHead>
+                      <TableHead className={cn(t.summaryHead, 'text-right')}>SGST rate</TableHead>
+                      <TableHead className={cn(t.summaryHead, 'text-right')}>SGST</TableHead>
+                    </>
+                  ) : (
+                    <>
+                      <TableHead className={cn(t.summaryHead, 'text-right')}>{split.kind === 'inter' ? 'IGST rate' : 'Rate'}</TableHead>
+                      <TableHead className={cn(t.summaryHead, 'text-right')}>{split.kind === 'inter' ? 'IGST' : 'Tax'}</TableHead>
+                    </>
+                  )}
+                  <TableHead className={cn(t.summaryHead, 'text-right')}>Total tax</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {summary.map((row) => (
+                  <TableRow key={`${row.hsn}-${String(row.ratePct)}`} className="hover:bg-transparent">
+                    <TableCell className={t.summaryCell}>{row.hsn}</TableCell>
+                    <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(row.taxable.toFixed(2))}</TableCell>
+                    {split.kind === 'intra' ? (
+                      <>
+                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{trimQty((row.ratePct / 2).toFixed(2))}%</TableCell>
+                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(half(row.tax.toFixed(2)))}</TableCell>
+                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{trimQty((row.ratePct / 2).toFixed(2))}%</TableCell>
+                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(half(row.tax.toFixed(2)))}</TableCell>
+                      </>
+                    ) : (
+                      <>
+                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{trimQty(row.ratePct.toFixed(2))}%</TableCell>
+                        <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(row.tax.toFixed(2))}</TableCell>
+                      </>
+                    )}
+                    <TableCell className={cn(t.summaryCell, 'text-right tabular-nums')}>{formatMoney(row.tax.toFixed(2))}</TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="hover:bg-transparent">
+                  <TableCell className={cn(t.summaryCell, 'font-medium')}>Total</TableCell>
+                  <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(model.totals.subtotal)}</TableCell>
+                  {split.kind === 'intra' ? (
+                    <>
+                      <TableCell className={t.summaryCell} />
+                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(half(model.totals.taxTotal))}</TableCell>
+                      <TableCell className={t.summaryCell} />
+                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(half(model.totals.taxTotal))}</TableCell>
+                    </>
+                  ) : (
+                    <>
+                      <TableCell className={t.summaryCell} />
+                      <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(model.totals.taxTotal)}</TableCell>
+                    </>
+                  )}
+                  <TableCell className={cn(t.summaryCell, 'text-right font-medium tabular-nums')}>{formatMoney(model.totals.taxTotal)}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
           ) : null}
-          <PaperFoot design={design} footerLogoUrls={footerLogoUrls} />
-        </footer>
+
+          <footer className={cn('mt-auto flex flex-col gap-3', t.footer)}>
+            <div className="grid gap-6 sm:grid-cols-[1fr_auto]">
+              <div className="flex flex-col gap-3">
+                {design.showBank && profile.bankAccount.trim() !== '' ? (
+                  <div className="flex flex-col gap-0.5">
+                    <div className={t.section}>Bank</div>
+                    <div className="text-[1.05em] text-neutral-800">{[profile.bankName, profile.bankBranch].filter((p) => p.trim() !== '').join(', ')}</div>
+                    <div className="text-[1.05em] text-neutral-800 tabular-nums">A/c {profile.bankAccount}{profile.bankIfsc ? ` · IFSC ${profile.bankIfsc}` : ''}</div>
+                  </div>
+                ) : null}
+                {design.showDeclaration && profile.declaration.trim() !== '' ? (
+                  <div className="flex flex-col gap-0.5">
+                    <div className={t.section}>Declaration</div>
+                    <div className="text-neutral-600">{profile.declaration}</div>
+                  </div>
+                ) : null}
+              </div>
+              {design.showSignature ? (
+                <div className="flex items-end justify-end">
+                  <div className="flex flex-col items-end gap-8 text-right text-neutral-800">
+                    <div>For {businessName}</div>
+                    <div className="border-t border-neutral-400 pt-1">{profile.signatoryName.trim() === '' ? 'Authorised signatory' : profile.signatoryName}</div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <PaperFoot design={design} profile={profile} footerLogoUrls={footerLogoUrls} />
+          </footer>
+        </div>
       </div>
     </div>
   );
 }
 
+/** Shown in their own block, not the details column. */
+const E_INVOICE_KEYS = new Set<keyof DocumentDetails>(['irn', 'ackNo', 'ackDate']);
 const DETAIL_ORDER: readonly (keyof DocumentDetails)[] = ['deliveryNote', 'paymentTerms', 'referenceNo', 'otherReferences', 'buyersOrderNo', 'buyersOrderDate', 'dispatchDocNo', 'deliveryNoteDate', 'dispatchedThrough', 'destination', 'termsOfDelivery'];
 const DETAIL_LABELS: Record<keyof DocumentDetails, string> = {
   deliveryNote: 'Delivery note',

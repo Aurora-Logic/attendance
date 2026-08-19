@@ -18,10 +18,13 @@ import { cn } from '@/lib/utils';
 import {
   DOCUMENT_ACCENTS,
   DOCUMENT_ACCENT_LABELS,
+  DOCUMENT_FONTS,
+  DOCUMENT_FONT_LABELS,
   DOCUMENT_TEMPLATE_IDS,
   DOCUMENT_TEMPLATE_LABELS,
   type DocumentAccent,
   type DocumentDesign,
+  type DocumentFont,
   type DocumentProfile,
   type DocumentSettings,
   type DocumentTemplateId,
@@ -158,6 +161,26 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
             </div>
 
             <Field>
+              <FieldLabel htmlFor="design-font">Typeface</FieldLabel>
+              <Select value={design.fontFamily} onValueChange={(value: string | null) => { if (value !== null && (DOCUMENT_FONTS as readonly string[]).includes(value)) setDesign({ fontFamily: value as DocumentFont }); }}>
+                <SelectTrigger id="design-font" className="pointer-coarse:min-h-11 w-full" aria-label="Typeface">
+                  <SelectValue>{(value: string) => DOCUMENT_FONT_LABELS[value as DocumentFont].label}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {DOCUMENT_FONTS.map((font) => (
+                    <SelectItem key={font} value={font}>
+                      <span className="flex flex-col">
+                        <span>{DOCUMENT_FONT_LABELS[font].label}</span>
+                        <span className="text-muted-foreground text-xs">{DOCUMENT_FONT_LABELS[font].note}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>System typefaces, so the page prints the same on every machine. Figures are always monospaced so columns line up.</FieldDescription>
+            </Field>
+
+            <Field>
               <FieldLabel>On the page</FieldLabel>
               <div className="flex flex-col divide-y border">
                 <ToggleRow id="design-hsn" label="HSN/SAC column and tax summary" checked={design.showHsn} onChange={(v) => { setDesign({ showHsn: v }); }} />
@@ -220,6 +243,7 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               <FieldLabel htmlFor="biz-declaration">Declaration</FieldLabel>
               <Textarea id="biz-declaration" rows={3} value={profile.declaration} onChange={(e) => { setProfile({ declaration: e.target.value }); }} />
             </Field>
+            <TextRow id="biz-footer-caption" label="Foot of the page" value={profile.footerCaption} onChange={(v) => { setProfile({ footerCaption: v }); }} placeholder="Authorised channel partners of" />
             <FooterLogos fileIds={profile.footerLogoFileIds} canEdit={canSave} onChange={(ids) => { setProfile({ footerLogoFileIds: ids }); }} />
           </FieldGroup>
         </TabsContent>
@@ -271,14 +295,15 @@ function TemplateThumb({ id, accent }: { id: DocumentTemplateId; accent: Documen
   const bar = ACCENT_SWATCH[accent];
   return (
     <span aria-hidden className="flex h-14 w-11 shrink-0 flex-col gap-0.5 border bg-white p-1">
-      {id === 'classic' ? (
+      {id === 'bordered' ? (
         <>
-          <span className="flex justify-between"><span className="h-1.5 w-3 bg-neutral-800" /><span className="h-1.5 w-2 bg-neutral-300" /></span>
-          <span className={cn('h-0.5 w-full', bar)} />
-          <span className="mt-1 h-0.5 w-full bg-neutral-300" />
-          <span className="h-0.5 w-full bg-neutral-200" />
-          <span className="h-0.5 w-full bg-neutral-200" />
-          <span className={cn('mt-auto ml-auto h-1 w-4', bar)} />
+          <span className="flex flex-1 flex-col gap-0.5 border border-neutral-700 p-0.5">
+            <span className="flex justify-between"><span className="h-1 w-3 bg-neutral-800" /><span className="h-1 w-2 bg-neutral-300" /></span>
+            <span className="h-px w-full bg-neutral-700" />
+            <span className="h-px w-full bg-neutral-300" />
+            <span className="h-px w-full bg-neutral-300" />
+            <span className="mt-auto ml-auto h-2 w-4 border border-neutral-700" />
+          </span>
         </>
       ) : null}
       {id === 'modern' ? (
@@ -299,13 +324,15 @@ function TemplateThumb({ id, accent }: { id: DocumentTemplateId; accent: Documen
           <span className="mt-auto ml-auto h-px w-4 bg-neutral-800" />
         </>
       ) : null}
-      {id === 'bold' ? (
+      {id === 'ledger' ? (
         <>
-          <span className={cn('-m-1 mb-0 h-5', bar)} />
-          <span className="mt-1 h-1 w-full bg-neutral-800" />
-          <span className="h-0.5 w-full bg-neutral-200" />
-          <span className="h-0.5 w-full bg-neutral-200" />
-          <span className={cn('mt-auto ml-auto h-2 w-5', bar)} />
+          <span className="h-1 w-4 bg-neutral-800" />
+          <span className="mt-0.5 h-0.5 w-full border-y border-neutral-800" />
+          <span className="grid flex-1 grid-cols-4 gap-px bg-neutral-400 p-px">
+            <span className="bg-white" /><span className="bg-white" /><span className="bg-white" /><span className="bg-white" />
+            <span className="bg-white" /><span className="bg-white" /><span className="bg-white" /><span className="bg-white" />
+          </span>
+          <span className="mt-0.5 ml-auto h-1 w-4 border-y-2 border-double border-neutral-800" />
         </>
       ) : null}
       {id === 'tally' ? (

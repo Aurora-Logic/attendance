@@ -8,14 +8,26 @@ import { z } from 'zod';
  * worn four ways. Stored as a setting; nothing here is a table.
  */
 
-export const DOCUMENT_TEMPLATE_IDS = ['tally', 'classic', 'modern', 'minimal', 'bold'] as const;
+export const DOCUMENT_TEMPLATE_IDS = ['tally', 'modern', 'minimal', 'bordered', 'ledger'] as const;
 export type DocumentTemplateId = (typeof DOCUMENT_TEMPLATE_IDS)[number];
 export const DOCUMENT_TEMPLATE_LABELS: Record<DocumentTemplateId, { label: string; note: string }> = {
-  classic: { label: 'Classic', note: 'Ruled table, serif headline, the letterhead most accountants expect.' },
-  modern: { label: 'Modern', note: 'Accent band across the top, generous white space, sans-serif.' },
-  minimal: { label: 'Minimal', note: 'Type and hairlines only; the logo carries the identity.' },
-  bold: { label: 'Bold', note: 'A coloured header block and strong totals; reads from across a counter.' },
   tally: { label: 'Tally', note: 'The GST tax invoice everyone knows: boxed seller, consignee and buyer, the details grid, HSN summary, amount in words.' },
+  modern: { label: 'Modern', note: 'Accent band across the top, generous white space.' },
+  minimal: { label: 'Minimal', note: 'Type and hairlines only; the logo carries the identity.' },
+  bordered: { label: 'Bordered', note: 'The minimal page inside a ruled frame, every block boxed by a hairline.' },
+  ledger: { label: 'Ledger', note: 'Ruled rows and columns, a double rule under the total: the account book.' },
+};
+/** Templates that were offered once and are no longer; a saved design that names one wears its nearest successor. */
+const RETIRED_TEMPLATES: Record<string, DocumentTemplateId> = { classic: 'bordered', bold: 'modern' };
+
+/** System font stacks, so every machine and every printer renders the same page without fetching anything. */
+export const DOCUMENT_FONTS = ['sans', 'serif', 'humanist', 'mono'] as const;
+export type DocumentFont = (typeof DOCUMENT_FONTS)[number];
+export const DOCUMENT_FONT_LABELS: Record<DocumentFont, { label: string; note: string }> = {
+  sans: { label: 'Sans', note: 'The system sans-serif; clean on screen and on paper.' },
+  serif: { label: 'Serif', note: 'Georgia or Times; the letterhead look.' },
+  humanist: { label: 'Humanist', note: 'Trebuchet or Verdana; open and friendly.' },
+  mono: { label: 'Typewriter', note: 'Monospaced throughout; the dot-matrix voucher.' },
 };
 
 export const PRINTED_DOCUMENT_TYPES = ['ESTIMATE', 'SALES_ORDER', 'INVOICE', 'PURCHASE_ORDER'] as const;
@@ -64,12 +76,15 @@ export const documentProfileSchema = z.object({
   bankIfsc: shortText(20),
   bankBranch: shortText(120),
   signatoryName: shortText(120),
+  /** The line above the footer logos — "Authorised channel partners of" — or anything the foot of the page should say. */
+  footerCaption: shortText(200).default(''),
 });
 export type DocumentProfile = z.infer<typeof documentProfileSchema>;
 
 export const documentDesignSchema = z.object({
-  templateId: z.enum(DOCUMENT_TEMPLATE_IDS),
+  templateId: z.preprocess((value) => (typeof value === 'string' && value in RETIRED_TEMPLATES ? RETIRED_TEMPLATES[value] : value), z.enum(DOCUMENT_TEMPLATE_IDS)),
   accent: z.enum(DOCUMENT_ACCENTS),
+  fontFamily: z.enum(DOCUMENT_FONTS).default('sans'),
   fontScale: z.enum(['sm', 'md', 'lg']),
   logoPlacement: z.enum(['left', 'right', 'none']),
   showDiscount: z.boolean(),
@@ -106,6 +121,7 @@ export type DocumentSettings = z.infer<typeof documentSettingsSchema>;
 export const DEFAULT_DOCUMENT_DESIGN: DocumentDesign = {
   templateId: 'tally',
   accent: 'ink',
+  fontFamily: 'sans',
   fontScale: 'md',
   logoPlacement: 'left',
   showDiscount: true,
@@ -143,6 +159,7 @@ export const DEFAULT_DOCUMENT_PROFILE: DocumentProfile = {
   stateCode: '',
   declaration: DEFAULT_DECLARATION,
   footerLogoFileIds: [],
+  footerCaption: '',
 };
 
 export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
@@ -151,7 +168,7 @@ export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
     ESTIMATE: { ...DEFAULT_DOCUMENT_DESIGN, showEInvoice: false, footerNote: 'This is a Computer Generated Estimate' },
     SALES_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, footerNote: 'This is a Computer Generated Sales Order' },
     INVOICE: { ...DEFAULT_DOCUMENT_DESIGN, showBank: true },
-    PURCHASE_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, showDiscount: false, footerNote: 'This is a Computer Generated Purchase Order' },
+    PURCHASE_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, showDiscount: false, showDeclaration: false, footerNote: 'This is a Computer Generated Purchase Order' },
   },
 };
 

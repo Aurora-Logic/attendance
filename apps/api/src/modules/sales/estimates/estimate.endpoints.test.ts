@@ -208,6 +208,8 @@ describe('item history (REQ-W-02)', () => {
 
 describe('the printed page (documents settings, Excel)', () => {
   it('document settings read as defaults, are written under settings.manage, and an estimate exports as a workbook', async () => {
+    // The fixture org outlives a run; a previous run's write must not pose as this org's default.
+    await harness.db.execute(sql`DELETE FROM settings WHERE org_id = ${ORG_ID} AND key = 'documents.settings'`);
     const defaults = await harness.get<{ profile: { legalName: string }; designs: { ESTIMATE: { templateId: string } } }>('/documents/settings', { token: salesToken });
     expect(defaults.status).toBe(200);
     expect(defaults.body.designs.ESTIMATE.templateId).toBe('tally');
