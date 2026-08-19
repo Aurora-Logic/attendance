@@ -14,6 +14,8 @@ import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
+import { usePermission } from '@/lib/session/permissions';
+import { PERMISSIONS } from '@vyuha/shared';
 
 import { ResponsiveDialog, ResponsiveDialogActions } from './responsive-dialog';
 import { lineBalances, trimZeros, type Estimate, type PackRecord, type SalesLine } from './types';
@@ -105,7 +107,9 @@ function PackForm({ order, onClose, onPacked }: { order: Estimate; onClose: () =
   }
   const boxes = Number(boxCount);
   const boxesValid = Number.isInteger(boxes) && boxes >= 1 && boxes <= 999;
-  const packable = order.status === 'CONFIRMED' && order.shortClosedAt === null;
+  // Packing writes to the order, so it needs the create key like every other move of quantity (P8-5).
+  const canPack = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
+  const packable = canPack && order.status === 'CONFIRMED' && order.shortClosedAt === null;
   const canSubmit = packable && named.length > 0 && problems.every((p) => p === null) && boxesValid && !pack.isPending;
 
   function submit() {
@@ -154,8 +158,16 @@ function PackForm({ order, onClose, onPacked }: { order: Estimate; onClose: () =
         {packable ? null : (
           <Alert>
             <PackageIcon />
-            <AlertTitle>{order.shortClosedAt === null ? 'Only a confirmed order is picked' : `${order.number} was short-closed`}</AlertTitle>
-            <AlertDescription>{order.shortClosedAt === null ? 'Confirm it first, then pack.' : (order.shortCloseReason ?? 'Its balance was written off.')}</AlertDescription>
+            <AlertTitle>
+              {!canPack ? 'You can see the queue, not pack it' : order.shortClosedAt === null ? 'Only a confirmed order is picked' : `${order.number} was short-closed`}
+            </AlertTitle>
+            <AlertDescription>
+              {!canPack
+                ? 'Packing needs sales.document.create — the Sales role carries it; a warehouse role needs it too.'
+                : order.shortClosedAt === null
+                  ? 'Confirm it first, then pack.'
+                  : (order.shortCloseReason ?? 'Its balance was written off.')}
+            </AlertDescription>
           </Alert>
         )}
 
