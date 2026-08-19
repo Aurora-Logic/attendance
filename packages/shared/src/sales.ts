@@ -109,6 +109,8 @@ export const salesLineInputSchema = z
     discountPct: percentText.default('0'),
     /** Shown for information (REQ-W-01); defaults from the item's GST rate. */
     taxPct: percentText.default('0'),
+    /** GST's HSN (goods) or SAC (services) code, printed per line and summarised per code. */
+    hsnCode: z.string().trim().max(12).nullish(),
   })
   .refine((line) => line.stockItemId != null || line.description !== '', {
     message: 'a description is required for a line without a stock item',
@@ -130,6 +132,7 @@ export interface SalesLineView {
   readonly amount: string;
   /** amount × tax, exact. */
   readonly taxAmount: string;
+  readonly hsnCode: string | null;
   /** REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate. */
   readonly packedQty: string;
   readonly invoicedQty: string;
@@ -195,6 +198,10 @@ export interface EstimateView {
   /** REQ-AA-28: where the customer is told, overridable per order. */
   readonly customerEmail: string | null;
   readonly customerWhatsapp: string | null;
+  /** The GST header: place of supply, consignee, the Tally details grid. */
+  readonly placeOfSupply: string | null;
+  readonly shipTo: ShipTo | null;
+  readonly details: DocumentDetails | null;
   readonly lines: readonly SalesLineView[];
   /** Orders only: the invoices Tally raised against it (REQ-AA-12). */
   readonly invoices: readonly OrderInvoiceView[];
@@ -251,6 +258,49 @@ export type EstimateListQuery = z.infer<typeof estimateListQuerySchema>;
 export const ESTIMATE_SORT_FIELDS = ['number', 'date', 'grandTotal', 'customerName', 'updatedAt'] as const;
 export const DEFAULT_ESTIMATE_SORT = '-date';
 
+/**
+ * The header a GST tax invoice carries beyond the party (the Tally layout
+ * everyone knows): where the goods ship, and the small boxes — delivery
+ * note, terms of payment, references, the buyer's order, dispatch. All
+ * optional; each prints only when filled. e-Invoice's IRN and acknowledgement
+ * live here too, typed until the IRP integration writes them.
+ */
+export const documentDetailsSchema = z.object({
+  deliveryNote: z.string().trim().max(120).optional(),
+  paymentTerms: z.string().trim().max(120).optional(),
+  referenceNo: z.string().trim().max(120).optional(),
+  otherReferences: z.string().trim().max(200).optional(),
+  buyersOrderNo: z.string().trim().max(120).optional(),
+  buyersOrderDate: z.string().trim().max(20).optional(),
+  dispatchDocNo: z.string().trim().max(120).optional(),
+  deliveryNoteDate: z.string().trim().max(20).optional(),
+  dispatchedThrough: z.string().trim().max(120).optional(),
+  destination: z.string().trim().max(120).optional(),
+  termsOfDelivery: z.string().trim().max(200).optional(),
+  irn: z.string().trim().max(80).optional(),
+  ackNo: z.string().trim().max(40).optional(),
+  ackDate: z.string().trim().max(20).optional(),
+});
+export type DocumentDetails = z.infer<typeof documentDetailsSchema>;
+
+/** Consignee (Ship to), when it differs from the buyer. */
+export const shipToSchema = z.object({
+  name: z.string().trim().max(200).optional(),
+  address: z.string().trim().max(600).optional(),
+  gstin: z.string().trim().max(20).optional(),
+  stateName: z.string().trim().max(60).optional(),
+  stateCode: z.string().trim().max(2).optional(),
+});
+export type ShipTo = z.infer<typeof shipToSchema>;
+
+/** The GST header fields every sales document may carry. */
+const gstHeaderShape = {
+  /** The buyer's state code (two digits); decides CGST+SGST against IGST when the seller's is known. */
+  placeOfSupply: z.string().trim().max(2).nullish(),
+  shipTo: shipToSchema.nullish(),
+  details: documentDetailsSchema.nullish(),
+};
+
 const customerSchema = z
   .object({
     partyId: z.uuid().nullish(),
@@ -270,6 +320,7 @@ export const createEstimateSchema = customerSchema.safeExtend({
   ownerId: z.uuid().nullish(),
   notes: z.string().trim().max(4000).nullish(),
   terms: z.string().trim().max(4000).nullish(),
+  ...gstHeaderShape,
   lines: z.array(salesLineInputSchema).max(200).default([]),
 });
 export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;
@@ -285,6 +336,7 @@ export const updateEstimateSchema = z.object({
   ownerId: z.uuid().nullish(),
   notes: z.string().trim().max(4000).nullish(),
   terms: z.string().trim().max(4000).nullish(),
+  ...gstHeaderShape,
   lines: z.array(salesLineInputSchema).max(200).optional(),
 });
 export type UpdateEstimateInput = z.infer<typeof updateEstimateSchema>;
@@ -358,6 +410,7 @@ export const createSalesOrderSchema = z.object({
   /** REQ-AA-28: the party master's contact by default; these override it for this order. */
   customerEmail: z.email().max(254).nullish(),
   customerWhatsapp: z.string().trim().min(6).max(24).nullish(),
+  ...gstHeaderShape,
   lines: z.array(salesLineInputSchema).min(1).max(200),
 });
 export type CreateSalesOrderInput = z.infer<typeof createSalesOrderSchema>;
@@ -371,6 +424,7 @@ export const updateSalesOrderSchema = z.object({
   terms: z.string().trim().max(4000).nullish(),
   customerEmail: z.email().max(254).nullish(),
   customerWhatsapp: z.string().trim().min(6).max(24).nullish(),
+  ...gstHeaderShape,
   lines: z.array(salesLineInputSchema).min(1).max(200).optional(),
 });
 export type UpdateSalesOrderInput = z.infer<typeof updateSalesOrderSchema>;
@@ -652,6 +706,7 @@ export const createInvoiceSchema = z.object({
   date: z.iso.date().optional(),
   lines: z.array(z.object({ lineId: z.uuid(), quantity: z.string().trim().regex(/^\d{1,12}(\.\d{1,3})?$/u, 'a quantity') })).max(200).optional(),
   notes: z.string().trim().max(4000).nullish(),
+  ...gstHeaderShape,
 });
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 

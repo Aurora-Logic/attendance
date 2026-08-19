@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
-import { check, date, index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { check, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+
+import type { DocumentDetails, ShipTo } from '@vyuha/shared';
 
 import { ALIVE, primaryId, standardColumns } from '../../../platform/db/columns.js';
 import { employees, files, organizations, parties, stockItems, vouchers } from '../../../platform/db/schema/index.js';
@@ -73,6 +75,10 @@ export const salesDocuments = pgTable(
     /** REQ-AA-28: from the party master where present, overridable per order. */
     customerEmail: text('customer_email'),
     customerWhatsapp: text('customer_whatsapp'),
+    /** The GST header (documents.ts): buyer's state code, consignee, the Tally details grid. */
+    placeOfSupply: text('place_of_supply'),
+    shipTo: jsonb('ship_to').$type<ShipTo>(),
+    details: jsonb('details').$type<DocumentDetails>(),
     ...standardColumns(),
   },
   (t) => [
@@ -106,6 +112,7 @@ export const salesDocumentLines = pgTable(
     taxPct: numeric('tax_pct', { precision: 5, scale: 2 }).notNull().default('0'),
     amount: numeric('amount', { precision: 16, scale: 2 }).notNull(),
     taxAmount: numeric('tax_amount', { precision: 16, scale: 2 }).notNull().default('0'),
+    hsnCode: text('hsn_code'),
     /**
      * REQ-AA-01/AA-04: quantities are the state, and the chain is a database
      * constraint, not code. `quantity` is the ordered quantity.

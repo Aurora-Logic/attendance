@@ -26,6 +26,7 @@ const line = (over: Partial<SalesLine>): SalesLine => ({
   invoicedQty: '0.000',
   dispatchedQty: '0.000',
   invoicingQty: '0.000',
+  hsnCode: null,
   ...over,
 });
 

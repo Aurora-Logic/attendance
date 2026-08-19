@@ -151,6 +151,10 @@ export class InvoiceService implements OnModuleInit {
       ownerId: order.ownerId ?? principal.employeeId,
       notes: input.notes ?? null,
       terms: order.terms,
+      placeOfSupply: input.placeOfSupply ?? order.placeOfSupply,
+      shipTo: input.shipTo ?? order.shipTo,
+      // The Tally grid: what the order carried, with the buyer's order filled in from the order itself.
+      details: input.details ?? { ...(order.details ?? {}), buyersOrderNo: order.details?.buyersOrderNo ?? order.number, buyersOrderDate: order.details?.buyersOrderDate ?? order.date },
     };
     const id = await repository.create(
       header,
@@ -162,6 +166,7 @@ export class InvoiceService implements OnModuleInit {
         rate: line.rate,
         discountPct: line.discountPct,
         taxPct: line.taxPct,
+        hsnCode: line.hsnCode,
       })),
     );
     const invoice = await repository.view(SQL_TRUE, id);

@@ -139,6 +139,9 @@ export class SalesOrderService implements OnModuleInit {
       ownerId: await resolveDocumentOwner(this.db, this.scopes, GRANTS, principal, input.ownerId),
       notes: input.notes ?? null,
       terms: input.terms ?? null,
+      placeOfSupply: input.placeOfSupply ?? null,
+      shipTo: input.shipTo ?? null,
+      details: input.details ?? null,
       // REQ-AA-28: the party master's contact unless this order says otherwise.
       ...(await this.partyContact(principal.orgId, customer.partyId, input.customerEmail, input.customerWhatsapp)),
     };
@@ -176,6 +179,10 @@ export class SalesOrderService implements OnModuleInit {
       ownerId: estimate.ownerId ?? principal.employeeId,
       notes: estimate.notes,
       terms: estimate.terms,
+      // The GST header travels with the conversion; the order's own boxes start from the estimate's.
+      placeOfSupply: estimate.placeOfSupply,
+      shipTo: estimate.shipTo,
+      details: estimate.details,
       ...(await this.partyContact(principal.orgId, customer.partyId, undefined, undefined)),
     };
     const id = await repository.create(
@@ -188,6 +195,7 @@ export class SalesOrderService implements OnModuleInit {
         rate: line.rate,
         discountPct: line.discountPct,
         taxPct: line.taxPct,
+        hsnCode: line.hsnCode,
       })),
     );
     const order = await repository.view(SQL_TRUE, id);
@@ -427,6 +435,9 @@ export class SalesOrderService implements OnModuleInit {
     if (input.dealId !== undefined) patch.dealId = input.dealId;
     if (input.notes !== undefined) patch.notes = input.notes;
     if (input.terms !== undefined) patch.terms = input.terms;
+    if (input.placeOfSupply !== undefined) patch.placeOfSupply = input.placeOfSupply;
+    if (input.shipTo !== undefined) patch.shipTo = input.shipTo;
+    if (input.details !== undefined) patch.details = input.details;
     if (input.customerEmail !== undefined) patch.customerEmail = input.customerEmail;
     if (input.customerWhatsapp !== undefined) patch.customerWhatsapp = input.customerWhatsapp;
     if (input.ownerId !== undefined && input.ownerId !== existing.ownerId) {

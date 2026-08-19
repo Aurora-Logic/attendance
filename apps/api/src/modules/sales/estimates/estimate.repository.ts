@@ -1,6 +1,7 @@
 import {
   FULFILMENT_STATES,
   SALES_DOCUMENT_TYPE_PREFIX,
+  type DocumentDetails,
   type DocumentSyncState,
   type EstimateStatus,
   type EstimateSummary,
@@ -9,6 +10,7 @@ import {
   type SalesDocumentType,
   type SalesLineInput,
   type SalesLineView,
+  type ShipTo,
   type SortTerm,
 } from '@vyuha/shared';
 import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
@@ -73,6 +75,9 @@ export interface EstimateHeaderInput {
   /** REQ-AA-28: the customer's contact for notifications; the party master's by default. */
   customerEmail?: string | null;
   customerWhatsapp?: string | null;
+  placeOfSupply?: string | null;
+  shipTo?: ShipTo | null;
+  details?: DocumentDetails | null;
 }
 
 export class EstimateRepository extends ScopedRepository<typeof salesDocuments> {
@@ -115,6 +120,9 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
       shortCloseReason: salesDocuments.shortCloseReason,
       customerEmail: salesDocuments.customerEmail,
       customerWhatsapp: salesDocuments.customerWhatsapp,
+      placeOfSupply: salesDocuments.placeOfSupply,
+      shipTo: salesDocuments.shipTo,
+      details: salesDocuments.details,
       // REQ-AA-02/AA-03 (+ D-34): the word derived from the lines, here and
       // nowhere else, so no column can disagree with them.
       fulfilment: sql<string | null>`CASE
@@ -251,6 +259,9 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
           terms: header.terms,
           customerEmail: header.customerEmail ?? null,
           customerWhatsapp: header.customerWhatsapp ?? null,
+          placeOfSupply: header.placeOfSupply ?? null,
+          shipTo: header.shipTo ?? null,
+          details: header.details ?? null,
           createdBy: this.ctx.actorUserId,
           updatedBy: this.ctx.actorUserId,
         })
@@ -335,6 +346,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
           rate: line.rate,
           discountPct: line.discountPct,
           taxPct: line.taxPct,
+          hsnCode: line.hsnCode ?? null,
           amount: sql`round(${line.quantity}::numeric * ${line.rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2)`,
           taxAmount: sql`round(round(${line.quantity}::numeric * ${line.rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2) * ${line.taxPct}::numeric / 100, 2)`,
           createdBy: this.ctx.actorUserId,
@@ -503,6 +515,9 @@ interface HeaderRow {
   shortCloseReason: string | null;
   customerEmail: string | null;
   customerWhatsapp: string | null;
+  placeOfSupply: string | null;
+  shipTo: ShipTo | null;
+  details: DocumentDetails | null;
   fulfilment: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -539,6 +554,9 @@ function toSummary(row: HeaderRow): EstimateSummary {
     shortCloseReason: row.shortCloseReason,
     customerEmail: row.customerEmail,
     customerWhatsapp: row.customerWhatsapp,
+    placeOfSupply: row.placeOfSupply,
+    shipTo: row.shipTo,
+    details: row.details,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -557,6 +575,7 @@ function toLineView(row: typeof salesDocumentLines.$inferSelect, invoicing = 0):
     taxPct: row.taxPct,
     amount: row.amount,
     taxAmount: row.taxAmount,
+    hsnCode: row.hsnCode,
     packedQty: row.packedQty,
     invoicedQty: row.invoicedQty,
     dispatchedQty: row.dispatchedQty,

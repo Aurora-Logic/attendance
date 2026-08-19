@@ -8,14 +8,14 @@ import { z } from 'zod';
  * worn four ways. Stored as a setting; nothing here is a table.
  */
 
-export const DOCUMENT_TEMPLATE_IDS = ['classic', 'modern', 'minimal', 'bold', 'ledger'] as const;
+export const DOCUMENT_TEMPLATE_IDS = ['tally', 'classic', 'modern', 'minimal', 'bold'] as const;
 export type DocumentTemplateId = (typeof DOCUMENT_TEMPLATE_IDS)[number];
 export const DOCUMENT_TEMPLATE_LABELS: Record<DocumentTemplateId, { label: string; note: string }> = {
   classic: { label: 'Classic', note: 'Ruled table, serif headline, the letterhead most accountants expect.' },
   modern: { label: 'Modern', note: 'Accent band across the top, generous white space, sans-serif.' },
   minimal: { label: 'Minimal', note: 'Type and hairlines only; the logo carries the identity.' },
   bold: { label: 'Bold', note: 'A coloured header block and strong totals; reads from across a counter.' },
-  ledger: { label: 'Ledger', note: 'Dense, boxed, Tally-like; every figure in a cell.' },
+  tally: { label: 'Tally', note: 'The GST tax invoice everyone knows: boxed seller, consignee and buyer, the details grid, HSN summary, amount in words.' },
 };
 
 export const PRINTED_DOCUMENT_TYPES = ['ESTIMATE', 'SALES_ORDER', 'INVOICE', 'PURCHASE_ORDER'] as const;
@@ -49,6 +49,13 @@ export const documentProfileSchema = z.object({
   addressLines: shortText(600),
   gstin: shortText(20),
   pan: shortText(12),
+  /** The seller's state, as GST prints it ("Karnataka, Code : 29"); the code decides CGST+SGST against IGST. */
+  stateName: shortText(60),
+  stateCode: shortText(2),
+  /** The declaration under the tax table; Tally's standard wording by default. */
+  declaration: shortText(600),
+  /** Channel-partner and brand logos along the foot of the page: file ids in the files service (uploaded once, in Settings). */
+  footerLogoFileIds: z.array(z.string()).max(8),
   phone: shortText(40),
   email: shortText(254),
   website: shortText(200),
@@ -71,6 +78,18 @@ export const documentDesignSchema = z.object({
   showTerms: z.boolean(),
   showBank: z.boolean(),
   showSignature: z.boolean(),
+  /** GST's HSN/SAC column and the per-code tax summary under the table. */
+  showHsn: z.boolean(),
+  /** The Tally header grid (delivery note, terms of payment, references, dispatch). */
+  showDetailsGrid: z.boolean(),
+  /** Consignee (Ship to) beside the buyer. */
+  showShipTo: z.boolean(),
+  /** "Amount chargeable (in words)". */
+  showAmountInWords: z.boolean(),
+  /** The declaration block. */
+  showDeclaration: z.boolean(),
+  /** IRN, acknowledgement number and date, when an e-Invoice was registered. */
+  showEInvoice: z.boolean(),
   /** The line under the totals; "Thank you for your business" and the like. */
   footerNote: shortText(300),
   /** Prefills a new document's terms; the document may still say its own. */
@@ -85,8 +104,8 @@ export const documentSettingsSchema = z.object({
 export type DocumentSettings = z.infer<typeof documentSettingsSchema>;
 
 export const DEFAULT_DOCUMENT_DESIGN: DocumentDesign = {
-  templateId: 'classic',
-  accent: 'blue',
+  templateId: 'tally',
+  accent: 'ink',
   fontScale: 'md',
   logoPlacement: 'left',
   showDiscount: true,
@@ -95,9 +114,17 @@ export const DEFAULT_DOCUMENT_DESIGN: DocumentDesign = {
   showTerms: true,
   showBank: false,
   showSignature: true,
-  footerNote: '',
+  showHsn: true,
+  showDetailsGrid: true,
+  showShipTo: true,
+  showAmountInWords: true,
+  showDeclaration: true,
+  showEInvoice: false,
+  footerNote: 'This is a Computer Generated Invoice',
   defaultTerms: '',
 };
+
+export const DEFAULT_DECLARATION = 'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.';
 
 export const DEFAULT_DOCUMENT_PROFILE: DocumentProfile = {
   legalName: '',
@@ -112,15 +139,19 @@ export const DEFAULT_DOCUMENT_PROFILE: DocumentProfile = {
   bankIfsc: '',
   bankBranch: '',
   signatoryName: '',
+  stateName: '',
+  stateCode: '',
+  declaration: DEFAULT_DECLARATION,
+  footerLogoFileIds: [],
 };
 
 export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
   profile: DEFAULT_DOCUMENT_PROFILE,
   designs: {
-    ESTIMATE: DEFAULT_DOCUMENT_DESIGN,
-    SALES_ORDER: DEFAULT_DOCUMENT_DESIGN,
+    ESTIMATE: { ...DEFAULT_DOCUMENT_DESIGN, showEInvoice: false, footerNote: 'This is a Computer Generated Estimate' },
+    SALES_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, footerNote: 'This is a Computer Generated Sales Order' },
     INVOICE: { ...DEFAULT_DOCUMENT_DESIGN, showBank: true },
-    PURCHASE_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, showDiscount: false },
+    PURCHASE_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, showDiscount: false, footerNote: 'This is a Computer Generated Purchase Order' },
   },
 };
 
@@ -132,3 +163,17 @@ export const INVOICE_COPY_LABELS: Record<InvoiceCopy, string> = {
   duplicate: 'Duplicate for Transporter',
   triplicate: 'Triplicate for Supplier',
 };
+
+/** GST state codes → names, as printed beside "State Name" on a tax invoice. */
+export const GST_STATES: Record<string, string> = {
+  '01': 'Jammu and Kashmir', '02': 'Himachal Pradesh', '03': 'Punjab', '04': 'Chandigarh', '05': 'Uttarakhand', '06': 'Haryana', '07': 'Delhi', '08': 'Rajasthan',
+  '09': 'Uttar Pradesh', '10': 'Bihar', '11': 'Sikkim', '12': 'Arunachal Pradesh', '13': 'Nagaland', '14': 'Manipur', '15': 'Mizoram', '16': 'Tripura', '17': 'Meghalaya',
+  '18': 'Assam', '19': 'West Bengal', '20': 'Jharkhand', '21': 'Odisha', '22': 'Chhattisgarh', '23': 'Madhya Pradesh', '24': 'Gujarat', '26': 'Dadra and Nagar Haveli and Daman and Diu',
+  '27': 'Maharashtra', '29': 'Karnataka', '30': 'Goa', '31': 'Lakshadweep', '32': 'Kerala', '33': 'Tamil Nadu', '34': 'Puducherry', '35': 'Andaman and Nicobar Islands',
+  '36': 'Telangana', '37': 'Andhra Pradesh', '38': 'Ladakh', '97': 'Other Territory',
+};
+
+/** The state a GSTIN belongs to, from its first two digits; empty when unknown. */
+export function gstStateName(code: string): string {
+  return GST_STATES[code.trim()] ?? '';
+}

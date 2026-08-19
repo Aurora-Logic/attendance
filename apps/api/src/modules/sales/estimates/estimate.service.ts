@@ -96,6 +96,9 @@ export class EstimateService {
       ownerId: await resolveDocumentOwner(this.db, this.scopes, GRANTS, principal, input.ownerId),
       notes: input.notes ?? null,
       terms: input.terms ?? null,
+      placeOfSupply: input.placeOfSupply ?? null,
+      shipTo: input.shipTo ?? null,
+      details: input.details ?? null,
     };
     const id = await repository.create(header, lines);
     const estimate = await repository.view(SQL_TRUE, id);
@@ -136,6 +139,9 @@ export class EstimateService {
     if (input.dealId !== undefined) patch.dealId = input.dealId;
     if (input.notes !== undefined) patch.notes = input.notes;
     if (input.terms !== undefined) patch.terms = input.terms;
+    if (input.placeOfSupply !== undefined) patch.placeOfSupply = input.placeOfSupply;
+    if (input.shipTo !== undefined) patch.shipTo = input.shipTo;
+    if (input.details !== undefined) patch.details = input.details;
     if (input.ownerId !== undefined && input.ownerId !== existing.ownerId) {
       patch.ownerId = await resolveDocumentOwner(this.db, this.scopes, GRANTS, principal, input.ownerId);
     }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { DISPATCH_MODES, ESTIMATE_STATUSES, FULFILMENT_STATES, SALES_DOCUMENT_TYPES, SALES_ORDER_STATUSES, SYNC_STATES } from '@vyuha/shared';
+import { DISPATCH_MODES, ESTIMATE_STATUSES, FULFILMENT_STATES, SALES_DOCUMENT_TYPES, SALES_ORDER_STATUSES, SYNC_STATES, documentDetailsSchema, shipToSchema, type DocumentDetails, type ShipTo } from '@vyuha/shared';
 
 /** What `/sales/estimates` answers (REQ-W-01), parsed at the boundary. */
 
@@ -16,6 +16,7 @@ export const salesLineSchema = z.object({
   taxPct: z.string(),
   amount: z.string(),
   taxAmount: z.string(),
+  hsnCode: z.string().nullable().default(null),
   // REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate.
   packedQty: z.string(),
   invoicedQty: z.string(),
@@ -70,6 +71,10 @@ const headerShape = {
   shortCloseReason: z.string().nullable(),
   customerEmail: z.string().nullable(),
   customerWhatsapp: z.string().nullable(),
+  // The GST header (documents.ts); absent on rows written before it existed.
+  placeOfSupply: z.string().nullable().default(null),
+  shipTo: shipToSchema.nullable().default(null),
+  details: documentDetailsSchema.nullable().default(null),
   createdAt: z.string(),
   updatedAt: z.string(),
 };
@@ -284,6 +289,7 @@ export interface LineDraft {
   rate: string;
   discountPct: string;
   taxPct: string;
+  hsnCode: string;
 }
 
 export interface EstimateDraft {
@@ -302,6 +308,9 @@ export interface EstimateDraft {
   /** REQ-AA-28: sales orders only; blank means the party master's contact. Estimates ignore them. */
   customerEmail: string;
   customerWhatsapp: string;
+  placeOfSupply: string;
+  shipTo: ShipTo;
+  details: DocumentDetails;
   lines: LineDraft[];
 }
 
@@ -317,6 +326,7 @@ export function newLine(overrides: Partial<LineDraft> = {}): LineDraft {
     rate: '',
     discountPct: '0',
     taxPct: '0',
+    hsnCode: '',
     ...overrides,
   };
 }
@@ -336,6 +346,9 @@ export function emptyEstimateDraft(today: string, overrides: Partial<EstimateDra
     terms: '',
     customerEmail: '',
     customerWhatsapp: '',
+    placeOfSupply: '',
+    shipTo: {},
+    details: {},
     lines: [newLine()],
     ...overrides,
   };
@@ -357,6 +370,9 @@ export function estimateToDraft(estimate: Estimate): EstimateDraft {
     terms: estimate.terms ?? '',
     customerEmail: estimate.customerEmail ?? '',
     customerWhatsapp: estimate.customerWhatsapp ?? '',
+    placeOfSupply: estimate.placeOfSupply ?? '',
+    shipTo: estimate.shipTo ?? {},
+    details: estimate.details ?? {},
     lines: estimate.lines.map((line) =>
       newLine({
         stockItemId: line.stockItemId,
@@ -366,6 +382,7 @@ export function estimateToDraft(estimate: Estimate): EstimateDraft {
         rate: trimZeros(line.rate),
         discountPct: trimZeros(line.discountPct),
         taxPct: trimZeros(line.taxPct),
+        hsnCode: line.hsnCode ?? '',
       }),
     ),
   };

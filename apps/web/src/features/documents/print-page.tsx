@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { useParty } from '@/features/masters/use-parties';
 import { useEstimate } from '@/features/sales/use-estimates';
 import { useBranding } from '@/lib/branding/use-branding';
 import { INVOICE_COPIES, INVOICE_COPY_LABELS, SALES_DOCUMENT_STATUS_LABELS, type InvoiceCopy, type PrintedDocumentType } from '@vyuha/shared';
@@ -30,7 +31,8 @@ export function DocumentPrintPage() {
   const branding = useBranding();
   const estimate = useEstimate(type === 'ESTIMATE' ? (params.id ?? null) : null);
   const record = estimate.data;
-  const ready = record !== undefined && settings.data !== undefined && branding.data !== undefined;
+  const party = useParty(record?.partyId ?? null);
+  const ready = record !== undefined && settings.data !== undefined && branding.data !== undefined && (record.partyId === null || party.data !== undefined || party.isError);
 
   useEffect(() => {
     if (!ready || searchParams.get('auto') === '0') return;
@@ -65,10 +67,17 @@ export function DocumentPrintPage() {
     statusLabel: SALES_DOCUMENT_STATUS_LABELS[record.status],
     date: record.date,
     validUntil: record.validUntil,
-    customerName: record.customerName,
-    customerDetail: null,
+    buyer: {
+      name: record.customerName,
+      address: party.data?.address ?? '',
+      gstin: party.data?.gstin ?? '',
+      stateName: '',
+      stateCode: record.placeOfSupply ?? (party.data?.gstin ?? '').slice(0, 2).replace(/\D/gu, ''),
+    },
+    shipTo: record.shipTo,
+    details: record.details ?? {},
     reference: null,
-    lines: record.lines.map((line) => ({ key: line.id, description: line.description, quantity: line.quantity, unit: line.unit ?? '', rate: line.rate, discountPct: line.discountPct, taxPct: line.taxPct, amount: line.amount, taxAmount: line.taxAmount })),
+    lines: record.lines.map((line) => ({ key: line.id, stockItemId: line.stockItemId, description: line.description, hsnCode: line.hsnCode ?? '', quantity: line.quantity, unit: line.unit ?? '', rate: line.rate, discountPct: line.discountPct, taxPct: line.taxPct, amount: line.amount, taxAmount: line.taxAmount })),
     totals: { subtotal: record.subtotal, discountTotal: record.discountTotal, taxTotal: record.taxTotal, grandTotal: record.grandTotal, preview: false },
     notes: record.notes ?? '',
     terms: record.terms ?? '',

@@ -157,12 +157,18 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
             <Field>
               <FieldLabel>On the page</FieldLabel>
               <div className="flex flex-col divide-y border">
-                <ToggleRow id="design-unit" label="Unit column" checked={design.showUnit} onChange={(v) => { setDesign({ showUnit: v }); }} />
+                <ToggleRow id="design-hsn" label="HSN/SAC column and tax summary" checked={design.showHsn} onChange={(v) => { setDesign({ showHsn: v }); }} />
+                <ToggleRow id="design-unit" label="Unit (per) column" checked={design.showUnit} onChange={(v) => { setDesign({ showUnit: v }); }} />
                 <ToggleRow id="design-discount" label="Discount column" checked={design.showDiscount} onChange={(v) => { setDesign({ showDiscount: v }); }} />
-                <ToggleRow id="design-tax" label="Tax column" checked={design.showTax} onChange={(v) => { setDesign({ showTax: v }); }} />
+                <ToggleRow id="design-tax" label="Tax rows (CGST/SGST or IGST)" checked={design.showTax} onChange={(v) => { setDesign({ showTax: v }); }} />
+                <ToggleRow id="design-details" label="Details grid (delivery note, terms of payment, references, dispatch)" checked={design.showDetailsGrid} onChange={(v) => { setDesign({ showDetailsGrid: v }); }} />
+                <ToggleRow id="design-shipto" label="Consignee (Ship to)" checked={design.showShipTo} onChange={(v) => { setDesign({ showShipTo: v }); }} />
+                <ToggleRow id="design-words" label="Amount in words" checked={design.showAmountInWords} onChange={(v) => { setDesign({ showAmountInWords: v }); }} />
                 <ToggleRow id="design-terms" label="Terms block" checked={design.showTerms} onChange={(v) => { setDesign({ showTerms: v }); }} />
                 <ToggleRow id="design-bank" label="Bank details" checked={design.showBank} onChange={(v) => { setDesign({ showBank: v }); }} />
-                <ToggleRow id="design-signature" label="Signature block" checked={design.showSignature} onChange={(v) => { setDesign({ showSignature: v }); }} />
+                <ToggleRow id="design-declaration" label="Declaration" checked={design.showDeclaration} onChange={(v) => { setDesign({ showDeclaration: v }); }} />
+                <ToggleRow id="design-signature" label="Authorised signatory" checked={design.showSignature} onChange={(v) => { setDesign({ showSignature: v }); }} />
+                <ToggleRow id="design-einvoice" label="e-Invoice (IRN, Ack No., Ack Date)" checked={design.showEInvoice} onChange={(v) => { setDesign({ showEInvoice: v }); }} />
               </div>
             </Field>
 
@@ -189,6 +195,11 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               <TextRow id="biz-gstin" label="GSTIN" value={profile.gstin} onChange={(v) => { setProfile({ gstin: v.toUpperCase() }); }} />
               <TextRow id="biz-pan" label="PAN" value={profile.pan} onChange={(v) => { setProfile({ pan: v.toUpperCase() }); }} />
             </div>
+            <div className="grid grid-cols-[1fr_5rem] gap-3">
+              <TextRow id="biz-state" label="State" value={profile.stateName} onChange={(v) => { setProfile({ stateName: v }); }} placeholder="Karnataka" />
+              <TextRow id="biz-state-code" label="Code" value={profile.stateCode} onChange={(v) => { setProfile({ stateCode: v.replace(/\D/gu, '').slice(0, 2) }); }} placeholder="29" />
+            </div>
+            <FieldDescription>The state code against the buyer's decides CGST + SGST (same state) or IGST.</FieldDescription>
             <div className="grid grid-cols-2 gap-3">
               <TextRow id="biz-phone" label="Phone" value={profile.phone} onChange={(v) => { setProfile({ phone: v }); }} />
               <TextRow id="biz-email" label="Email" value={profile.email} onChange={(v) => { setProfile({ email: v }); }} />
@@ -202,6 +213,10 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               <TextRow id="biz-ifsc" label="IFSC" value={profile.bankIfsc} onChange={(v) => { setProfile({ bankIfsc: v.toUpperCase() }); }} />
             </div>
             <TextRow id="biz-signatory" label="Signatory" value={profile.signatoryName} onChange={(v) => { setProfile({ signatoryName: v }); }} placeholder="Authorised signatory" />
+            <Field>
+              <FieldLabel htmlFor="biz-declaration">Declaration</FieldLabel>
+              <Textarea id="biz-declaration" rows={3} value={profile.declaration} onChange={(e) => { setProfile({ declaration: e.target.value }); }} />
+            </Field>
           </FieldGroup>
         </TabsContent>
       </Tabs>
@@ -289,7 +304,7 @@ function TemplateThumb({ id, accent }: { id: DocumentTemplateId; accent: Documen
           <span className={cn('mt-auto ml-auto h-2 w-5', bar)} />
         </>
       ) : null}
-      {id === 'ledger' ? (
+      {id === 'tally' ? (
         <>
           <span className="grid grid-cols-2 gap-px border border-neutral-700 p-px"><span className="h-1 bg-neutral-300" /><span className="h-1 bg-neutral-300" /></span>
           <span className="grid flex-1 grid-cols-3 gap-px border border-neutral-700 p-px">

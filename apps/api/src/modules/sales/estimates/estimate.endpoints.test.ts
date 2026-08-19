@@ -210,7 +210,7 @@ describe('the printed page (documents settings, Excel)', () => {
   it('document settings read as defaults, are written under settings.manage, and an estimate exports as a workbook', async () => {
     const defaults = await harness.get<{ profile: { legalName: string }; designs: { ESTIMATE: { templateId: string } } }>('/documents/settings', { token: salesToken });
     expect(defaults.status).toBe(200);
-    expect(defaults.body.designs.ESTIMATE.templateId).toBe('classic');
+    expect(defaults.body.designs.ESTIMATE.templateId).toBe('tally');
     const forbidden = await harness.put('/documents/settings', { token: salesToken, body: defaults.body });
     expect(forbidden.status).toBe(403);
     const written = await harness.put<{ profile: { legalName: string }; designs: { ESTIMATE: { templateId: string; accent: string } } }>('/documents/settings', {

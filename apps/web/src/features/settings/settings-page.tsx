@@ -6,6 +6,7 @@ import {
   EnvelopeSimpleIcon,
   LockKeyIcon,
   MapPinAreaIcon,
+  FileTextIcon,
   MoonIcon,
   PaperPlaneTiltIcon,
   WarningCircleIcon,
@@ -48,6 +49,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { DEVICE_BINDING_MODES, PERMISSIONS, PUNCH_WINDOW_BEHAVIOURS } from '@vyuha/shared';
 
 import { AccessWindowPanel } from './access-window-panel';
+import { DocumentsPanel } from './documents-panel';
 import { OfficeLocationPanel } from './office-location-panel';
 import { PolicyChoiceField, PolicyNumberField } from './policy-fields';
 import {
@@ -389,6 +391,10 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
             <MoonIcon data-icon="inline-start" />
             Access window
           </TabsTrigger>
+          <TabsTrigger value="documents" className="px-3">
+            <FileTextIcon data-icon="inline-start" />
+            Documents
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="organisation">
@@ -695,6 +701,10 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
 
         <TabsContent value="access">
           <AccessWindowPanel window={accessWindow} saveError={saveWindow.error} />
+        </TabsContent>
+
+        <TabsContent value="documents">
+          <DocumentsPanel />
         </TabsContent>
       </Tabs>
 

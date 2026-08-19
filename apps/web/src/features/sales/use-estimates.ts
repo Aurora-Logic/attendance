@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
-import { salesSettingsSchema, type ConfirmSalesOrderInput, type CreateEstimateInput, type EstimateStatus, type SalesLineInput, type SalesOrderStatus, type SalesSettings, type UpdateEstimateInput } from '@vyuha/shared';
+import { salesSettingsSchema, type ConfirmSalesOrderInput, type CreateEstimateInput, type DocumentDetails, type EstimateStatus, type SalesLineInput, type SalesOrderStatus, type SalesSettings, type ShipTo, type UpdateEstimateInput } from '@vyuha/shared';
 
 import { apiRequest } from '@/lib/api/client';
 import { parseOrThrow } from '@/lib/api/parse';
@@ -80,7 +80,19 @@ function toLineInputs(draft: EstimateDraft): SalesLineInput[] {
       rate: line.rate.trim() === '' ? '0' : line.rate.trim().replace(/,/gu, ''),
       discountPct: line.discountPct.trim() === '' ? '0' : line.discountPct.trim(),
       taxPct: line.taxPct.trim() === '' ? '0' : line.taxPct.trim(),
+      hsnCode: blank(line.hsnCode),
     }));
+}
+
+/** The GST header as the API takes it: empty boxes are absent, an empty consignee is null. */
+function toGstHeader(draft: EstimateDraft): { placeOfSupply: string | null; shipTo: ShipTo | null; details: DocumentDetails | null } {
+  const details = Object.fromEntries(Object.entries(draft.details).filter(([, v]) => typeof v === 'string' && v.trim() !== '')) as DocumentDetails;
+  const shipTo = Object.fromEntries(Object.entries(draft.shipTo).filter(([, v]) => typeof v === 'string' && v.trim() !== '')) as ShipTo;
+  return {
+    placeOfSupply: blank(draft.placeOfSupply),
+    shipTo: Object.keys(shipTo).length === 0 ? null : shipTo,
+    details: Object.keys(details).length === 0 ? null : details,
+  };
 }
 
 export function useSaveEstimate(): UseMutationResult<Estimate, Error, EstimateDraft> {
@@ -96,6 +108,7 @@ export function useSaveEstimate(): UseMutationResult<Estimate, Error, EstimateDr
         ownerId: draft.ownerId,
         notes: blank(draft.notes),
         terms: blank(draft.terms),
+        ...toGstHeader(draft),
         lines: toLineInputs(draft),
       };
       const body: CreateEstimateInput | UpdateEstimateInput =
@@ -195,6 +208,7 @@ export function useSaveSalesOrder(): UseMutationResult<Estimate, Error, Estimate
         // a draft clears the override the way the person cleared the box.
         customerEmail: blank(draft.customerEmail),
         customerWhatsapp: blank(draft.customerWhatsapp),
+        ...toGstHeader(draft),
         lines: toLineInputs(draft),
       };
       const response = await apiRequest<unknown>(draft.id === undefined ? '/sales/orders' : `/sales/orders/${draft.id}`, {
