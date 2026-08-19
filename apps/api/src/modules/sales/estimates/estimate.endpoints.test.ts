@@ -205,3 +205,31 @@ describe('item history (REQ-W-02)', () => {
     expect(unknown.status).toBe(404);
   });
 });
+
+describe('the printed page (documents settings, Excel)', () => {
+  it('document settings read as defaults, are written under settings.manage, and an estimate exports as a workbook', async () => {
+    const defaults = await harness.get<{ profile: { legalName: string }; designs: { ESTIMATE: { templateId: string } } }>('/documents/settings', { token: salesToken });
+    expect(defaults.status).toBe(200);
+    expect(defaults.body.designs.ESTIMATE.templateId).toBe('classic');
+    const forbidden = await harness.put('/documents/settings', { token: salesToken, body: defaults.body });
+    expect(forbidden.status).toBe(403);
+    const written = await harness.put<{ profile: { legalName: string }; designs: { ESTIMATE: { templateId: string; accent: string } } }>('/documents/settings', {
+      token: adminToken,
+      body: { ...defaults.body, profile: { ...defaults.body.profile, legalName: 'Estimates Fixture Pvt Ltd', gstin: '27AAAAA0000A1Z5' }, designs: { ...defaults.body.designs, ESTIMATE: { ...defaults.body.designs.ESTIMATE, templateId: 'modern', accent: '#0f766e' } } },
+    });
+    expect(written.status).toBe(200);
+    expect(written.body.profile.legalName).toBe('Estimates Fixture Pvt Ltd');
+    expect(written.body.designs.ESTIMATE.templateId).toBe('modern');
+    expect(await harness.waitForAuditAction('documents.settings.updated')).toBe(true);
+
+    const list = await harness.get<{ data: { id: string; number: string }[] }>('/sales/estimates?page=1&pageSize=1', { token: salesToken });
+    const first = list.body.data[0];
+    expect(first).toBeDefined();
+    const xlsx = await harness.getRaw(`/sales/estimates/${first?.id ?? ''}/export.xlsx`, { token: salesToken });
+    expect(xlsx.status).toBe(200);
+    expect(xlsx.headers.get('content-type')).toContain('spreadsheetml');
+    expect(xlsx.headers.get('content-disposition')).toContain(`Estimate-${first?.number ?? ''}.xlsx`);
+    // A workbook is a zip: PK at the start.
+    expect(xlsx.body.subarray(0, 2).toString()).toBe('PK');
+  });
+});

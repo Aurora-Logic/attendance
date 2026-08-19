@@ -1,6 +1,9 @@
 import { Global, Module } from '@nestjs/common';
 
 import { RequirementsService } from '../procurement/requirements.service.js';
+import { DocumentSettingsController } from './document-settings.controller.js';
+import { DocumentSettingsService } from './document-settings.service.js';
+import { DocumentXlsxService } from './document-xlsx.service.js';
 import { StockAvailabilityService } from './stock-availability.service.js';
 
 /**
@@ -10,7 +13,8 @@ import { StockAvailabilityService } from './stock-availability.service.js';
  */
 @Global()
 @Module({
-  providers: [StockAvailabilityService, RequirementsService],
-  exports: [StockAvailabilityService, RequirementsService],
+  controllers: [DocumentSettingsController],
+  providers: [StockAvailabilityService, RequirementsService, DocumentSettingsService, DocumentXlsxService],
+  exports: [StockAvailabilityService, RequirementsService, DocumentSettingsService, DocumentXlsxService],
 })
 export class DocumentsModule {}

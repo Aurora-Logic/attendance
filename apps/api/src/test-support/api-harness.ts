@@ -373,6 +373,14 @@ export class ApiHarness {
     return this.request<T>('GET', path, options, jar);
   }
 
+  /** A binary GET — an export, a photograph — with the body as bytes rather than parsed JSON. */
+  async getRaw(path: string, options: RequestOptions = {}): Promise<{ status: number; headers: Headers; body: Buffer }> {
+    const headers: Record<string, string> = { ...options.headers };
+    if (options.token != null) headers.authorization = `Bearer ${options.token}`;
+    const response = await fetch(`${this.baseUrl}${path}`, { method: 'GET', headers });
+    return { status: response.status, headers: response.headers, body: Buffer.from(await response.arrayBuffer()) };
+  }
+
   patch<T = unknown>(path: string, options?: RequestOptions, jar?: CookieJar): Promise<HttpResult<T>> {
     return this.request<T>('PATCH', path, options, jar);
   }

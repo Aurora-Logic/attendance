@@ -37,12 +37,19 @@ screen and the whole-product tour is derived from it:
 
 | Scope | Length | Reached from |
 |---|---|---|
-| **This screen** | 1–4 steps | `Ctrl+F1` → "Walk me through this screen" |
-| **Whole product** | 8–21 steps | Account menu, and the sign-in offer |
+| **This screen** | 1–4 steps | Account menu → "Guide to this screen", or `Ctrl+F1` |
+| **Whole product** | 8–21 steps | Account menu → "Take the tour", and the sign-in offer |
 
-`Ctrl+F1` is where it belongs rather than new chrome: PRD §6.4 already calls
-that key "contextual help / shortcut sheet", and until now the dialog only did
-the second half.
+`Ctrl+F1` carries it because PRD §6.4 already calls that key "contextual help /
+shortcut sheet" and the dialog was only doing the second half. But a keyboard
+shortcut was the *only* way in at first, and that was a bug rather than a
+choice: the header's shortcut button is `hidden sm:inline-flex` and a phone has
+no F1, so on the width most people use, the per-screen guide existed and could
+not be reached. Verified in a browser — at 390px the shortcut button measures
+zero. It is now listed in the account menu at both widths, above the full tour
+because "what is this screen for?" is asked far more often than "show me
+everything". The Calculator row directly beneath it exists for exactly the same
+reason, and its comment already said so.
 
 A page guide is composed by **looking at the page**, not from a per-route list
 that would go stale the first time a screen gained a table. The screen's intro

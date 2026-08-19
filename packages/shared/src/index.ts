@@ -18,6 +18,7 @@ export * from './permissions.js';
 export * from './regularization.js';
 export * from './reports.js';
 export * from './sales.js';
+export * from './documents.js';
 export * from './purchase.js';
 export * from './shifts.js';
 export * from './sync.js';

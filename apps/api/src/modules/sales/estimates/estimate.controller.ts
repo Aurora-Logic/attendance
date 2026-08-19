@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   PERMISSIONS,
   createEstimateSchema,
@@ -13,6 +14,10 @@ import {
 } from '@vyuha/shared';
 
 import { createZodDto } from '../../../platform/common/zod-validation.pipe.js';
+import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
+import { sendDocumentXlsx } from '../../../platform/documents/document-export.js';
+import { DocumentSettingsService } from '../../../platform/documents/document-settings.service.js';
+import { DocumentXlsxService } from '../../../platform/documents/document-xlsx.service.js';
 import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js';
 import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { EstimateService } from './estimate.service.js';
@@ -28,7 +33,12 @@ const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_V
 /** `/api/v1/sales/estimates` (REQ-W-01) and the item history behind the line editor (REQ-W-02). */
 @Controller('sales')
 export class EstimateController {
-  constructor(private readonly estimates: EstimateService) {}
+  constructor(
+    private readonly estimates: EstimateService,
+    @InjectDatabase() private readonly db: Database,
+    private readonly documentSettings: DocumentSettingsService,
+    private readonly xlsx: DocumentXlsxService,
+  ) {}
 
   @Get('estimates')
   @RequirePermission(...VIEW)
@@ -46,6 +56,14 @@ export class EstimateController {
   @RequirePermission(...VIEW)
   find(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<EstimateView> {
     return this.estimates.find(principal, id);
+  }
+
+  /** The Excel copy of one estimate: identity block, addressee, lines, totals. */
+  @Get('estimates/:id/export.xlsx')
+  @RequirePermission(...VIEW)
+  async exportXlsx(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response): Promise<void> {
+    const estimate = await this.estimates.find(principal, id);
+    await sendDocumentXlsx(res, { db: this.db, settings: this.documentSettings, xlsx: this.xlsx }, principal.orgId, 'ESTIMATE', estimate);
   }
 
   @Post('estimates')

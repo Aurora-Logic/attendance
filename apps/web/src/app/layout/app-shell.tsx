@@ -4,6 +4,7 @@ import {
   InfoIcon,
   KeyboardIcon,
   MagnifyingGlassIcon,
+  MapPinIcon,
   MegaphoneIcon,
   MonitorIcon,
   MoonIcon,
@@ -182,7 +183,13 @@ function UserMenu() {
    * way — one path in, rather than a context provider existing only so a menu
    * item can reach a component beside it.
    */
-  const startTour = useGuideStore((s) => s.arm);
+  const armGuide = useGuideStore((s) => s.arm);
+  const startTour = () => {
+    armGuide({ scope: 'all' });
+  };
+  const startPageGuide = () => {
+    armGuide({ scope: 'page' });
+  };
   // The action alone, which is a stable reference, so opening or closing the
   // calculator never re-renders the header. Selecting the whole store would.
   const openCalculator = useCalculatorStore((s) => s.openPanel);
@@ -291,6 +298,23 @@ function UserMenu() {
                 {unread ? (
                   <span className="bg-primary ml-auto size-2 rounded-full" aria-hidden />
                 ) : null}
+              </Button>
+              {/* The same reasoning as the Calculator row below, and the same
+                  bug it was written to prevent: the per-screen guide is offered
+                  from the shortcut sheet, whose header button is hidden below
+                  sm and whose Ctrl+F1 needs a keyboard this device does not
+                  have. Without this row the feature would exist and be
+                  unreachable at the width most people use. */}
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSheetOpen(false);
+                  startPageGuide();
+                }}
+              >
+                <MapPinIcon data-icon="inline-start" />
+                Guide to this screen
               </Button>
               <Button
                 variant="outline"
@@ -408,6 +432,18 @@ function UserMenu() {
             <MegaphoneIcon />
             Updates
             {unread ? <span className="bg-primary ml-auto size-2 rounded-full" aria-hidden /> : null}
+          </DropdownMenuItem>
+          {/* The page guide is listed above the whole-product one because it
+              is the commoner question by far: "what is this screen for?" gets
+              asked every day, "show me the product" once. Ctrl+F1 offers the
+              same thing, but only to somebody who already knows the key. */}
+          <DropdownMenuItem
+            onClick={() => {
+              startPageGuide();
+            }}
+          >
+            <MapPinIcon />
+            Guide to this screen
           </DropdownMenuItem>
           {/* Wrapped for the same reason as the sign-in offer: `arm` takes an
               optional step id, and the raw handler would pass the click event. */}
