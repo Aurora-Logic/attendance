@@ -63,6 +63,7 @@ export const ANCHORS = {
   navGroups: 'nav.groups',
   navBottomBar: 'nav.bottom-bar',
   headerGoto: 'header.goto',
+  headerPageGuide: 'header.page-guide',
   headerShortcuts: 'header.shortcuts',
   headerBreadcrumb: 'header.breadcrumb',
   headerAccount: 'header.account',
@@ -84,6 +85,7 @@ export const SHELL_ANCHORS: readonly string[] = [
   ANCHORS.navGroups,
   ANCHORS.navBottomBar,
   ANCHORS.headerGoto,
+  ANCHORS.headerPageGuide,
   ANCHORS.headerShortcuts,
   ANCHORS.headerBreadcrumb,
   ANCHORS.headerAccount,
@@ -95,7 +97,7 @@ export const SHELL_ANCHORS: readonly string[] = [
  * is no longer meaningful. Adding copy does not count; removing or reordering
  * steps does.
  */
-export const REGISTRY_VERSION = 2;
+export const REGISTRY_VERSION = 3;
 
 /** Where everything is, and how to move around. Shown to everyone. */
 const SHELL_STEPS: GuideStep[] = [
@@ -114,6 +116,13 @@ const SHELL_STEPS: GuideStep[] = [
     shortcut: 'alt+g',
     title: 'Go to',
     body: 'The fast path. Press Alt+G anywhere and type the first few letters of a screen.',
+  },
+  {
+    id: 'shell.page-guide',
+    anchor: ANCHORS.headerPageGuide,
+    side: 'bottom',
+    title: 'What is this screen?',
+    body: 'Walks you through whichever screen you are on — two or three steps, not the whole product. It is here on every screen, including on a phone.',
   },
   {
     id: 'shell.shortcuts',
@@ -151,6 +160,15 @@ const SHELL_STEPS: GuideStep[] = [
  */
 const SCREEN_INTROS: GuideStep[] = [
   {
+    id: 'screen.dashboard',
+    route: '/',
+    anchor: ANCHORS.screenHeader,
+    // No permission: everyone lands here, and a landing screen nobody can be
+    // guided through is the one gap people notice first.
+    title: 'Dashboard',
+    body: 'Where your day starts: what is outstanding, what needs a decision, and how the month is tracking so far.',
+  },
+  {
     id: 'screen.punch',
     route: '/punch',
     anchor: ANCHORS.screenHeader,
@@ -175,6 +193,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Apply, and track where an application has reached. Balances are shown against each type before you commit to a date.',
   },
   {
+    id: 'screen.regularizations',
+    route: '/regularizations',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.REGULARIZATION_RAISE,
+    title: 'Corrections',
+    body: 'Ask for a day to be put right when the punch does not match what happened. Every correction carries a reason and goes to an approver.',
+  },
+  {
     id: 'screen.team-attendance',
     route: '/team-attendance',
     anchor: ANCHORS.screenHeader,
@@ -189,6 +215,30 @@ const SCREEN_INTROS: GuideStep[] = [
     permission: PERMISSIONS.LEAVE_APPROVE_TEAM,
     title: 'Approvals',
     body: 'Everything waiting on you, in one queue. A decision always asks for a reason and always writes to the audit log.',
+  },
+  {
+    id: 'screen.team-leave',
+    route: '/team-leave',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.LEAVE_APPROVE_TEAM,
+    title: 'Team leave',
+    body: 'Who is away and when, across the people reporting to you, so a decision on one application is made knowing about the others.',
+  },
+  {
+    id: 'screen.tasks',
+    route: '/tasks',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CRM_TASK_VIEW_SELF,
+    title: 'My tasks',
+    body: 'What has been assigned to you and what falls due next.',
+  },
+  {
+    id: 'screen.organisation',
+    route: '/organisation',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.EMPLOYEE_VIEW,
+    title: 'Organisation',
+    body: 'Departments, designations and locations — the master data every employee record points at. A location also decides where a punch may be made from.',
   },
   {
     id: 'screen.employees',
@@ -221,6 +271,22 @@ const SCREEN_INTROS: GuideStep[] = [
     permission: PERMISSIONS.HOLIDAY_MANAGE,
     title: 'Holidays',
     body: 'The calendar the day engine treats as non-working. No dates ship assumed, so this starts empty on purpose.',
+  },
+  {
+    id: 'screen.recycle-bin',
+    route: '/recycle-bin',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.EMPLOYEE_MANAGE,
+    title: 'Recycle bin',
+    body: 'Nothing in this product is hard deleted, so what was removed is recoverable from here rather than gone.',
+  },
+  {
+    id: 'screen.analytics',
+    route: '/analytics',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.ATTENDANCE_VIEW_TEAM,
+    title: 'Analytics',
+    body: 'Trends across the team rather than a single month: attendance, lateness and leave, read as shapes instead of rows.',
   },
   {
     id: 'screen.reports',
@@ -316,20 +382,169 @@ const FURNITURE_STEPS: GuideStep[] = [
   },
 ];
 
+/**
+ * Phase 6–8: the Tally masters, CRM and the sales / purchase flow.
+ *
+ * Kept as its own list rather than mixed into the attendance screens above,
+ * because the module boundary is real (CLAUDE.md §2) and a CRM tour should be
+ * liftable without picking attendance steps out of it. The copy is drawn from
+ * the REQ IDs each screen carries in `lib/nav.ts`, not invented: masters are
+ * read-only because REQ-R-04 says so, a deal never reaches Tally because
+ * REQ-U-05 says so, and sync state is reported rather than inferred because
+ * REQ-W-06 says so.
+ */
+const TRADING_INTROS: GuideStep[] = [
+  {
+    id: 'screen.masters-parties',
+    route: '/masters/parties',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.MASTERS_TALLY_VIEW,
+    title: 'Parties',
+    body: 'Customers and suppliers as Tally holds them, with credit limit and credit days. Read-only here — a new party is created in Tally and appears on the next pull (REQ-R-04).',
+  },
+  {
+    id: 'screen.masters-items',
+    route: '/masters/items',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.MASTERS_TALLY_VIEW,
+    title: 'Stock items',
+    body: 'Items pulled from Tally with their unit, group and GST rate. Also read-only, and for the same reason.',
+  },
+  {
+    id: 'screen.masters-price-lists',
+    route: '/masters/price-lists',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.MASTERS_TALLY_VIEW,
+    title: 'Price lists',
+    body: 'Where the company maintains them in Tally, they pull per party group and are what a document prices against.',
+  },
+  {
+    id: 'screen.masters-vouchers',
+    route: '/masters/vouchers',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.RECEIVABLES_VIEW,
+    title: 'Vouchers',
+    body: 'Everything backfilled from Tally, across every financial year in scope. This is the history the rest of the module reads from.',
+  },
+  {
+    id: 'screen.crm-contacts',
+    route: '/crm/contacts',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+    title: 'Contacts',
+    body: 'People, with their company and owner. Creating one warns about a duplicate phone or email rather than blocking you (REQ-U-08).',
+  },
+  {
+    id: 'screen.crm-companies',
+    route: '/crm/companies',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+    title: 'Companies',
+    body: 'Prospect organisations. A company becomes a Tally party only on conversion — a prospect who never buys must not become a ledger.',
+  },
+  {
+    id: 'screen.crm-deals',
+    route: '/crm/deals',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.CRM_DEAL_VIEW_SELF,
+    title: 'Deals',
+    body: 'The pipeline, whose stages are configurable rather than fixed. A deal has no accounting existence and is never pushed to Tally; opening a won one shows the documents raised against it.',
+  },
+  {
+    id: 'screen.sales-estimates',
+    route: '/sales/estimates',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Estimates',
+    body: 'A quote, owned here and never pushed to Tally. Picking an item shows what that party was quoted and invoiced before — the reason the backfill is worth its cost (REQ-W-02).',
+  },
+  {
+    id: 'screen.sales-orders',
+    route: '/sales/orders',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Sales orders',
+    body: 'Raised fresh or converted from an estimate. Every pushed document shows a sync state that is reported by the agent, never inferred — a document claiming "In Tally" that is not there is the failure that ends trust.',
+  },
+  {
+    id: 'screen.sales-pick-queue',
+    route: '/sales/pick-queue',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Pick queue',
+    body: 'What is waiting to be picked. Built to work one-handed at 360px, because a picker is holding a box (REQ-AA-10).',
+  },
+  {
+    id: 'screen.sales-awaiting-invoice',
+    route: '/sales/awaiting-invoice',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Awaiting invoice',
+    body: 'Picked and ready to bill. The gap between the warehouse finishing and accounts raising the invoice, made visible instead of assumed.',
+  },
+  {
+    id: 'screen.sales-invoices',
+    route: '/sales/invoices',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Invoices',
+    body: 'Where invoices are raised here they push as a Sales voucher; where Tally owns them they are pull-only.',
+  },
+  {
+    id: 'screen.sales-dispatches',
+    route: '/sales/dispatches',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Dispatches',
+    body: 'How each consignment leaves: local by carrier, on your own vehicle, or outstation. The flow ends at dispatch.',
+  },
+  {
+    id: 'screen.purchase-requirements',
+    route: '/purchase/requirements',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+    title: 'Requirements',
+    body: 'What is short and needs buying. Requirements are records rather than a flag on an order, because one purchase order may satisfy several and one requirement may be split across several orders.',
+  },
+  {
+    id: 'screen.purchase-orders',
+    route: '/purchase/orders',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+    title: 'Purchase orders',
+    body: 'Raised on a vendor, standalone for stock or against a sales order so the requirement carries through. Open orders are visible per vendor and per sales order.',
+  },
+  {
+    id: 'screen.purchase-grns',
+    route: '/purchase/grns',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+    title: 'Goods receipts',
+    body: 'What actually arrived against what was ordered, which is where a short or excess delivery is caught.',
+  },
+];
+
 /** Everything, in sidebar order. The whole-product tour. */
-export const MAIN_TOUR: GuideStep[] = [...SHELL_STEPS, ...SCREEN_INTROS];
+export const MAIN_TOUR: GuideStep[] = [...SHELL_STEPS, ...SCREEN_INTROS, ...TRADING_INTROS];
 
 /** Every step the registry can produce, in either scope. */
-export const ALL_STEPS: GuideStep[] = [...SHELL_STEPS, ...SCREEN_INTROS, ...FURNITURE_STEPS];
+export const ALL_STEPS: GuideStep[] = [
+  ...SHELL_STEPS,
+  ...SCREEN_INTROS,
+  ...TRADING_INTROS,
+  ...FURNITURE_STEPS,
+];
 
 /** The intro for a route, if it has one. */
 export function introFor(route: string): GuideStep | undefined {
-  return SCREEN_INTROS.find((step) => step.route === route);
+  return [...SCREEN_INTROS, ...TRADING_INTROS].find((step) => step.route === route);
 }
 
 /** Every route the tour knows how to introduce. */
 export function guidedRoutes(): string[] {
-  return SCREEN_INTROS.map((step) => step.route).filter((r): r is string => Boolean(r));
+  return [...SCREEN_INTROS, ...TRADING_INTROS]
+    .map((step) => step.route)
+    .filter((r): r is string => Boolean(r));
 }
 
 function permitted(step: GuideStep, granted: ReadonlySet<PermissionKey>): boolean {

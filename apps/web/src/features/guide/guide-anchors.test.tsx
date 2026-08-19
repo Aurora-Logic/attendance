@@ -7,10 +7,14 @@ import { renderWithProviders } from '@/test-support/render-shell';
 import { setViewportMatches } from '@/test-support/setup';
 import { ROLE_PERMISSION_MATRIX, type SystemRoleName } from '@vyuha/shared';
 
+import { ALL_NAV_ITEMS } from '@/lib/nav';
+
 import {
   ALL_STEPS,
   ANCHORS,
   anchorFor,
+  guidedRoutes,
+  introFor,
   resolvePageSteps,
   resolveSteps,
   SHELL_ANCHORS,
@@ -111,16 +115,16 @@ describe('guided tour length', () => {
    * of somebody taking the tour.
    */
   const EXPECTED: Record<SystemRoleName, { desktop: number; phone: number }> = {
-    Employee: { desktop: 8, phone: 7 },
-    Operations: { desktop: 13, phone: 12 },
-    HR: { desktop: 17, phone: 16 },
-    Admin: { desktop: 21, phone: 20 },
+    Employee: { desktop: 11, phone: 10 },
+    Operations: { desktop: 19, phone: 18 },
+    HR: { desktop: 24, phone: 23 },
+    Admin: { desktop: 45, phone: 44 },
     // The CRM roles hold no attendance keys (D-15: they sit beside Employee),
     // so the tour they get is the shell plus whatever the masters key unlocks.
-    Sales: { desktop: 5, phone: 4 },
-    'Sales manager': { desktop: 5, phone: 4 },
-    Purchase: { desktop: 5, phone: 4 },
-    Accounts: { desktop: 5, phone: 4 },
+    Sales: { desktop: 20, phone: 19 },
+    'Sales manager': { desktop: 21, phone: 20 },
+    Purchase: { desktop: 14, phone: 13 },
+    Accounts: { desktop: 21, phone: 20 },
   };
 
   for (const [role, expected] of Object.entries(EXPECTED) as [
@@ -231,5 +235,41 @@ describe('the per-screen guide', () => {
     // to choose by width rather than by presence.
     expect(desktopTable && anchorFor(desktopTable, false)).toBe('screen.table');
     expect(phoneTable && anchorFor(phoneTable, true)).toBe('screen.table-cards');
+  });
+});
+
+describe('coverage of the navigation', () => {
+  /*
+   * The bug this exists to prevent, which shipped once already.
+   *
+   * "Guide to this screen" is offered on every screen. A route with no intro
+   * resolves to an empty step list, `start()` returns early, and pressing the
+   * control does nothing at all — no error, no message. Seven screens were in
+   * that state at once, including the Dashboard, which is where everybody
+   * lands. Adding a screen and forgetting its guide has to fail here rather
+   * than in front of the person who pressed the button.
+   */
+  it('introduces every screen reachable from the navigation', () => {
+    const missing = ALL_NAV_ITEMS.map((item) => item.to).filter((route) => !introFor(route));
+
+    expect(missing, `no guide for: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('gates each screen exactly as the navigation gates it', () => {
+    // A guide the person can start for a screen the sidebar hides would walk
+    // them into a refusal; one gated more tightly than its screen is dead copy.
+    for (const item of ALL_NAV_ITEMS) {
+      const intro = introFor(item.to);
+      if (!intro) continue;
+      expect(intro.permission, `${item.to}`).toBe(item.permission);
+    }
+  });
+
+  it('names a route that actually exists for every intro', () => {
+    const routes = new Set(ALL_NAV_ITEMS.map((i) => i.to));
+
+    for (const route of guidedRoutes()) {
+      expect(routes.has(route), `${route} is guided but is not a navigable screen`).toBe(true);
+    }
   });
 });

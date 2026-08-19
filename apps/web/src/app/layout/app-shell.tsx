@@ -16,8 +16,8 @@ import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import { BreadcrumbTrail } from '@/components/shared/breadcrumb-trail';
+import { HeaderTooltip } from '@/components/shared/header-tooltip';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
-import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { useTheme } from '@/components/theme-provider';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -522,6 +522,10 @@ export function AppShell() {
   const location = useLocation();
   const isPreview = useSessionStore((s) => s.isPreview);
   const toggleGoto = useUiStore((s) => s.toggleGoto);
+  const armGuideFromHeader = useGuideStore((s) => s.arm);
+  const startPageGuide = () => {
+    armGuideFromHeader({ scope: 'page' });
+  };
   const toggleShortcuts = useUiStore((s) => s.toggleShortcuts);
 
   return (
@@ -568,43 +572,66 @@ export function AppShell() {
           <BreadcrumbTrail crumbs={findBreadcrumbs(location.pathname)} />
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              data-guide="header.goto"
-              className="text-muted-foreground max-sm:size-11 max-sm:border-transparent max-sm:bg-transparent max-sm:px-0 max-sm:shadow-none gap-2 font-normal"
-              onClick={toggleGoto}
-            >
-              <MagnifyingGlassIcon />
-              <span className="hidden sm:inline">Go to</span>
-              {/* The hint chip is desktop-only: there is no keyboard to hint at
-                  on a phone, and at 360px it was pushing the header 4px wide. */}
-              <ShortcutHint keys="alt+g" className="hidden sm:inline-flex" />
-            </Button>
+            {/* Every key chip that used to sit in this row now lives in the
+                hover tooltip. See components/shared/header-tooltip for why, and
+                for the §6.4 departure it records. */}
+            <HeaderTooltip label="Go to a screen or report" keys="alt+g">
+              <Button
+                variant="outline"
+                size="sm"
+                data-guide="header.goto"
+                className="text-muted-foreground max-sm:size-11 max-sm:border-transparent max-sm:bg-transparent max-sm:px-0 max-sm:shadow-none gap-2 font-normal"
+                onClick={toggleGoto}
+              >
+                <MagnifyingGlassIcon />
+                <span className="hidden sm:inline">Go to</span>
+              </Button>
+            </HeaderTooltip>
 
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Keyboard shortcuts"
-              data-guide="header.shortcuts"
-              className="hidden sm:inline-flex"
-              onClick={toggleShortcuts}
-            >
-              <KeyboardIcon />
-            </Button>
+            {/* The per-screen guide, in the header because that is where
+                somebody looks when they want to know what they are looking at.
+                It was reachable only from the account menu and Ctrl+F1, which
+                are both places you go having already decided to ask. */}
+            <HeaderTooltip label="Guide to this screen">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Guide to this screen"
+                data-guide="header.page-guide"
+                onClick={startPageGuide}
+              >
+                <MapPinIcon />
+              </Button>
+            </HeaderTooltip>
+
+            <HeaderTooltip label="Keyboard shortcuts" keys="ctrl+f1" alias="f1">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Keyboard shortcuts"
+                data-guide="header.shortcuts"
+                className="hidden sm:inline-flex"
+                onClick={toggleShortcuts}
+              >
+                <KeyboardIcon />
+              </Button>
+            </HeaderTooltip>
 
             {/* REQ-K-05. The header's bell is notifications, and Updates keeps
                 its place in the account menu behind a megaphone: two bells a
                 few pixels apart, one meaning "the product changed" and one
                 meaning "something happened to you", is a coin toss every time
                 somebody sees a dot. */}
-            <NotificationBell />
+            <HeaderTooltip label="Notifications">
+              <NotificationBell />
+            </HeaderTooltip>
 
             {/* REQ-N-03, and the only place the shortcut is advertised: the
                 hint chip PRD §6.4 asks for rides on this button. Hidden below
                 sm because a phone has no keyboard to hint at and the header
                 has no room, not because the calculator is unavailable there --
                 it opens as a Sheet once something else summons it. */}
+            {/* Carries its own tooltip, so it is not wrapped here. */}
             <CalculatorButton className="hidden sm:inline-flex" />
 
             <UserMenu />
