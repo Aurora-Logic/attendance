@@ -31,6 +31,8 @@ import { EstimatesPage } from '@/features/sales/estimates-page';
 import { EstimateEditorPage } from '@/features/sales/estimate-editor-page';
 import { DocumentPrintPage } from '@/features/documents/print-page';
 import { SalesOrdersPage } from '@/features/sales/sales-orders-page';
+import { DispatchPaperPage } from '@/features/sales/dispatch-paper-page';
+import { PackingSlipPage } from '@/features/sales/packing-slip-page';
 import { SalesOrderEditorPage } from '@/features/sales/sales-order-editor-page';
 import { InvoicesPage } from '@/features/sales/invoices-page';
 import { InvoiceEditorPage } from '@/features/sales/invoice-editor-page';
@@ -38,6 +40,7 @@ import { PickQueuePage } from '@/features/sales/pick-queue-page';
 import { AwaitingInvoicePage } from '@/features/sales/awaiting-invoice-page';
 import { DispatchesPage } from '@/features/sales/dispatches-page';
 import { RequirementsPage } from '@/features/purchase/requirements-page';
+import { GrnPaperPage } from '@/features/purchase/grn-paper-page';
 import { PurchaseOrderEditorPage } from '@/features/purchase/purchase-order-editor-page';
 import { PurchaseOrdersPage } from '@/features/purchase/purchase-orders-page';
 import { GrnsPage } from '@/features/purchase/grns-page';
@@ -166,13 +169,14 @@ export default function App() {
               <Route path="sales/pick-queue/:id" element={<PickQueuePage />} />
               <Route path="sales/awaiting-invoice" element={<AwaitingInvoicePage />} />
               <Route path="sales/dispatches" element={<DispatchesPage />} />
-              <Route path="sales/dispatches/:id" element={<DispatchesPage />} />
+              <Route path="sales/dispatches/:id" element={<DispatchPaperPage />} />
+              <Route path="sales/packs/:id" element={<PackingSlipPage />} />
               <Route path="purchase/requirements" element={<RequirementsPage />} />
               <Route path="purchase/orders" element={<PurchaseOrdersPage />} />
               <Route path="purchase/orders/new" element={<PurchaseOrderEditorPage />} />
               <Route path="purchase/orders/:id" element={<PurchaseOrderEditorPage />} />
               <Route path="purchase/grns" element={<GrnsPage />} />
-              <Route path="purchase/grns/:id" element={<GrnsPage />} />
+              <Route path="purchase/grns/:id" element={<GrnPaperPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />

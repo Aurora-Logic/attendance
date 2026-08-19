@@ -326,6 +326,14 @@ describe('pick, pack, and the billing handshake (12 §3.2, §3.3; 13 REQ-X-08)',
     });
     expect(packed.status).toBe(201);
     expect(packed.body.lines).toEqual([{ lineId, description: 'Cat6 cable 305m', quantity: '60.000', comment: 'short supply' }]);
+    // The packing slip reads the record on its own, and its workbook lists quantities without money.
+    const slip = await harness.get<PackRecordView>(`/sales/packs/${packed.body.id}`, { token: salesToken });
+    expect(slip.status).toBe(200);
+    expect(slip.body.boxCount).toBe(3);
+    const slipXlsx = await harness.getRaw(`/sales/packs/${packed.body.id}/export.xlsx`, { token: salesToken });
+    expect(slipXlsx.status).toBe(200);
+    expect(slipXlsx.headers.get('content-disposition')).toContain('Packing-Slip-');
+    expect(slipXlsx.body.subarray(0, 2).toString()).toBe('PK');
 
     const order = await harness.get<SalesDocumentView>(`/sales/orders/${bigId}`, { token: salesToken });
     expect(order.body.lines[0]?.packedQty).toBe('60.000');
@@ -515,6 +523,11 @@ describe('dispatch (12 §3.4, §3.5)', () => {
     const created = await multipart<DispatchView>(`/sales/orders/${orderIdD}/dispatches`, salesToken, { mode: 'local_auto', lines: [{ lineId: lineIdD, quantity: '2' }] });
     expect(created.status).toBe(201);
     expect(created.body.number).toBe('DN-0002');
+    // The delivery note's workbook.
+    const xlsx = await harness.getRaw(`/sales/dispatches/${created.body.id}/export.xlsx`, { token: salesToken });
+    expect(xlsx.status).toBe(200);
+    expect(xlsx.headers.get('content-disposition')).toContain('Delivery-Note-DN-0002.xlsx');
+    expect(xlsx.body.subarray(0, 2).toString()).toBe('PK');
     const history = await harness.get<Paginated<DispatchView>>(`/sales/dispatches?documentId=${orderIdD}`, { token: salesToken });
     expect(history.body.data.map((d) => [d.number, d.lines[0]?.quantity])).toEqual([['DN-0002', '2.000'], ['DN-0001', '4.000']]);
     const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdD}`, { token: salesToken });

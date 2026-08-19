@@ -10,7 +10,7 @@ import {
   type SalesDocumentView,
   type UnlinkedInvoice,
 } from '@vyuha/shared';
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
@@ -152,6 +152,20 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
 
   async listPacks(principal: Principal, documentId: string): Promise<PackRecordView[]> {
     await this.order(principal, documentId);
+    return this.packRecords(principal, sql`p.document_id = ${documentId}`);
+  }
+
+  /** One pack record by id: the packing slip's page and its workbook read it without the order. */
+  async findPack(principal: Principal, id: string): Promise<PackRecordView> {
+    const rows = await this.packRecords(principal, sql`p.id = ${id}`);
+    const pack = rows[0];
+    if (pack === undefined) throw AppError.notFound('Pack record', id);
+    // The order's own read applies the view scope (self or all) to the pack.
+    await this.order(principal, pack.documentId);
+    return pack;
+  }
+
+  private async packRecords(principal: Principal, where: SQL): Promise<PackRecordView[]> {
     const rows = await this.db.execute<{
       id: string; document_id: string; box_count: number; packed_by: string | null; packed_by_name: string | null; packed_at: Date; comment: string | null;
       lines: { lineId: string; description: string; quantity: string; comment: string | null }[];
@@ -164,7 +178,7 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
                  FROM pack_record_lines pl JOIN sales_document_lines l ON l.id = pl.line_id WHERE pl.pack_record_id = p.id
              ), '[]'::json) AS lines
         FROM pack_records p LEFT JOIN employees e ON e.id = p.packed_by
-       WHERE p.org_id = ${principal.orgId} AND p.document_id = ${documentId} AND p.deleted_at IS NULL
+       WHERE p.org_id = ${principal.orgId} AND ${where} AND p.deleted_at IS NULL
        ORDER BY p.packed_at
     `);
     return rows.rows.map((r) => ({
@@ -422,7 +436,8 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
     });
   }
 
-  private order(principal: Principal, documentId: string): Promise<SalesDocumentView> {
+  /** The order a pack or a slip belongs to, under the caller's view scope (self or all). */
+  order(principal: Principal, documentId: string): Promise<SalesDocumentView> {
     const repository = new EstimateRepository(this.db, orgContextOf(principal), 'SALES_ORDER');
     const scope = this.scopes.resolve(principal, GRANTS, salesDocuments.ownerId).where;
     return repository.view(scope, documentId).then((order) => {

@@ -235,6 +235,34 @@ export class PurchaseController {
     return this.orders.listGrns(principal, purchaseOrderId);
   }
 
+  /** The goods receipt note as a workbook: what arrived and what was rejected, in quantities. */
+  @Get('grns/:id/export.xlsx')
+  @RequirePermission(VIEW)
+  async grnXlsx(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response): Promise<void> {
+    const grn = await this.orders.findGrn(principal, id);
+    const po = await this.orders.find(principal, grn.purchaseOrderId);
+    const units = new Map(po.lines.map((line) => [line.id, line.unit]));
+    await sendDocumentXlsx(res, { db: this.db, settings: this.documentSettings, xlsx: this.xlsx }, principal.orgId, 'RECEIPT_NOTE', {
+      number: grn.number,
+      date: grn.receivedAt.slice(0, 10),
+      status: grn.syncState,
+      customerName: grn.vendorName,
+      reference: [`Against ${grn.purchaseOrderNumber}`, grn.vendorInvoiceRef ? `Vendor invoice ${grn.vendorInvoiceRef}` : null].filter(Boolean).join(' · '),
+      lines: grn.lines.map((line) => ({
+        description: Number(line.rejectedQty) > 0 ? `${line.description} (${line.rejectedQty} rejected${line.rejectionReason ? `: ${line.rejectionReason}` : ''})` : line.description,
+        quantity: line.receivedQty,
+        unit: units.get(line.purchaseOrderLineId) ?? null,
+        rate: '0',
+        discountPct: '0',
+        taxPct: '0',
+        amount: '0',
+        taxAmount: '0',
+      })),
+      notes: grn.notes,
+      terms: null,
+    });
+  }
+
   @Get('grns/:id')
   @RequirePermission(VIEW)
   findGrn(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<GrnView> {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LockKeyIcon, TruckIcon } from '@phosphor-icons/react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
@@ -17,10 +17,9 @@ import { formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { DISPATCH_MODES, DISPATCH_MODE_LABELS, PERMISSIONS, SYNC_STATES, SYNC_STATE_LABELS, type DispatchMode, type DocumentSyncState } from '@vyuha/shared';
 
-import { DispatchSheet } from './dispatch-sheet';
 import { SyncStateBadge } from './sales-order-sheet';
 import type { Dispatch } from './types';
-import { useDispatch, useDispatches } from './use-dispatches';
+import { useDispatches } from './use-dispatches';
 
 /**
  * REQ-AA-23: the dispatch board, the logistics team's home screen —
@@ -72,7 +71,6 @@ export function DispatchesPage() {
   const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
   const canView = canViewSelf || canViewAll;
   const [searchParams, setSearchParams] = useSearchParams();
-  const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
 
   const q = searchParams.get('q') ?? '';
@@ -82,7 +80,6 @@ export function DispatchesPage() {
   const syncState = SYNC_STATES.find((s) => s === syncParam);
   const orderParam = searchParams.get('order') ?? '';
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
-  const openId = params.id ?? null;
 
   const [draft, setDraft] = useState(q);
   const [syncedQ, setSyncedQ] = useState(q);
@@ -113,12 +110,6 @@ export function DispatchesPage() {
   const query = useDispatches({ page, ...(q ? { q } : {}), ...(mode ? { mode } : {}), ...(syncState ? { syncState } : {}), ...(orderParam ? { documentId: orderParam } : {}) }, { enabled: canView });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
-  const open = useDispatch(canView ? openId : null);
-
-  function closeSheet() {
-    void navigate(`/sales/dispatches${window.location.search}`, { replace: true });
-  }
-
   function setParam(name: string, value: string | null) {
     setSearchParams(
       (current) => {
@@ -256,7 +247,7 @@ export function DispatchesPage() {
               mobileStatus={(row) => <NotificationSummary row={row} />}
               mobileSupporting={(row) => `${row.orderNumber} · ${DISPATCH_MODE_LABELS[row.mode]} · ${formatRelativeAge(row.dispatchedAt)} · ${SYNC_STATE_LABELS[row.syncState]}`}
               onRowActivate={(row) => {
-                void navigate(`/sales/dispatches/${row.id}${window.location.search}`);
+                void navigate(`/sales/dispatches/${row.id}`);
               }}
             />
             {meta !== null && meta.total > meta.pageSize ? <RecordPagination page={meta.page} pageSize={meta.pageSize} total={meta.total} /> : null}
@@ -264,22 +255,6 @@ export function DispatchesPage() {
         ) : null}
       </div>
 
-      {openId !== null && open.isError ? (
-        <QueryErrorAlert
-          error={open.error}
-          subject="that dispatch"
-          onRetry={() => {
-            void open.refetch();
-          }}
-        />
-      ) : null}
-
-      <DispatchSheet
-        dispatch={openId !== null ? (open.data ?? null) : null}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) closeSheet();
-        }}
-      />
     </>
   );
 }

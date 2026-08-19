@@ -23,6 +23,8 @@ export interface DocumentSheetInput {
   readonly grandTotal: string;
   readonly notes: string | null;
   readonly terms: string | null;
+  /** False on a paper that carries goods, not money: quantities only, no rates, amounts or totals. */
+  readonly showAmounts?: boolean;
 }
 
 @Injectable()
@@ -31,7 +33,8 @@ export class DocumentXlsxService {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = orgName;
     workbook.created = new Date();
-    const sheet = workbook.addWorksheet(doc.number.slice(0, 31));
+    // Excel refuses a sheet name with \ / ? * [ ] : — a packing slip is numbered SO-0016/AF71.
+    const sheet = workbook.addWorksheet(doc.number.replace(/[\\/?*[\]:]/gu, '-').slice(0, 31));
     sheet.columns = [{ width: 6 }, { width: 44 }, { width: 12 }, { width: 8 }, { width: 14 }, { width: 10 }, { width: 8 }, { width: 16 }, { width: 14 }];
 
     const title = sheet.addRow([PRINTED_DOCUMENT_TITLES[doc.type]]);
@@ -45,26 +48,36 @@ export class DocumentXlsxService {
     if (doc.reference) sheet.addRow(['Reference', doc.reference]);
     sheet.addRow([]);
 
-    const header = sheet.addRow(['#', 'Description', 'Quantity', 'Unit', 'Rate', 'Disc %', 'Tax %', 'Amount', 'Tax']);
+    const money = doc.showAmounts ?? true;
+    const header = sheet.addRow(money ? ['#', 'Description', 'Quantity', 'Unit', 'Rate', 'Disc %', 'Tax %', 'Amount', 'Tax'] : ['#', 'Description', 'Quantity', 'Unit']);
     header.font = { bold: true };
     header.eachCell((cell) => {
       cell.border = { bottom: { style: 'thin' } };
     });
     doc.lines.forEach((line, index) => {
-      const row = sheet.addRow([index + 1, line.description, Number(line.quantity), line.unit ?? '', Number(line.rate), Number(line.discountPct), Number(line.taxPct), Number(line.amount), Number(line.taxAmount)]);
-      for (const col of [3, 5, 6, 7, 8, 9]) row.getCell(col).numFmt = '#,##0.00';
+      const row = money
+        ? sheet.addRow([index + 1, line.description, Number(line.quantity), line.unit ?? '', Number(line.rate), Number(line.discountPct), Number(line.taxPct), Number(line.amount), Number(line.taxAmount)])
+        : sheet.addRow([index + 1, line.description, Number(line.quantity), line.unit ?? '']);
+      for (const col of money ? [3, 5, 6, 7, 8, 9] : [3]) row.getCell(col).numFmt = '#,##0.00';
     });
     sheet.addRow([]);
-    const totals: [string, string][] = [
-      ['Subtotal', doc.subtotal],
-      ['Discount', doc.discountTotal],
-      ['Tax', doc.taxTotal],
-      ['Total', doc.grandTotal],
-    ];
-    for (const [label, value] of totals) {
-      const row = sheet.addRow(['', '', '', '', '', '', label, Number(value)]);
-      row.getCell(8).numFmt = '#,##0.00';
-      if (label === 'Total') row.font = { bold: true };
+    if (money) {
+      const totals: [string, string][] = [
+        ['Subtotal', doc.subtotal],
+        ['Discount', doc.discountTotal],
+        ['Tax', doc.taxTotal],
+        ['Total', doc.grandTotal],
+      ];
+      for (const [label, value] of totals) {
+        const row = sheet.addRow(['', '', '', '', '', '', label, Number(value)]);
+        row.getCell(8).numFmt = '#,##0.00';
+        if (label === 'Total') row.font = { bold: true };
+      }
+    } else {
+      const total = doc.lines.reduce((sum, line) => sum + Number(line.quantity), 0);
+      const row = sheet.addRow(['', 'Total quantity', total]);
+      row.getCell(3).numFmt = '#,##0.00';
+      row.font = { bold: true };
     }
     if (doc.notes) {
       sheet.addRow([]);

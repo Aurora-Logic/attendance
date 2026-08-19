@@ -183,6 +183,7 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
             <Field>
               <FieldLabel>On the page</FieldLabel>
               <div className="flex flex-col divide-y border">
+                <ToggleRow id="design-amounts" label="Rates, amounts and totals (off: quantities only, as on a delivery note)" checked={design.showAmounts} onChange={(v) => { setDesign({ showAmounts: v }); }} />
                 <ToggleRow id="design-hsn" label="HSN/SAC column and tax summary" checked={design.showHsn} onChange={(v) => { setDesign({ showHsn: v }); }} />
                 <ToggleRow id="design-unit" label="Unit (per) column" checked={design.showUnit} onChange={(v) => { setDesign({ showUnit: v }); }} />
                 <ToggleRow id="design-discount" label="Discount column" checked={design.showDiscount} onChange={(v) => { setDesign({ showDiscount: v }); }} />

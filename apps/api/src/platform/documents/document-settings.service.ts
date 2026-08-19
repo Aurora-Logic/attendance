@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DEFAULT_DOCUMENT_SETTINGS, documentSettingsSchema, type DocumentSettings } from '@vyuha/shared';
+import { DEFAULT_DOCUMENT_SETTINGS, PRINTED_DOCUMENT_TYPES, documentSettingsSchema, type DocumentSettings } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
@@ -29,12 +29,8 @@ export class DocumentSettingsService {
     const stored = raw as Partial<DocumentSettings>;
     const merged: DocumentSettings = {
       profile: { ...DEFAULT_DOCUMENT_SETTINGS.profile, ...(stored.profile ?? {}) },
-      designs: {
-        ESTIMATE: { ...DEFAULT_DOCUMENT_SETTINGS.designs.ESTIMATE, ...(stored.designs?.ESTIMATE ?? {}) },
-        SALES_ORDER: { ...DEFAULT_DOCUMENT_SETTINGS.designs.SALES_ORDER, ...(stored.designs?.SALES_ORDER ?? {}) },
-        INVOICE: { ...DEFAULT_DOCUMENT_SETTINGS.designs.INVOICE, ...(stored.designs?.INVOICE ?? {}) },
-        PURCHASE_ORDER: { ...DEFAULT_DOCUMENT_SETTINGS.designs.PURCHASE_ORDER, ...(stored.designs?.PURCHASE_ORDER ?? {}) },
-      },
+      // Every type gets its default under whatever was stored, so a type added later reads as its default.
+      designs: Object.fromEntries(PRINTED_DOCUMENT_TYPES.map((type) => [type, { ...DEFAULT_DOCUMENT_SETTINGS.designs[type], ...(stored.designs?.[type] ?? {}) }])) as DocumentSettings['designs'],
     };
     const parsed = documentSettingsSchema.safeParse(merged);
     return parsed.success ? parsed.data : DEFAULT_DOCUMENT_SETTINGS;

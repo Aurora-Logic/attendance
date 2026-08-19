@@ -7,6 +7,7 @@ import { renderWithProviders } from '@/test-support/render-shell';
 
 import { DEFAULT_DOCUMENT_SETTINGS } from '@vyuha/shared';
 
+import { GrnPaperPage } from './grn-paper-page';
 import { GrnsPage } from './grns-page';
 import { PurchaseOrderEditorPage } from './purchase-order-editor-page';
 import { PurchaseOrdersPage } from './purchase-orders-page';
@@ -255,23 +256,33 @@ describe('GrnsPage', () => {
     expect(screen.getAllByText('1 pending allocation').length).toBeGreaterThan(0);
   });
 
-  it('opens a receipt with the allocation form for an approver', async () => {
-    answer({ '/purchase/grns?': [GRN], '/purchase/grns/': GRN });
+  it('opens a receipt on its page: the paper, and the allocation form for an approver', async () => {
+    answer({
+      '/purchase/grns/': GRN,
+      [`/purchase/orders/${ORDER.id}`]: ORDER,
+      '/masters/': { data: [], meta: { page: 1, pageSize: 25, total: 0 } },
+      '/documents/settings': DEFAULT_DOCUMENT_SETTINGS,
+      '/settings/branding': { name: 'Surabhi Hardwares', logoUrl: null, logoUrlExpiresInSeconds: null },
+    });
     renderWithProviders(
       <Routes>
-        <Route path="/purchase/grns/:id" element={<GrnsPage />} />
+        <Route path="/purchase/grns/:id" element={<GrnPaperPage />} />
       </Routes>,
       { role: 'Admin', route: `/purchase/grns/${GRN.id}` },
     );
 
-    const sheet = await screen.findByRole('dialog');
-    expect(within(sheet).getByText(/Goods receipt GRN-0001/u)).toBeDefined();
-    expect(within(sheet).getByText('Pending allocation')).toBeDefined();
-    expect(within(sheet).getByRole('textbox', { name: 'Quantity for SO-0007' })).toBeDefined();
-    expect(within(sheet).getByRole('textbox', { name: 'Quantity for SO-0009' })).toBeDefined();
+    // The paper: the vendor, the received quantity, no money on a goods receipt.
+    const paper = await screen.findByRole('article', { name: 'Goods Receipt Note GRN-0001' });
+    expect(within(paper).getByText('Metro Cables')).toBeDefined();
+    expect(within(paper).getByText(/Copper wire 2.5mm/u)).toBeDefined();
+    expect(within(paper).queryByText(/Rate/u)).toBeNull();
+    expect(screen.getByText(/Goods receipt GRN-0001/u)).toBeDefined();
+    expect(screen.getByText('Pending allocation')).toBeDefined();
+    expect(screen.getByRole('textbox', { name: 'Quantity for SO-0007' })).toBeDefined();
+    expect(screen.getByRole('textbox', { name: 'Quantity for SO-0009' })).toBeDefined();
     // Nothing typed yet, so nothing to allocate.
     await waitFor(() => {
-      expect(within(sheet).getByRole('button', { name: /^Allocate/u }).hasAttribute('disabled')).toBe(true);
+      expect(screen.getByRole('button', { name: /^Allocate/u }).hasAttribute('disabled')).toBe(true);
     });
   });
 });

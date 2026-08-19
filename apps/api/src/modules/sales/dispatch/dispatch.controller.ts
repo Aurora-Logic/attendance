@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import {
+  DISPATCH_MODE_LABELS,
   PERMISSIONS,
   createDispatchSchema,
   dispatchListQuerySchema,
@@ -8,10 +9,15 @@ import {
   type DispatchView,
   type Paginated,
 } from '@vyuha/shared';
+import type { Response } from 'express';
 import { z } from 'zod';
 
 import { AppError } from '../../../platform/common/errors.js';
 import { createZodDto } from '../../../platform/common/zod-validation.pipe.js';
+import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
+import { sendDocumentXlsx } from '../../../platform/documents/document-export.js';
+import { DocumentSettingsService } from '../../../platform/documents/document-settings.service.js';
+import { DocumentXlsxService } from '../../../platform/documents/document-xlsx.service.js';
 import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js';
 import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { DispatchService } from './dispatch.service.js';
@@ -41,7 +47,12 @@ function buffersOf(parts: unknown): Buffer[] {
 /** Dispatches (12 §3.4): the multipart form carries the JSON as `payload` and the photographs as `box` and `lr` parts. */
 @Controller('sales')
 export class DispatchController {
-  constructor(private readonly dispatches: DispatchService) {}
+  constructor(
+    @InjectDatabase() private readonly db: Database,
+    private readonly dispatches: DispatchService,
+    private readonly documentSettings: DocumentSettingsService,
+    private readonly xlsx: DocumentXlsxService,
+  ) {}
 
   @Get('dispatches')
   @RequirePermission(...VIEW)
@@ -53,6 +64,23 @@ export class DispatchController {
   @RequirePermission(...VIEW)
   find(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<DispatchView> {
     return this.dispatches.find(principal, id);
+  }
+
+  /** The delivery note as a workbook: what left, in quantities. */
+  @Get('dispatches/:id/export.xlsx')
+  @RequirePermission(...VIEW)
+  async exportXlsx(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response): Promise<void> {
+    const dispatch = await this.dispatches.find(principal, id);
+    await sendDocumentXlsx(res, { db: this.db, settings: this.documentSettings, xlsx: this.xlsx }, principal.orgId, 'DELIVERY_NOTE', {
+      number: dispatch.number,
+      date: dispatch.dispatchedAt.slice(0, 10),
+      status: DISPATCH_MODE_LABELS[dispatch.mode],
+      customerName: dispatch.customerName,
+      reference: [`Against ${dispatch.orderNumber}`, dispatch.lrNumber ? `LR ${dispatch.lrNumber}` : null, dispatch.vehicleNumber ? `Vehicle ${dispatch.vehicleNumber}` : null].filter(Boolean).join(' · '),
+      lines: dispatch.lines.map((line) => ({ description: line.description, quantity: line.quantity, unit: line.unit, rate: '0', discountPct: '0', taxPct: '0', amount: '0', taxAmount: '0' })),
+      notes: dispatch.notes,
+      terms: null,
+    });
   }
 
   @Get('dispatches/:id/attachments/:fileId/url')

@@ -70,6 +70,18 @@ export function useUnlinkedInvoices(options: { enabled?: boolean } = {}): UseQue
   });
 }
 
+/** One pack record: the packing slip's page. */
+export function usePackRecord(id: string | null): UseQueryResult<PackRecord, Error> {
+  return useQuery({
+    enabled: id !== null,
+    queryKey: ['sales', 'pack', id],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/sales/packs/${id ?? ''}`, { signal });
+      return parseOrThrow(packRecordSchema, body, 'pack record');
+    },
+  });
+}
+
 /** REQ-AA-09/AA-31: every packing session against one order. */
 export function usePackRecords(documentId: string | null): UseQueryResult<PackRecord[], Error> {
   return useQuery({

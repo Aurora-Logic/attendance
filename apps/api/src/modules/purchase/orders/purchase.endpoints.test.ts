@@ -186,6 +186,11 @@ describe('shortage → requirement → PO → GRN → allocation (13 §1)', () =
     });
     expect(tooMuch.status).toBe(400);
 
+    // The goods receipt note's workbook: quantities, no money.
+    const xlsx = await harness.getRaw(`/purchase/grns/${grn.body.id}/export.xlsx`, { token: adminToken });
+    expect(xlsx.status).toBe(200);
+    expect(xlsx.headers.get('content-disposition')).toContain(`Goods-Receipt-Note-${grn.body.number}.xlsx`);
+    expect(xlsx.body.subarray(0, 2).toString()).toBe('PK');
     const decided = await harness.post<GrnView>(`/purchase/grns/${grn.body.id}/allocate`, {
       token: adminToken,
       body: { allocations: [{ requirementId: grn.body.pendingAllocations[0]?.waiting[0]?.requirementId, quantity: '3' }] },

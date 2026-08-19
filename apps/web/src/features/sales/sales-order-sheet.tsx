@@ -718,7 +718,9 @@ export function FulfilmentSections({ record, packs, dispatches }: { record: Esti
               <li key={pack.id} className="flex flex-col gap-1 px-3 py-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <span className="text-xs">
-                    <span className="font-medium">{pack.packedByName ?? 'Someone'}</span>
+                    <Link to={`/sales/packs/${pack.id}`} className="font-medium underline-offset-4 hover:underline" title="The packing slip">
+                      {pack.packedByName ?? 'Someone'}
+                    </Link>
                     <span className="text-muted-foreground"> · {formatRelativeAge(pack.packedAt)} · {String(pack.boxCount)} box{pack.boxCount === 1 ? '' : 'es'}</span>
                   </span>
                   <span className="text-muted-foreground text-xs tabular-nums">

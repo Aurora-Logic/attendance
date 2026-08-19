@@ -17,7 +17,7 @@ export async function sendDocumentXlsx(
   deps: { db: Database; settings: DocumentSettingsService; xlsx: DocumentXlsxService },
   orgId: string,
   type: PrintedDocumentType,
-  doc: Pick<DocumentSheetInput, 'number' | 'date' | 'status' | 'lines' | 'subtotal' | 'discountTotal' | 'taxTotal' | 'grandTotal' | 'notes' | 'terms'> & { customerName: string; partyDetail?: string | null; reference?: string | null },
+  doc: Pick<DocumentSheetInput, 'number' | 'date' | 'status' | 'lines' | 'notes' | 'terms'> & Partial<Pick<DocumentSheetInput, 'subtotal' | 'discountTotal' | 'taxTotal' | 'grandTotal'>> & { customerName: string; partyDetail?: string | null; reference?: string | null },
 ): Promise<void> {
   const [settings, org] = await Promise.all([
     deps.settings.read(orgId),
@@ -32,15 +32,17 @@ export async function sendDocumentXlsx(
     partyDetail: doc.partyDetail ?? null,
     reference: doc.reference ?? null,
     lines: doc.lines,
-    subtotal: doc.subtotal,
-    discountTotal: doc.discountTotal,
-    taxTotal: doc.taxTotal,
-    grandTotal: doc.grandTotal,
+    subtotal: doc.subtotal ?? '0.00',
+    discountTotal: doc.discountTotal ?? '0.00',
+    taxTotal: doc.taxTotal ?? '0.00',
+    grandTotal: doc.grandTotal ?? '0.00',
     notes: doc.notes,
     terms: doc.terms,
+    // The design decides whether money prints; a delivery note's workbook lists quantities only.
+    showAmounts: settings.designs[type].showAmounts,
   };
   const buffer = await deps.xlsx.build(settings.profile, org.rows[0]?.name ?? '', input);
-  const filename = `${PRINTED_DOCUMENT_TITLES[type].replace(/\s+/gu, '-')}-${doc.number}.xlsx`;
+  const filename = `${PRINTED_DOCUMENT_TITLES[type].replace(/\s+/gu, '-')}-${doc.number.replace(/[^A-Za-z0-9._-]/gu, '-')}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Cache-Control', 'private, no-store');

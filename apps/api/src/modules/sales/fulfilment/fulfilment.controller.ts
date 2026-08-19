@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Res } from '@nestjs/common';
 import {
   PERMISSIONS,
   createPackRecordSchema,
@@ -10,8 +10,13 @@ import {
   type SalesDocumentView,
   type UnlinkedInvoice,
 } from '@vyuha/shared';
+import type { Response } from 'express';
 
 import { createZodDto } from '../../../platform/common/zod-validation.pipe.js';
+import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
+import { sendDocumentXlsx } from '../../../platform/documents/document-export.js';
+import { DocumentSettingsService } from '../../../platform/documents/document-settings.service.js';
+import { DocumentXlsxService } from '../../../platform/documents/document-xlsx.service.js';
 import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js';
 import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { FulfilmentService } from './fulfilment.service.js';
@@ -25,7 +30,12 @@ const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_V
 /** Pick queue, packing, and the billing handshake (12 §3.2, §3.3). */
 @Controller('sales')
 export class FulfilmentController {
-  constructor(private readonly fulfilment: FulfilmentService) {}
+  constructor(
+    @InjectDatabase() private readonly db: Database,
+    private readonly fulfilment: FulfilmentService,
+    private readonly documentSettings: DocumentSettingsService,
+    private readonly xlsx: DocumentXlsxService,
+  ) {}
 
   @Get('pick-queue')
   @RequirePermission(...VIEW)
@@ -49,6 +59,32 @@ export class FulfilmentController {
   @RequirePermission(...VIEW)
   packs(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PackRecordView[]> {
     return this.fulfilment.listPacks(principal, id);
+  }
+
+  /** One pack record: the packing slip's page. */
+  @Get('packs/:id')
+  @RequirePermission(...VIEW)
+  findPack(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PackRecordView> {
+    return this.fulfilment.findPack(principal, id);
+  }
+
+  /** The packing slip as a workbook: quantities, no money. */
+  @Get('packs/:id/export.xlsx')
+  @RequirePermission(...VIEW)
+  async packXlsx(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response): Promise<void> {
+    const pack = await this.fulfilment.findPack(principal, id);
+    const order = await this.fulfilment.order(principal, pack.documentId);
+    const units = new Map(order.lines.map((line) => [line.id, line.unit]));
+    await sendDocumentXlsx(res, { db: this.db, settings: this.documentSettings, xlsx: this.xlsx }, principal.orgId, 'PACKING_SLIP', {
+      number: `${order.number}/${pack.id.slice(-4).toUpperCase()}`,
+      date: pack.packedAt.slice(0, 10),
+      status: `${String(pack.boxCount)} box${pack.boxCount === 1 ? '' : 'es'}`,
+      customerName: order.customerName,
+      reference: `Against ${order.number}`,
+      lines: pack.lines.map((line) => ({ description: line.comment ? `${line.description} — ${line.comment}` : line.description, quantity: line.quantity, unit: units.get(line.lineId) ?? null, rate: '0', discountPct: '0', taxPct: '0', amount: '0', taxAmount: '0' })),
+      notes: pack.comment,
+      terms: null,
+    });
   }
 
   @Post('orders/:id/packs')

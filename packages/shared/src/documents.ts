@@ -30,13 +30,26 @@ export const DOCUMENT_FONT_LABELS: Record<DocumentFont, { label: string; note: s
   mono: { label: 'Typewriter', note: 'Monospaced throughout; the dot-matrix voucher.' },
 };
 
-export const PRINTED_DOCUMENT_TYPES = ['ESTIMATE', 'SALES_ORDER', 'INVOICE', 'PURCHASE_ORDER'] as const;
+export const PRINTED_DOCUMENT_TYPES = ['ESTIMATE', 'SALES_ORDER', 'INVOICE', 'DELIVERY_NOTE', 'PACKING_SLIP', 'PURCHASE_ORDER', 'RECEIPT_NOTE'] as const;
 export type PrintedDocumentType = (typeof PRINTED_DOCUMENT_TYPES)[number];
 export const PRINTED_DOCUMENT_TITLES: Record<PrintedDocumentType, string> = {
   ESTIMATE: 'Estimate',
   SALES_ORDER: 'Sales Order',
   INVOICE: 'Tax Invoice',
+  DELIVERY_NOTE: 'Delivery Note',
+  PACKING_SLIP: 'Packing Slip',
   PURCHASE_ORDER: 'Purchase Order',
+  RECEIPT_NOTE: 'Goods Receipt Note',
+};
+/** The papers on which the other party is the vendor rather than the buyer. */
+export const VENDOR_FACING_TYPES: readonly PrintedDocumentType[] = ['PURCHASE_ORDER', 'RECEIPT_NOTE'];
+/** The papers that carry goods, not money: quantities print, rates and amounts do not unless the design says so. */
+export const GOODS_ONLY_TYPES: readonly PrintedDocumentType[] = ['DELIVERY_NOTE', 'PACKING_SLIP', 'RECEIPT_NOTE'];
+/** What the second date box on each paper is called, where it has one. */
+export const SECOND_DATE_LABELS: Partial<Record<PrintedDocumentType, string>> = {
+  ESTIMATE: 'Valid until',
+  PURCHASE_ORDER: 'Expected by',
+  DELIVERY_NOTE: 'Expected delivery',
 };
 
 /** A palette rather than a colour picker: every accent is a class the paper already knows, on screen and in print. */
@@ -87,6 +100,8 @@ export const documentDesignSchema = z.object({
   fontFamily: z.enum(DOCUMENT_FONTS).default('sans'),
   fontScale: z.enum(['sm', 'md', 'lg']),
   logoPlacement: z.enum(['left', 'right', 'none']),
+  /** Rates, amounts, totals, the amount in words and the tax summary — off on a delivery note, a packing slip, a receipt. */
+  showAmounts: z.boolean().default(true),
   showDiscount: z.boolean(),
   showTax: z.boolean(),
   showUnit: z.boolean(),
@@ -124,6 +139,7 @@ export const DEFAULT_DOCUMENT_DESIGN: DocumentDesign = {
   fontFamily: 'sans',
   fontScale: 'md',
   logoPlacement: 'left',
+  showAmounts: true,
   showDiscount: true,
   showTax: true,
   showUnit: true,
@@ -162,13 +178,19 @@ export const DEFAULT_DOCUMENT_PROFILE: DocumentProfile = {
   footerCaption: '',
 };
 
+/** A paper that carries goods, not money. */
+const GOODS_DESIGN: DocumentDesign = { ...DEFAULT_DOCUMENT_DESIGN, showAmounts: false, showDiscount: false, showTax: false, showBank: false, showAmountInWords: false, showDeclaration: false, showEInvoice: false };
+
 export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
   profile: DEFAULT_DOCUMENT_PROFILE,
   designs: {
     ESTIMATE: { ...DEFAULT_DOCUMENT_DESIGN, showEInvoice: false, footerNote: 'This is a Computer Generated Estimate' },
     SALES_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, footerNote: 'This is a Computer Generated Sales Order' },
     INVOICE: { ...DEFAULT_DOCUMENT_DESIGN, showBank: true },
+    DELIVERY_NOTE: { ...GOODS_DESIGN, footerNote: 'This is a Computer Generated Delivery Note' },
+    PACKING_SLIP: { ...GOODS_DESIGN, showHsn: false, showDetailsGrid: false, footerNote: 'This is a Computer Generated Packing Slip' },
     PURCHASE_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, showDiscount: false, showDeclaration: false, footerNote: 'This is a Computer Generated Purchase Order' },
+    RECEIPT_NOTE: { ...GOODS_DESIGN, showShipTo: false, footerNote: 'This is a Computer Generated Goods Receipt Note' },
   },
 };
 
