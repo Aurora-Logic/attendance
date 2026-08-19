@@ -308,3 +308,17 @@ with employee masters and attendance types in the company) or a file
 handoff to whoever runs payroll? Everything else in the push path is
 built; this is the only reason 6e is not started. Recommended default:
 file handoff (less coupling) unless payroll is run inside Tally Payroll.
+
+## P8-5 — Who picks and packs: which key does the warehouse hold? (REQ-AA-06, D-26)
+
+The pick queue and Pack sit behind `sales.document.view.*` (to see) and
+`sales.document.create` (to pack), because 08 §2.2 names no warehouse
+role and no fulfilment key. A salesperson therefore sees only their own
+orders on the queue; a warehouse person needs a role holding
+`sales.document.view.all` + `sales.document.create` — which also lets them
+raise orders. Recommended default until you say otherwise: an Admin-made
+"Warehouse" role with exactly those two keys (roles are editable, REQ-B-07).
+The cleaner shape, if picking is a separate job, is a `sales.fulfil` key
+held by Warehouse, Sales and Sales manager, with Pack, Dispatch and the
+queue behind it and `create` no longer implying them — a one-line seam
+change per route, plus a matrix row.
