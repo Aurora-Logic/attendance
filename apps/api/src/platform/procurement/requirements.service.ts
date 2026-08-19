@@ -3,6 +3,7 @@ import type { OrderWaitingOnView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import { AuditContext } from '../audit/audit-context.js';
+import { AuditService } from '../audit/audit.service.js';
 import { InjectDatabase, type Database, type Transaction } from '../db/db.provider.js';
 
 /**
@@ -36,6 +37,7 @@ export class RequirementsService {
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly auditContext: AuditContext,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -84,7 +86,7 @@ export class RequirementsService {
 
   /** REQ-X-09: one open requirement per item at or below its reorder level, skipping items an open PO already covers. */
   async raiseReorderBreaches(orgId: string): Promise<number> {
-    const rows = await this.db.execute<{ id: string }>(sql`
+    const rows = await this.db.execute<{ id: string; stock_item_id: string; quantity: string }>(sql`
       INSERT INTO procurement_requirements (org_id, stock_item_id, quantity, source, state)
       SELECT s.org_id, s.id,
              GREATEST(i.reorder_level - (COALESCE(s.closing_qty, 0) - COALESCE(c.committed, 0) + COALESCE(p.open_po, 0)), COALESCE(i.minimum_order_qty, 1)),
@@ -110,8 +112,14 @@ export class RequirementsService {
             WHERE r.org_id = s.org_id AND r.stock_item_id = s.id AND r.source = 'reorder'
               AND r.state IN ('open', 'ordered') AND r.deleted_at IS NULL
          )
-      RETURNING id
+      RETURNING id, stock_item_id, quantity::text AS quantity
     `);
+    // A job has no request to flush an audit context into, so the rows are
+    // written directly: a requirement raised overnight is a state change a
+    // person should be able to find the next morning (REQ-X-09).
+    for (const row of rows.rows) {
+      await this.audit.write({ orgId, actorUserId: null, action: 'procurement.requirement.raised', entityType: 'procurement_requirement', entityId: row.id, after: { source: 'reorder', stockItemId: row.stock_item_id, quantity: row.quantity } });
+    }
     return rows.rows.length;
   }
 

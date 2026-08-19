@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { NotificationDispatcher, type NotificationEvent } from '../../../platform/notifications/notification.dispatcher.js';
+import { RequirementsService } from '../../../platform/procurement/requirements.service.js';
 import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
 
 /**
@@ -238,6 +239,24 @@ describe('shortage → requirement → PO → GRN → allocation (13 §1)', () =
 
     const history = await harness.get<{ source: string; reference: string; rate: string | null }[]>(`/purchase/item-history?stockItemId=${cableId}&partyId=${vendorId}`, { token: adminToken });
     expect(history.body.map((h) => [h.source, h.reference, h.rate])).toEqual([['purchase_order', 'PO-0001', '3800.00']]);
+  });
+});
+
+describe('the nightly reorder sweep (13 REQ-X-09)', () => {
+  it('raises one requirement per item at or below its reorder level, audits it, and raises nothing a second time while it stays open', async () => {
+    const requirements = harness.resolve(RequirementsService);
+    await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '1000', minimumOrderQty: '5' } });
+    const first = await requirements.raiseReorderBreaches(ORG_ID);
+    expect(first).toBe(1);
+    const raised = await harness.get<RequirementView[]>('/purchase/requirements?state=open', { token: adminToken });
+    const reorder = raised.body.find((r) => r.stockItemId === cableId && r.source === 'reorder');
+    expect(reorder).toBeDefined();
+    expect(Number(reorder?.quantity)).toBeGreaterThan(0);
+    expect(await harness.waitForAuditAction('procurement.requirement.raised')).toBe(true);
+    const second = await requirements.raiseReorderBreaches(ORG_ID);
+    expect(second).toBe(0);
+    await harness.post(`/purchase/requirements/${reorder?.id ?? ''}/close`, { token: adminToken, body: { reason: 'test: reorder level restored' } });
+    await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '20', minimumOrderQty: '5' } });
   });
 });
 
