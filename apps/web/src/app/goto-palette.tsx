@@ -53,11 +53,40 @@ import { useGoToRecords } from './use-go-to-records';
  * invisible here. Deriving from `MODULES` is what ends the class. Approvals
  * sits under "Inbox" because REQ-O-03's whole argument is that it is one.
  */
-const SCREEN_GROUPS: NavGroup[] = [
+const SCREEN_GROUPS: NavGroup[] = dedupeByRoute([
   ...MODULES.flatMap((module) => module.groups),
   { label: 'Inbox', items: TOP_BAR_ITEMS },
   ...ADMIN_GROUPS,
-];
+]);
+
+/**
+ * One row per route, keeping the first group that claims it.
+ *
+ * Approvals is reachable from two places by design -- REQ-O-03 makes it an
+ * Inbox above the modules, and it is still in the attendance sidebar because
+ * the top bar that would replace that link does not exist yet. Both are
+ * correct; listing it twice in the palette is not. Typing "app" offered two
+ * identical rows going to the same screen, which reads as a bug in the search
+ * rather than a duplicate in the data.
+ *
+ * Deduping here rather than in `nav.ts` because the nav data is right: the
+ * sidebar and the Inbox genuinely both want it. It is only this flattened view
+ * that has to choose. Earliest wins, so a module's own naming beats the
+ * generic Inbox label.
+ */
+function dedupeByRoute(groups: NavGroup[]): NavGroup[] {
+  const claimed = new Set<string>();
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => {
+        if (claimed.has(item.to)) return false;
+        claimed.add(item.to);
+        return true;
+      }),
+    }))
+    .filter((group) => group.items.length > 0);
+}
 
 export function GoToPalette() {
   const navigate = useNavigate();
