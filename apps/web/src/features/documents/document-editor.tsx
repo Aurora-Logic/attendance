@@ -46,8 +46,13 @@ function rememberedMode(): EditorMode {
   }
 }
 
+/** 210mm at CSS pixels. */
+const A4_WIDTH_PX = 794;
+
 /** Zoom steps the fit chooses from — classes, not a computed transform, so nothing is styled inline. */
 const ZOOMS = [
+  { value: 0.4, className: '[zoom:0.4]' },
+  { value: 0.45, className: '[zoom:0.45]' },
   { value: 0.55, className: '[zoom:0.55]' },
   { value: 0.65, className: '[zoom:0.65]' },
   { value: 0.75, className: '[zoom:0.75]' },
@@ -118,24 +123,28 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const showEditing = effectiveMode === 'paper' ? editing : undefined;
   const hasExtras = extras !== undefined;
 
-  // Fit: the largest zoom step at which the whole sheet stands in the stage — by height, and beside the form by width too.
+  // Fit: the largest zoom step at which the whole sheet stands in the stage — by height on a desk (and by width beside
+  // the form); by width alone on a phone, where the stage scrolls and a squashed A4 grid would be unreadable.
   useLayoutEffect(() => {
-    if (!fit || isMobile) return undefined;
+    if (!fit) return undefined;
     const stage = stageRef.current;
     const paper = paperRef.current;
     if (stage === null || paper === null) return undefined;
     const measure = () => {
       const availableHeight = stage.clientHeight - 32;
-      const availableWidth = stage.clientWidth - 32;
+      const availableWidth = stage.clientWidth - (isMobile ? 24 : 32);
       const current = ZOOMS[zoomIndex]?.value ?? 1;
       const rect = paper.getBoundingClientRect();
       const naturalHeight = rect.height / current;
-      const naturalWidth = rect.width / current;
-      if (naturalHeight === 0 || availableHeight <= 0) return;
+      // The sheet is 210mm wide unless the stage has squashed it, so the width is known rather than measured.
+      const naturalWidth = A4_WIDTH_PX;
+      if (naturalHeight === 0 || availableWidth <= 0) return;
+      const byHeight = !isMobile;
+      const byWidth = isMobile || formMode;
       let index = 0;
       for (let i = ZOOMS.length - 1; i >= 0; i -= 1) {
         const step = ZOOMS[i];
-        if (step !== undefined && naturalHeight * step.value <= availableHeight && (!formMode || naturalWidth * step.value <= availableWidth)) {
+        if (step !== undefined && (!byHeight || naturalHeight * step.value <= availableHeight) && (!byWidth || naturalWidth * step.value <= availableWidth)) {
           index = i;
           break;
         }
@@ -158,7 +167,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
       toast.add({ type: 'error', title: 'Excel export failed', description: error instanceof Error ? error.message : 'Try again.' });
     }
   }
-  const zoom = isMobile ? ZOOMS[ZOOMS.length - 1] : ZOOMS[fit ? zoomIndex : ZOOMS.length - 1];
+  const zoom = ZOOMS[fit ? zoomIndex : ZOOMS.length - 1];
 
   return (
     <>
