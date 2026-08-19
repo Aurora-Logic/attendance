@@ -4,7 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { DesignRail } from '@/features/documents/design-rail';
 import { DocumentPaper, type PaperModel } from '@/features/documents/paper';
-import { useDocumentSettings, useSaveDocumentSettings } from '@/features/documents/use-document-settings';
+import { useDocumentSettings, useFooterLogoUrls, useSaveDocumentSettings } from '@/features/documents/use-document-settings';
 import { useBranding } from '@/lib/branding/use-branding';
 import { usePermission } from '@/lib/session/permissions';
 import { toast } from '@/components/ui/toast';
@@ -46,6 +46,7 @@ export function DocumentsPanel() {
   const [docType, setDocType] = useState<PrintedDocumentType>('INVOICE');
   const [draft, setDraft] = useState<DocumentSettings | null>(null);
   const [base, setBase] = useState<DocumentSettings | null>(null);
+  const footerLogoUrls = useFooterLogoUrls(draft?.profile.footerLogoFileIds ?? []);
   if (settings.data !== undefined && base !== settings.data) {
     // Adopt what the server holds, unless this screen has unsaved edits of its own.
     setBase(settings.data);
@@ -116,7 +117,7 @@ export function DocumentsPanel() {
       </div>
       <div className="bg-muted/40 min-w-0 overflow-auto p-4">
         <div className="mx-auto w-fit max-w-full [zoom:0.8]">
-          <DocumentPaper design={draft.designs[docType]} profile={draft.profile} logoUrl={branding.data?.logoUrl ?? null} orgName={branding.data?.name ?? ''} model={{ ...SAMPLE, type: docType, copyLabel: docType === 'INVOICE' ? 'Original for Recipient' : null }} />
+          <DocumentPaper design={draft.designs[docType]} profile={draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={{ ...SAMPLE, type: docType, copyLabel: docType === 'INVOICE' ? 'Original for Recipient' : null }} />
         </div>
       </div>
     </div>

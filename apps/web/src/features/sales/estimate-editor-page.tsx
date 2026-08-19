@@ -22,7 +22,7 @@ import { useCompanyOptions } from '@/features/crm/use-crm';
 import { DesignRail } from '@/features/documents/design-rail';
 import { downloadDocumentFile } from '@/features/documents/download';
 import { DocumentPaper, PaperField, type PaperEditing, type PaperLine, type PaperModel } from '@/features/documents/paper';
-import { useDocumentSettings, useSaveDocumentSettings } from '@/features/documents/use-document-settings';
+import { useDocumentSettings, useFooterLogoUrls, useSaveDocumentSettings } from '@/features/documents/use-document-settings';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
 import { useStockItems } from '@/features/masters/use-stock-items';
@@ -158,6 +158,7 @@ function EstimateEditor({ initial, record, savedSettings, logoUrl, orgName }: { 
   const parties = useParties({ page: 1 }, { enabled: canSeeParties });
   const companies = useCompanyOptions({ enabled: canSeeCompanies });
   const items = useStockItems({ page: 1 }, { enabled: canSeeParties });
+  const footerLogoUrls = useFooterLogoUrls(settingsDraft.profile.footerLogoFileIds);
 
   const isNew = record === null;
   const editable = canCreate && draft.status === 'DRAFT' && !preview;
@@ -501,7 +502,7 @@ function EstimateEditor({ initial, record, savedSettings, logoUrl, orgName }: { 
           ) : null}
           {customerMissing && editable ? <p className="text-muted-foreground mx-auto mb-3 max-w-[210mm] text-xs">Choose a Tally party or a CRM company, or type who it is addressed to.</p> : null}
           <div ref={paperRef} className={cn('mx-auto w-fit max-w-full', zoom.className)}>
-            <DocumentPaper design={design} profile={settingsDraft.profile} logoUrl={logoUrl} orgName={orgName} model={model} editing={editing} />
+            <DocumentPaper design={design} profile={settingsDraft.profile} logoUrl={logoUrl} footerLogoUrls={footerLogoUrls} orgName={orgName} model={model} editing={editing} />
           </div>
         </div>
       </div>

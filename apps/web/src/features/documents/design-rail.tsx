@@ -1,4 +1,6 @@
-import { CheckIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { useRef } from 'react';
+import { CheckIcon, PlusIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react';
+import { toast } from '@/components/ui/toast';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -11,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
+import { useFooterLogoUrls, useUploadFooterLogo } from './use-document-settings';
 import { cn } from '@/lib/utils';
 import {
   DOCUMENT_ACCENTS,
@@ -217,6 +220,7 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               <FieldLabel htmlFor="biz-declaration">Declaration</FieldLabel>
               <Textarea id="biz-declaration" rows={3} value={profile.declaration} onChange={(e) => { setProfile({ declaration: e.target.value }); }} />
             </Field>
+            <FooterLogos fileIds={profile.footerLogoFileIds} canEdit={canSave} onChange={(ids) => { setProfile({ footerLogoFileIds: ids }); }} />
           </FieldGroup>
         </TabsContent>
       </Tabs>
@@ -314,5 +318,72 @@ function TemplateThumb({ id, accent }: { id: DocumentTemplateId; accent: Documen
         </>
       ) : null}
     </span>
+  );
+}
+
+/**
+ * The channel-partner and brand logos along the foot of every page: uploaded
+ * once, kept as file ids in the profile, shown here as thumbnails. The file
+ * input is the sanctioned sr-only one (see org-logo-dialog), driven by a
+ * shadcn button.
+ */
+function FooterLogos({ fileIds, canEdit, onChange }: { fileIds: readonly string[]; canEdit: boolean; onChange: (ids: string[]) => void }) {
+  const urls = useFooterLogoUrls(fileIds);
+  const upload = useUploadFooterLogo();
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <Field>
+      <FieldLabel>Footer logos</FieldLabel>
+      <FieldDescription>Brand and channel-partner marks along the foot of every printed page. Up to eight; PNG or JPEG.</FieldDescription>
+      <div className="flex flex-wrap items-center gap-2">
+        {fileIds.map((fileId, index) => (
+          <span key={fileId} className="relative size-16 shrink-0 border bg-white p-1">
+            {urls[index] !== undefined ? <img src={urls[index]} alt="" className="size-full object-contain" /> : null}
+            {canEdit ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-xs"
+                aria-label={`Remove footer logo ${String(index + 1)}`}
+                className="bg-background absolute -top-2 -right-2"
+                onClick={() => {
+                  onChange(fileIds.filter((id) => id !== fileId));
+                }}
+              >
+                <XIcon />
+              </Button>
+            ) : null}
+          </span>
+        ))}
+        {canEdit && fileIds.length < 8 ? (
+          <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 h-16" disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
+            {upload.isPending ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+            Add logo
+          </Button>
+        ) : null}
+        {/* eslint-disable-next-line no-restricted-syntax */}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.currentTarget.value = '';
+            if (file === undefined) return;
+            upload.mutate(file, {
+              onSuccess: (result) => {
+                onChange([...fileIds, result.fileId]);
+              },
+              onError: (error) => {
+                toast.add({ type: 'error', title: 'That logo could not be uploaded', description: error.message });
+              },
+            });
+          }}
+        />
+      </div>
+    </Field>
   );
 }

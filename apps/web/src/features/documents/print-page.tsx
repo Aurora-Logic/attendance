@@ -10,7 +10,7 @@ import { useBranding } from '@/lib/branding/use-branding';
 import { INVOICE_COPIES, INVOICE_COPY_LABELS, SALES_DOCUMENT_STATUS_LABELS, type InvoiceCopy, type PrintedDocumentType } from '@vyuha/shared';
 
 import { DocumentPaper, type PaperModel } from './paper';
-import { useDocumentSettings } from './use-document-settings';
+import { useDocumentSettings, useFooterLogoUrls } from './use-document-settings';
 
 /**
  * The print route: the paper and nothing else, outside the shell, so the
@@ -32,6 +32,7 @@ export function DocumentPrintPage() {
   const estimate = useEstimate(type === 'ESTIMATE' ? (params.id ?? null) : null);
   const record = estimate.data;
   const party = useParty(record?.partyId ?? null);
+  const footerLogoUrls = useFooterLogoUrls(settings.data?.profile.footerLogoFileIds ?? []);
   const ready = record !== undefined && settings.data !== undefined && branding.data !== undefined && (record.partyId === null || party.data !== undefined || party.isError);
 
   useEffect(() => {
@@ -97,6 +98,7 @@ export function DocumentPrintPage() {
             design={settings.data.designs[type]}
             profile={settings.data.profile}
             logoUrl={branding.data.logoUrl}
+            footerLogoUrls={footerLogoUrls}
             orgName={branding.data.name}
             model={{ ...model, copyLabel: copy === null ? null : INVOICE_COPY_LABELS[copy] }}
           />
