@@ -29,7 +29,7 @@ export function DealDocuments({ deal }: { deal: Deal }) {
   if (!canView) return null;
   const rows = estimates.data?.data ?? [];
 
-  const params = new URLSearchParams({ new: '1', deal: deal.id });
+  const params = new URLSearchParams({ deal: deal.id });
   if (deal.companyId !== null) params.set('company', deal.companyId);
   if (deal.partyId !== null) params.set('party', deal.partyId);
 
@@ -46,7 +46,7 @@ export function DealDocuments({ deal }: { deal: Deal }) {
             variant="outline"
             size="sm"
             onClick={() => {
-              void navigate(`/sales/estimates?${params.toString()}`);
+              void navigate(`/sales/estimates/new?${params.toString()}`);
             }}
           >
             <PlusIcon data-icon="inline-start" />

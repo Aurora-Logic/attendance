@@ -27,7 +27,20 @@ export const PRINTED_DOCUMENT_TITLES: Record<PrintedDocumentType, string> = {
   PURCHASE_ORDER: 'Purchase Order',
 };
 
-const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/u, 'a hex colour like #1d4ed8');
+/** A palette rather than a colour picker: every accent is a class the paper already knows, on screen and in print. */
+export const DOCUMENT_ACCENTS = ['ink', 'blue', 'teal', 'green', 'amber', 'rose', 'violet', 'slate'] as const;
+export type DocumentAccent = (typeof DOCUMENT_ACCENTS)[number];
+export const DOCUMENT_ACCENT_LABELS: Record<DocumentAccent, string> = {
+  ink: 'Ink',
+  blue: 'Blue',
+  teal: 'Teal',
+  green: 'Green',
+  amber: 'Amber',
+  rose: 'Rose',
+  violet: 'Violet',
+  slate: 'Slate',
+};
+
 const shortText = (max: number) => z.string().trim().max(max);
 
 /** What the business says about itself on every printed page. */
@@ -49,7 +62,7 @@ export type DocumentProfile = z.infer<typeof documentProfileSchema>;
 
 export const documentDesignSchema = z.object({
   templateId: z.enum(DOCUMENT_TEMPLATE_IDS),
-  accent: hexColour,
+  accent: z.enum(DOCUMENT_ACCENTS),
   fontScale: z.enum(['sm', 'md', 'lg']),
   logoPlacement: z.enum(['left', 'right', 'none']),
   showDiscount: z.boolean(),
@@ -73,7 +86,7 @@ export type DocumentSettings = z.infer<typeof documentSettingsSchema>;
 
 export const DEFAULT_DOCUMENT_DESIGN: DocumentDesign = {
   templateId: 'classic',
-  accent: '#1d4ed8',
+  accent: 'blue',
   fontScale: 'md',
   logoPlacement: 'left',
   showDiscount: true,

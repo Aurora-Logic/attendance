@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { FileTextIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -13,16 +13,14 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { toDateParam } from '@/features/attendance/format';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { ESTIMATE_STATUSES, SALES_DOCUMENT_STATUS_LABELS, PERMISSIONS, type EstimateStatus } from '@vyuha/shared';
 
-import { EstimateSheet } from './estimate-sheet';
 import { formatMoney } from './money';
-import { emptyEstimateDraft, estimateToDraft, type EstimateDraft, type EstimateSummary } from './types';
-import { useEstimate, useEstimates } from './use-estimates';
+import type { EstimateSummary } from './types';
+import { useEstimates } from './use-estimates';
 
 /**
  * Estimates (REQ-W-01): the register, and the sheet the route opens. Filter
@@ -66,15 +64,12 @@ export function EstimatesPage() {
   const canView = canViewSelf || canViewAll;
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const [searchParams, setSearchParams] = useSearchParams();
-  const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
 
   const q = searchParams.get('q') ?? '';
   const statusParam = searchParams.get('status');
   const status = isStatus(statusParam) ? statusParam : undefined;
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
-  const openId = params.id ?? null;
-  const creating = searchParams.get('new') === '1';
   const dealParam = searchParams.get('deal') ?? '';
   const companyParam = searchParams.get('company') ?? '';
   const partyParam = searchParams.get('party') ?? '';
@@ -111,23 +106,15 @@ export function EstimatesPage() {
   );
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
-  const open = useEstimate(canView ? openId : null);
 
+  // The creator is a page of its own — the paper is the editor — reached with whatever the list was filtered by.
   function startNew() {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.set('new', '1');
-        return next;
-      },
-      { replace: true },
-    );
-  }
-  function closeSheet() {
-    const next = new URLSearchParams(window.location.search);
-    next.delete('new');
-    const search = next.toString();
-    void navigate(`/sales/estimates${search ? `?${search}` : ''}`, { replace: true });
+    const presets = new URLSearchParams();
+    if (dealParam) presets.set('deal', dealParam);
+    if (companyParam) presets.set('company', companyParam);
+    if (partyParam) presets.set('party', partyParam);
+    const search = presets.toString();
+    void navigate(`/sales/estimates/new${search ? `?${search}` : ''}`);
   }
 
   useShortcut({
@@ -139,15 +126,6 @@ export function EstimatesPage() {
     run: startNew,
   });
 
-  const sheetDraft: EstimateDraft | null = creating
-    ? emptyEstimateDraft(toDateParam(new Date()), {
-        ...(dealParam ? { dealId: dealParam } : {}),
-        ...(companyParam ? { companyId: companyParam } : {}),
-        ...(partyParam ? { partyId: partyParam } : {}),
-      })
-    : open.data !== undefined && openId !== null
-      ? estimateToDraft(open.data)
-      : null;
 
   if (!canView) {
     return (
@@ -256,7 +234,7 @@ export function EstimatesPage() {
               mobileStatus={(row) => <Badge variant={row.status === 'ACCEPTED' ? 'default' : 'outline'}>{SALES_DOCUMENT_STATUS_LABELS[row.status]}</Badge>}
               mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)}`}
               onRowActivate={(row) => {
-                void navigate(`/sales/estimates/${row.id}${window.location.search}`);
+                void navigate(`/sales/estimates/${row.id}`);
               }}
             />
             {meta !== null && meta.total > meta.pageSize ? <RecordPagination page={meta.page} pageSize={meta.pageSize} total={meta.total} /> : null}
@@ -264,23 +242,6 @@ export function EstimatesPage() {
         ) : null}
       </div>
 
-      {openId !== null && open.isError ? (
-        <QueryErrorAlert
-          error={open.error}
-          subject="that estimate"
-          onRetry={() => {
-            void open.refetch();
-          }}
-        />
-      ) : null}
-
-      <EstimateSheet
-        draft={sheetDraft}
-        record={open.data ?? null}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) closeSheet();
-        }}
-      />
     </>
   );
 }

@@ -307,3 +307,57 @@
     @apply font-sans;
     }
 }
+/*
+ * The printed page. One sheet of A4 on screen and on paper: 210mm wide, the
+ * margins the printer will honour, and the accent as a variable the five
+ * templates read. Unlayered for the same reason as the rules above — a
+ * class must beat the shell's defaults, and @page must not be swallowed.
+ * The accents are a palette (a class each), not a picker, so the paper is
+ * styled by classes alone; nothing here is an inline style.
+ */
+.a4-paper {
+  --paper-accent: oklch(0.21 0.006 285);
+  --paper-accent-soft: oklch(0.96 0.003 285);
+  width: min(210mm, 100%);
+  min-height: 297mm;
+  color: #111;
+  background: #fff;
+}
+.a4-paper[data-accent='blue'] { --paper-accent: #1d4ed8; --paper-accent-soft: #eff6ff; }
+.a4-paper[data-accent='teal'] { --paper-accent: #0f766e; --paper-accent-soft: #f0fdfa; }
+.a4-paper[data-accent='green'] { --paper-accent: #15803d; --paper-accent-soft: #f0fdf4; }
+.a4-paper[data-accent='amber'] { --paper-accent: #b45309; --paper-accent-soft: #fffbeb; }
+.a4-paper[data-accent='rose'] { --paper-accent: #be123c; --paper-accent-soft: #fff1f2; }
+.a4-paper[data-accent='violet'] { --paper-accent: #6d28d9; --paper-accent-soft: #f5f3ff; }
+.a4-paper[data-accent='slate'] { --paper-accent: #334155; --paper-accent-soft: #f8fafc; }
+.a4-paper[data-scale='sm'] { font-size: 11px; }
+.a4-paper[data-scale='md'] { font-size: 12px; }
+.a4-paper[data-scale='lg'] { font-size: 13.5px; }
+/* On paper the field boxes vanish; what was typed is what prints. */
+.a4-paper .paper-field {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  padding-inline: 0;
+  height: auto;
+  min-height: 1.6em;
+  font: inherit;
+  color: inherit;
+  border-radius: 0;
+}
+.a4-paper[data-mode='edit'] .paper-field {
+  border-bottom-color: color-mix(in oklab, var(--paper-accent) 30%, transparent);
+  border-bottom-style: dashed;
+}
+.a4-paper[data-mode='edit'] .paper-field:focus-visible {
+  border-bottom-style: solid;
+  border-bottom-color: var(--paper-accent);
+  outline: none;
+}
+@page { size: A4; margin: 0; }
+@media print {
+  html, body { background: #fff !important; }
+  .print-hidden { display: none !important; }
+  .a4-paper { width: 210mm; min-height: 297mm; margin: 0; box-shadow: none !important; border: 0 !important; break-after: page; }
+  .a4-paper:last-child { break-after: auto; }
+}

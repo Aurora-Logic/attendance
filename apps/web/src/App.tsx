@@ -28,6 +28,8 @@ import { CompaniesPage } from '@/features/crm/companies-page';
 import { ContactsPage } from '@/features/crm/contacts-page';
 import { DealsPage } from '@/features/crm/deals-page';
 import { EstimatesPage } from '@/features/sales/estimates-page';
+import { EstimateEditorPage } from '@/features/sales/estimate-editor-page';
+import { DocumentPrintPage } from '@/features/documents/print-page';
 import { SalesOrdersPage } from '@/features/sales/sales-orders-page';
 import { InvoicesPage } from '@/features/sales/invoices-page';
 import { PickQueuePage } from '@/features/sales/pick-queue-page';
@@ -115,6 +117,9 @@ export default function App() {
         <SessionGate>
         <ShortcutProvider>
           <Routes>
+            {/* The paper and nothing else: printed from its own tab, outside the shell (REQ-W-01, print and PDF). */}
+            <Route path="print/:kind/:id" element={<DocumentPrintPage />} />
+
             <Route element={<AppShell />}>
               <Route index element={<DashboardPage />} />
 
@@ -147,7 +152,8 @@ export default function App() {
               <Route path="crm/deals" element={<DealsPage />} />
               <Route path="crm/deals/:id" element={<DealsPage />} />
               <Route path="sales/estimates" element={<EstimatesPage />} />
-              <Route path="sales/estimates/:id" element={<EstimatesPage />} />
+              <Route path="sales/estimates/new" element={<EstimateEditorPage />} />
+              <Route path="sales/estimates/:id" element={<EstimateEditorPage />} />
               <Route path="sales/orders" element={<SalesOrdersPage />} />
               <Route path="sales/orders/:id" element={<SalesOrdersPage />} />
               <Route path="sales/invoices" element={<InvoicesPage />} />

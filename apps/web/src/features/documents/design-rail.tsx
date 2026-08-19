@@ -1,0 +1,303 @@
+import { CheckIcon, WarningCircleIcon } from '@phosphor-icons/react';
+
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { actionErrorCopy } from '@/features/leave/api-error-copy';
+import { cn } from '@/lib/utils';
+import {
+  DOCUMENT_ACCENTS,
+  DOCUMENT_ACCENT_LABELS,
+  DOCUMENT_TEMPLATE_IDS,
+  DOCUMENT_TEMPLATE_LABELS,
+  type DocumentAccent,
+  type DocumentDesign,
+  type DocumentProfile,
+  type DocumentSettings,
+  type DocumentTemplateId,
+  type PrintedDocumentType,
+} from '@vyuha/shared';
+
+/**
+ * The design rail beside the paper: the five templates, the accent, what
+ * the page shows, and what the business calls itself. Every change is live
+ * on the paper at once — the rail edits a working copy the page holds — and
+ * Save writes it for the organisation. Someone without settings.manage can
+ * still try a look on their own screen; only saving is theirs to ask for.
+ */
+
+const ACCENT_SWATCH: Record<DocumentAccent, string> = {
+  ink: 'bg-neutral-900',
+  blue: 'bg-blue-700',
+  teal: 'bg-teal-700',
+  green: 'bg-green-700',
+  amber: 'bg-amber-700',
+  rose: 'bg-rose-700',
+  violet: 'bg-violet-700',
+  slate: 'bg-slate-700',
+};
+
+interface DesignRailProps {
+  docType: PrintedDocumentType;
+  settings: DocumentSettings;
+  onChange: (next: DocumentSettings) => void;
+  canSave: boolean;
+  dirty: boolean;
+  saving: boolean;
+  saveError: Error | null;
+  onSave: () => void;
+  onDiscard: () => void;
+}
+
+export function DesignRail({ docType, settings, onChange, canSave, dirty, saving, saveError, onSave, onDiscard }: DesignRailProps) {
+  const design = settings.designs[docType];
+  const profile = settings.profile;
+  const setDesign = (patch: Partial<DocumentDesign>) => {
+    onChange({ ...settings, designs: { ...settings.designs, [docType]: { ...design, ...patch } } });
+  };
+  const setProfile = (patch: Partial<DocumentProfile>) => {
+    onChange({ ...settings, profile: { ...profile, ...patch } });
+  };
+  const copy = actionErrorCopy(saveError, 'Saving the design');
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <Tabs defaultValue="design" className="flex min-h-0 flex-1 flex-col">
+        <TabsList className="mx-4 mt-3 grid w-auto grid-cols-2">
+          <TabsTrigger value="design">Design</TabsTrigger>
+          <TabsTrigger value="business">Business</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="design" className="min-h-0 flex-1 overflow-y-auto p-4">
+          <FieldGroup className="gap-5">
+            <Field>
+              <FieldLabel>Template</FieldLabel>
+              <ToggleGroup
+                variant="outline"
+                aria-label="Template"
+                value={[design.templateId]}
+                onValueChange={(value: string[]) => {
+                  const next = value[0];
+                  if (next !== undefined && (DOCUMENT_TEMPLATE_IDS as readonly string[]).includes(next)) setDesign({ templateId: next as DocumentTemplateId });
+                }}
+                className="grid grid-cols-1 gap-2"
+              >
+                {DOCUMENT_TEMPLATE_IDS.map((id) => (
+                  <ToggleGroupItem key={id} value={id} aria-label={DOCUMENT_TEMPLATE_LABELS[id].label} className="h-auto justify-start gap-3 px-3 py-2 text-left data-pressed:border-primary">
+                    <TemplateThumb id={id} accent={design.accent} />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="text-sm font-medium">{DOCUMENT_TEMPLATE_LABELS[id].label}</span>
+                      <span className="text-muted-foreground line-clamp-2 text-xs font-normal whitespace-normal">{DOCUMENT_TEMPLATE_LABELS[id].note}</span>
+                    </span>
+                    {design.templateId === id ? <CheckIcon className="ml-auto shrink-0" /> : null}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </Field>
+
+            <Field>
+              <FieldLabel>Accent</FieldLabel>
+              <ToggleGroup
+                variant="outline"
+                aria-label="Accent colour"
+                value={[design.accent]}
+                onValueChange={(value: string[]) => {
+                  const next = value[0];
+                  if (next !== undefined && (DOCUMENT_ACCENTS as readonly string[]).includes(next)) setDesign({ accent: next as DocumentAccent });
+                }}
+                className="flex-wrap gap-2"
+              >
+                {DOCUMENT_ACCENTS.map((accent) => (
+                  <ToggleGroupItem key={accent} value={accent} aria-label={DOCUMENT_ACCENT_LABELS[accent]} className="pointer-coarse:size-11 size-9 p-0 data-pressed:ring-2 data-pressed:ring-ring">
+                    <span className={cn('size-5 rounded-full', ACCENT_SWATCH[accent])} />
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field>
+                <FieldLabel htmlFor="design-logo">Logo</FieldLabel>
+                <Select value={design.logoPlacement} onValueChange={(value: string | null) => { if (value === 'left' || value === 'right' || value === 'none') setDesign({ logoPlacement: value }); }}>
+                  <SelectTrigger id="design-logo" className="pointer-coarse:min-h-11 w-full" aria-label="Logo placement">
+                    <SelectValue>{(value: string) => (value === 'left' ? 'Left' : value === 'right' ? 'Right' : 'Hidden')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="left">Left</SelectItem>
+                    <SelectItem value="right">Right</SelectItem>
+                    <SelectItem value="none">Hidden</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel>Text size</FieldLabel>
+                <ToggleGroup
+                  variant="outline"
+                  aria-label="Text size"
+                  value={[design.fontScale]}
+                  onValueChange={(value: string[]) => {
+                    const next = value[0];
+                    if (next === 'sm' || next === 'md' || next === 'lg') setDesign({ fontScale: next });
+                  }}
+                >
+                  <ToggleGroupItem value="sm" aria-label="Small" className="pointer-coarse:min-h-11 flex-1">S</ToggleGroupItem>
+                  <ToggleGroupItem value="md" aria-label="Medium" className="pointer-coarse:min-h-11 flex-1">M</ToggleGroupItem>
+                  <ToggleGroupItem value="lg" aria-label="Large" className="pointer-coarse:min-h-11 flex-1">L</ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
+            </div>
+
+            <Field>
+              <FieldLabel>On the page</FieldLabel>
+              <div className="flex flex-col divide-y border">
+                <ToggleRow id="design-unit" label="Unit column" checked={design.showUnit} onChange={(v) => { setDesign({ showUnit: v }); }} />
+                <ToggleRow id="design-discount" label="Discount column" checked={design.showDiscount} onChange={(v) => { setDesign({ showDiscount: v }); }} />
+                <ToggleRow id="design-tax" label="Tax column" checked={design.showTax} onChange={(v) => { setDesign({ showTax: v }); }} />
+                <ToggleRow id="design-terms" label="Terms block" checked={design.showTerms} onChange={(v) => { setDesign({ showTerms: v }); }} />
+                <ToggleRow id="design-bank" label="Bank details" checked={design.showBank} onChange={(v) => { setDesign({ showBank: v }); }} />
+                <ToggleRow id="design-signature" label="Signature block" checked={design.showSignature} onChange={(v) => { setDesign({ showSignature: v }); }} />
+              </div>
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="design-footer">Footer line</FieldLabel>
+              <Input id="design-footer" value={design.footerNote} placeholder="Thank you for your business" onChange={(e) => { setDesign({ footerNote: e.target.value }); }} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="design-terms-default">Default terms</FieldLabel>
+              <Textarea id="design-terms-default" rows={3} value={design.defaultTerms} placeholder="Prefills a new document; each may still say its own." onChange={(e) => { setDesign({ defaultTerms: e.target.value }); }} />
+            </Field>
+          </FieldGroup>
+        </TabsContent>
+
+        <TabsContent value="business" className="min-h-0 flex-1 overflow-y-auto p-4">
+          <FieldGroup className="gap-4">
+            <FieldDescription>What every printed page says about the business. Shared by estimates, orders, invoices and purchase orders.</FieldDescription>
+            <TextRow id="biz-name" label="Legal name" value={profile.legalName} onChange={(v) => { setProfile({ legalName: v }); }} placeholder="As registered" />
+            <Field>
+              <FieldLabel htmlFor="biz-address">Address</FieldLabel>
+              <Textarea id="biz-address" rows={3} value={profile.addressLines} placeholder={'One line per row\nCity, State PIN'} onChange={(e) => { setProfile({ addressLines: e.target.value }); }} />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <TextRow id="biz-gstin" label="GSTIN" value={profile.gstin} onChange={(v) => { setProfile({ gstin: v.toUpperCase() }); }} />
+              <TextRow id="biz-pan" label="PAN" value={profile.pan} onChange={(v) => { setProfile({ pan: v.toUpperCase() }); }} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <TextRow id="biz-phone" label="Phone" value={profile.phone} onChange={(v) => { setProfile({ phone: v }); }} />
+              <TextRow id="biz-email" label="Email" value={profile.email} onChange={(v) => { setProfile({ email: v }); }} />
+            </div>
+            <TextRow id="biz-website" label="Website" value={profile.website} onChange={(v) => { setProfile({ website: v }); }} />
+            <FieldDescription>Bank details print when the design's Bank block is on.</FieldDescription>
+            <div className="grid grid-cols-2 gap-3">
+              <TextRow id="biz-bank" label="Bank" value={profile.bankName} onChange={(v) => { setProfile({ bankName: v }); }} />
+              <TextRow id="biz-branch" label="Branch" value={profile.bankBranch} onChange={(v) => { setProfile({ bankBranch: v }); }} />
+              <TextRow id="biz-account" label="Account number" value={profile.bankAccount} onChange={(v) => { setProfile({ bankAccount: v }); }} />
+              <TextRow id="biz-ifsc" label="IFSC" value={profile.bankIfsc} onChange={(v) => { setProfile({ bankIfsc: v.toUpperCase() }); }} />
+            </div>
+            <TextRow id="biz-signatory" label="Signatory" value={profile.signatoryName} onChange={(v) => { setProfile({ signatoryName: v }); }} placeholder="Authorised signatory" />
+          </FieldGroup>
+        </TabsContent>
+      </Tabs>
+
+      <div className="flex shrink-0 flex-col gap-2 border-t p-3">
+        {saveError ? (
+          <Alert variant="destructive">
+            <WarningCircleIcon />
+            <AlertTitle>{copy.title}</AlertTitle>
+            <AlertDescription>{copy.description}</AlertDescription>
+          </Alert>
+        ) : null}
+        {!canSave ? <p className="text-muted-foreground text-xs">You can try a look here; saving it for the organisation needs settings.manage.</p> : null}
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="flex-1" disabled={!dirty || saving} onClick={onDiscard}>
+            Discard
+          </Button>
+          <Button size="sm" className="flex-1" disabled={!dirty || saving || !canSave} onClick={onSave}>
+            {saving ? <Spinner data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
+            {saving ? 'Saving' : 'Save design'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToggleRow({ id, label, checked, onChange }: { id: string; label: string; checked: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <Field orientation="horizontal" className="pointer-coarse:min-h-11 items-center justify-between px-3 py-2">
+      <FieldLabel htmlFor={id} className="text-sm font-normal">{label}</FieldLabel>
+      <Switch id={id} checked={checked} onCheckedChange={onChange} />
+    </Field>
+  );
+}
+
+function TextRow({ id, label, value, onChange, placeholder }: { id: string; label: string; value: string; onChange: (next: string) => void; placeholder?: string }) {
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Input id={id} value={value} placeholder={placeholder} onChange={(e) => { onChange(e.target.value); }} />
+    </Field>
+  );
+}
+
+/** A schematic of each template, drawn from the same accent, so the rail's five choices read at a glance. */
+function TemplateThumb({ id, accent }: { id: DocumentTemplateId; accent: DocumentAccent }) {
+  const bar = ACCENT_SWATCH[accent];
+  return (
+    <span aria-hidden className="flex h-14 w-11 shrink-0 flex-col gap-0.5 border bg-white p-1">
+      {id === 'classic' ? (
+        <>
+          <span className="flex justify-between"><span className="h-1.5 w-3 bg-neutral-800" /><span className="h-1.5 w-2 bg-neutral-300" /></span>
+          <span className={cn('h-0.5 w-full', bar)} />
+          <span className="mt-1 h-0.5 w-full bg-neutral-300" />
+          <span className="h-0.5 w-full bg-neutral-200" />
+          <span className="h-0.5 w-full bg-neutral-200" />
+          <span className={cn('mt-auto ml-auto h-1 w-4', bar)} />
+        </>
+      ) : null}
+      {id === 'modern' ? (
+        <>
+          <span className={cn('-m-1 mb-0 h-3', bar)} />
+          <span className="mt-1 h-0.5 w-full bg-neutral-200" />
+          <span className="h-0.5 w-full bg-neutral-200" />
+          <span className="h-0.5 w-full bg-neutral-200" />
+          <span className="mt-auto ml-auto h-2 w-5 bg-neutral-100" />
+        </>
+      ) : null}
+      {id === 'minimal' ? (
+        <>
+          <span className="h-1 w-3 bg-neutral-400" />
+          <span className="mt-2 h-px w-full bg-neutral-300" />
+          <span className="mt-1 h-px w-full bg-neutral-200" />
+          <span className="h-px w-full bg-neutral-200" />
+          <span className="mt-auto ml-auto h-px w-4 bg-neutral-800" />
+        </>
+      ) : null}
+      {id === 'bold' ? (
+        <>
+          <span className={cn('-m-1 mb-0 h-5', bar)} />
+          <span className="mt-1 h-1 w-full bg-neutral-800" />
+          <span className="h-0.5 w-full bg-neutral-200" />
+          <span className="h-0.5 w-full bg-neutral-200" />
+          <span className={cn('mt-auto ml-auto h-2 w-5', bar)} />
+        </>
+      ) : null}
+      {id === 'ledger' ? (
+        <>
+          <span className="grid grid-cols-2 gap-px border border-neutral-700 p-px"><span className="h-1 bg-neutral-300" /><span className="h-1 bg-neutral-300" /></span>
+          <span className="grid flex-1 grid-cols-3 gap-px border border-neutral-700 p-px">
+            <span className="bg-neutral-100" /><span className="bg-neutral-100" /><span className="bg-neutral-100" />
+            <span className="bg-white" /><span className="bg-white" /><span className="bg-white" />
+          </span>
+        </>
+      ) : null}
+    </span>
+  );
+}
