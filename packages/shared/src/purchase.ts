@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { pageQuerySchema } from './pagination.js';
-import { SYNC_STATES, salesLineInputSchema, type DispatchNotificationView, type DocumentSyncState } from './sales.js';
+import { SYNC_STATES, documentDetailsSchema, salesLineInputSchema, shipToSchema, type DispatchNotificationView, type DocumentDetails, type DocumentSyncState, type ShipTo } from './sales.js';
 
 /**
  * Procurement (13). Requirements are the record a purchase order is built
@@ -76,7 +76,9 @@ export interface PurchaseOrderLineView {
   readonly quantity: string;
   readonly unit: string | null;
   readonly rate: string;
+  readonly discountPct: string;
   readonly taxPct: string;
+  readonly hsnCode: string | null;
   readonly amount: string;
   readonly taxAmount: string;
   readonly receivedQty: string;
@@ -98,7 +100,12 @@ export interface PurchaseOrderView {
   readonly ownerId: string | null;
   readonly ownerName: string | null;
   readonly notes: string | null;
+  /** D-38: what the printed order carries beyond its lines. */
+  readonly terms: string | null;
+  readonly details: DocumentDetails | null;
+  readonly shipTo: ShipTo | null;
   readonly subtotal: string;
+  readonly discountTotal: string;
   readonly taxTotal: string;
   readonly grandTotal: string;
   readonly approvalRequired: boolean;
@@ -145,6 +152,9 @@ export const createPurchaseOrderSchema = z.object({
   notes: z.string().trim().max(4000).nullish(),
   vendorEmail: z.email().max(254).nullish(),
   vendorWhatsapp: z.string().trim().min(6).max(24).nullish(),
+  terms: z.string().trim().max(4000).nullish(),
+  details: documentDetailsSchema.nullish(),
+  shipTo: shipToSchema.nullish(),
   lines: z.array(purchaseLineInputSchema).min(1).max(200),
 });
 export type CreatePurchaseOrderInput = z.infer<typeof createPurchaseOrderSchema>;

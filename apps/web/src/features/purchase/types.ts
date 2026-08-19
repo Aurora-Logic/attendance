@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { newLine, trimZeros, type LineDraft } from '@/features/sales/types';
-import { PO_FULFILMENT_STATES, PURCHASE_ORDER_STATUSES, REQUIREMENT_SOURCES, REQUIREMENT_STATES, SYNC_STATES } from '@vyuha/shared';
+import { PO_FULFILMENT_STATES, PURCHASE_ORDER_STATUSES, REQUIREMENT_SOURCES, REQUIREMENT_STATES, SYNC_STATES, documentDetailsSchema, shipToSchema, type DocumentDetails, type ShipTo } from '@vyuha/shared';
 
 /**
  * What `/purchase/*` answers (13 §4), parsed at the boundary. Each schema
@@ -46,7 +46,9 @@ export const purchaseOrderLineSchema = z.object({
   quantity: z.string(),
   unit: z.string().nullable(),
   rate: z.string(),
+  discountPct: z.string().default('0'),
   taxPct: z.string(),
+  hsnCode: z.string().nullable().default(null),
   amount: z.string(),
   taxAmount: z.string(),
   receivedQty: z.string(),
@@ -89,7 +91,11 @@ const purchaseOrderHeaderShape = {
   ownerId: z.string().nullable(),
   ownerName: z.string().nullable(),
   notes: z.string().nullable(),
+  terms: z.string().nullable().default(null),
+  details: documentDetailsSchema.nullable().default(null),
+  shipTo: shipToSchema.nullable().default(null),
   subtotal: z.string(),
+  discountTotal: z.string().default('0.00'),
   taxTotal: z.string(),
   grandTotal: z.string(),
   approvalRequired: z.boolean(),
@@ -214,6 +220,9 @@ export interface PurchaseOrderDraft {
   expectedDate: string | null;
   salesOrderId: string | null;
   notes: string;
+  terms: string;
+  shipTo: ShipTo;
+  details: DocumentDetails;
   lines: LineDraft[];
   lineRequirements: Record<string, string[]>;
 }
@@ -230,6 +239,9 @@ export function emptyPurchaseOrderDraft(today: string, overrides: Partial<Purcha
     expectedDate: null,
     salesOrderId: null,
     notes: '',
+    terms: '',
+    shipTo: {},
+    details: {},
     lines: [newLine()],
     lineRequirements: {},
     ...overrides,
@@ -245,8 +257,9 @@ export function purchaseOrderToDraft(order: PurchaseOrder): PurchaseOrderDraft {
       quantity: trimZeros(line.quantity),
       unit: line.unit ?? '',
       rate: trimZeros(line.rate),
-      discountPct: '0',
+      discountPct: trimZeros(line.discountPct),
       taxPct: trimZeros(line.taxPct),
+      hsnCode: line.hsnCode ?? '',
     });
     lineRequirements[draft.key] = line.requirements.map((r) => r.requirementId);
     return draft;
@@ -263,6 +276,9 @@ export function purchaseOrderToDraft(order: PurchaseOrder): PurchaseOrderDraft {
     expectedDate: order.expectedDate,
     salesOrderId: order.salesOrderId,
     notes: order.notes ?? '',
+    terms: order.terms ?? '',
+    shipTo: order.shipTo ?? {},
+    details: order.details ?? {},
     lines,
     lineRequirements,
   };

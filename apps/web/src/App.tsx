@@ -38,6 +38,7 @@ import { PickQueuePage } from '@/features/sales/pick-queue-page';
 import { AwaitingInvoicePage } from '@/features/sales/awaiting-invoice-page';
 import { DispatchesPage } from '@/features/sales/dispatches-page';
 import { RequirementsPage } from '@/features/purchase/requirements-page';
+import { PurchaseOrderEditorPage } from '@/features/purchase/purchase-order-editor-page';
 import { PurchaseOrdersPage } from '@/features/purchase/purchase-orders-page';
 import { GrnsPage } from '@/features/purchase/grns-page';
 import { PartiesPage } from '@/features/masters/parties-page';
@@ -168,7 +169,8 @@ export default function App() {
               <Route path="sales/dispatches/:id" element={<DispatchesPage />} />
               <Route path="purchase/requirements" element={<RequirementsPage />} />
               <Route path="purchase/orders" element={<PurchaseOrdersPage />} />
-              <Route path="purchase/orders/:id" element={<PurchaseOrdersPage />} />
+              <Route path="purchase/orders/new" element={<PurchaseOrderEditorPage />} />
+              <Route path="purchase/orders/:id" element={<PurchaseOrderEditorPage />} />
               <Route path="purchase/grns" element={<GrnsPage />} />
               <Route path="purchase/grns/:id" element={<GrnsPage />} />
               <Route path="audit" element={<AuditLogPage />} />

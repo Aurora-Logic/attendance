@@ -25,7 +25,7 @@ import {
   type UpdatePurchaseOrderInput,
   type VoucherPushPayload,
 } from '@vyuha/shared';
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 
 import { ApprovalService } from '../../../platform/approvals/approval.service.js';
 import type { ApprovalSubjectDecision, ApprovalSubjectSettlement } from '../../../platform/approvals/approval-subject.registry.js';
@@ -141,9 +141,10 @@ export class PurchaseOrderService implements OnModuleInit {
     const id = await this.db.transaction(async (tx) => {
       const number = await this.nextNumber(tx, principal.orgId, 'PURCHASE_ORDER', 'PO');
       const inserted = await tx.execute<{ id: string }>(sql`
-        INSERT INTO purchase_orders (org_id, number, date, party_id, vendor_name, sales_order_id, expected_date, owner_id, notes, vendor_email, vendor_whatsapp, created_by, updated_by)
+        INSERT INTO purchase_orders (org_id, number, date, party_id, vendor_name, sales_order_id, expected_date, owner_id, notes, vendor_email, vendor_whatsapp, terms, details, ship_to, created_by, updated_by)
         VALUES (${principal.orgId}, ${number}, ${input.date ?? (await orgToday(this.db, principal.orgId))}, ${input.partyId}, ${vendor}, ${input.salesOrderId ?? null},
-                ${input.expectedDate ?? null}, ${input.ownerId ?? principal.employeeId}, ${input.notes ?? null}, ${input.vendorEmail ?? null}, ${input.vendorWhatsapp ?? null}, ${principal.userId}, ${principal.userId})
+                ${input.expectedDate ?? null}, ${input.ownerId ?? principal.employeeId}, ${input.notes ?? null}, ${input.vendorEmail ?? null}, ${input.vendorWhatsapp ?? null},
+                ${input.terms ?? null}, ${jsonOrNull(input.details)}, ${jsonOrNull(input.shipTo)}, ${principal.userId}, ${principal.userId})
         RETURNING id
       `);
       const poId = inserted.rows[0]?.id;
@@ -197,6 +198,9 @@ export class PurchaseOrderService implements OnModuleInit {
           notes = ${input.notes === undefined ? sql`notes` : (input.notes ?? null)},
           vendor_email = ${input.vendorEmail === undefined ? sql`vendor_email` : (input.vendorEmail ?? null)},
           vendor_whatsapp = ${input.vendorWhatsapp === undefined ? sql`vendor_whatsapp` : (input.vendorWhatsapp ?? null)},
+          terms = ${input.terms === undefined ? sql`terms` : (input.terms ?? null)},
+          details = ${input.details === undefined ? sql`details` : jsonOrNull(input.details)},
+          ship_to = ${input.shipTo === undefined ? sql`ship_to` : jsonOrNull(input.shipTo)},
           updated_at = now(), updated_by = ${principal.userId}
          WHERE id = ${id} AND org_id = ${principal.orgId}
       `);
@@ -610,9 +614,10 @@ export class PurchaseOrderService implements OnModuleInit {
     await tx.execute(sql`DELETE FROM purchase_order_lines WHERE purchase_order_id = ${poId}`);
     for (const [index, line] of lines.entries()) {
       const inserted = await tx.execute<{ id: string }>(sql`
-        INSERT INTO purchase_order_lines (org_id, purchase_order_id, line_no, stock_item_id, description, quantity, unit, rate, tax_pct, amount, tax_amount, created_by, updated_by)
-        VALUES (${principal.orgId}, ${poId}, ${index + 1}, ${line.stockItemId ?? null}, ${line.description}, ${line.quantity}, ${line.unit ?? null}, ${line.rate}, ${line.taxPct},
-                round(${line.quantity}::numeric * ${line.rate}::numeric, 2), round(round(${line.quantity}::numeric * ${line.rate}::numeric, 2) * ${line.taxPct}::numeric / 100, 2), ${principal.userId}, ${principal.userId})
+        INSERT INTO purchase_order_lines (org_id, purchase_order_id, line_no, stock_item_id, description, quantity, unit, rate, discount_pct, tax_pct, hsn_code, amount, tax_amount, created_by, updated_by)
+        VALUES (${principal.orgId}, ${poId}, ${index + 1}, ${line.stockItemId ?? null}, ${line.description}, ${line.quantity}, ${line.unit ?? null}, ${line.rate}, ${line.discountPct}, ${line.taxPct}, ${line.hsnCode ?? null},
+                round(${line.quantity}::numeric * ${line.rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2),
+                round(round(${line.quantity}::numeric * ${line.rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2) * ${line.taxPct}::numeric / 100, 2), ${principal.userId}, ${principal.userId})
         RETURNING id
       `);
       const lineId = inserted.rows[0]?.id;
@@ -658,7 +663,7 @@ export class PurchaseOrderService implements OnModuleInit {
       narration: `${po.notes ?? ''}\nvyuha:${po.number}:${po.id}`.trim(),
       idempotencyKey: `vyuha:${po.id}`,
       remoteGuid: null,
-      lines: po.lines.map((l) => ({ stockItemName: l.description, quantity: l.quantity, unit: l.unit, rate: l.rate, discountPct: '0', amount: l.amount })),
+      lines: po.lines.map((l) => ({ stockItemName: l.description, quantity: l.quantity, unit: l.unit, rate: l.rate, discountPct: l.discountPct, amount: l.amount })),
     };
     const jobId = await this.pushQueue.enqueue(principal.orgId, principal.userId, payload);
     await this.db.execute(sql`UPDATE purchase_orders SET sync_state = ${jobId === null ? 'NOT_PUSHED' : 'QUEUED'}, push_job_id = ${jobId}, last_error = NULL, updated_at = now() WHERE id = ${id}`);
@@ -706,7 +711,7 @@ export class PurchaseOrderService implements OnModuleInit {
       id: string; number: string; status: PurchaseOrderView['status']; date: string; party_id: string; vendor_name: string; sales_order_id: string | null; expected_date: string | null;
       owner_id: string | null; owner_name: string | null; notes: string | null; subtotal: string; tax_total: string; grand_total: string; sync_state: PurchaseOrderView['syncState'];
       remote_guid: string | null; remote_voucher_number: string | null; last_error: string | null; short_closed_at: Date | null; short_close_reason: string | null; created_at: Date; updated_at: Date;
-      vendor_email: string | null; vendor_whatsapp: string | null;
+      vendor_email: string | null; vendor_whatsapp: string | null; terms: string | null; details: PurchaseOrderView['details']; ship_to: PurchaseOrderView['shipTo']; discount_total: string;
       lines: PurchaseOrderView['lines'];
       notifications: { id: string; channel: 'email' | 'whatsapp'; recipient: string | null; status: 'pending' | 'sent' | 'failed'; composedText: string; sentAt: string | null; error: string | null }[];
     }>(sql`
@@ -714,13 +719,14 @@ export class PurchaseOrderService implements OnModuleInit {
              CASE WHEN e.id IS NULL THEN NULL ELSE concat_ws(' ', e.first_name, e.last_name) END AS owner_name,
              po.notes, po.subtotal::text AS subtotal, po.tax_total::text AS tax_total, po.grand_total::text AS grand_total,
              po.sync_state, po.remote_guid, po.remote_voucher_number, po.last_error, po.short_closed_at, po.short_close_reason, po.created_at, po.updated_at,
-             po.vendor_email, po.vendor_whatsapp,
+             po.vendor_email, po.vendor_whatsapp, po.terms, po.details, po.ship_to,
+             COALESCE((SELECT sum(round(pl.quantity * pl.rate, 2) - pl.amount) FROM purchase_order_lines pl WHERE pl.purchase_order_id = po.id AND pl.deleted_at IS NULL), 0)::text AS discount_total,
              COALESCE((SELECT json_agg(json_build_object('id', n.id, 'channel', n.channel, 'recipient', n.recipient, 'status', n.status, 'composedText', n.composed_text, 'sentAt', n.sent_at, 'error', n.error) ORDER BY n.channel)
                          FROM purchase_order_notifications n WHERE n.purchase_order_id = po.id AND n.deleted_at IS NULL), '[]'::json) AS notifications,
              COALESCE((
                SELECT json_agg(json_build_object(
                  'id', pl.id, 'lineNo', pl.line_no, 'stockItemId', pl.stock_item_id, 'description', pl.description, 'quantity', pl.quantity::text, 'unit', pl.unit,
-                 'rate', pl.rate::text, 'taxPct', pl.tax_pct::text, 'amount', pl.amount::text, 'taxAmount', pl.tax_amount::text,
+                 'rate', pl.rate::text, 'discountPct', pl.discount_pct::text, 'taxPct', pl.tax_pct::text, 'hsnCode', pl.hsn_code, 'amount', pl.amount::text, 'taxAmount', pl.tax_amount::text,
                  'receivedQty', pl.received_qty::text, 'rejectedQty', pl.rejected_qty::text,
                  'requirements', COALESCE((
                    SELECT json_agg(json_build_object('requirementId', plr.requirement_id, 'quantity', plr.quantity::text, 'salesOrderNumber', d.number, 'customerName', d.customer_name))
@@ -757,7 +763,11 @@ export class PurchaseOrderService implements OnModuleInit {
       ownerId: r.owner_id,
       ownerName: r.owner_name,
       notes: r.notes,
+      terms: r.terms,
+      details: r.details,
+      shipTo: r.ship_to,
       subtotal: r.subtotal,
+      discountTotal: r.discount_total,
       taxTotal: r.tax_total,
       grandTotal: r.grand_total,
       approvalRequired: threshold > 0 && Number(r.grand_total) > threshold,
@@ -826,6 +836,11 @@ export class PurchaseOrderService implements OnModuleInit {
       pendingAllocations: r.pending,
     };
   }
+}
+
+/** Raw SQL does not serialise jsonb the way the query builder does: the value goes in as text and is cast. */
+function jsonOrNull(value: unknown): SQL {
+  return value === null || value === undefined ? sql`NULL` : sql`${JSON.stringify(value)}::jsonb`;
 }
 
 /** REQ-X-18: what the vendor receives — the PO in words a supplier can act on, one line per item. */

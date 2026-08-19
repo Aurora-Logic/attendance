@@ -5,10 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useParty } from '@/features/masters/use-parties';
+import type { PurchaseOrder } from '@/features/purchase/types';
+import { usePurchaseOrder } from '@/features/purchase/use-purchase';
+import type { Estimate } from '@/features/sales/types';
 import { useEstimate, useSalesOrder } from '@/features/sales/use-estimates';
 import { useInvoice } from '@/features/sales/use-invoices';
 import { useBranding } from '@/lib/branding/use-branding';
-import { INVOICE_COPIES, INVOICE_COPY_LABELS, SALES_DOCUMENT_STATUS_LABELS, type InvoiceCopy, type PrintedDocumentType } from '@vyuha/shared';
+import { INVOICE_COPIES, INVOICE_COPY_LABELS, PURCHASE_ORDER_STATUS_LABELS, SALES_DOCUMENT_STATUS_LABELS, type InvoiceCopy, type PrintedDocumentType } from '@vyuha/shared';
 
 import { DocumentPaper, type PaperModel } from './paper';
 import { useDocumentSettings, useFooterLogoUrls } from './use-document-settings';
@@ -22,7 +25,7 @@ import { useDocumentSettings, useFooterLogoUrls } from './use-document-settings'
  * pages, each named (GST's original, duplicate, triplicate).
  */
 
-const KINDS: Record<string, PrintedDocumentType> = { estimates: 'ESTIMATE', orders: 'SALES_ORDER', invoices: 'INVOICE' };
+const KINDS: Record<string, PrintedDocumentType> = { estimates: 'ESTIMATE', orders: 'SALES_ORDER', invoices: 'INVOICE', 'purchase-orders': 'PURCHASE_ORDER' };
 
 export function DocumentPrintPage() {
   const params = useParams<{ kind: string; id: string }>();
@@ -34,8 +37,11 @@ export function DocumentPrintPage() {
   const estimate = useEstimate(type === 'ESTIMATE' ? (params.id ?? null) : null);
   const order = useSalesOrder(type === 'SALES_ORDER' ? (params.id ?? null) : null);
   const invoice = useInvoice(type === 'INVOICE' ? (params.id ?? null) : null);
+  const purchaseOrder = usePurchaseOrder(type === 'PURCHASE_ORDER' ? (params.id ?? null) : null);
   const source = type === 'SALES_ORDER' ? order : type === 'INVOICE' ? invoice : estimate;
-  const record = source.data;
+  // The purchase order is another module's record, read into the same paper shape below.
+  const record = type === 'PURCHASE_ORDER' ? (purchaseOrder.data === undefined ? undefined : purchaseOrderAsPaper(purchaseOrder.data)) : source.data === undefined ? undefined : salesDocumentAsPaper(source.data);
+  const query = type === 'PURCHASE_ORDER' ? purchaseOrder : source;
   const party = useParty(record?.partyId ?? null);
   const footerLogoUrls = useFooterLogoUrls(settings.data?.profile.footerLogoFileIds ?? []);
   const ready = record !== undefined && settings.data !== undefined && branding.data !== undefined && (record.partyId === null || party.data !== undefined || party.isError);
@@ -52,10 +58,10 @@ export function DocumentPrintPage() {
   }, [ready, searchParams]);
 
   if (type === null) return <p className="p-6 text-sm">Nothing prints at this address.</p>;
-  if (source.isError) {
+  if (query.isError) {
     return (
       <div className="p-6">
-        <QueryErrorAlert error={source.error} subject="that document" onRetry={() => { void source.refetch(); }} />
+        <QueryErrorAlert error={query.error} subject="that document" onRetry={() => { void query.refetch(); }} />
       </div>
     );
   }
@@ -70,7 +76,7 @@ export function DocumentPrintPage() {
   const model: PaperModel = {
     type,
     number: record.number,
-    statusLabel: SALES_DOCUMENT_STATUS_LABELS[record.status],
+    statusLabel: record.statusLabel,
     date: record.date,
     validUntil: record.validUntil,
     buyer: {
@@ -111,4 +117,49 @@ export function DocumentPrintPage() {
       </div>
     </div>
   );
+}
+
+/** The fields the paper reads, named the way every sales record names them. */
+interface PaperRecord {
+  readonly number: string;
+  readonly statusLabel: string;
+  readonly date: string;
+  readonly validUntil: string | null;
+  readonly partyId: string | null;
+  readonly customerName: string;
+  readonly placeOfSupply: string | null;
+  readonly shipTo: PaperModel['shipTo'];
+  readonly details: PaperModel['details'] | null;
+  readonly lines: readonly { id: string; stockItemId: string | null; description: string; hsnCode: string | null; quantity: string; unit: string | null; rate: string; discountPct: string; taxPct: string; amount: string; taxAmount: string }[];
+  readonly subtotal: string;
+  readonly discountTotal: string;
+  readonly taxTotal: string;
+  readonly grandTotal: string;
+  readonly notes: string | null;
+  readonly terms: string | null;
+}
+
+function salesDocumentAsPaper(doc: Estimate): PaperRecord {
+  return { ...doc, statusLabel: SALES_DOCUMENT_STATUS_LABELS[doc.status] };
+}
+
+function purchaseOrderAsPaper(po: PurchaseOrder): PaperRecord {
+  return {
+    number: po.number,
+    statusLabel: PURCHASE_ORDER_STATUS_LABELS[po.status],
+    date: po.date,
+    validUntil: po.expectedDate,
+    partyId: po.partyId,
+    customerName: po.vendorName,
+    placeOfSupply: null,
+    shipTo: po.shipTo,
+    details: po.details,
+    lines: po.lines,
+    subtotal: po.subtotal,
+    discountTotal: po.discountTotal,
+    taxTotal: po.taxTotal,
+    grandTotal: po.grandTotal,
+    notes: po.notes,
+    terms: po.terms,
+  };
 }

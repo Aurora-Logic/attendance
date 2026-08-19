@@ -5,6 +5,7 @@ import {
   type CreateGrnInput,
   type CreatePurchaseOrderInput,
   type CreateRequirementInput,
+  type DocumentDetails,
   type DocumentSyncState,
   type PurchaseLineInput,
   type PurchaseOrderFromRequirementsInput,
@@ -13,6 +14,7 @@ import {
   type PutItemSettingsInput,
   type PutItemVendorsInput,
   type RequirementState,
+  type ShipTo,
   type UpdatePurchaseOrderInput,
 } from '@vyuha/shared';
 
@@ -183,11 +185,7 @@ export function usePurchaseOrder(id: string | null): UseQueryResult<PurchaseOrde
   });
 }
 
-/**
- * The editor's lines as the API takes them: a sales line plus the
- * requirements it takes up. A PO carries no discount, so it is sent as zero
- * whatever the shared editor's box says.
- */
+/** The editor's lines as the API takes them: a sales line plus the requirements it takes up. */
 function toLineInputs(draft: PurchaseOrderDraft): PurchaseLineInput[] {
   return draft.lines
     .filter((line) => line.stockItemId !== null || line.description.trim() !== '' || line.rate.trim() !== '')
@@ -197,10 +195,22 @@ function toLineInputs(draft: PurchaseOrderDraft): PurchaseLineInput[] {
       quantity: line.quantity.trim() === '' ? '1' : line.quantity.trim(),
       unit: blank(line.unit),
       rate: line.rate.trim() === '' ? '0' : line.rate.trim().replace(/,/gu, ''),
-      discountPct: '0',
+      discountPct: line.discountPct.trim() === '' ? '0' : line.discountPct.trim(),
       taxPct: line.taxPct.trim() === '' ? '0' : line.taxPct.trim(),
+      hsnCode: blank(line.hsnCode),
       requirementIds: draft.lineRequirements[line.key] ?? [],
     }));
+}
+
+/** The printed header beyond the lines; blanks are dropped so an untouched grid stays null. */
+function toPaperHeader(draft: PurchaseOrderDraft): { terms: string | null; shipTo: ShipTo | null; details: DocumentDetails | null } {
+  const details = Object.fromEntries(Object.entries(draft.details).filter(([, v]) => typeof v === 'string' && v.trim() !== '')) as DocumentDetails;
+  const shipTo = Object.fromEntries(Object.entries(draft.shipTo).filter(([, v]) => typeof v === 'string' && v.trim() !== '')) as ShipTo;
+  return {
+    terms: blank(draft.terms),
+    shipTo: Object.keys(shipTo).length === 0 ? null : shipTo,
+    details: Object.keys(details).length === 0 ? null : details,
+  };
 }
 
 /** Create or edit a draft (REQ-X-13 standalone). */
@@ -217,6 +227,7 @@ export function useSavePurchaseOrder(): UseMutationResult<PurchaseOrder, Error, 
         expectedDate: draft.expectedDate,
         salesOrderId: draft.salesOrderId,
         notes: blank(draft.notes),
+        ...toPaperHeader(draft),
         lines: toLineInputs(draft),
       };
       const response = await apiRequest<unknown>(draft.id === undefined ? '/purchase/orders' : `/purchase/orders/${draft.id}`, {

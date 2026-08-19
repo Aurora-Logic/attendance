@@ -1,5 +1,5 @@
 import type { Response } from 'express';
-import { PRINTED_DOCUMENT_TITLES, type DocumentSettings, type EstimateView, type PrintedDocumentType } from '@vyuha/shared';
+import { PRINTED_DOCUMENT_TITLES, type DocumentSettings, type PrintedDocumentType } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import type { Database } from '../db/db.provider.js';
@@ -8,7 +8,7 @@ import type { DocumentSheetInput, DocumentXlsxService } from './document-xlsx.se
 
 /**
  * The Excel button behind every sales document: the same workbook, streamed
- * the same way, from any module that holds an EstimateView-shaped record.
+ * the same way, from any module that holds a document-shaped record.
  * A helper rather than a service so the sales and purchase modules call it
  * without a new provider — both already hold the two services it needs.
  */
@@ -17,7 +17,7 @@ export async function sendDocumentXlsx(
   deps: { db: Database; settings: DocumentSettingsService; xlsx: DocumentXlsxService },
   orgId: string,
   type: PrintedDocumentType,
-  doc: Pick<EstimateView, 'number' | 'date' | 'status' | 'customerName' | 'lines' | 'subtotal' | 'discountTotal' | 'taxTotal' | 'grandTotal' | 'notes' | 'terms'> & { partyDetail?: string | null; reference?: string | null },
+  doc: Pick<DocumentSheetInput, 'number' | 'date' | 'status' | 'lines' | 'subtotal' | 'discountTotal' | 'taxTotal' | 'grandTotal' | 'notes' | 'terms'> & { customerName: string; partyDetail?: string | null; reference?: string | null },
 ): Promise<void> {
   const [settings, org] = await Promise.all([
     deps.settings.read(orgId),

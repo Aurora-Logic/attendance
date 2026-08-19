@@ -546,7 +546,7 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
  * sent by hand until email and WhatsApp land (REQ-AA-26's `manual`
  * fallback). Copy takes the text; Mark sent records that it went.
  */
-function VendorCopy({ order, canMark }: { order: PurchaseOrder; canMark: boolean }) {
+export function VendorCopy({ order, canMark }: { order: PurchaseOrder; canMark: boolean }) {
   const mark = useMarkPurchaseNotification();
   const copy = actionErrorCopy(mark.error, 'Marking the copy sent');
 
@@ -623,7 +623,7 @@ function VendorCopy({ order, canMark }: { order: PurchaseOrder; canMark: boolean
 }
 
 /** REQ-X-19/X-20: what a confirmed order has received, per line, and who each line was bought for. */
-function ReceiptLines({ order }: { order: PurchaseOrder }) {
+export function ReceiptLines({ order }: { order: PurchaseOrder }) {
   return (
     <div className="flex flex-col gap-2">
       <SectionHeading title="Lines" note="Ordered, received, rejected and still owed. Rejected goods stay off stock and keep the line open (REQ-X-21)." />
@@ -683,7 +683,7 @@ function ReceiptLines({ order }: { order: PurchaseOrder }) {
 }
 
 /** REQ-X-10: which requirements a not-yet-confirmed order will take up. */
-function TakenUp({ order }: { order: PurchaseOrder }) {
+export function TakenUp({ order }: { order: PurchaseOrder }) {
   return (
     <div className="flex flex-col gap-2">
       <SectionHeading title="Takes up" note="The queue lines this order was raised for. They move to ordered when it is confirmed." />

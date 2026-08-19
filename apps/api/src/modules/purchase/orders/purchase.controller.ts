@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, MethodNotAllowedException, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, MethodNotAllowedException, Param, ParseUUIDPipe, Patch, Post, Put, Query, Res } from '@nestjs/common';
 import {
   PERMISSIONS,
   allocateReceiptSchema,
@@ -27,10 +27,14 @@ import {
   type StockAvailability,
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
+import type { Response } from 'express';
 
 import { AppError } from '../../../platform/common/errors.js';
 import { createZodDto } from '../../../platform/common/zod-validation.pipe.js';
 import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
+import { sendDocumentXlsx } from '../../../platform/documents/document-export.js';
+import { DocumentSettingsService } from '../../../platform/documents/document-settings.service.js';
+import { DocumentXlsxService } from '../../../platform/documents/document-xlsx.service.js';
 import { StockAvailabilityService } from '../../../platform/documents/stock-availability.service.js';
 import { RequirementsService } from '../../../platform/procurement/requirements.service.js';
 import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js';
@@ -67,6 +71,8 @@ export class PurchaseController {
     private readonly orders: PurchaseOrderService,
     private readonly requirements: RequirementsService,
     private readonly availability: StockAvailabilityService,
+    private readonly documentSettings: DocumentSettingsService,
+    private readonly xlsx: DocumentXlsxService,
   ) {}
 
   // ----------------------------------------------------------- requirements
@@ -130,6 +136,27 @@ export class PurchaseController {
   @RequirePermission(VIEW)
   find(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PurchaseOrderView> {
     return this.orders.find(principal, id);
+  }
+
+  /** The Excel copy of one purchase order: the vendor stands where the customer does on a sales document. */
+  @Get('orders/:id/export.xlsx')
+  @RequirePermission(VIEW)
+  async exportXlsx(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response): Promise<void> {
+    const po = await this.orders.find(principal, id);
+    await sendDocumentXlsx(res, { db: this.db, settings: this.documentSettings, xlsx: this.xlsx }, principal.orgId, 'PURCHASE_ORDER', {
+      number: po.number,
+      date: po.date,
+      status: po.status,
+      customerName: po.vendorName,
+      lines: po.lines,
+      subtotal: po.subtotal,
+      discountTotal: po.discountTotal,
+      taxTotal: po.taxTotal,
+      grandTotal: po.grandTotal,
+      notes: po.notes,
+      terms: po.terms,
+      reference: po.expectedDate === null ? null : `Expected ${po.expectedDate}`,
+    });
   }
 
   @Post('orders')

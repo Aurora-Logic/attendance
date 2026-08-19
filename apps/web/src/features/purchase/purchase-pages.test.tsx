@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders } from '@/test-support/render-shell';
 
+import { DEFAULT_DOCUMENT_SETTINGS } from '@vyuha/shared';
+
 import { GrnsPage } from './grns-page';
+import { PurchaseOrderEditorPage } from './purchase-order-editor-page';
 import { PurchaseOrdersPage } from './purchase-orders-page';
 import { RequirementsPage } from './requirements-page';
 import { draftFingerprint, lineBalance, purchaseOrderSchema, purchaseOrderToDraft, type Grn, type PurchaseOrder, type Requirement } from './types';
@@ -81,7 +84,11 @@ const ORDER: PurchaseOrder = {
   ownerId: null,
   ownerName: null,
   notes: null,
+  terms: null,
+  details: null,
+  shipTo: null,
   subtotal: '4000.00',
+  discountTotal: '0.00',
   taxTotal: '720.00',
   grandTotal: '4720.00',
   approvalRequired: false,
@@ -100,7 +107,9 @@ const ORDER: PurchaseOrder = {
       quantity: '40.000',
       unit: 'm',
       rate: '100.00',
+      discountPct: '0.00',
       taxPct: '18.00',
+      hsnCode: '8544',
       amount: '4000.00',
       taxAmount: '720.00',
       receivedQty: '10.000',
@@ -201,34 +210,39 @@ describe('PurchaseOrdersPage', () => {
     expect(screen.getByRole('button', { name: 'Purchase settings' })).toBeDefined();
   });
 
-  it('opens a confirmed order with receipt figures, its requirements and the vendor copy', async () => {
+  it('opens a confirmed order on its page: the paper, receipt figures, its requirements and the vendor copy', async () => {
     answer({
-      '/purchase/orders?': { data: [], meta: { page: 1, pageSize: 25, total: 0 } },
       [`/purchase/orders/${ORDER.id}`]: ORDER,
       '/masters/': { data: [], meta: { page: 1, pageSize: 25, total: 0 } },
+      '/documents/settings': DEFAULT_DOCUMENT_SETTINGS,
+      '/settings/branding': { name: 'Surabhi Hardwares', logoUrl: null, logoUrlExpiresInSeconds: null },
     });
     renderWithProviders(
       <Routes>
-        <Route path="/purchase/orders/:id" element={<PurchaseOrdersPage />} />
+        <Route path="/purchase/orders/:id" element={<PurchaseOrderEditorPage />} />
       </Routes>,
       { role: 'Admin', route: `/purchase/orders/${ORDER.id}` },
     );
 
-    const sheet = await screen.findByRole('dialog');
-    expect(within(sheet).getByText(/Purchase order PO-0001/u)).toBeDefined();
+    // The paper: the vendor where the buyer stands, the number, the line.
+    const paper = await screen.findByRole('article', { name: 'Purchase Order PO-0001' });
+    expect(within(paper).getByText('Metro Cables')).toBeDefined();
+    expect(within(paper).getByText('Copper wire 2.5mm')).toBeDefined();
+    expect(screen.getByText(/Purchase order PO-0001/u)).toBeDefined();
     // Ordered / received / rejected / balance, from the line.
-    expect(within(sheet).getByText('Ordered')).toBeDefined();
-    expect(within(sheet).getByText('Balance')).toBeDefined();
-    expect(within(sheet).getByText('28')).toBeDefined();
+    expect(screen.getByText('Ordered')).toBeDefined();
+    expect(screen.getByText('Balance')).toBeDefined();
+    expect(screen.getByText('28')).toBeDefined();
     // REQ-X-10: who the line was bought for.
-    expect(within(sheet).getByText(/For SO-0007 \(Asha Traders\) · 40/u)).toBeDefined();
+    expect(screen.getByText(/For SO-0007 \(Asha Traders\) · 40/u)).toBeDefined();
     // REQ-X-18: the vendor copy, pending.
-    expect(within(sheet).getByText('Vendor copy')).toBeDefined();
-    expect(within(sheet).getByRole('button', { name: 'Mark sent' })).toBeDefined();
-    // Confirmed with a balance: Receive and Short close are offered; nothing to push.
-    expect(within(sheet).getByRole('button', { name: 'Receive' })).toBeDefined();
-    expect(within(sheet).getByRole('button', { name: 'Short close' })).toBeDefined();
-    expect(within(sheet).queryByRole('button', { name: /Push/u })).toBeNull();
+    expect(screen.getByText('Vendor copy')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Mark sent' })).toBeDefined();
+    // Confirmed with a balance: Receive and Short close are offered; nothing to push. Excel and PDF are there.
+    expect(screen.getByRole('button', { name: 'Receive' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Short close' })).toBeDefined();
+    expect(screen.queryByRole('button', { name: /Push/u })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Excel' })).toBeDefined();
   });
 });
 

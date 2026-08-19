@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, date, index, integer, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+
+import type { DocumentDetails, ShipTo } from '@vyuha/shared';
 
 import { ALIVE, primaryId, standardColumns } from '../../../platform/db/columns.js';
 import { employees, organizations, parties, procurementRequirements, stockItems } from '../../../platform/db/schema/index.js';
@@ -50,6 +52,10 @@ export const purchaseOrders = pgTable(
     /** REQ-X-18: the vendor's contact for this PO's notification. */
     vendorEmail: text('vendor_email'),
     vendorWhatsapp: text('vendor_whatsapp'),
+    /** D-38: what the printed order carries beyond its lines — terms, the details grid, where to deliver. */
+    terms: text('terms'),
+    details: jsonb('details').$type<DocumentDetails>(),
+    shipTo: jsonb('ship_to').$type<ShipTo>(),
     ...standardColumns(),
   },
   (t) => [
@@ -76,7 +82,9 @@ export const purchaseOrderLines = pgTable(
     quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull(),
     unit: text('unit'),
     rate: numeric('rate', { precision: 16, scale: 2 }).notNull(),
+    discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default('0'),
     taxPct: numeric('tax_pct', { precision: 5, scale: 2 }).notNull().default('0'),
+    hsnCode: text('hsn_code'),
     amount: numeric('amount', { precision: 16, scale: 2 }).notNull(),
     taxAmount: numeric('tax_amount', { precision: 16, scale: 2 }).notNull().default('0'),
     /** REQ-X-19/X-21: received and rejected never exceed ordered — a constraint, not code. */

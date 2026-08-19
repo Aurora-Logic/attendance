@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { GearIcon, LockKeyIcon, PlusIcon, ShoppingCartIcon } from '@phosphor-icons/react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -13,7 +13,6 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { toDateParam } from '@/features/attendance/format';
 import { formatMoney } from '@/features/sales/money';
 import { SyncStateBadge } from '@/features/sales/sales-order-sheet';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
@@ -30,16 +29,15 @@ import {
   type PurchaseOrderStatus,
 } from '@vyuha/shared';
 
-import { PurchaseOrderSheet } from './purchase-order-sheet';
 import { PurchaseSettingsDialog } from './purchase-settings-dialog';
-import { emptyPurchaseOrderDraft, purchaseOrderToDraft, type PurchaseOrderDraft, type PurchaseOrderSummary } from './types';
-import { usePurchaseOrder, usePurchaseOrders } from './use-purchase';
+import type { PurchaseOrderSummary } from './types';
+import { usePurchaseOrders } from './use-purchase';
 
 /**
  * Purchase orders (REQ-X-13) with both their states in the register: the
  * document's and Tally's (REQ-X-17), and the fulfilment derived from the
- * lines (REQ-X-20). Filters by status and Tally state; the route opens the
- * sheet.
+ * lines (REQ-X-20). Filters by status and Tally state; a row opens the
+ * order's page, where the paper is the editor.
  */
 
 const ALL = '__all__';
@@ -82,7 +80,6 @@ export function PurchaseOrdersPage() {
   const canCreate = usePermission(PERMISSIONS.PURCHASE_DOCUMENT_CREATE);
   const canApprove = usePermission(PERMISSIONS.PURCHASE_DOCUMENT_APPROVE);
   const [searchParams, setSearchParams] = useSearchParams();
-  const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
 
   const q = searchParams.get('q') ?? '';
@@ -91,8 +88,6 @@ export function PurchaseOrdersPage() {
   const syncParam = searchParams.get('sync');
   const syncState = SYNC_STATES.find((s) => s === syncParam);
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
-  const openId = params.id ?? null;
-  const creating = searchParams.get('new') === '1';
   const partyParam = searchParams.get('party') ?? '';
   const salesOrderParam = searchParams.get('salesOrder') ?? '';
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -129,23 +124,14 @@ export function PurchaseOrdersPage() {
   );
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
-  const open = usePurchaseOrder(canView ? openId : null);
 
+  // The creator is a page of its own — the paper is the editor.
   function startNew() {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.set('new', '1');
-        return next;
-      },
-      { replace: true },
-    );
-  }
-  function closeSheet() {
-    const next = new URLSearchParams(window.location.search);
-    next.delete('new');
-    const search = next.toString();
-    void navigate(`/purchase/orders${search ? `?${search}` : ''}`, { replace: true });
+    const presets = new URLSearchParams();
+    if (partyParam) presets.set('party', partyParam);
+    if (salesOrderParam) presets.set('salesOrder', salesOrderParam);
+    const search = presets.toString();
+    void navigate(`/purchase/orders/new${search ? `?${search}` : ''}`);
   }
 
   useShortcut({
@@ -156,15 +142,6 @@ export function PurchaseOrdersPage() {
     when: () => canCreate,
     run: startNew,
   });
-
-  const sheetDraft: PurchaseOrderDraft | null = creating
-    ? emptyPurchaseOrderDraft(toDateParam(new Date()), {
-        ...(partyParam ? { partyId: partyParam } : {}),
-        ...(salesOrderParam ? { salesOrderId: salesOrderParam } : {}),
-      })
-    : open.data !== undefined && openId !== null
-      ? purchaseOrderToDraft(open.data)
-      : null;
 
   if (!canView) {
     return (
@@ -317,31 +294,13 @@ export function PurchaseOrdersPage() {
               mobileStatus={(row) => <SyncStateBadge record={row} />}
               mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)} · ${PURCHASE_ORDER_STATUS_LABELS[row.status]}${row.status === 'CONFIRMED' ? ` · ${PO_FULFILMENT_LABELS[row.fulfilment]}` : ''}`}
               onRowActivate={(row) => {
-                void navigate(`/purchase/orders/${row.id}${window.location.search}`);
+                void navigate(`/purchase/orders/${row.id}`);
               }}
             />
             {meta !== null && meta.total > meta.pageSize ? <RecordPagination page={meta.page} pageSize={meta.pageSize} total={meta.total} /> : null}
           </>
         ) : null}
       </div>
-
-      {openId !== null && open.isError ? (
-        <QueryErrorAlert
-          error={open.error}
-          subject="that purchase order"
-          onRetry={() => {
-            void open.refetch();
-          }}
-        />
-      ) : null}
-
-      <PurchaseOrderSheet
-        draft={sheetDraft}
-        record={open.data ?? null}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) closeSheet();
-        }}
-      />
 
       <PurchaseSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
