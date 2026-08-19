@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { FileTextIcon, GearIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -13,17 +13,16 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { toDateParam } from '@/features/attendance/format';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
-import { SalesOrderSheet, SyncStateBadge } from './sales-order-sheet';
+import { SyncStateBadge } from './sales-order-sheet';
 import { SalesSettingsDialog } from './sales-settings-dialog';
 import { formatMoney } from './money';
-import { emptyEstimateDraft, estimateToDraft, type EstimateDraft, type EstimateSummary } from './types';
-import { useSalesOrder, useSalesOrders } from './use-estimates';
+import type { EstimateSummary } from './types';
+import { useSalesOrders } from './use-estimates';
 
 /**
  * Sales orders (REQ-W-03) with their sync state in the register (REQ-W-06):
@@ -68,7 +67,6 @@ export function SalesOrdersPage() {
   const canApproveDiscount = usePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
 
   const q = searchParams.get('q') ?? '';
@@ -77,8 +75,6 @@ export function SalesOrdersPage() {
   const syncParam = searchParams.get('sync');
   const syncState = SYNC_STATES.find((s) => s === syncParam);
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
-  const openId = params.id ?? null;
-  const creating = searchParams.get('new') === '1';
   const dealParam = searchParams.get('deal') ?? '';
   const partyParam = searchParams.get('party') ?? '';
 
@@ -114,23 +110,14 @@ export function SalesOrdersPage() {
   );
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
-  const open = useSalesOrder(canView ? openId : null);
 
+  // The creator is a page of its own — the paper is the editor.
   function startNew() {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.set('new', '1');
-        return next;
-      },
-      { replace: true },
-    );
-  }
-  function closeSheet() {
-    const next = new URLSearchParams(window.location.search);
-    next.delete('new');
-    const search = next.toString();
-    void navigate(`/sales/orders${search ? `?${search}` : ''}`, { replace: true });
+    const presets = new URLSearchParams();
+    if (dealParam) presets.set('deal', dealParam);
+    if (partyParam) presets.set('party', partyParam);
+    const search = presets.toString();
+    void navigate(`/sales/orders/new${search ? `?${search}` : ''}`);
   }
 
   useShortcut({
@@ -141,15 +128,6 @@ export function SalesOrdersPage() {
     when: () => canCreate,
     run: startNew,
   });
-
-  const sheetDraft: EstimateDraft | null = creating
-    ? emptyEstimateDraft(toDateParam(new Date()), {
-        ...(dealParam ? { dealId: dealParam } : {}),
-        ...(partyParam ? { partyId: partyParam } : {}),
-      })
-    : open.data !== undefined && openId !== null
-      ? estimateToDraft(open.data)
-      : null;
 
   if (!canView) {
     return (
@@ -302,7 +280,7 @@ export function SalesOrdersPage() {
               mobileStatus={(row) => <SyncStateBadge record={row} />}
               mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)} · ${SYNC_STATE_LABELS[row.syncState]}`}
               onRowActivate={(row) => {
-                void navigate(`/sales/orders/${row.id}${window.location.search}`);
+                void navigate(`/sales/orders/${row.id}`);
               }}
             />
             {meta !== null && meta.total > meta.pageSize ? <RecordPagination page={meta.page} pageSize={meta.pageSize} total={meta.total} /> : null}
@@ -310,25 +288,7 @@ export function SalesOrdersPage() {
         ) : null}
       </div>
 
-      {openId !== null && open.isError ? (
-        <QueryErrorAlert
-          error={open.error}
-          subject="that sales order"
-          onRetry={() => {
-            void open.refetch();
-          }}
-        />
-      ) : null}
-
       <SalesSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-
-      <SalesOrderSheet
-        draft={sheetDraft}
-        record={open.data ?? null}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) closeSheet();
-        }}
-      />
     </>
   );
 }

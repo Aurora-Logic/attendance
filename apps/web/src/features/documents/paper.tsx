@@ -760,7 +760,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
               {editable ? editing.customer : <div className="text-[1.05em] font-semibold">{model.buyer.name || '—'}</div>}
               {model.buyer.address ? <div className="whitespace-pre-line text-[0.9em] text-neutral-600">{model.buyer.address}</div> : null}
               <div className="text-[0.9em] text-neutral-600">
-                {[model.buyer.gstin ? `GSTIN ${model.buyer.gstin}` : null, model.buyer.stateName || model.buyer.stateCode ? `${model.buyer.stateName}${model.buyer.stateCode ? ` (${model.buyer.stateCode})` : ''}` : null].filter(Boolean).join(' · ')}
+                {[model.buyer.gstin ? `GSTIN ${model.buyer.gstin}` : null, model.buyer.stateName || model.buyer.stateCode ? `${model.buyer.stateName || gstStateName(model.buyer.stateCode)}${model.buyer.stateCode ? ` (${model.buyer.stateCode})` : ''}` : null].filter(Boolean).join(' · ')}
                 {editable ? (
                   <span className="ml-2 inline-flex items-baseline gap-1">
                     Place of supply

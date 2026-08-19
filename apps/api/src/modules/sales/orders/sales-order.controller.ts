@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   PERMISSIONS,
   confirmSalesOrderSchema,
@@ -15,6 +16,10 @@ import {
 } from '@vyuha/shared';
 
 import { createZodDto } from '../../../platform/common/zod-validation.pipe.js';
+import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
+import { sendDocumentXlsx } from '../../../platform/documents/document-export.js';
+import { DocumentSettingsService } from '../../../platform/documents/document-settings.service.js';
+import { DocumentXlsxService } from '../../../platform/documents/document-xlsx.service.js';
 import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js';
 import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { SalesOrderService } from './sales-order.service.js';
@@ -31,7 +36,12 @@ const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_V
 /** `/api/v1/sales/orders` (REQ-W-03, W-06, W-07) and the estimate → order conversion. */
 @Controller('sales')
 export class SalesOrderController {
-  constructor(private readonly orders: SalesOrderService) {}
+  constructor(
+    private readonly orders: SalesOrderService,
+    @InjectDatabase() private readonly db: Database,
+    private readonly documentSettings: DocumentSettingsService,
+    private readonly xlsx: DocumentXlsxService,
+  ) {}
 
   @Get('orders')
   @RequirePermission(...VIEW)
@@ -43,6 +53,14 @@ export class SalesOrderController {
   @RequirePermission(...VIEW)
   find(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<SalesDocumentView> {
     return this.orders.find(principal, id);
+  }
+
+  /** The Excel copy of one order. */
+  @Get('orders/:id/export.xlsx')
+  @RequirePermission(...VIEW)
+  async exportXlsx(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response): Promise<void> {
+    const order = await this.orders.find(principal, id);
+    await sendDocumentXlsx(res, { db: this.db, settings: this.documentSettings, xlsx: this.xlsx }, principal.orgId, 'SALES_ORDER', order);
   }
 
   @Post('orders')

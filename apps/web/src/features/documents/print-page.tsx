@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useParty } from '@/features/masters/use-parties';
-import { useEstimate } from '@/features/sales/use-estimates';
+import { useEstimate, useSalesOrder } from '@/features/sales/use-estimates';
+import { useInvoice } from '@/features/sales/use-invoices';
 import { useBranding } from '@/lib/branding/use-branding';
 import { INVOICE_COPIES, INVOICE_COPY_LABELS, SALES_DOCUMENT_STATUS_LABELS, type InvoiceCopy, type PrintedDocumentType } from '@vyuha/shared';
 
@@ -21,7 +22,7 @@ import { useDocumentSettings, useFooterLogoUrls } from './use-document-settings'
  * pages, each named (GST's original, duplicate, triplicate).
  */
 
-const KINDS: Record<string, PrintedDocumentType> = { estimates: 'ESTIMATE' };
+const KINDS: Record<string, PrintedDocumentType> = { estimates: 'ESTIMATE', orders: 'SALES_ORDER', invoices: 'INVOICE' };
 
 export function DocumentPrintPage() {
   const params = useParams<{ kind: string; id: string }>();
@@ -29,8 +30,12 @@ export function DocumentPrintPage() {
   const type = KINDS[params.kind ?? ''] ?? null;
   const settings = useDocumentSettings();
   const branding = useBranding();
+  // One hook per kind, all mounted; only the matching one asks.
   const estimate = useEstimate(type === 'ESTIMATE' ? (params.id ?? null) : null);
-  const record = estimate.data;
+  const order = useSalesOrder(type === 'SALES_ORDER' ? (params.id ?? null) : null);
+  const invoice = useInvoice(type === 'INVOICE' ? (params.id ?? null) : null);
+  const source = type === 'SALES_ORDER' ? order : type === 'INVOICE' ? invoice : estimate;
+  const record = source.data;
   const party = useParty(record?.partyId ?? null);
   const footerLogoUrls = useFooterLogoUrls(settings.data?.profile.footerLogoFileIds ?? []);
   const ready = record !== undefined && settings.data !== undefined && branding.data !== undefined && (record.partyId === null || party.data !== undefined || party.isError);
@@ -47,10 +52,10 @@ export function DocumentPrintPage() {
   }, [ready, searchParams]);
 
   if (type === null) return <p className="p-6 text-sm">Nothing prints at this address.</p>;
-  if (estimate.isError) {
+  if (source.isError) {
     return (
       <div className="p-6">
-        <QueryErrorAlert error={estimate.error} subject="that document" onRetry={() => { void estimate.refetch(); }} />
+        <QueryErrorAlert error={source.error} subject="that document" onRetry={() => { void source.refetch(); }} />
       </div>
     );
   }

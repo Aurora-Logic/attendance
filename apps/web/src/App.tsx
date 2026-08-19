@@ -31,7 +31,9 @@ import { EstimatesPage } from '@/features/sales/estimates-page';
 import { EstimateEditorPage } from '@/features/sales/estimate-editor-page';
 import { DocumentPrintPage } from '@/features/documents/print-page';
 import { SalesOrdersPage } from '@/features/sales/sales-orders-page';
+import { SalesOrderEditorPage } from '@/features/sales/sales-order-editor-page';
 import { InvoicesPage } from '@/features/sales/invoices-page';
+import { InvoiceEditorPage } from '@/features/sales/invoice-editor-page';
 import { PickQueuePage } from '@/features/sales/pick-queue-page';
 import { AwaitingInvoicePage } from '@/features/sales/awaiting-invoice-page';
 import { DispatchesPage } from '@/features/sales/dispatches-page';
@@ -155,9 +157,10 @@ export default function App() {
               <Route path="sales/estimates/new" element={<EstimateEditorPage />} />
               <Route path="sales/estimates/:id" element={<EstimateEditorPage />} />
               <Route path="sales/orders" element={<SalesOrdersPage />} />
-              <Route path="sales/orders/:id" element={<SalesOrdersPage />} />
+              <Route path="sales/orders/new" element={<SalesOrderEditorPage />} />
+              <Route path="sales/orders/:id" element={<SalesOrderEditorPage />} />
               <Route path="sales/invoices" element={<InvoicesPage />} />
-              <Route path="sales/invoices/:id" element={<InvoicesPage />} />
+              <Route path="sales/invoices/:id" element={<InvoiceEditorPage />} />
               <Route path="sales/pick-queue" element={<PickQueuePage />} />
               <Route path="sales/pick-queue/:id" element={<PickQueuePage />} />
               <Route path="sales/awaiting-invoice" element={<AwaitingInvoicePage />} />

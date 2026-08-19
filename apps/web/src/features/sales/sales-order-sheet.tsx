@@ -25,7 +25,6 @@ import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
 import { useStockItems } from '@/features/masters/use-stock-items';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ApiError } from '@/lib/api/client';
 import { EMPTY_VALUE, formatDate, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
@@ -37,7 +36,8 @@ import { FulfilmentBadge } from './fulfilment-badge';
 import { InvoiceDialog } from './invoice-dialog';
 import { formatMoney } from './money';
 import { PackDialog } from './pack-dialog';
-import { ORDER_INVOICE_METHOD_LABELS, WAITING_ON_STATE_LABELS, creditBlockSchema, lineBalances, trimZeros, type CreditBlock, type Estimate, type EstimateDraft, type SalesLine } from './types';
+import { ORDER_INVOICE_METHOD_LABELS, WAITING_ON_STATE_LABELS, lineBalances, trimZeros, type Estimate, type EstimateDraft, type SalesLine } from './types';
+import { creditBlockOf } from './credit-block';
 import { useAlterSalesOrder, useSalesOrderAction, useSaveSalesOrder } from './use-estimates';
 import { useDispatches } from './use-dispatches';
 import { usePackRecords, useShortCloseOrder } from './use-fulfilment';
@@ -564,20 +564,13 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
   );
 }
 
-/** The CREDIT_BLOCKED refusal's position, parsed rather than cast; a shape that moved renders the plain error instead. */
-function creditBlockOf(error: unknown): CreditBlock | null {
-  if (!(error instanceof ApiError) || error.code !== 'CREDIT_BLOCKED') return null;
-  const parsed = creditBlockSchema.safeParse(error.details);
-  return parsed.success ? parsed.data : null;
-}
-
 /**
  * REQ-AA-29: the numbers, not a status word — ordered, packed, invoiced,
  * dispatched and the balance to pack, per line. Then the invoices against
  * the order (REQ-AA-12, D-38) and the pack records with the pickers'
  * comments (REQ-AA-08, AA-09). Every dispatch is one screen away (REQ-AA-31).
  */
-function FulfilmentSections({ record, packs, dispatches }: { record: Estimate; packs: ReturnType<typeof usePackRecords>; dispatches: ReturnType<typeof useDispatches> }) {
+export function FulfilmentSections({ record, packs, dispatches }: { record: Estimate; packs: ReturnType<typeof usePackRecords>; dispatches: ReturnType<typeof useDispatches> }) {
   return (
     <>
       <div className="flex flex-col gap-2">

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LockKeyIcon, ReceiptIcon } from '@phosphor-icons/react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -15,11 +15,10 @@ import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
-import { InvoiceSheet } from './invoice-sheet';
 import { formatMoney } from './money';
 import { SyncStateBadge } from './sales-order-sheet';
 import type { EstimateSummary } from './types';
-import { useInvoice, useInvoices } from './use-invoices';
+import { useInvoices } from './use-invoices';
 
 /**
  * Vyuha-raised invoices (D-38) with their sync state (REQ-W-06). There is
@@ -63,7 +62,6 @@ export function InvoicesPage() {
   const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
   const canView = canViewSelf || canViewAll;
   const [searchParams, setSearchParams] = useSearchParams();
-  const params = useParams<{ id?: string }>();
   const navigate = useNavigate();
 
   const q = searchParams.get('q') ?? '';
@@ -72,7 +70,6 @@ export function InvoicesPage() {
   const syncParam = searchParams.get('sync');
   const syncState = SYNC_STATES.find((s) => s === syncParam);
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
-  const openId = params.id ?? null;
   const orderParam = searchParams.get('order') ?? '';
   const partyParam = searchParams.get('party') ?? '';
 
@@ -108,11 +105,6 @@ export function InvoicesPage() {
   );
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
-  const open = useInvoice(canView ? openId : null);
-
-  function closeSheet() {
-    void navigate(`/sales/invoices${window.location.search}`, { replace: true });
-  }
 
   if (!canView) {
     return (
@@ -231,7 +223,7 @@ export function InvoicesPage() {
               mobileStatus={(row) => <SyncStateBadge record={row} />}
               mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)} · ${SALES_DOCUMENT_STATUS_LABELS[row.status]}`}
               onRowActivate={(row) => {
-                void navigate(`/sales/invoices/${row.id}${window.location.search}`);
+                void navigate(`/sales/invoices/${row.id}`);
               }}
             />
             {meta !== null && meta.total > meta.pageSize ? <RecordPagination page={meta.page} pageSize={meta.pageSize} total={meta.total} /> : null}
@@ -239,22 +231,6 @@ export function InvoicesPage() {
         ) : null}
       </div>
 
-      {openId !== null && open.isError ? (
-        <QueryErrorAlert
-          error={open.error}
-          subject="that invoice"
-          onRetry={() => {
-            void open.refetch();
-          }}
-        />
-      ) : null}
-
-      <InvoiceSheet
-        invoice={openId !== null ? (open.data ?? null) : null}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) closeSheet();
-        }}
-      />
     </>
   );
 }

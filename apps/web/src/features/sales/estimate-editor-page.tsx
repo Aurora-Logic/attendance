@@ -106,6 +106,12 @@ export function EstimateEditorPage() {
 function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft; record: Estimate | null; settings: NonNullable<ReturnType<typeof useDesignDraft>> }) {
   const navigate = useNavigate();
   const [draft, setDraft] = useState<EstimateDraft>(initial);
+  // What the server last confirmed; dirty is measured against this, not the prop the page mounted with.
+  const [base, setBase] = useState<EstimateDraft>(initial);
+  const adopt = (next: EstimateDraft) => {
+    setDraft(next);
+    setBase(next);
+  };
   const [confirmDelete, setConfirmDelete] = useState(false);
   const save = useSaveEstimate();
   const setStatus = useSetEstimateStatus();
@@ -120,7 +126,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
 
   const isNew = record === null;
   const editable = canCreate && draft.status === 'DRAFT';
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(base);
 
   const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
   const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
@@ -307,12 +313,13 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
       onSuccess: (saved) => {
         toast.add({ type: 'success', title: isNew ? `${saved.number} raised` : `${saved.number} saved`, description: `${saved.customerName} · ${formatMoney(saved.grandTotal)}` });
         if (isNew) void navigate(`/sales/estimates/${saved.id}`, { replace: true });
+        else adopt(estimateToDraft(saved));
       },
     });
   }
   function move(status: EstimateStatus) {
     if (record === null) return;
-    setStatus.mutate({ id: record.id, status }, { onSuccess: (saved) => { toast.add({ type: 'success', title: `${saved.number} ${SALES_DOCUMENT_STATUS_LABELS[saved.status].toLowerCase()}` }); } });
+    setStatus.mutate({ id: record.id, status }, { onSuccess: (saved) => { toast.add({ type: 'success', title: `${saved.number} ${SALES_DOCUMENT_STATUS_LABELS[saved.status].toLowerCase()}` }); adopt(estimateToDraft(saved)); } });
   }
 
   const failure = save.error ?? setStatus.error ?? remove.error ?? convert.error;

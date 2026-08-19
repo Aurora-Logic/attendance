@@ -129,7 +129,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
     <>
       <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100dvh-3.5rem)] flex-col md:-mx-6 md:-mt-6 md:-mb-6">
         <div className="bg-background/85 supports-[backdrop-filter]:bg-background/70 flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 backdrop-blur md:px-6">
-          <Button variant="ghost" size="sm" render={<Link to={backTo} />}>
+          <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={backTo} />}>
             <ArrowLeftIcon data-icon="inline-start" />
             {backLabel}
           </Button>
@@ -149,10 +149,18 @@ export function DocumentEditor(props: DocumentEditorProps) {
                 {preview ? 'Edit' : 'Preview'}
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" disabled={printPath === null} render={printPath === null ? undefined : <a href={printPath} target="_blank" rel="noreferrer" />}>
-              <PrinterIcon data-icon="inline-start" />
-              PDF
-            </Button>
+            {/* An anchor, so the print route opens in its own tab; nativeButton off because the rendered element is not a <button>. */}
+            {printPath === null ? (
+              <Button variant="outline" size="sm" disabled>
+                <PrinterIcon data-icon="inline-start" />
+                PDF
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" nativeButton={false} render={<a href={printPath} target="_blank" rel="noreferrer" />}>
+                <PrinterIcon data-icon="inline-start" />
+                PDF
+              </Button>
+            )}
             <Button variant="outline" size="sm" disabled={excel === null} onClick={() => { void exportXlsx(); }}>
               <FileXlsIcon data-icon="inline-start" />
               Excel
