@@ -20,6 +20,7 @@ import {
   type ShipTo,
 } from '@vyuha/shared';
 
+import { DETAIL_LABELS, DETAIL_ORDER, E_INVOICE_KEYS, useEnterMoves } from './paper-support';
 import { moneyToIndianWords } from './words';
 
 /**
@@ -189,26 +190,6 @@ function quantityTotal(lines: readonly PaperLine[]): { totalQty: number; unit: s
   const units = new Set(counted.map((l) => l.unit.trim()));
   if (units.size > 1) return { totalQty: 0, unit: '' };
   return { totalQty: counted.reduce((sum, l) => sum + Number(l.quantity || 0), 0), unit: counted[0]?.unit ?? '' };
-}
-
-/** Move down a column on Enter; on the last row, Enter adds a line (Tally's voucher entry, on paper). */
-function useEnterMoves(editing: PaperEditing | undefined, lines: readonly PaperLine[]) {
-  return (rowIndex: number, cell: string) => (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter' || editing === undefined) return;
-    event.preventDefault();
-    if (rowIndex === lines.length - 1) {
-      editing.addLine();
-      // The new row mounts after React commits this event's state; the same box on it is the natural landing.
-      window.setTimeout(() => {
-        const next = document.querySelector<HTMLInputElement>(`[data-cell="${cell}-${String(rowIndex + 1)}"]`);
-        next?.focus();
-      }, 30);
-      return;
-    }
-    const next = document.querySelector<HTMLInputElement>(`[data-cell="${cell}-${String(rowIndex + 1)}"]`);
-    next?.focus();
-    next?.select();
-  };
 }
 
 // --------------------------------------------------------------- the paper
@@ -1113,26 +1094,6 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
     </div>
   );
 }
-
-/** Shown in their own block, not the details column. */
-const E_INVOICE_KEYS = new Set<keyof DocumentDetails>(['irn', 'ackNo', 'ackDate']);
-const DETAIL_ORDER: readonly (keyof DocumentDetails)[] = ['deliveryNote', 'paymentTerms', 'referenceNo', 'otherReferences', 'buyersOrderNo', 'buyersOrderDate', 'dispatchDocNo', 'deliveryNoteDate', 'dispatchedThrough', 'destination', 'termsOfDelivery'];
-const DETAIL_LABELS: Record<keyof DocumentDetails, string> = {
-  deliveryNote: 'Delivery note',
-  paymentTerms: 'Terms of payment',
-  referenceNo: 'Reference',
-  otherReferences: 'Other references',
-  buyersOrderNo: "Buyer's order",
-  buyersOrderDate: 'Order date',
-  dispatchDocNo: 'Dispatch doc',
-  deliveryNoteDate: 'Delivery note date',
-  dispatchedThrough: 'Dispatched through',
-  destination: 'Destination',
-  termsOfDelivery: 'Terms of delivery',
-  irn: 'IRN',
-  ackNo: 'Ack no.',
-  ackDate: 'Ack date',
-};
 
 function DetailPair({ label, value, editable, labelClass, onChange }: { label: string; value: string; editable: boolean; labelClass: string; onChange: (value: string) => void }) {
   return (
