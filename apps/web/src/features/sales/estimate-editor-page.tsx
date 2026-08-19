@@ -1,17 +1,15 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { addDays } from 'date-fns';
-import { ArrowLeftIcon, ArrowRightIcon, ArrowsInIcon, BooksIcon, BuildingsIcon, EyeIcon, FileXlsIcon, PaintBrushIcon, PencilSimpleIcon, PrinterIcon, TrashIcon, WarningCircleIcon } from '@phosphor-icons/react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { ArrowRightIcon, BooksIcon, BuildingsIcon, TrashIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
@@ -19,19 +17,15 @@ import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useCompanyOptions } from '@/features/crm/use-crm';
-import { DesignRail } from '@/features/documents/design-rail';
-import { downloadDocumentFile } from '@/features/documents/download';
-import { DocumentPaper, PaperField, type PaperEditing, type PaperLine, type PaperModel } from '@/features/documents/paper';
-import { useDocumentSettings, useFooterLogoUrls, useSaveDocumentSettings } from '@/features/documents/use-document-settings';
+import { DocumentEditor } from '@/features/documents/document-editor';
+import { useDesignDraft } from '@/features/documents/use-design-draft';
+import { PaperField, type PaperEditing, type PaperLine, type PaperModel } from '@/features/documents/paper';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
 import { useStockItems } from '@/features/masters/use-stock-items';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { useBranding } from '@/lib/branding/use-branding';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { cn } from '@/lib/utils';
-import { ESTIMATE_TRANSITIONS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type DocumentSettings, type EstimateStatus } from '@vyuha/shared';
+import { ESTIMATE_TRANSITIONS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
 
 import { ItemHistoryAffordance } from './item-history-popover';
 import { formatMoney } from './money';
@@ -62,8 +56,7 @@ export function EstimateEditorPage() {
   const canView = canViewSelf || canViewAll;
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const record = useEstimate(canView && !isNew ? (params.id ?? null) : null);
-  const settings = useDocumentSettings({ enabled: canView });
-  const branding = useBranding({ enabled: canView });
+  const settings = useDesignDraft();
 
   if (!canView || (isNew && !canCreate)) {
     return (
@@ -89,7 +82,7 @@ export function EstimateEditorPage() {
       />
     );
   }
-  if ((!isNew && record.data === undefined) || settings.data === undefined) {
+  if ((!isNew && record.data === undefined) || settings === null) {
     return (
       <div role="status" aria-busy="true" aria-label="Loading the estimate" className="flex flex-col gap-4">
         <Skeleton className="h-9 w-64" />
@@ -104,98 +97,30 @@ export function EstimateEditorPage() {
         ...(searchParams.get('party') ? { partyId: searchParams.get('party') } : {}),
         // An estimate is an offer for a while: thirty days unless the salesperson says otherwise.
         validUntil: toDateParam(addDays(new Date(), 30)),
-        terms: settings.data.designs.ESTIMATE.defaultTerms,
+        terms: settings.draft.designs.ESTIMATE.defaultTerms,
       })
     : estimateToDraft(record.data as Estimate);
-  return (
-    <EstimateEditor
-      key={isNew ? 'new' : (record.data as Estimate).id}
-      initial={initial}
-      record={isNew ? null : (record.data as Estimate)}
-      savedSettings={settings.data}
-      logoUrl={branding.data?.logoUrl ?? null}
-      orgName={branding.data?.name ?? ''}
-    />
-  );
+  return <EstimateEditor key={isNew ? 'new' : (record.data as Estimate).id} initial={initial} record={isNew ? null : (record.data as Estimate)} settings={settings} />;
 }
 
-/** Zoom steps the fit chooses from — classes, not a computed transform, so nothing is styled inline. */
-const ZOOMS = [
-  { value: 0.55, className: '[zoom:0.55]' },
-  { value: 0.65, className: '[zoom:0.65]' },
-  { value: 0.75, className: '[zoom:0.75]' },
-  { value: 0.85, className: '[zoom:0.85]' },
-  { value: 1, className: '[zoom:1]' },
-] as const;
-
-function EstimateEditor({ initial, record, savedSettings, logoUrl, orgName }: { initial: EstimateDraft; record: Estimate | null; savedSettings: DocumentSettings; logoUrl: string | null; orgName: string }) {
+function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft; record: Estimate | null; settings: NonNullable<ReturnType<typeof useDesignDraft>> }) {
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
   const [draft, setDraft] = useState<EstimateDraft>(initial);
-  const [preview, setPreview] = useState(false);
-  const [designOpen, setDesignOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [fit, setFit] = useState(true);
-  const [zoomIndex, setZoomIndex] = useState(ZOOMS.length - 1);
-  const [settingsDraft, setSettingsDraft] = useState<DocumentSettings>(savedSettings);
-  const [settingsBase, setSettingsBase] = useState<DocumentSettings>(savedSettings);
-  if (settingsBase !== savedSettings) {
-    // The server's copy moved (someone saved elsewhere): adopt it unless this rail has unsaved edits.
-    setSettingsBase(savedSettings);
-    if (JSON.stringify(settingsDraft) === JSON.stringify(settingsBase)) setSettingsDraft(savedSettings);
-  }
-  const stageRef = useRef<HTMLDivElement>(null);
-  const paperRef = useRef<HTMLDivElement>(null);
   const save = useSaveEstimate();
   const setStatus = useSetEstimateStatus();
   const remove = useDeleteEstimate();
   const convert = useConvertEstimate();
-  const saveSettings = useSaveDocumentSettings();
   const canSeeParties = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
   const canSeeCompanies = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_SELF);
-  const canManageSettings = usePermission(PERMISSIONS.SETTINGS_MANAGE);
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const parties = useParties({ page: 1 }, { enabled: canSeeParties });
   const companies = useCompanyOptions({ enabled: canSeeCompanies });
   const items = useStockItems({ page: 1 }, { enabled: canSeeParties });
-  const footerLogoUrls = useFooterLogoUrls(settingsDraft.profile.footerLogoFileIds);
 
   const isNew = record === null;
-  const editable = canCreate && draft.status === 'DRAFT' && !preview;
+  const editable = canCreate && draft.status === 'DRAFT';
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
-  const settingsDirty = JSON.stringify(settingsDraft) !== JSON.stringify(savedSettings);
-  const design = settingsDraft.designs.ESTIMATE;
-
-  // Fit: the largest zoom step at which the whole sheet stands in the stage.
-  // The sheet's natural height is its scrollHeight divided by the zoom it
-  // is currently drawn at, so a re-measure after a step change reads true.
-  useLayoutEffect(() => {
-    if (!fit || isMobile) return undefined;
-    const stage = stageRef.current;
-    const paper = paperRef.current;
-    if (stage === null || paper === null) return undefined;
-    const measure = () => {
-      const available = stage.clientHeight - 32;
-      const current = ZOOMS[zoomIndex]?.value ?? 1;
-      const natural = paper.getBoundingClientRect().height / current;
-      if (natural === 0 || available <= 0) return;
-      let index = 0;
-      for (let i = ZOOMS.length - 1; i >= 0; i -= 1) {
-        const step = ZOOMS[i];
-        if (step !== undefined && natural * step.value <= available) {
-          index = i;
-          break;
-        }
-      }
-      setZoomIndex((prev) => (prev === index ? prev : index));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(stage);
-    return () => {
-      observer.disconnect();
-    };
-  }, [fit, isMobile, zoomIndex, design.templateId, design.fontScale, draft.lines.length]);
 
   const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
   const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
@@ -389,44 +314,31 @@ function EstimateEditor({ initial, record, savedSettings, logoUrl, orgName }: { 
     if (record === null) return;
     setStatus.mutate({ id: record.id, status }, { onSuccess: (saved) => { toast.add({ type: 'success', title: `${saved.number} ${SALES_DOCUMENT_STATUS_LABELS[saved.status].toLowerCase()}` }); } });
   }
-  function persistSettings() {
-    saveSettings.mutate(settingsDraft, {
-      onSuccess: () => {
-        toast.add({ type: 'success', title: 'Design saved', description: 'Every estimate prints this way now.' });
-      },
-    });
-  }
-  async function exportXlsx() {
-    if (record === null) return;
-    try {
-      await downloadDocumentFile(`/sales/estimates/${record.id}/export.xlsx`, `Estimate-${record.number}.xlsx`);
-    } catch (error) {
-      toast.add({ type: 'error', title: 'Excel export failed', description: error instanceof Error ? error.message : 'Try again.' });
-    }
-  }
 
   const failure = save.error ?? setStatus.error ?? remove.error ?? convert.error;
   const copy = actionErrorCopy(failure, save.error ? 'Saving the estimate' : convert.error ? 'Converting the estimate' : 'Changing the estimate');
   const transitions = record === null || !isEstimateStatus(record.status) ? [] : ESTIMATE_TRANSITIONS[record.status];
   const busy = save.isPending || setStatus.isPending || remove.isPending || convert.isPending;
-  const zoom = isMobile ? ZOOMS[ZOOMS.length - 1] : ZOOMS[fit ? zoomIndex : ZOOMS.length - 1];
 
   return (
     <ShortcutLayer id={`screen:estimate-editor-${record?.id ?? 'new'}`}>
       <SaveShortcut onSave={submit} />
-      <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100dvh-3.5rem)] flex-col md:-mx-6 md:-mt-6 md:-mb-6">
-        {/* The bar: where you are, what this is, what you can do. */}
-        <div className="bg-background/85 supports-[backdrop-filter]:bg-background/70 flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 backdrop-blur md:px-6">
-          <Button variant="ghost" size="sm" render={<Link to="/sales/estimates" />}>
-            <ArrowLeftIcon data-icon="inline-start" />
-            Estimates
-          </Button>
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-semibold">{isNew ? 'New estimate' : `Estimate ${record.number}`}</span>
-            <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[draft.status]}</Badge>
-            {dirty ? <Badge variant="secondary">Unsaved</Badge> : null}
-          </div>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+      <DocumentEditor
+        docType="ESTIMATE"
+        backTo="/sales/estimates"
+        backLabel="Estimates"
+        title={isNew ? 'New estimate' : `Estimate ${record.number}`}
+        badges={<Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[draft.status]}</Badge>}
+        dirty={dirty}
+        failure={failure ? copy : null}
+        hint={customerMissing && editable ? 'Choose a Tally party or a CRM company, or type who it is addressed to.' : null}
+        model={model}
+        editing={editing}
+        printPath={record === null ? null : `/print/estimates/${record.id}`}
+        excel={record === null ? null : { path: `/sales/estimates/${record.id}/export.xlsx`, filename: `Estimate-${record.number}.xlsx` }}
+        settings={settings}
+        actions={
+          <>
             {record !== null && transitions.length > 0 && !dirty ? (
               <Select value={record.status} onValueChange={(value: string | null) => { if (value !== null && isEstimateStatus(value) && value !== record.status) move(value); }}>
                 <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Status" disabled={busy}>
@@ -442,26 +354,6 @@ function EstimateEditor({ initial, record, savedSettings, logoUrl, orgName }: { 
                 </SelectContent>
               </Select>
             ) : null}
-            <Button variant={fit ? 'default' : 'outline'} size="sm" className="hidden md:inline-flex" aria-pressed={fit} aria-label="Fit the page to the screen" onClick={() => { setFit((v) => !v); }}>
-              <ArrowsInIcon data-icon="inline-start" />
-              {fit ? `Fit ${String(Math.round(zoom.value * 100))}%` : '100%'}
-            </Button>
-            <Button variant={preview ? 'default' : 'outline'} size="sm" aria-pressed={preview} onClick={() => { setPreview((v) => !v); }}>
-              {preview ? <PencilSimpleIcon data-icon="inline-start" /> : <EyeIcon data-icon="inline-start" />}
-              {preview ? 'Edit' : 'Preview'}
-            </Button>
-            <Button variant="outline" size="sm" disabled={record === null} render={record === null ? undefined : <a href={`/print/estimates/${record.id}`} target="_blank" rel="noreferrer" />}>
-              <PrinterIcon data-icon="inline-start" />
-              PDF
-            </Button>
-            <Button variant="outline" size="sm" disabled={record === null} onClick={() => { void exportXlsx(); }}>
-              <FileXlsIcon data-icon="inline-start" />
-              Excel
-            </Button>
-            <Button variant="outline" size="sm" aria-label="Open the design rail" onClick={() => { setDesignOpen(true); }}>
-              <PaintBrushIcon data-icon="inline-start" />
-              Design
-            </Button>
             {record !== null && record.status === 'ACCEPTED' && canCreate ? (
               <Button variant="outline" size="sm" disabled={busy} onClick={() => { convert.mutate({ estimateId: record.id }, { onSuccess: (order) => { toast.add({ type: 'success', title: `${order.number} raised from ${record.number}` }); void navigate(`/sales/orders/${order.id}`); } }); }}>
                 <ArrowRightIcon data-icon="inline-start" />
@@ -488,48 +380,9 @@ function EstimateEditor({ initial, record, savedSettings, logoUrl, orgName }: { 
                 <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
               </Button>
             ) : null}
-          </div>
-        </div>
-
-        {/* The stage: the whole remaining screen, the paper standing in it. */}
-        <div ref={stageRef} className="bg-muted/40 min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6">
-          {failure ? (
-            <Alert variant="destructive" className="mx-auto mb-4 max-w-[210mm]">
-              <WarningCircleIcon />
-              <AlertTitle>{copy.title}</AlertTitle>
-              <AlertDescription>{copy.description}</AlertDescription>
-            </Alert>
-          ) : null}
-          {customerMissing && editable ? <p className="text-muted-foreground mx-auto mb-3 max-w-[210mm] text-xs">Choose a Tally party or a CRM company, or type who it is addressed to.</p> : null}
-          <div ref={paperRef} className={cn('mx-auto w-fit max-w-full', zoom.className)}>
-            <DocumentPaper design={design} profile={settingsDraft.profile} logoUrl={logoUrl} footerLogoUrls={footerLogoUrls} orgName={orgName} model={model} editing={editing} />
-          </div>
-        </div>
-      </div>
-
-      <Sheet open={designOpen} onOpenChange={setDesignOpen}>
-        <SheetContent side={isMobile ? 'bottom' : 'right'} className="gap-0 p-0 sm:max-w-md max-md:max-h-[92vh]">
-          <SheetHeader className="border-b">
-            <SheetTitle>Design</SheetTitle>
-            <SheetDescription>Template, accent and what the page shows — live on the paper. Business details are saved once, for every document.</SheetDescription>
-          </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <DesignRail
-              docType="ESTIMATE"
-              settings={settingsDraft}
-              onChange={setSettingsDraft}
-              canSave={canManageSettings}
-              dirty={settingsDirty}
-              saving={saveSettings.isPending}
-              saveError={saveSettings.error}
-              onSave={persistSettings}
-              onDiscard={() => {
-                setSettingsDraft(savedSettings);
-              }}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
+          </>
+        }
+      />
     </ShortcutLayer>
   );
 }
