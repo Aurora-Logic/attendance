@@ -4,18 +4,14 @@ import type { DocumentDetails } from '@vyuha/shared';
 
 import type { PaperEditing, PaperLine } from './paper';
 
-/** What the paper and the form share that is not a component: the Enter rule and the details grid's order and names. */
+/** What the paper keeps beside itself that is not a component: the Enter rule and the details grid's order and names. */
 
-/**
- * Move down a column on Enter; on the last row, Enter adds a line (Tally's
- * voucher entry, on paper). The prefix keeps the paper's cells and the
- * form's apart when both are on screen.
- */
-export function useEnterMoves(editing: PaperEditing | undefined, lines: readonly PaperLine[], prefix = '') {
+/** Move down a column on Enter; on the last row, Enter adds a line (Tally's voucher entry, on paper). */
+export function useEnterMoves(editing: PaperEditing | undefined, lines: readonly PaperLine[]) {
   return (rowIndex: number, cell: string) => (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter' || editing === undefined) return;
     event.preventDefault();
-    const target = `[data-cell="${prefix}${cell}-${String(rowIndex + 1)}"]`;
+    const target = `[data-cell="${cell}-${String(rowIndex + 1)}"]`;
     if (rowIndex === lines.length - 1) {
       editing.addLine();
       // The new row mounts after React commits this event's state; the same box on it is the natural landing.

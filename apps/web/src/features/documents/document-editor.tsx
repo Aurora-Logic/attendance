@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeftIcon, ArrowsInIcon, EyeIcon, FileXlsIcon, ListBulletsIcon, PaintBrushIcon, PencilSimpleIcon, PrinterIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { ArrowLeftIcon, ArrowsInIcon, EyeIcon, FileXlsIcon, PaintBrushIcon, PencilSimpleIcon, PrinterIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { toast } from '@/components/ui/toast';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBranding } from '@/lib/branding/use-branding';
 import { usePermission } from '@/lib/session/permissions';
@@ -15,36 +14,20 @@ import { cn } from '@/lib/utils';
 import { PERMISSIONS, type DocumentSettings, type PrintedDocumentType } from '@vyuha/shared';
 
 import { DesignRail } from './design-rail';
-import { DocumentForm } from './document-form';
 import { downloadDocumentFile } from './download';
 import { DocumentPaper, type PaperEditing, type PaperModel } from './paper';
 import { useFooterLogoUrls, useSaveDocumentSettings } from './use-document-settings';
 
 /**
  * The page every printed document is edited on: a bar (where you are, what
- * this is, what you can do), the stage, PDF, Excel, and the design rail on
- * request. Two ways in, one draft: **Form** — a plain form top to bottom
- * with the paper filling in beside it on a wide screen — and **Paper** —
- * the fields typed where they print; **Preview** is the paper read-only.
- * The last choice is remembered on this device. The document types differ
- * in what they hold and what they can do — the estimate, order, invoice
- * and purchase order pages hand this shell their paper model, their
- * editing hooks and their own action buttons; the shell owns everything
- * the four have in common, so a person who has raised one document knows
- * how to raise the others.
+ * this is, what you can do), the stage with the paper zoomed to fit the
+ * screen, Preview, PDF, Excel, and the design rail on request. The
+ * document types differ in what they hold and what they can do — the
+ * estimate, order, invoice and purchase order pages hand this shell their
+ * paper model, their editing hooks and their own action buttons; the
+ * shell owns everything the four have in common, so a person who has
+ * raised one document knows how to raise the others.
  */
-
-type EditorMode = 'form' | 'paper' | 'preview';
-const MODE_KEY = 'vyuha.documents.editorMode';
-
-function rememberedMode(): EditorMode {
-  try {
-    const stored = window.localStorage.getItem(MODE_KEY);
-    return stored === 'paper' || stored === 'form' ? stored : 'form';
-  } catch {
-    return 'form';
-  }
-}
 
 /** 210mm at CSS pixels. */
 const A4_WIDTH_PX = 794;
@@ -94,18 +77,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const { docType, backTo, backLabel, title, badges, dirty, actions, failure, hint, model, editing, canPreview = true, printPath, excel, extras, settings } = props;
   const isMobile = useIsMobile();
   const branding = useBranding();
-  const [mode, setModeState] = useState<EditorMode>(rememberedMode);
-  const setMode = (next: EditorMode) => {
-    setModeState(next);
-    // Preview is a glance, not a preference; only the two ways of editing are remembered.
-    if (next !== 'preview') {
-      try {
-        window.localStorage.setItem(MODE_KEY, next);
-      } catch {
-        // A locked-down browser forgets; the page still works.
-      }
-    }
-  };
+  const [preview, setPreview] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
   const [fit, setFit] = useState(true);
   const [zoomIndex, setZoomIndex] = useState(ZOOMS.length - 1);
@@ -116,15 +88,11 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const footerLogoUrls = useFooterLogoUrls(settings.draft.profile.footerLogoFileIds);
   const design = settings.draft.designs[docType];
   const settingsDirty = JSON.stringify(settings.draft) !== JSON.stringify(settings.saved);
-  // A read-only document has one view: the paper.
-  const editable = editing !== undefined && canPreview;
-  const effectiveMode: EditorMode = editing === undefined ? 'preview' : mode;
-  const formMode = effectiveMode === 'form';
-  const showEditing = effectiveMode === 'paper' ? editing : undefined;
+  const showEditing = preview ? undefined : editing;
   const hasExtras = extras !== undefined;
 
-  // Fit: the largest zoom step at which the whole sheet stands in the stage — by height on a desk (and by width beside
-  // the form); by width alone on a phone, where the stage scrolls and a squashed A4 grid would be unreadable.
+  // Fit: the largest zoom step at which the whole sheet stands in the stage — by height on a desk; by width on a
+  // phone, where the stage scrolls and a squashed A4 grid would be unreadable.
   useLayoutEffect(() => {
     if (!fit) return undefined;
     const stage = stageRef.current;
@@ -140,7 +108,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
       const naturalWidth = A4_WIDTH_PX;
       if (naturalHeight === 0 || availableWidth <= 0) return;
       const byHeight = !isMobile;
-      const byWidth = isMobile || formMode;
+      const byWidth = isMobile;
       let index = 0;
       for (let i = ZOOMS.length - 1; i >= 0; i -= 1) {
         const step = ZOOMS[i];
@@ -157,7 +125,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
     return () => {
       observer.disconnect();
     };
-  }, [fit, isMobile, zoomIndex, design.templateId, design.fontScale, model.lines.length, hasExtras, formMode]);
+  }, [fit, isMobile, zoomIndex, design.templateId, design.fontScale, model.lines.length, hasExtras]);
 
   async function exportXlsx() {
     if (excel === null) return;
@@ -187,29 +155,11 @@ export function DocumentEditor(props: DocumentEditorProps) {
               <ArrowsInIcon data-icon="inline-start" />
               {fit ? `Fit ${String(Math.round(zoom.value * 100))}%` : '100%'}
             </Button>
-            {editable ? (
-              <ToggleGroup
-                variant="outline"
-                aria-label="How to edit"
-                value={[effectiveMode]}
-                onValueChange={(value: string[]) => {
-                  const next = value[0];
-                  if (next === 'form' || next === 'paper' || next === 'preview') setMode(next);
-                }}
-              >
-                <ToggleGroupItem value="form" aria-label="Form" className="pointer-coarse:min-h-11 px-2.5">
-                  <ListBulletsIcon data-icon="inline-start" />
-                  Form
-                </ToggleGroupItem>
-                <ToggleGroupItem value="paper" aria-label="Paper" className="pointer-coarse:min-h-11 px-2.5">
-                  <PencilSimpleIcon data-icon="inline-start" />
-                  Paper
-                </ToggleGroupItem>
-                <ToggleGroupItem value="preview" aria-label="Preview" className="pointer-coarse:min-h-11 px-2.5">
-                  <EyeIcon data-icon="inline-start" />
-                  Preview
-                </ToggleGroupItem>
-              </ToggleGroup>
+            {canPreview && editing !== undefined ? (
+              <Button variant={preview ? 'default' : 'outline'} size="sm" aria-pressed={preview} onClick={() => { setPreview((v) => !v); }}>
+                {preview ? <PencilSimpleIcon data-icon="inline-start" /> : <EyeIcon data-icon="inline-start" />}
+                {preview ? 'Edit' : 'Preview'}
+              </Button>
             ) : null}
             {/* An anchor, so the print route opens in its own tab; nativeButton off because the rendered element is not a <button>. */}
             {printPath === null ? (
@@ -235,36 +185,19 @@ export function DocumentEditor(props: DocumentEditorProps) {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1">
-          {formMode && editing !== undefined ? (
-            <div className="min-h-0 w-full overflow-y-auto px-4 py-4 md:px-6 xl:w-[min(100%,42rem)] xl:shrink-0 xl:border-r">
-              {failure ? (
-                <Alert variant="destructive" className="mb-4">
-                  <WarningCircleIcon />
-                  <AlertTitle>{failure.title}</AlertTitle>
-                  <AlertDescription>{failure.description}</AlertDescription>
-                </Alert>
-              ) : null}
-              {hint ? <p className="text-muted-foreground mb-3 text-xs">{hint}</p> : null}
-              <DocumentForm model={model} editing={editing} design={design} />
-              {extras ? <div className="mt-6">{extras}</div> : null}
-            </div>
+        <div ref={stageRef} className="bg-muted/40 min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6">
+          {failure ? (
+            <Alert variant="destructive" className="mx-auto mb-4 max-w-[210mm]">
+              <WarningCircleIcon />
+              <AlertTitle>{failure.title}</AlertTitle>
+              <AlertDescription>{failure.description}</AlertDescription>
+            </Alert>
           ) : null}
-          {/* Beside the form the paper is a live preview on a wide screen only; on its own it is the stage. */}
-          <div ref={stageRef} className={cn('bg-muted/40 min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6', formMode && 'max-xl:hidden')}>
-            {!formMode && failure ? (
-              <Alert variant="destructive" className="mx-auto mb-4 max-w-[210mm]">
-                <WarningCircleIcon />
-                <AlertTitle>{failure.title}</AlertTitle>
-                <AlertDescription>{failure.description}</AlertDescription>
-              </Alert>
-            ) : null}
-            {!formMode && hint ? <p className="text-muted-foreground mx-auto mb-3 max-w-[210mm] text-xs">{hint}</p> : null}
-            <div ref={paperRef} className={cn('mx-auto w-fit max-w-full', zoom.className)}>
-              <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
-            </div>
-            {!formMode && extras ? <div className="mx-auto mt-6 max-w-[210mm]">{extras}</div> : null}
+          {hint ? <p className="text-muted-foreground mx-auto mb-3 max-w-[210mm] text-xs">{hint}</p> : null}
+          <div ref={paperRef} className={cn('mx-auto w-fit max-w-full', zoom.className)}>
+            <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
           </div>
+          {extras ? <div className="mx-auto mt-6 max-w-[210mm]">{extras}</div> : null}
         </div>
       </div>
 
