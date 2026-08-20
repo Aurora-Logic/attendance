@@ -364,9 +364,12 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
             navigation out with it, because a fixed element at width 100% follows
             the document, not the viewport. The visible symptom was 32px of
             horizontal scroll on the whole screen, a long way from its cause.
+            The bar itself is hidden -- on a desktop where all five tabs fit,
+            a scrollbar under them is chrome for a scroll that never happens.
+            The overflow stays, so the strip still scrolls by touch at 360px.
             A scrolling tab strip is the standard mobile answer; wrapping to two
             rows would push the content down on every phone. */}
-        <TabsList className="max-w-full overflow-x-auto">
+        <TabsList className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsTrigger value="organisation" className="px-3">
             <BuildingsIcon data-icon="inline-start" />
             Organisation
