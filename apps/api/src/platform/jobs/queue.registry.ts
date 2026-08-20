@@ -103,6 +103,15 @@ export interface JobPayloads {
   };
 
   /**
+   * Phase 6c: vouchers OpsTally delivered before the projection existed sit
+   * retained in `sync_inbox.payload`; this drains them through the live
+   * path. Cheap once drained -- one indexed SELECT that finds nothing.
+   */
+  'replay-sync-inbox': {
+    readonly now?: string;
+  };
+
+  /**
    * REQ-M-05: everything the system holds about one employee, as a file.
    *
    * Same shape as `generate-report-export` and for the same reason -- only the
@@ -126,6 +135,24 @@ export interface JobPayloads {
   'escalate-stale-approvals': {
     /** Only for the trail. The handler always works from the current clock. */
     readonly requestedAt: string;
+  };
+
+  /**
+   * REQ-V-08: due-today and overdue task reminders, each morning in each
+   * organisation's own day. `date` overrides the clock for a replay.
+   */
+  'send-task-reminders': {
+    readonly date?: string;
+  };
+
+  /** D-21: link Sales vouchers to the orders their narration names, every few minutes. */
+  'link-sales-invoices': {
+    readonly now?: string;
+  };
+
+  /** REQ-X-09: the nightly reorder check. */
+  'raise-reorder-requirements': {
+    readonly now?: string;
   };
 
   /** REQ-K-02: one queued envelope per domain event, fanned out by channel. */
@@ -226,8 +253,12 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'enqueue-sync-pulls': QUEUES.MAINTENANCE,
   'check-agent-heartbeats': QUEUES.MAINTENANCE,
   'sweep-sync-journal-bodies': QUEUES.MAINTENANCE,
+  'replay-sync-inbox': QUEUES.MAINTENANCE,
   'export-employee-data': QUEUES.EXPORT,
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
+  'send-task-reminders': QUEUES.NOTIFICATION,
+  'link-sales-invoices': QUEUES.MAINTENANCE,
+  'raise-reorder-requirements': QUEUES.MAINTENANCE,
   'send-notification': QUEUES.NOTIFICATION,
   'deliver-password-reset': QUEUES.NOTIFICATION,
   'accrue-leave': QUEUES.LEAVE,
@@ -328,6 +359,13 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // weekly sweep would turn "escalate after 3 days" into "escalate after
   // somewhere between 3 and 10". 02:00 keeps it clear of the working day.
   { schedulerId: 'notification:escalate-stale-approvals', jobName: 'escalate-stale-approvals', pattern: '0 2 * * *' },
+  // REQ-V-08. Early enough to be read with the first coffee; the handler
+  // works out each organisation's own date, so one server-time cron serves all.
+  { schedulerId: 'notification:send-task-reminders', jobName: 'send-task-reminders', pattern: '30 2 * * *' },
+  // The accountant bills in Tally; the link lands within a few minutes of the pull.
+  { schedulerId: 'sales:link-invoices', jobName: 'link-sales-invoices', pattern: '*/5 * * * *' },
+  // After the night's pulls have landed and before the purchase team sits down.
+  { schedulerId: 'purchase:reorder-sweep', jobName: 'raise-reorder-requirements', pattern: '15 1 * * *' },
   // REQ-G-05. On the 1st, for the month that has just finished. Accruing on
   // the last day of a month instead would need a cron that can say "last day",
   // and would pro-rate a leaver's final month before their last day had ended.
@@ -357,6 +395,9 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   // D-20's retention. Nightly at 02:45, offset from the other overnight
   // sweeps so the maintenance queue is never a convoy.
   { schedulerId: 'sync:sweep-journal-bodies', jobName: 'sweep-sync-journal-bodies', pattern: '45 2 * * *' },
+  // Drains retained vouchers within a quarter hour of a deploy that adds a
+  // projection for them; after that it is one empty SELECT per run.
+  { schedulerId: 'sync:replay-inbox', jobName: 'replay-sync-inbox', pattern: '*/15 * * * *' },
   // REQ-K-03. Every 15 minutes, because a reminder is only useful shortly
   // before the shift it names and shift start times are not on the hour. The
   // sweep costs one preference query per organisation when nobody has opted

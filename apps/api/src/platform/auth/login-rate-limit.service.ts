@@ -67,7 +67,7 @@ const MAX_FAILURES_PER_IP = 20;
  * attacker spraying agent tokens cannot spend the office's sign-in budget and
  * vice versa. 'login' keeps the original key format byte-for-byte.
  */
-export type RateLimitScope = 'login' | 'agent';
+export type RateLimitScope = 'login' | 'agent' | 'webhook';
 
 /** Exported so test support can clear an address without guessing the format. */
 export function loginRateLimitKey(ip: string, scope: RateLimitScope = 'login'): string {

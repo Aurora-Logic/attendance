@@ -1,0 +1,215 @@
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from '@tanstack/react-query';
+import type {
+  CreateBoardColumnInput,
+  CreateTaskInput,
+  TaskDueFilter,
+  TaskPriority,
+  UpdateBoardColumnInput,
+  UpdateTaskInput,
+} from '@vyuha/shared';
+
+import { apiRequest } from '@/lib/api/client';
+import { parseOrThrow } from '@/lib/api/parse';
+
+import {
+  boardColumnSchema,
+  boardColumnsSchema,
+  boardResponseSchema,
+  taskSchema,
+  tasksResponseSchema,
+  type BoardColumn,
+  type BoardResponse,
+  type Task,
+  type TaskDraft,
+  type TasksResponse,
+} from './types';
+
+/**
+ * Tasks (REQ-V-01…V-07). REQ-V-04 on the client: `TaskFilters` is one shape,
+ * serialised by one function, sent to both `/tasks` and `/tasks/board`.
+ */
+
+export interface TaskFilters {
+  q?: string;
+  mine?: boolean;
+  due?: TaskDueFilter;
+  priority?: TaskPriority;
+  columnId?: string;
+  assigneeId?: string;
+  subjectType?: string;
+  subjectId?: string;
+  includeClosed?: boolean;
+}
+
+function filterParams(filters: TaskFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters.q) params.set('q', filters.q);
+  if (filters.mine) params.set('mine', 'true');
+  if (filters.due) params.set('due', filters.due);
+  if (filters.priority) params.set('priority', filters.priority);
+  if (filters.columnId) params.set('columnId', filters.columnId);
+  if (filters.assigneeId) params.set('assigneeId', filters.assigneeId);
+  if (filters.subjectType) params.set('subjectType', filters.subjectType);
+  if (filters.subjectId) params.set('subjectId', filters.subjectId);
+  if (filters.includeClosed) params.set('includeClosed', 'true');
+  return params;
+}
+
+export function useTasks(
+  filters: TaskFilters & { page: number },
+  options: { enabled?: boolean } = {},
+): UseQueryResult<TasksResponse, Error> {
+  const params = filterParams(filters);
+  params.set('page', String(filters.page));
+  params.set('pageSize', '50');
+  const key = params.toString();
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['tasks', 'list', key],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/tasks?${key}`, { signal });
+      return parseOrThrow(tasksResponseSchema, body, 'task list');
+    },
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useTaskBoard(filters: TaskFilters, options: { enabled?: boolean } = {}): UseQueryResult<BoardResponse, Error> {
+  const key = filterParams(filters).toString();
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['tasks', 'board', key],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/tasks/board${key ? `?${key}` : ''}`, { signal });
+      return parseOrThrow(boardResponseSchema, body, 'task board');
+    },
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useTask(id: string | null): UseQueryResult<Task, Error> {
+  return useQuery({
+    enabled: id !== null,
+    queryKey: ['tasks', 'one', id],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/tasks/${id ?? ''}`, { signal });
+      return parseOrThrow(taskSchema, body, 'task');
+    },
+  });
+}
+
+export function useBoardColumns(options: { enabled?: boolean } = {}): UseQueryResult<BoardColumn[], Error> {
+  return useQuery({
+    enabled: options.enabled ?? true,
+    queryKey: ['tasks', 'columns'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>('/tasks/columns', { signal });
+      return parseOrThrow(boardColumnsSchema, body, 'board columns');
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
+function useInvalidateTasks(): () => Promise<void> {
+  const client = useQueryClient();
+  return () => client.invalidateQueries({ queryKey: ['tasks'] });
+}
+
+const blank = (value: string): string | null => (value.trim() === '' ? null : value.trim());
+
+export function useSaveTask(): UseMutationResult<Task, Error, TaskDraft> {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: async (draft: TaskDraft) => {
+      const common = {
+        title: draft.title.trim(),
+        description: blank(draft.description),
+        assigneeId: draft.assigneeId,
+        dueDate: draft.dueDate,
+        priority: draft.priority,
+        subjectType: draft.subjectType,
+        subjectId: draft.subjectId,
+      };
+      const body: CreateTaskInput | UpdateTaskInput =
+        draft.id === undefined
+          ? { ...common, columnId: draft.columnId }
+          : { ...common, ...(draft.columnId === null ? {} : { columnId: draft.columnId }) };
+      const response = await apiRequest<unknown>(draft.id === undefined ? '/tasks' : `/tasks/${draft.id}`, {
+        method: draft.id === undefined ? 'POST' : 'PATCH',
+        body,
+      });
+      return parseOrThrow(taskSchema, response, 'saved task');
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** REQ-V-06: a drag, a keyboard move, a "mark done" — all this one PATCH. */
+export function useMoveTask(): UseMutationResult<Task, Error, { id: string; columnId: string }> {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: async ({ id, columnId }) => {
+      const body: UpdateTaskInput = { columnId };
+      const response = await apiRequest<unknown>(`/tasks/${id}`, { method: 'PATCH', body });
+      return parseOrThrow(taskSchema, response, 'moved task');
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteTask(): UseMutationResult<void, Error, string> {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest<void>(`/tasks/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useSaveBoardColumn(): UseMutationResult<
+  BoardColumn,
+  Error,
+  { id?: string; name: string; isDone: boolean }
+> {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: async (input) => {
+      const body: CreateBoardColumnInput | UpdateBoardColumnInput = { name: input.name.trim(), isDone: input.isDone };
+      const response = await apiRequest<unknown>(
+        input.id === undefined ? '/tasks/columns' : `/tasks/columns/${input.id}`,
+        { method: input.id === undefined ? 'POST' : 'PATCH', body },
+      );
+      return parseOrThrow(boardColumnSchema, response, 'board column');
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useReorderBoardColumns(): UseMutationResult<BoardColumn[], Error, string[]> {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: async (columnIds: string[]) => {
+      const response = await apiRequest<unknown>('/tasks/columns/order', { method: 'PUT', body: { columnIds } });
+      return parseOrThrow(boardColumnsSchema, response, 'board columns');
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteBoardColumn(): UseMutationResult<void, Error, string> {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest<void>(`/tasks/columns/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: invalidate,
+  });
+}

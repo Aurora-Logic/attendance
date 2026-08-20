@@ -59,6 +59,41 @@ export const PERMISSIONS = {
    * exists, because a projection nobody can see cannot be reconciled.
    */
   MASTERS_TALLY_VIEW: 'masters.tally.view',
+  RECEIVABLES_VIEW: 'receivables.view',
+
+  /**
+   * Phase 7 (08 §2.2). Self/all breadths for contacts and deals; tasks are a
+   * platform concern (D-17) but keep the `crm.` spelling the PRD gave them.
+   * The Sales roles that hold the self keys arrive with the role expansion;
+   * until then Admin holds every key, as it does for every module.
+   */
+  CRM_CONTACT_VIEW_SELF: 'crm.contact.view.self',
+  CRM_CONTACT_VIEW_ALL: 'crm.contact.view.all',
+  CRM_CONTACT_MANAGE: 'crm.contact.manage',
+  CRM_DEAL_VIEW_SELF: 'crm.deal.view.self',
+  CRM_DEAL_VIEW_ALL: 'crm.deal.view.all',
+  CRM_DEAL_MANAGE: 'crm.deal.manage',
+  CRM_PIPELINE_MANAGE: 'crm.pipeline.manage',
+  CRM_TASK_VIEW_SELF: 'crm.task.view.self',
+  CRM_TASK_VIEW_TEAM: 'crm.task.view.team',
+  CRM_TASK_MANAGE: 'crm.task.manage',
+
+  /** Phase 8a (08 §2.2). Documents are the estimate now; orders, challans and invoices as they land. */
+  SALES_DOCUMENT_VIEW_SELF: 'sales.document.view.self',
+  SALES_DOCUMENT_VIEW_ALL: 'sales.document.view.all',
+  SALES_DOCUMENT_CREATE: 'sales.document.create',
+  SALES_DOCUMENT_ALTER: 'sales.document.alter',
+  SALES_DISCOUNT_APPROVE: 'sales.discount.approve',
+  /** 08 REQ-W-09: release an order blocked by the party's credit position, with a reason. */
+  SALES_CREDIT_OVERRIDE: 'sales.credit.override',
+
+  /** 08 §2.2 / 13. Purchase and Accounts roles arrive with their phases; Admin holds these meanwhile. */
+  PURCHASE_DOCUMENT_VIEW: 'purchase.document.view',
+  PURCHASE_DOCUMENT_CREATE: 'purchase.document.create',
+  PURCHASE_DOCUMENT_APPROVE: 'purchase.document.approve',
+
+  /** 12 REQ-AB-03: exempt from the sign-in window. Admin only by default. */
+  ACCESS_OUTSIDE_WINDOW: 'access.outside_window',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -89,6 +124,27 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'roles.manage': 'Create roles and assign permissions',
   'audit.view': 'View the audit log',
   'masters.tally.view': 'View the Tally masters projection: parties, items, price lists',
+  'receivables.view': 'View vouchers and receivables pulled from Tally: invoices, receipts, statements, ageing',
+  'crm.contact.view.self': 'View the contacts and companies you own',
+  'crm.contact.view.all': 'View every contact and company',
+  'crm.contact.manage': 'Create and edit contacts and companies',
+  'crm.deal.view.self': 'View the deals you own',
+  'crm.deal.view.all': 'View every deal',
+  'crm.deal.manage': 'Create deals and move them between stages',
+  'crm.pipeline.manage': 'Configure pipelines and their stages',
+  'crm.task.view.self': 'View tasks assigned to you or owned by you',
+  'crm.task.view.team': 'View your team’s tasks',
+  'crm.task.manage': 'Create, assign and close tasks',
+  'sales.document.view.self': 'View the sales documents you own',
+  'sales.document.view.all': 'View every sales document',
+  'sales.document.create': 'Raise estimates, sales orders and challans',
+  'sales.document.alter': 'Alter an accepted document (re-pushed against its GUID)',
+  'sales.discount.approve': 'Approve a discount above the threshold',
+  'sales.credit.override': 'Release a sales order blocked by the party’s credit limit, with a reason',
+  'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
+  'purchase.document.create': 'Raise purchase orders and record receipts',
+  'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
+  'access.outside_window': 'Sign in and work outside the access window (19:30 to 09:00 by default)',
   'integration.manage': 'Manage integration connections',
 };
 
@@ -106,6 +162,16 @@ export const SYSTEM_ROLES = {
   OPERATIONS: 'Operations',
   HR: 'HR',
   ADMIN: 'Admin',
+  /**
+   * 08 §2 (Phase 7). Held alongside Employee, never instead of it (D-15: a
+   * salesperson is also an employee who punches, so attendance keys are not
+   * duplicated here). Purchase and Accounts arrived with docs 12 and 13,
+   * which gave them screens to reach.
+   */
+  SALES: 'Sales',
+  SALES_MANAGER: 'Sales manager',
+  PURCHASE: 'Purchase',
+  ACCOUNTS: 'Accounts',
 } as const;
 
 export type SystemRoleName = (typeof SYSTEM_ROLES)[keyof typeof SYSTEM_ROLES];
@@ -149,17 +215,97 @@ const ADMIN_PERMISSIONS = [
   PERMISSIONS.AUDIT_VIEW,
   PERMISSIONS.INTEGRATION_MANAGE,
   PERMISSIONS.MASTERS_TALLY_VIEW,
+  // 08 §2.2: Sales manager and Accounts hold this too, when those roles land.
+  PERMISSIONS.RECEIVABLES_VIEW,
+  PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+  PERMISSIONS.CRM_CONTACT_VIEW_ALL,
+  PERMISSIONS.CRM_CONTACT_MANAGE,
+  PERMISSIONS.CRM_DEAL_VIEW_SELF,
+  PERMISSIONS.CRM_DEAL_VIEW_ALL,
+  PERMISSIONS.CRM_DEAL_MANAGE,
+  PERMISSIONS.CRM_PIPELINE_MANAGE,
+  PERMISSIONS.CRM_TASK_VIEW_SELF,
+  PERMISSIONS.CRM_TASK_VIEW_TEAM,
+  PERMISSIONS.CRM_TASK_MANAGE,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
+  PERMISSIONS.SALES_DOCUMENT_CREATE,
+  PERMISSIONS.SALES_DOCUMENT_ALTER,
+  PERMISSIONS.SALES_DISCOUNT_APPROVE,
+  PERMISSIONS.SALES_CREDIT_OVERRIDE,
+  PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+  PERMISSIONS.PURCHASE_DOCUMENT_CREATE,
+  PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
+  PERMISSIONS.ACCESS_OUTSIDE_WINDOW,
 ] as const satisfies readonly PermissionKey[];
 
 /**
  * Seed only. Admin can edit any of these in the UI afterwards (REQ-B-07), so
  * this matrix is a starting point, not an invariant the code may rely on.
  */
+/** 08 §2.2, the Sales column, for the keys that exist so far. */
+const SALES_PERMISSIONS = [
+  PERMISSIONS.MASTERS_TALLY_VIEW,
+  PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+  PERMISSIONS.CRM_CONTACT_MANAGE,
+  PERMISSIONS.CRM_DEAL_VIEW_SELF,
+  PERMISSIONS.CRM_DEAL_MANAGE,
+  PERMISSIONS.CRM_TASK_VIEW_SELF,
+  PERMISSIONS.CRM_TASK_MANAGE,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+  PERMISSIONS.SALES_DOCUMENT_CREATE,
+] as const satisfies readonly PermissionKey[];
+
+/** 08 §2.2, the Sales manager column: all of Sales at full scope, plus receivables. */
+const SALES_MANAGER_PERMISSIONS = [
+  ...SALES_PERMISSIONS,
+  PERMISSIONS.CRM_CONTACT_VIEW_ALL,
+  PERMISSIONS.CRM_DEAL_VIEW_ALL,
+  PERMISSIONS.CRM_PIPELINE_MANAGE,
+  PERMISSIONS.CRM_TASK_VIEW_TEAM,
+  PERMISSIONS.RECEIVABLES_VIEW,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
+  PERMISSIONS.SALES_DOCUMENT_ALTER,
+  PERMISSIONS.SALES_DISCOUNT_APPROVE,
+  PERMISSIONS.SALES_CREDIT_OVERRIDE,
+] as const satisfies readonly PermissionKey[];
+
+/** 08 §2.2, the Purchase column: the procurement queue, POs and receipts, tasks, and the masters. */
+const PURCHASE_PERMISSIONS = [
+  PERMISSIONS.MASTERS_TALLY_VIEW,
+  PERMISSIONS.CRM_TASK_VIEW_SELF,
+  PERMISSIONS.CRM_TASK_MANAGE,
+  PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+  PERMISSIONS.PURCHASE_DOCUMENT_CREATE,
+] as const satisfies readonly PermissionKey[];
+
+/**
+ * 08 §2.2, the Accounts column: every sales document (the awaiting-invoice
+ * queue is theirs), receivables, the purchase approval line and the credit
+ * override, tasks, and the masters. No create keys — accounts decides and
+ * bills; it does not raise orders.
+ */
+const ACCOUNTS_PERMISSIONS = [
+  PERMISSIONS.MASTERS_TALLY_VIEW,
+  PERMISSIONS.CRM_TASK_VIEW_SELF,
+  PERMISSIONS.CRM_TASK_MANAGE,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+  PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
+  PERMISSIONS.SALES_CREDIT_OVERRIDE,
+  PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+  PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
+  PERMISSIONS.RECEIVABLES_VIEW,
+] as const satisfies readonly PermissionKey[];
+
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {
   Employee: EMPLOYEE_PERMISSIONS,
   Operations: OPERATIONS_PERMISSIONS,
   HR: HR_PERMISSIONS,
   Admin: ADMIN_PERMISSIONS,
+  Sales: SALES_PERMISSIONS,
+  'Sales manager': SALES_MANAGER_PERMISSIONS,
+  Purchase: PURCHASE_PERMISSIONS,
+  Accounts: ACCOUNTS_PERMISSIONS,
 };
 
 /**

@@ -106,9 +106,11 @@ export function reportRowsSearch(params: ReportRowsParams): string {
 export function useReportRows(
   reportKey: ReportKey,
   params: ReportRowsParams,
+  options: { enabled?: boolean } = {},
 ): UseQueryResult<Paginated<ReportRowView>, Error> {
   const query = reportRowsSearch(params);
   return useQuery({
+    enabled: options.enabled ?? true,
     queryKey: reportKeys.rows(reportKey, query),
     queryFn: async ({ signal }) => {
       const body = await apiRequest<unknown>(`/reports/${reportKey}/rows?${query}`, { signal });

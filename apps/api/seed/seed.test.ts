@@ -158,16 +158,11 @@ afterAll(async () => {
 });
 
 describe('seed', () => {
-  it('creates the organisation, the catalogue, the four roles, and one administrator', async () => {
+  it('creates the organisation, the catalogue, the system roles, and one administrator', async () => {
     const report = await seed();
 
     expect(report.organization.id).toBe(TEST_ORG_ID);
-    expect(report.roles.map((role) => role.name)).toEqual([
-      SYSTEM_ROLES.EMPLOYEE,
-      SYSTEM_ROLES.OPERATIONS,
-      SYSTEM_ROLES.HR,
-      SYSTEM_ROLES.ADMIN,
-    ]);
+    expect(report.roles.map((role) => role.name)).toEqual(Object.values(SYSTEM_ROLES));
     expect(report.roles.every((role) => role.created)).toBe(true);
     expect(report.admin.created).toBe(true);
     expect(report.admin.password).not.toBeNull();
@@ -476,7 +471,7 @@ describe('seed', () => {
     expect(rerun.admin.employee.reason).toBe('employee-already-linked');
     // The rest of the seed still ran.
     expect(rerun.organization.created).toBe(false);
-    expect(rerun.roles).toHaveLength(4);
+    expect(rerun.roles).toHaveLength(Object.values(SYSTEM_ROLES).length);
 
     await db.delete(users).where(eq(users.id, squatterId));
     await db.update(users).set({ employeeId: held }).where(eq(users.id, account.id));

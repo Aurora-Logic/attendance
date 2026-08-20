@@ -69,3 +69,16 @@ export function useParties(
     staleTime: 60_000,
   });
 }
+
+/** One party, for a page that prints its address and GSTIN under the buyer's name. */
+export function useParty(id: string | null): UseQueryResult<Party, Error> {
+  return useQuery({
+    enabled: id !== null,
+    queryKey: ['masters', 'party', id],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/masters/parties/${id ?? ''}`, { signal });
+      return parseOrThrow(partySchema, body, 'party');
+    },
+    staleTime: 60_000,
+  });
+}

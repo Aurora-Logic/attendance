@@ -24,6 +24,10 @@ export const ERROR_CODES = {
   // Auth (REQ-B-01…B-10)
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  /** 12 Area AB: outside the sign-in window, and not exempt. */
+  ACCESS_WINDOW_CLOSED: 'ACCESS_WINDOW_CLOSED',
+  /** 08 REQ-W-09: the party is over its credit limit; released only with sales.credit.override and a reason. */
+  CREDIT_BLOCKED: 'CREDIT_BLOCKED',
   ACCOUNT_INACTIVE: 'ACCOUNT_INACTIVE',
   TOKEN_EXPIRED: 'TOKEN_EXPIRED',
   TOKEN_INVALID: 'TOKEN_INVALID',

@@ -181,6 +181,77 @@ describe('one tick', () => {
     expect(calls.some((c) => c.path === '/sync/agent/errors')).toBe(false);
   });
 
+  it('pushes one voucher per job and posts the outcome; a retry that already landed reports so and pushes nothing', async () => {
+    const payload = {
+      documentId: '01900000-0000-7000-8000-00000000aa01',
+      kind: 'SALES_ORDER',
+      voucherType: 'Sales Order',
+      reference: 'SO-0001',
+      date: '2026-08-18',
+      partyName: 'Asha Traders',
+      narration: 'vyuha:SO-0001',
+      idempotencyKey: 'vyuha:so-1',
+      remoteGuid: null,
+      lines: [{ stockItemName: 'Cat6 cable 305m', quantity: '2.000', unit: 'BOX', rate: '4000.00', discountPct: '0.00', amount: '8000.00' }],
+    };
+    const ack = { status: 200, body: { jobId: 'job-p1', written: 0, lastAlterId: 0, jobState: 'DONE' } };
+    script = {
+      '/sync/agent/heartbeat': [heartbeatOk, heartbeatOk],
+      '/sync/agent/jobs/claim': [
+        { status: 200, body: { job: { id: 'job-p1', direction: 'PUSH', entityType: 'voucher_push:01900000-0000-7000-8000-00000000aa01', payload, attempts: 1, fromAlterId: 0 } } },
+        claimEmpty,
+        // Second tick: the same job again on attempt 2 — the previous response was "lost".
+        { status: 200, body: { job: { id: 'job-p1', direction: 'PUSH', entityType: 'voucher_push:01900000-0000-7000-8000-00000000aa01', payload, attempts: 2, fromAlterId: 0 } } },
+        claimEmpty,
+      ],
+      '/sync/agent/results': [ack, ack],
+    };
+
+    const agent = makeAgent();
+    const first = await agent.tick();
+    expect(first.jobsCompleted).toBe(1);
+    const posted = calls.filter((c) => c.path === '/sync/agent/results');
+    expect(posted).toHaveLength(1);
+    expect(posted[0]?.body['entityType']).toBe('voucher_push');
+    expect(posted[0]?.body['outcome']).toBe('accepted');
+    expect(String(posted[0]?.body['remoteGuid'])).toMatch(/^fixture-guid-/u);
+
+    const second = await agent.tick();
+    expect(second.jobsCompleted).toBe(1);
+    const again = calls.filter((c) => c.path === '/sync/agent/results');
+    expect(again).toHaveLength(2);
+    // The idempotency rule: found in Tally, so no second voucher.
+    expect(again[1]?.body['outcome']).toBe('landed_on_retry');
+    expect(again[1]?.body['remoteGuid']).toBe(posted[0]?.body['remoteGuid']);
+  });
+
+  it('a rejected push carries Tally’s words verbatim', async () => {
+    const payload = {
+      documentId: '01900000-0000-7000-8000-00000000aa02',
+      kind: 'SALES_ORDER',
+      voucherType: 'Sales Order',
+      reference: 'SO-0002',
+      date: '2026-08-18',
+      partyName: 'Nobody Known',
+      narration: '',
+      idempotencyKey: 'vyuha:so-2',
+      remoteGuid: null,
+      lines: [{ stockItemName: 'X', quantity: '1', unit: null, rate: '1', discountPct: '0', amount: '1' }],
+    };
+    script = {
+      '/sync/agent/heartbeat': [heartbeatOk],
+      '/sync/agent/jobs/claim': [
+        { status: 200, body: { job: { id: 'job-p2', direction: 'PUSH', entityType: 'voucher_push:01900000-0000-7000-8000-00000000aa02', payload, attempts: 1, fromAlterId: 0 } } },
+        claimEmpty,
+      ],
+      '/sync/agent/results': [{ status: 200, body: { jobId: 'job-p2', written: 0, lastAlterId: 0, jobState: 'DONE' } }],
+    };
+    await makeAgent().tick();
+    const posted = calls.find((c) => c.path === '/sync/agent/results');
+    expect(posted?.body['outcome']).toBe('rejected');
+    expect(posted?.body['errorText']).toBe("Ledger 'Nobody Known' does not exist!");
+  });
+
   it('an unrunnable job is reported, not stranded CLAIMED', async () => {
     script = {
       '/sync/agent/heartbeat': [heartbeatOk],

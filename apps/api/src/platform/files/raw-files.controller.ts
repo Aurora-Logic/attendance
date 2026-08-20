@@ -2,8 +2,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-import { Controller, Get, Param, Query, Req, Res } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import { Controller, Get, Param, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { env } from '../common/env.js';
 import { AppError } from '../common/errors.js';
@@ -38,13 +38,16 @@ function mimeForPath(filePath: string): string {
  */
 @Controller('files')
 export class RawFilesController {
-  @Get('raw/:bucket/*')
+  @Get('raw/:bucket/*path')
   @Public()
   serveFile(
     @Param('bucket') bucket: string,
+    // Express 5's named wildcard (`*path`) captures the remaining segments as
+    // an array, each already URL-decoded -- unlike Express 4's `*`, which gave
+    // a single raw string under the numeric key `req.params['0']`.
+    @Param('path') pathSegments: string[],
     @Query('expires') expiresStr: string | undefined,
     @Query('signature') signature: string | undefined,
-    @Req() req: Request,
     @Res() res: Response,
   ): void {
     if (bucket !== BUCKETS.PHOTOS && bucket !== BUCKETS.EXPORTS) {
@@ -60,12 +63,7 @@ export class RawFilesController {
       throw AppError.forbidden('This file link has expired.');
     }
 
-    // Extract wildcard key path from express params
-    const rawKey = (req.params as Record<string, string>)['0'] ?? '';
-    const key = rawKey
-      .split('/')
-      .map((segment) => decodeURIComponent(segment))
-      .join('/');
+    const key = (pathSegments ?? []).join('/');
 
     // Verify HMAC signature
     const expectedSig = createHmac('sha256', env.JWT_ACCESS_SECRET)

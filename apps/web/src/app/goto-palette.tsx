@@ -17,7 +17,7 @@ import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { ADMIN_GROUPS, MODULES, TOP_BAR_ITEMS, type NavGroup } from '@/lib/nav';
 import { usePermissions } from '@/lib/session/permissions';
 import { useUiStore } from '@/lib/ui-store';
-import { GO_TO_QUERY_MIN_LENGTH, type GoToRecord } from '@vyuha/shared';
+import { GO_TO_QUERY_MAX_LENGTH, GO_TO_QUERY_MIN_LENGTH, type GoToRecord } from '@vyuha/shared';
 
 import { useGoToRecords } from './use-go-to-records';
 
@@ -102,7 +102,12 @@ export function GoToPalette() {
     keys: 'alt+g',
     label: 'Go To',
     scope: 'global',
-    run: toggle,
+    // Closing by the shortcut clears the query the same way every other
+    // close does; opening by it leaves whatever the store says alone.
+    run: () => {
+      if (open) setQuery('');
+      toggle();
+    },
   });
 
   const permitted = useMemo(
@@ -117,7 +122,10 @@ export function GoToPalette() {
   const screenGroups = filterScreenGroups(query, permitted);
 
   const records = useGoToRecords(query);
-  const term = query.trim();
+  // The same trim-and-cap the hook sends, so "has the server answered *this*
+  // term" compares like with like: an over-cap paste otherwise never matched
+  // the echoed query and the palette said "Searching records…" forever.
+  const term = query.trim().slice(0, GO_TO_QUERY_MAX_LENGTH);
   const recordsExpected = term.length >= GO_TO_QUERY_MIN_LENGTH;
   const recordGroups = useMemo(() => {
     const groups = new Map<string, { record: GoToRecord; route: string; RecordIcon: Icon }[]>();
@@ -150,8 +158,20 @@ export function GoToPalette() {
     !records.isError &&
     (records.isFetching || records.data?.query !== term);
 
-  function go(to: string) {
+  /**
+   * Every way the palette closes goes through here, so the query reset that
+   * onOpenChange performs for Escape and the overlay also happens for a
+   * selection and for the Alt+G toggle — Base UI does not fire onOpenChange
+   * for an external `open` change, and a palette that reopened on the last
+   * search opened on stale results and a pre-filtered screen list.
+   */
+  function close() {
     setOpen(false);
+    setQuery('');
+  }
+
+  function go(to: string) {
+    close();
     void navigate(to);
   }
 

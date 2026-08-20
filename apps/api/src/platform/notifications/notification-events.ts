@@ -208,4 +208,40 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationEventType, NotificationT
     path: () => routeFor('sync.agent_recovered'),
     defaultChannels: IN_APP_ONLY,
   },
+  // REQ-V-08. Paths carry the task id so the bell opens the task's sheet.
+  'task.assigned': {
+    title: (p) => `${text(p, 'assignedBy', 'Somebody')} assigned you a task`,
+    body: (p) =>
+      `${text(p, 'title')}${text(p, 'dueDate') === '' ? '' : `, due ${text(p, 'dueDate')}`}` +
+      `${text(p, 'subjectLabel') === '' ? '' : ` — on ${text(p, 'subjectLabel')}`}.`,
+    path: (p) => `${routeFor('task.assigned')}/${text(p, 'taskId')}`,
+    defaultChannels: IN_APP_AND_EMAIL,
+  },
+  'task.due_today': {
+    title: (p) => `Due today: ${text(p, 'title')}`,
+    body: (p) =>
+      text(p, 'subjectLabel') === '' ? 'Assigned to you, due today.' : `On ${text(p, 'subjectLabel')}, due today.`,
+    path: (p) => `${routeFor('task.due_today')}/${text(p, 'taskId')}`,
+    defaultChannels: IN_APP_ONLY,
+  },
+  'task.overdue': {
+    title: (p) => `Overdue: ${text(p, 'title')}`,
+    body: (p) => `Was due ${text(p, 'dueDate')} and is still open.`,
+    path: (p) => `${routeFor('task.overdue')}/${text(p, 'taskId')}`,
+    defaultChannels: IN_APP_AND_EMAIL,
+  },
+  // 13 REQ-X-28: the order's owner hears that the balance is packable again.
+  'procurement.stock_arrived': {
+    title: (p) => `Stock arrived for ${text(p, 'orderNumber', 'your order')}`,
+    body: (p) => `${text(p, 'stockItemName')}: ${text(p, 'quantity')} received on ${text(p, 'grnNumber')}. The balance is back on the pick queue.`,
+    path: (p) => `${routeFor('procurement.stock_arrived')}/${text(p, 'orderId')}`,
+    defaultChannels: IN_APP_ONLY,
+  },
+  // 12 REQ-AA-15: accounts hears once per order that packed goods are waiting on a bill.
+  'sales.invoice_waiting': {
+    title: (p) => `${text(p, 'orderNumber', 'An order')} has waited ${text(p, 'waitingHours')}h for its invoice`,
+    body: (p) => `${text(p, 'customerName')}: ${text(p, 'packedUninvoicedQty')} packed and uninvoiced since ${text(p, 'waitingSince')}. Nothing leaves until it is billed.`,
+    path: () => routeFor('sales.invoice_waiting'),
+    defaultChannels: IN_APP_AND_EMAIL,
+  },
 };

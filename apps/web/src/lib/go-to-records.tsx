@@ -1,4 +1,4 @@
-import { BooksIcon, UserIcon, type Icon } from '@phosphor-icons/react';
+import { AddressBookIcon, BooksIcon, BuildingsIcon, CheckSquareIcon, ClipboardIcon, FileTextIcon, HandshakeIcon, ReceiptIcon, ShoppingCartIcon, TruckIcon, UserIcon, type Icon } from '@phosphor-icons/react';
 
 import type { GoToRecord } from '@vyuha/shared';
 
@@ -40,6 +40,57 @@ const GO_TO_RECORD_KINDS: Record<string, GoToRecordKind> = {
     // Capped at the list query's own max: a 200-char Tally name would
     // otherwise 400 the very screen the palette promised.
     route: (record) => `/masters/parties?q=${encodeURIComponent(record.title.slice(0, 80))}`,
+  },
+  voucher: {
+    group: 'Vouchers',
+    icon: ReceiptIcon,
+    // 09 §6: typing a voucher number opens that voucher.
+    route: (record) => `/masters/vouchers/${record.id}`,
+  },
+  contact: {
+    group: 'Contacts',
+    icon: AddressBookIcon,
+    route: (record) => `/crm/contacts/${record.id}`,
+  },
+  company: {
+    group: 'Companies',
+    icon: BuildingsIcon,
+    route: (record) => `/crm/companies/${record.id}`,
+  },
+  task: {
+    group: 'Tasks',
+    icon: CheckSquareIcon,
+    route: (record) => `/tasks/${record.id}`,
+  },
+  deal: {
+    group: 'Deals',
+    icon: HandshakeIcon,
+    route: (record) => `/crm/deals/${record.id}`,
+  },
+  estimate: {
+    group: 'Estimates',
+    icon: FileTextIcon,
+    route: (record) => `/sales/estimates/${record.id}`,
+  },
+  sales_order: {
+    group: 'Sales orders',
+    icon: ClipboardIcon,
+    route: (record) => `/sales/orders/${record.id}`,
+  },
+  invoice: {
+    group: 'Invoices',
+    icon: ReceiptIcon,
+    route: (record) => `/sales/invoices/${record.id}`,
+  },
+  dispatch: {
+    group: 'Dispatches',
+    icon: TruckIcon,
+    route: (record) => `/sales/dispatches/${record.id}`,
+  },
+  purchase_order: {
+    group: 'Purchase orders',
+    icon: ShoppingCartIcon,
+    route: (record) => `/purchase/orders/${record.id}`,
   },
 };
 

@@ -3,6 +3,7 @@ import {
   ERROR_CODES,
   INVITATION_TTL_HOURS,
   PASSWORD_RESET_TTL_MINUTES,
+  PERMISSIONS,
   type InvitationResult,
   type PasswordResetLink,
   type SignInAccount,
@@ -33,6 +34,7 @@ import type {
   LoginResponse,
   MeResponse,
 } from './auth.dto.js';
+import { AccessWindowService } from './access-window.service.js';
 import { signAccessToken } from './jwt.js';
 import { LoginRateLimiter } from './login-rate-limit.service.js';
 import { PasswordResetRateLimiter } from './password-reset-rate-limit.service.js';
@@ -115,6 +117,7 @@ export class AuthService {
     private readonly auditContext: AuditContext,
     private readonly audit: AuditService,
     private readonly jobs: JobRunner,
+    private readonly accessWindow: AccessWindowService,
   ) {}
 
   // ---------------------------------------------------------------- login
@@ -181,6 +184,28 @@ export class AuthService {
     }
 
     await this.rateLimiter.clear(context.ip);
+
+    // 12 REQ-AB-01/AB-03/AB-08: outside the window only an exempt account
+    // signs in; every refusal is audited with the account and the time.
+    const verdict = await this.accessWindow.verdict(user.orgId);
+    if (verdict.closed) {
+      // No session exists yet, so the principal cannot be resolved; the one
+      // key that matters is read straight from the role grants.
+      const exempt = await this.accessWindow.holdsExemption(user.id);
+      if (!exempt) {
+        // Direct, as the lockout is: the request answers 403 and the
+        // interceptor only audits successes (REQ-AB-08).
+        await this.audit.write({
+          orgId: user.orgId,
+          actorUserId: user.id,
+          action: 'auth.login_refused_window',
+          entityType: 'user',
+          entityId: user.id,
+          after: { email: user.email, reopensAt: verdict.reopensAt, at: now.toISOString() },
+        });
+        throw this.accessWindow.refusal(verdict);
+      }
+    }
 
     const session = await this.sessions.startFamily(user.orgId, user.id, context);
 
@@ -338,6 +363,18 @@ export class AuthService {
     // worth reading. Reuse detection is not suppressed: SessionService records
     // that case explicitly.
     this.auditContext.suppress();
+
+    // 12 REQ-AB-05: after the cutoff a refresh is refused, so a session ends
+    // when its access token expires — nobody is thrown out mid-form. Decided
+    // before rotating: a refusal that had already burnt the cookie would sign
+    // the person out on the spot, which is the hard termination AB-05 forbids.
+    const family = await this.sessions.familyOf(presentedToken);
+    if (family !== null) {
+      const verdict = await this.accessWindow.verdict(family.orgId);
+      if (verdict.closed && !(await this.accessWindow.holdsExemption(family.userId))) {
+        throw this.accessWindow.refusal(verdict);
+      }
+    }
 
     const rotated = await this.sessions.rotate(presentedToken, context);
 
@@ -1042,7 +1079,7 @@ export class AuthService {
   // ------------------------------------------------------------------- me
 
   async me(principal: Principal): Promise<MeResponse> {
-    const employee = await this.loadEmployee(principal);
+    const [employee, verdict] = await Promise.all([this.loadEmployee(principal), this.accessWindow.verdict(principal.orgId)]);
 
     return {
       user: {
@@ -1054,6 +1091,10 @@ export class AuthService {
       employee,
       roles: principal.roles,
       permissions: [...principal.permissions].sort(),
+      accessWindow: {
+        closesInMinutes: verdict.closesInMinutes,
+        exempt: principal.permissions.has(PERMISSIONS.ACCESS_OUTSIDE_WINDOW),
+      },
     };
   }
 

@@ -1,0 +1,370 @@
+import { PERMISSIONS, SYSTEM_ROLES, type ApprovalRequestSummary, type GrnView, type Paginated, type PurchaseOrderView, type PurchaseSettings, type RequirementView, type SalesDocumentView, type StockAvailability } from '@vyuha/shared';
+import { sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+import { NotificationDispatcher, type NotificationEvent } from '../../../platform/notifications/notification.dispatcher.js';
+import { RequirementsService } from '../../../platform/procurement/requirements.service.js';
+import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+
+/**
+ * Procurement (13): the loop from shortage to GRN. Two orders short of one
+ * item become two requirements and one PO; a partial receipt with a
+ * rejection is allocated by a person; the released order's owner is told;
+ * available = closing − committed throughout, without any sync running.
+ */
+
+const ORG_ID = '01900000-0000-7000-8000-0000000000ea';
+
+interface ErrorBody {
+  error: { code: string; message: string; details?: Record<string, unknown> };
+}
+
+let harness: ApiHarness;
+let adminToken: string;
+let salesToken: string;
+let buyerToken: string;
+let raviId = '';
+let customerId = '';
+let vendorId = '';
+let cableId = '';
+let connectionId = '';
+const emitted: NotificationEvent[] = [];
+
+beforeAll(async () => {
+  harness = await ApiHarness.start(ORG_ID, 'Procurement Fixture Org');
+  vi.spyOn(harness.resolve(NotificationDispatcher), 'emit').mockImplementation((event) => {
+    emitted.push(event);
+    return Promise.resolve('spied');
+  });
+  await harness.db.execute(sql`DELETE FROM voucher_lines WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM vouchers WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM parties WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${ORG_ID} AND deleted_at IS NULL`);
+
+  const adminRoleId = await harness.createSystemRole(SYSTEM_ROLES.ADMIN, { isSystem: true });
+  const salesRoleId = await harness.createSystemRole(SYSTEM_ROLES.SALES, { isSystem: true });
+  raviId = await harness.createEmployee({ code: 'PR-001', firstName: 'Ravi', lastName: 'Kumar' });
+  const admin = await harness.createUser({ email: scopedEmail('pr-admin'), roleIds: [adminRoleId] });
+  const sales = await harness.createUser({ email: scopedEmail('pr-sales'), roleIds: [salesRoleId], employeeId: raviId });
+  // A buyer: raises purchase orders, cannot approve them (REQ-X-16).
+  const buyerRoleId = await harness.createRole('Buyer', [PERMISSIONS.PURCHASE_DOCUMENT_VIEW, PERMISSIONS.PURCHASE_DOCUMENT_CREATE, PERMISSIONS.MASTERS_TALLY_VIEW]);
+  const buyer = await harness.createUser({ email: scopedEmail('pr-buyer'), roleIds: [buyerRoleId] });
+  adminToken = (await harness.login(admin.email, admin.password)).token;
+  salesToken = (await harness.login(sales.email, sales.password)).token;
+  buyerToken = (await harness.login(buyer.email, buyer.password)).token;
+
+  const connection = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO integration_connections (org_id, system, name, company_guid) VALUES (${ORG_ID}, 'TALLY', 'Procurement Co', 'guid-procurement') RETURNING id
+  `);
+  connectionId = connection.rows[0]?.id ?? '';
+  const customer = await harness.db.execute<{ id: string }>(sql`INSERT INTO parties (org_id, connection_id, name, parent_group) VALUES (${ORG_ID}, ${connectionId}, 'Asha Traders', 'Sundry Debtors') RETURNING id`);
+  customerId = customer.rows[0]?.id ?? '';
+  const vendor = await harness.db.execute<{ id: string }>(sql`INSERT INTO parties (org_id, connection_id, name, parent_group) VALUES (${ORG_ID}, ${connectionId}, 'Behar Supply Co', 'Sundry Creditors') RETURNING id`);
+  vendorId = vendor.rows[0]?.id ?? '';
+  const cable = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO stock_items (org_id, connection_id, name, unit, parent_group, gst_rate, closing_qty, last_pulled_at)
+    VALUES (${ORG_ID}, ${connectionId}, 'Cat6 cable 305m', 'BOX', 'Cables', '18.00', '12', now()) RETURNING id
+  `);
+  cableId = cable.rows[0]?.id ?? '';
+});
+
+afterAll(async () => {
+  await harness.close();
+});
+
+let orderA = '';
+let orderB = '';
+let lineA = '';
+let lineB = '';
+let poId = '';
+
+describe('availability (13 §2, REQ-AC-03/04)', () => {
+  it('available is closing minus committed, and drops when an order is confirmed — with no sync running', async () => {
+    const before = await harness.get<StockAvailability>(`/purchase/items/${cableId}/availability`, { token: adminToken });
+    expect(before.body).toMatchObject({ closingQty: '12.000', committedQty: '0.000', availableQty: '12.000', openPoQty: '0.000' });
+    expect(before.body.asOf).not.toBeNull();
+
+    const a = await harness.post<SalesDocumentView>('/sales/orders', { token: salesToken, body: { partyId: customerId, lines: [{ stockItemId: cableId, quantity: '10', rate: '100' }] } });
+    orderA = a.body.id;
+    lineA = a.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${orderA}/confirm`, { token: salesToken });
+    const b = await harness.post<SalesDocumentView>('/sales/orders', { token: salesToken, body: { partyId: customerId, lines: [{ stockItemId: cableId, quantity: '10', rate: '100' }] } });
+    orderB = b.body.id;
+    lineB = b.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${orderB}/confirm`, { token: salesToken });
+
+    const after = await harness.get<StockAvailability>(`/purchase/items/${cableId}/availability`, { token: adminToken });
+    expect(after.body).toMatchObject({ committedQty: '20.000', availableQty: '-8.000' });
+
+    // 13 §6: no route writes a stock figure, under any permission including Admin — 405 on every plausible verb.
+    const forbidden = await harness.del<ErrorBody>(`/purchase/items/${cableId}/stock`, { token: adminToken });
+    expect(forbidden.status).toBe(405);
+    const set = await harness.put<ErrorBody>(`/purchase/items/${cableId}/stock`, { token: adminToken, body: { closingQty: '999' } });
+    expect(set.status).toBe(405);
+    const entry = await harness.post<ErrorBody>(`/purchase/items/${cableId}/stock`, { token: adminToken, body: { quantity: '999' } });
+    expect(entry.status).toBe(405);
+    const items = await harness.post<ErrorBody>('/masters/items', { token: adminToken, body: { name: 'x' } });
+    expect(items.status).toBe(405);
+  });
+});
+
+describe('shortage → requirement → PO → GRN → allocation (13 §1)', () => {
+  it('two short packs raise two requirements carrying their orders; the queue shows who waits', async () => {
+    await harness.post(`/sales/orders/${orderA}/packs`, { token: salesToken, body: { lines: [{ lineId: lineA, quantity: '6' }] } });
+    await harness.post(`/sales/orders/${orderB}/packs`, { token: salesToken, body: { lines: [{ lineId: lineB, quantity: '6' }] } });
+    const queue = await harness.get<RequirementView[]>('/purchase/requirements?state=open', { token: adminToken });
+    const mine = queue.body.filter((r) => r.stockItemId === cableId);
+    expect(mine.map((r) => [r.source, r.quantity, r.salesOrderId])).toEqual([['shortage', '4.000', orderA], ['shortage', '4.000', orderB]]);
+    expect(mine[0]?.customerName).toBe('Asha Traders');
+  });
+
+  it('the waiting order says why it waits and on what: the requirement, then the PO with its vendor and date (REQ-X-26)', async () => {
+    const before = await harness.get<SalesDocumentView>(`/sales/orders/${orderA}`, { token: salesToken });
+    expect(before.body.waitingOn.map((w) => [w.stockItemName, w.quantity, w.state, w.purchaseOrders])).toEqual([['Cat6 cable 305m', '4.000', 'open', []]]);
+  });
+
+  it('one PO from both requirements, one line of 8, linked to each; confirming pushes it and marks them ordered', async () => {
+    const queue = await harness.get<RequirementView[]>('/purchase/requirements?state=open', { token: adminToken });
+    const ids = queue.body.filter((r) => r.stockItemId === cableId).map((r) => r.id);
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders/from-requirements', { token: adminToken, body: { partyId: vendorId, requirementIds: ids } });
+    expect(created.status).toBe(201);
+    expect(created.body.number).toBe('PO-0001');
+    expect(created.body.lines).toHaveLength(1);
+    expect(created.body.lines[0]?.quantity).toBe('8.000');
+    expect(created.body.lines[0]?.requirements.map((r) => r.quantity)).toEqual(['4.000', '4.000']);
+    poId = created.body.id;
+
+    // A rate, since the requirements carried none.
+    const priced = await harness.patch<PurchaseOrderView>(`/purchase/orders/${poId}`, {
+      token: adminToken,
+      body: { lines: [{ stockItemId: cableId, description: 'Cat6 cable 305m', quantity: '8', rate: '3800', taxPct: '18', requirementIds: ids }] },
+    });
+    expect(priced.body.grandTotal).toBe('35872.00');
+
+    const confirmed = await harness.post<PurchaseOrderView>(`/purchase/orders/${poId}/confirm`, { token: adminToken });
+    expect(confirmed.body.status).toBe('CONFIRMED');
+    // No agent connection with a token in this fixture: honest NOT_PUSHED, not a lie.
+    expect(confirmed.body.syncState).toBe('NOT_PUSHED');
+    const after = await harness.get<RequirementView[]>('/purchase/requirements?state=ordered', { token: adminToken });
+    expect(after.body.filter((r) => r.stockItemId === cableId)).toHaveLength(2);
+    const waiting = await harness.get<SalesDocumentView>(`/sales/orders/${orderA}`, { token: salesToken });
+    expect(waiting.body.waitingOn[0]?.state).toBe('ordered');
+    expect(waiting.body.waitingOn[0]?.purchaseOrders.map((p) => [p.number, p.vendorName, p.status, p.quantity])).toEqual([['PO-0001', 'Behar Supply Co', 'CONFIRMED', '4.000']]);
+    const availability = await harness.get<StockAvailability>(`/purchase/items/${cableId}/availability`, { token: adminToken });
+    expect(availability.body.openPoQty).toBe('8.000');
+    // The nightly sweep raises nothing for an item an open PO already covers (with no reorder level set, nothing at all).
+    await harness.db.execute(sql`INSERT INTO item_settings (org_id, stock_item_id, reorder_level) VALUES (${ORG_ID}, ${cableId}, '5')`);
+  });
+
+  it('a partial receipt with a rejection stays open, keeps the reason, and waits for a person to allocate between the two orders', async () => {
+    const po = await harness.get<PurchaseOrderView>(`/purchase/orders/${poId}`, { token: adminToken });
+    const poLine = po.body.lines[0]?.id ?? '';
+    const noReason = await harness.post<ErrorBody>(`/purchase/orders/${poId}/grns`, { token: adminToken, body: { lines: [{ purchaseOrderLineId: poLine, receivedQty: '3', rejectedQty: '1' }] } });
+    expect(noReason.status).toBe(400);
+
+    const grn = await harness.post<GrnView>(`/purchase/orders/${poId}/grns`, {
+      token: adminToken,
+      body: { vendorInvoiceRef: 'BS/221', lines: [{ purchaseOrderLineId: poLine, receivedQty: '3', rejectedQty: '1', rejectionReason: 'Crushed box' }] },
+    });
+    expect(grn.status).toBe(201);
+    expect(grn.body.number).toBe('GRN-0001');
+    expect(grn.body.lines[0]).toMatchObject({ receivedQty: '3.000', rejectedQty: '1.000', rejectionReason: 'Crushed box' });
+    // Two orders wait on one line: nobody was allocated automatically.
+    expect(grn.body.pendingAllocations).toHaveLength(1);
+    expect(grn.body.pendingAllocations[0]?.unallocatedQty).toBe('3.000');
+    expect(grn.body.pendingAllocations[0]?.waiting).toHaveLength(2);
+    expect(emitted.filter((e) => e.type === 'procurement.stock_arrived')).toHaveLength(0);
+
+    const after = await harness.get<PurchaseOrderView>(`/purchase/orders/${poId}`, { token: adminToken });
+    expect(after.body.fulfilment).toBe('partially_received');
+    expect(after.body.lines[0]).toMatchObject({ receivedQty: '3.000', rejectedQty: '1.000' });
+
+    const tooMuch = await harness.post<ErrorBody>(`/purchase/grns/${grn.body.id}/allocate`, {
+      token: adminToken,
+      body: { allocations: [{ requirementId: grn.body.pendingAllocations[0]?.waiting[0]?.requirementId, quantity: '5' }] },
+    });
+    expect(tooMuch.status).toBe(400);
+
+    // The goods receipt note's workbook: quantities, no money.
+    const xlsx = await harness.getRaw(`/purchase/grns/${grn.body.id}/export.xlsx`, { token: adminToken });
+    expect(xlsx.status).toBe(200);
+    expect(xlsx.headers.get('content-disposition')).toContain(`Goods-Receipt-Note-${grn.body.number}.xlsx`);
+    expect(xlsx.body.subarray(0, 2).toString()).toBe('PK');
+    const decided = await harness.post<GrnView>(`/purchase/grns/${grn.body.id}/allocate`, {
+      token: adminToken,
+      body: { allocations: [{ requirementId: grn.body.pendingAllocations[0]?.waiting[0]?.requirementId, quantity: '3' }] },
+    });
+    expect(decided.status).toBe(200);
+    expect(decided.body.pendingAllocations).toHaveLength(0);
+    // The chosen order's owner is told (REQ-X-28), once.
+    const told = emitted.filter((e) => e.type === 'procurement.stock_arrived');
+    expect(told).toHaveLength(1);
+    expect(told[0]?.audience).toEqual({ kind: 'employees', employeeIds: [raviId] });
+    expect(told[0]?.payload?.orderNumber).toBeTruthy();
+    expect(await harness.waitForAuditAction('purchase.grn.allocated')).toBe(true);
+  });
+
+  it('receiving the rest while two still wait asks again; splitting 4 as 1 + 3 completes one requirement and leaves the other short', async () => {
+    const po = await harness.get<PurchaseOrderView>(`/purchase/orders/${poId}`, { token: adminToken });
+    const poLine = po.body.lines[0]?.id ?? '';
+    const grn = await harness.post<GrnView>(`/purchase/orders/${poId}/grns`, { token: adminToken, body: { lines: [{ purchaseOrderLineId: poLine, receivedQty: '4' }] } });
+    expect(grn.status).toBe(201);
+    const pending = grn.body.pendingAllocations[0];
+    expect(pending?.unallocatedQty).toBe('4.000');
+    expect(pending?.waiting.map((w) => w.outstandingQty).sort()).toEqual(['1.000', '4.000']);
+    const first = pending?.waiting.find((w) => w.outstandingQty === '1.000');
+    const second = pending?.waiting.find((w) => w.outstandingQty === '4.000');
+    const decided = await harness.post<GrnView>(`/purchase/grns/${grn.body.id}/allocate`, {
+      token: adminToken,
+      body: { allocations: [{ requirementId: first?.requirementId, quantity: '1' }, { requirementId: second?.requirementId, quantity: '3' }] },
+    });
+    expect(decided.status).toBe(200);
+    expect(decided.body.pendingAllocations).toHaveLength(0);
+    const requirements = await harness.get<RequirementView[]>('/purchase/requirements', { token: adminToken });
+    const states = requirements.body.filter((r) => r.stockItemId === cableId).map((r) => [r.state, r.receivedQty]).sort();
+    expect(states).toEqual([['ordered', '3.000'], ['received', '4.000']]);
+    const after = await harness.get<PurchaseOrderView>(`/purchase/orders/${poId}`, { token: adminToken });
+    // 3 + 1 rejected + 4 = 8: everything ordered is accounted for.
+    expect(after.body.fulfilment).toBe('received');
+    expect(emitted.filter((e) => e.type === 'procurement.stock_arrived')).toHaveLength(3);
+  });
+
+  it('short-close needs the approve key; item vendors and settings are Vyuha’s (D-27, D-28)', async () => {
+    const asSales = await harness.post<ErrorBody>(`/purchase/orders/${poId}/short-close`, { token: salesToken, body: { reason: 'x' } });
+    expect([403, 404]).toContain(asSales.status);
+
+    const vendors = await harness.put<{ partyName: string; isPreferred: boolean }[]>(`/purchase/items/${cableId}/vendors`, {
+      token: adminToken,
+      body: { vendors: [{ partyId: vendorId, isPreferred: true, leadTimeDays: 7 }] },
+    });
+    expect(vendors.body).toEqual([{ partyId: vendorId, partyName: 'Behar Supply Co', isPreferred: true, leadTimeDays: 7 }]);
+    const settings = await harness.put<StockAvailability>(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '20', minimumOrderQty: '5' } });
+    expect(settings.body.reorderLevel).toBe('20.000');
+
+    const history = await harness.get<{ source: string; reference: string; rate: string | null }[]>(`/purchase/item-history?stockItemId=${cableId}&partyId=${vendorId}`, { token: adminToken });
+    expect(history.body.map((h) => [h.source, h.reference, h.rate])).toEqual([['purchase_order', 'PO-0001', '3800.00']]);
+  });
+});
+
+describe('the nightly reorder sweep (13 REQ-X-09)', () => {
+  it('raises one requirement per item at or below its reorder level, audits it, and raises nothing a second time while it stays open', async () => {
+    const requirements = harness.resolve(RequirementsService);
+    await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '1000', minimumOrderQty: '5' } });
+    const first = await requirements.raiseReorderBreaches(ORG_ID);
+    expect(first).toBe(1);
+    const raised = await harness.get<RequirementView[]>('/purchase/requirements?state=open', { token: adminToken });
+    const reorder = raised.body.find((r) => r.stockItemId === cableId && r.source === 'reorder');
+    expect(reorder).toBeDefined();
+    expect(Number(reorder?.quantity)).toBeGreaterThan(0);
+    expect(await harness.waitForAuditAction('procurement.requirement.raised')).toBe(true);
+    const second = await requirements.raiseReorderBreaches(ORG_ID);
+    expect(second).toBe(0);
+    await harness.post(`/purchase/requirements/${reorder?.id ?? ''}/close`, { token: adminToken, body: { reason: 'test: reorder level restored' } });
+    await harness.put(`/purchase/items/${cableId}/settings`, { token: adminToken, body: { reorderLevel: '20', minimumOrderQty: '5' } });
+  });
+});
+
+describe('approval by value through the inbox (13 REQ-X-16)', () => {
+  let bigPoId = '';
+
+  it('the threshold is a setting an approver writes; a PO over it waits in the approvals inbox, and its author cannot approve it', async () => {
+    const asBuyer = await harness.put<ErrorBody>('/purchase/settings', { token: buyerToken, body: { approvalThreshold: '10000', invoiceWaitingHours: 24 } });
+    expect(asBuyer.status).toBe(403);
+    const written = await harness.put<PurchaseSettings>('/purchase/settings', { token: adminToken, body: { approvalThreshold: '10000', invoiceWaitingHours: 24 } });
+    expect(written.body).toEqual({ approvalThreshold: '10000.00', invoiceWaitingHours: 24 });
+
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: buyerToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '10', rate: '3800' }] },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.approvalRequired).toBe(true);
+    bigPoId = created.body.id;
+
+    const confirmed = await harness.post<PurchaseOrderView>(`/purchase/orders/${bigPoId}/confirm`, { token: buyerToken });
+    expect(confirmed.body.status).toBe('PENDING_APPROVAL');
+    expect(confirmed.body.syncState).toBe('NOT_PUSHED');
+
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
+    const request = inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.subject.startsWith(created.body.number));
+    expect(request).toBeDefined();
+    expect(request?.status).toBe('PENDING');
+
+    const self = await harness.post<ErrorBody>(`/purchase/orders/${bigPoId}/approve`, { token: buyerToken });
+    expect(self.status).toBe(403);
+  });
+
+  it('approving in the inbox confirms the PO and runs the push settlement; the two never disagree', async () => {
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
+    const request = inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING');
+    const decided = await harness.post(`/approvals/${request?.id ?? ''}/approve`, { token: adminToken, body: {} });
+    expect(decided.status).toBe(201);
+    const po = await harness.get<PurchaseOrderView>(`/purchase/orders/${bigPoId}`, { token: adminToken });
+    expect(po.body.status).toBe('CONFIRMED');
+    // Same fixture, same honesty: no agent token here, so the push settlement ran and found no carrier.
+    expect(po.body.syncState).toBe('NOT_PUSHED');
+    expect(await harness.waitForAuditAction('purchase.order.approved')).toBe(true);
+  });
+
+  it('a rejection sends the PO back to draft with the reason; the PO’s own Approve button decides the same request', async () => {
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: buyerToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '20', rate: '3800' }] },
+    });
+    await harness.post(`/purchase/orders/${created.body.id}/confirm`, { token: buyerToken });
+    let inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
+    let request = inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING');
+    const rejected = await harness.post(`/approvals/${request?.id ?? ''}/reject`, { token: adminToken, body: { reason: 'Too much cable for one month' } });
+    expect(rejected.status).toBe(201);
+    const back = await harness.get<PurchaseOrderView>(`/purchase/orders/${created.body.id}`, { token: buyerToken });
+    expect(back.body.status).toBe('DRAFT');
+
+    // Resubmitted, then approved from the PO itself: same ledger, same outcome.
+    await harness.post(`/purchase/orders/${created.body.id}/confirm`, { token: buyerToken });
+    const approved = await harness.post<PurchaseOrderView>(`/purchase/orders/${created.body.id}/approve`, { token: adminToken });
+    expect(approved.status).toBe(200);
+    expect(approved.body.status).toBe('CONFIRMED');
+    inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
+    request = inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING');
+    expect(request).toBeUndefined();
+  });
+
+  it('a released PO carries the vendor’s copy per channel, pending until a person marks it sent (REQ-X-18, REQ-AA-26)', async () => {
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: buyerToken,
+      body: { partyId: vendorId, vendorEmail: 'orders@behar.example', vendorWhatsapp: '+919800000000', lines: [{ stockItemId: cableId, quantity: '1', rate: '3800' }] },
+    });
+    expect(created.body.vendorEmail).toBe('orders@behar.example');
+    expect(created.body.notifications).toEqual([]);
+    const confirmed = await harness.post<PurchaseOrderView>(`/purchase/orders/${created.body.id}/confirm`, { token: buyerToken });
+    expect(confirmed.body.status).toBe('CONFIRMED');
+    expect(confirmed.body.notifications.map((n) => [n.channel, n.recipient, n.status])).toEqual([
+      ['email', 'orders@behar.example', 'pending'],
+      ['whatsapp', '+919800000000', 'pending'],
+    ]);
+    expect(confirmed.body.notifications[0]?.composedText).toContain(created.body.number);
+    expect(confirmed.body.notifications[0]?.composedText).toContain('Cat6 cable 305m: 1 BOX @ 3800.00');
+    const marked = await harness.post<PurchaseOrderView>(`/purchase/orders/${created.body.id}/notifications/${confirmed.body.notifications[1]?.id ?? ''}`, { token: buyerToken, body: { status: 'sent' } });
+    expect(marked.status).toBe(200);
+    expect(marked.body.notifications.find((n) => n.channel === 'whatsapp')?.status).toBe('sent');
+    expect(await harness.waitForAuditAction('purchase.order.notification_sent')).toBe(true);
+  });
+
+  it('a PO number opens from the palette (REQ-O-05)', async () => {
+    const found = await harness.get<{ records: { type: string; code: string | null }[] }>('/go-to?q=PO-0001', { token: buyerToken });
+    expect(found.body.records.some((r) => r.type === 'purchase_order' && r.code === 'PO-0001')).toBe(true);
+  });
+
+  it('cancelling a pending PO withdraws its request', async () => {
+    const created = await harness.post<PurchaseOrderView>('/purchase/orders', {
+      token: buyerToken,
+      body: { partyId: vendorId, lines: [{ stockItemId: cableId, quantity: '30', rate: '3800' }] },
+    });
+    await harness.post(`/purchase/orders/${created.body.id}/confirm`, { token: buyerToken });
+    const cancelled = await harness.post<PurchaseOrderView>(`/purchase/orders/${created.body.id}/cancel`, { token: buyerToken });
+    expect(cancelled.body.status).toBe('CANCELLED');
+    const inbox = await harness.get<Paginated<ApprovalRequestSummary>>('/approvals?view=all', { token: adminToken });
+    expect(inbox.body.data.find((r) => r.type === 'PURCHASE_ORDER' && r.status === 'PENDING')).toBeUndefined();
+  });
+});

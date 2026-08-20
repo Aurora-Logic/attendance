@@ -154,10 +154,15 @@ export function GuideOverlay() {
     const isPage = scope === 'page';
     // Says what actually happened. A step whose anchor never turned up was not
     // shown, and claiming otherwise would be a lie the reader cannot check.
+    // "You saw all 1 steps" is what a template without a plural produces, and a
+    // one-step page guide is the commonest case on a screen with no table.
+    const plural = (n: number) => `${String(n)} ${n === 1 ? 'step' : 'steps'}`;
     const count =
       skippedCount > 0
-        ? `You saw ${String(shown)} of ${String(steps.length)} steps.`
-        : `You saw all ${String(steps.length)} steps.`;
+        ? `You saw ${String(shown)} of ${plural(steps.length)}.`
+        : steps.length === 1 && isPage
+          ? 'That was the only step for this screen.'
+          : `You saw all ${plural(steps.length)}.`;
 
     const finish = () => {
       // Only a whole-product run counts as having taken the tour. Finishing a
@@ -180,8 +185,8 @@ export function GuideOverlay() {
             <DialogDescription>
               {count}{' '}
               {isPage
-                ? 'Press Ctrl+F1 on any screen for the same walk through that one.'
-                : 'Alt+G gets you anywhere and Ctrl+F1 explains whichever screen you are on. The full tour is in your account menu whenever you want it again.'}
+                ? 'The pin in the header does this for whichever screen you are on. Ctrl+F1 does the same.'
+                : 'Alt+G gets you anywhere, and the pin in the header explains whichever screen you are on. The full tour is in your account menu whenever you want it again.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

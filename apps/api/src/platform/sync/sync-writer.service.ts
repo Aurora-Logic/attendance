@@ -1,15 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type {
-  AgentResultsAck,
-  AgentResultsInput,
-  PartyPullRow,
-  PriceListPullRow,
-  StockItemPullRow,
+import {
+  PUSH_KINDS,
+  voucherPushPayloadSchema,
+  type AgentResultsAck,
+  type AgentResultsInput,
+  type PartyPullRow,
+  type PriceListPullRow,
+  type PushKind,
+  type StockItemPullRow,
+  type VoucherPullRow,
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
 import { isUniqueViolation } from '../db/pg-error.js';
+import { PushOutcomeRegistry, type PushOutcome } from './push-outcome.registry.js';
 import { InjectDatabase, type Database, type Transaction } from '../db/db.provider.js';
 import { requireAgentCompany, type AgentPrincipal } from './agent-principal.js';
 
@@ -39,11 +44,28 @@ interface MappingDecision {
   readonly internalId: string | null;
 }
 
+/** Everything anchored in `external_refs` by a Tally GUID. */
+type MappedEntity = 'party' | 'stock_item' | 'voucher';
+
+/**
+ * The two facts every projection write is scoped by. `AgentPrincipal`
+ * satisfies it structurally; so does a verified webhook delivery. Nothing
+ * below reads more than these, which is what lets one writer serve both
+ * doors without a second copy of the ownership rules.
+ */
+export interface WriterScope {
+  readonly orgId: string;
+  readonly connectionId: string;
+}
+
 @Injectable()
 export class SyncWriterService {
   private readonly logger = new Logger(SyncWriterService.name);
 
-  constructor(@InjectDatabase() private readonly db: Database) {}
+  constructor(
+    @InjectDatabase() private readonly db: Database,
+    private readonly pushOutcomes: PushOutcomeRegistry,
+  ) {}
 
   async ingest(agent: AgentPrincipal, input: AgentResultsInput): Promise<AgentResultsAck> {
     requireAgentCompany(agent, input.openCompanyGuid);
@@ -57,20 +79,29 @@ export class SyncWriterService {
        * put in its own predicate, at results time, because a lease can have
        * moved between poll and post.
        */
+      // A push job's entity_type is `voucher_push:<document id>` — one open
+      // push per document, not one per connection — so the results match on
+      // the kind before the colon.
       const jobs = await tx.execute<{ id: string; payload: unknown; created_at: Date }>(sql`
         SELECT id, payload, created_at FROM sync_jobs
          WHERE id = ${input.jobId}
            AND connection_id = ${agent.connectionId}
            AND state = 'CLAIMED'
            AND claimed_by = ${input.agentInstanceId}
-           AND entity_type = ${input.entityType}
+           AND split_part(entity_type, ':', 1) = ${input.entityType}
            FOR UPDATE
       `);
-      if (jobs.rows[0] === undefined) {
+      const job = jobs.rows[0];
+      if (job === undefined) {
         throw AppError.conflict(
           'These results match no claimed job for this connection and instance. The job may ' +
             'have been completed, failed, or claimed over; poll again rather than re-posting.',
         );
+      }
+
+      if (input.entityType === 'voucher_push') {
+        await this.settlePush(tx, agent, job.id, job.payload, input);
+        return { written: 0, lastAlterId: 0, pushed: true };
       }
 
       // The discriminant narrows `rows`; a chunk of stock items claiming to
@@ -129,7 +160,6 @@ export class SyncWriterService {
          * watermark; whatever does not is gone from Tally, and is marked,
          * never deleted -- anything pointing at it keeps resolving.
          */
-        const job = jobs.rows[0];
         const isFull =
           typeof job.payload === 'object' &&
           job.payload !== null &&
@@ -152,8 +182,13 @@ export class SyncWriterService {
         `);
       }
 
-      return { written: input.rows.length, lastAlterId: committedAlterId };
+      return { written: input.rows.length, lastAlterId: committedAlterId, pushed: false };
     });
+
+    if (written.pushed) {
+      this.logger.log({ msg: 'Push outcome settled', connectionId: agent.connectionId, jobId: input.jobId });
+      return { jobId: input.jobId, written: 0, lastAlterId: 0, jobState: 'DONE' };
+    }
 
     this.logger.log({
       msg: 'Pull chunk ingested',
@@ -177,7 +212,7 @@ export class SyncWriterService {
   /** REQ-R-06's marking half; see the final-chunk comment for the licence. */
   private async markAbsentees(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     entityType: 'party' | 'stock_item',
     watermark: Date,
   ): Promise<void> {
@@ -227,6 +262,29 @@ export class SyncWriterService {
     }
   }
 
+  /**
+   * The projection writes alone, for a source that owns its own transaction,
+   * journal row and idempotency (the OpsTally webhook receiver). Same rows,
+   * same ownership rules, same "Tally wins": a master reaching Vyuha by push
+   * lands exactly as one reaching it by pull would.
+   */
+  async applyRows(
+    tx: Transaction,
+    scope: WriterScope,
+    rows:
+      | { entityType: 'party'; rows: readonly PartyPullRow[] }
+      | { entityType: 'stock_item'; rows: readonly StockItemPullRow[] }
+      | { entityType: 'voucher'; rows: readonly VoucherPullRow[] },
+  ): Promise<void> {
+    if (rows.entityType === 'party') {
+      for (const row of rows.rows) await this.upsertParty(tx, scope, row);
+    } else if (rows.entityType === 'stock_item') {
+      for (const row of rows.rows) await this.upsertStockItem(tx, scope, row);
+    } else {
+      for (const row of rows.rows) await this.upsertVoucher(tx, scope, row);
+    }
+  }
+
   /*
    * One org-wide lookup, but the decision reads the mapping's OWNER.
    * GUIDs are per-company in Tally, so a mapping held by a *living* other
@@ -242,8 +300,8 @@ export class SyncWriterService {
    */
   private async resolveMapping(
     tx: Transaction,
-    agent: AgentPrincipal,
-    entityType: 'party' | 'stock_item',
+    agent: WriterScope,
+    entityType: MappedEntity,
     guid: string,
   ): Promise<MappingDecision> {
     const existing = await tx.execute<{
@@ -278,8 +336,8 @@ export class SyncWriterService {
   /** Advances the mapping row alongside whichever projection row it anchors. */
   private async touchMapping(
     tx: Transaction,
-    agent: AgentPrincipal,
-    entityType: 'party' | 'stock_item',
+    agent: WriterScope,
+    entityType: MappedEntity,
     guid: string,
     alterId: number,
   ): Promise<void> {
@@ -299,8 +357,8 @@ export class SyncWriterService {
 
   private async insertMapping(
     tx: Transaction,
-    agent: AgentPrincipal,
-    entityType: 'party' | 'stock_item',
+    agent: WriterScope,
+    entityType: MappedEntity,
     guid: string,
     alterId: number,
     internalId: string,
@@ -333,9 +391,94 @@ export class SyncWriterService {
    * single one, because the mapping and the projection are different tables
    * with different lifetimes — and at 500 rows per chunk, clarity wins.
    */
+  /**
+   * 09 §3.3's three outcomes, in one transaction with the job: the journal
+   * row (direction PUSH, Tally's words verbatim), the job DONE or FAILED,
+   * `external_refs` anchored on the GUID Tally answered with (with the
+   * idempotency key beside it, REQ-W-07's alter target) under entity_type
+   * `voucher_push`, not `voucher`: the pull maps the same GUID to its
+   * projection row under `voucher`, and one key cannot point at both the
+   * document and the voucher — an outcome ref under `voucher` would make
+   * the pull update a vouchers row that does not exist, and the pushed
+   * voucher would never appear in the books here. An exception when
+   * Tally refused (REQ-T-01), and the owning module told through the
+   * registry so its document shows the state (REQ-W-06).
+   */
+  private async settlePush(
+    tx: Transaction,
+    agent: WriterScope,
+    jobId: string,
+    rawPayload: unknown,
+    input: Extract<AgentResultsInput, { entityType: 'voucher_push' }>,
+  ): Promise<void> {
+    const payload = voucherPushPayloadSchema.parse(rawPayload);
+    const outcome: PushOutcome = {
+      outcome: input.outcome,
+      remoteGuid: input.remoteGuid ?? null,
+      remoteVoucherNumber: input.remoteVoucherNumber ?? null,
+      errorText: input.errorText ?? null,
+    };
+    if (outcome.outcome !== 'rejected' && outcome.remoteGuid === null) {
+      throw AppError.validation('An accepted push must carry the GUID Tally answered with.', {
+        fields: [{ path: 'remoteGuid', message: 'is required unless rejected' }],
+      });
+    }
+    if (outcome.outcome === 'rejected' && outcome.errorText === null) {
+      throw AppError.validation("A rejected push must carry Tally's error text.", {
+        fields: [{ path: 'errorText', message: 'is required when rejected' }],
+      });
+    }
+
+    await tx.execute(sql`
+      INSERT INTO sync_journal
+        (org_id, connection_id, direction, entity_type, request_hash, response_hash,
+         request_body, response_body, result, duration_ms)
+      VALUES
+        (${agent.orgId}, ${agent.connectionId}, 'PUSH', ${payload.kind},
+         ${input.requestHash}, ${input.responseHash},
+         ${input.requestBody ?? null}, ${input.responseBody ?? null},
+         ${outcome.outcome === 'rejected' ? `rejected: ${outcome.errorText ?? ''}` : `${outcome.outcome}: ${outcome.remoteGuid ?? ''}`},
+         ${input.durationMs ?? null})
+    `);
+
+    if (outcome.outcome === 'rejected') {
+      await tx.execute(sql`UPDATE sync_jobs SET state = 'FAILED', updated_at = now() WHERE id = ${jobId}`);
+      // REQ-T-01: Tally's verbatim words, against the document, for a person.
+      await tx.execute(sql`
+        INSERT INTO sync_exceptions (org_id, connection_id, kind, entity_type, entity_id, tally_error)
+        VALUES (${agent.orgId}, ${agent.connectionId}, 'REJECTION', ${payload.kind}, ${payload.documentId},
+                ${`${payload.reference}: ${outcome.errorText ?? ''}`})
+      `);
+    } else {
+      await tx.execute(sql`UPDATE sync_jobs SET state = 'DONE', updated_at = now() WHERE id = ${jobId}`);
+      await tx.execute(sql`
+        INSERT INTO external_refs
+          (org_id, system, entity_type, external_guid, internal_type, internal_id, connection_id,
+           remote_voucher_number, remote_voucher_type, sync_state, idempotency_key, last_pushed_at)
+        VALUES
+          (${agent.orgId}, 'TALLY', 'voucher_push', ${outcome.remoteGuid}, ${payload.kind}, ${payload.documentId},
+           ${agent.connectionId}, ${outcome.remoteVoucherNumber}, ${payload.voucherType}, 'pushed', ${payload.idempotencyKey}, now())
+        ON CONFLICT (org_id, system, internal_type, internal_id) WHERE deleted_at IS NULL
+        DO UPDATE SET external_guid = EXCLUDED.external_guid,
+                      remote_voucher_number = EXCLUDED.remote_voucher_number,
+                      sync_state = 'pushed',
+                      idempotency_key = EXCLUDED.idempotency_key,
+                      last_pushed_at = now(),
+                      last_error = NULL,
+                      updated_at = now()
+      `);
+    }
+
+    const handler = this.pushOutcomes.find(payload.kind);
+    if (handler === null) {
+      throw AppError.conflict(`No module handles push outcomes for ${payload.kind}.`);
+    }
+    await handler.onOutcome(tx, agent.orgId, payload, outcome);
+  }
+
   private async upsertParty(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     row: PartyPullRow,
   ): Promise<void> {
     const mapping = await this.resolveMapping(tx, agent, 'party', row.guid);
@@ -347,6 +490,8 @@ export class SyncWriterService {
                parent_group = ${row.parentGroup},
                gstin = ${row.gstin ?? null},
                address = ${row.address ?? null},
+               email = ${row.email ?? null},
+               phone = ${row.phone ?? null},
                credit_limit = ${row.creditLimit ?? null},
                credit_days = ${row.creditDays ?? null},
                opening_balance = ${row.openingBalance ?? null},
@@ -362,11 +507,11 @@ export class SyncWriterService {
 
     const inserted = await tx.execute<{ id: string }>(sql`
       INSERT INTO parties
-        (org_id, connection_id, name, alias, parent_group, gstin, address,
+        (org_id, connection_id, name, alias, parent_group, gstin, address, email, phone,
          credit_limit, credit_days, opening_balance)
       VALUES
         (${agent.orgId}, ${agent.connectionId}, ${row.name}, ${row.alias ?? null},
-         ${row.parentGroup}, ${row.gstin ?? null}, ${row.address ?? null},
+         ${row.parentGroup}, ${row.gstin ?? null}, ${row.address ?? null}, ${row.email ?? null}, ${row.phone ?? null},
          ${row.creditLimit ?? null}, ${row.creditDays ?? null}, ${row.openingBalance ?? null})
       RETURNING id
     `);
@@ -378,18 +523,34 @@ export class SyncWriterService {
   /** REQ-R-02, the same shape as parties: GUID-anchored, Tally wins. */
   private async upsertStockItem(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     row: StockItemPullRow,
   ): Promise<void> {
     const mapping = await this.resolveMapping(tx, agent, 'stock_item', row.guid);
     if (mapping.internalId !== null) {
+      /*
+       * Held figures: a source that carries none (undefined) leaves what is
+       * stored; a source that carries "0" for a price is saying it could not
+       * resolve one -- the OpsTally reference is explicit that zero is not
+       * "free" and that a stored non-zero should survive it. Quantity has no
+       * such reading: zero on hand is a fact, and lands.
+       */
       await tx.execute(sql`
         UPDATE stock_items
            SET name = ${row.name},
                alias = ${row.alias ?? null},
                unit = ${row.unit},
                parent_group = ${row.parentGroup},
-               gst_rate = ${row.gstRate ?? null},
+               gst_rate = COALESCE(${row.gstRate ?? null}, gst_rate),
+               closing_qty = COALESCE(${row.closingQty ?? null}, closing_qty),
+               sale_price = CASE
+                 WHEN ${row.salePrice ?? null}::numeric IS NULL THEN sale_price
+                 WHEN ${row.salePrice ?? null}::numeric = 0 AND sale_price IS NOT NULL AND sale_price <> 0 THEN sale_price
+                 ELSE ${row.salePrice ?? null}::numeric END,
+               cost_price = CASE
+                 WHEN ${row.costPrice ?? null}::numeric IS NULL THEN cost_price
+                 WHEN ${row.costPrice ?? null}::numeric = 0 AND cost_price IS NOT NULL AND cost_price <> 0 THEN cost_price
+                 ELSE ${row.costPrice ?? null}::numeric END,
                connection_id = ${agent.connectionId},
                absent_in_tally = false,
                last_pulled_at = now(),
@@ -402,15 +563,146 @@ export class SyncWriterService {
 
     const inserted = await tx.execute<{ id: string }>(sql`
       INSERT INTO stock_items
-        (org_id, connection_id, name, alias, unit, parent_group, gst_rate)
+        (org_id, connection_id, name, alias, unit, parent_group, gst_rate,
+         closing_qty, sale_price, cost_price)
       VALUES
         (${agent.orgId}, ${agent.connectionId}, ${row.name}, ${row.alias ?? null},
-         ${row.unit}, ${row.parentGroup}, ${row.gstRate ?? null})
+         ${row.unit}, ${row.parentGroup}, ${row.gstRate ?? null},
+         ${row.closingQty ?? null}, ${row.salePrice ?? null}, ${row.costPrice ?? null})
       RETURNING id
     `);
     const itemId = inserted.rows[0]?.id;
     if (itemId === undefined) throw new Error('Stock item insert returned no row.');
     await this.insertMapping(tx, agent, 'stock_item', row.guid, row.alterId, itemId);
+  }
+
+  /**
+   * Phase 6c: vouchers, GUID-anchored like the masters, with one difference
+   * in shape — the lines are replaced wholesale. A line has no identity
+   * across syncs (Tally renumbers them freely), so reconciling old against
+   * new row by row would invent one; delete-and-insert inside the voucher's
+   * own transaction is the honest upsert. Party and item references resolve
+   * by exact name within the connection because that is Tally's own
+   * reference (a voucher names its party ledger); unresolved stays null and
+   * the verbatim name is kept either way.
+   */
+  private async upsertVoucher(
+    tx: Transaction,
+    agent: WriterScope,
+    row: VoucherPullRow,
+  ): Promise<void> {
+    const mapping = await this.resolveMapping(tx, agent, 'voucher', row.guid);
+
+    const partyId = await this.resolvePartyId(tx, agent, row.partyName ?? '');
+    let voucherId: string;
+    if (mapping.internalId !== null) {
+      await tx.execute(sql`
+        UPDATE vouchers
+           SET master_id = ${row.masterId ?? null},
+               alter_id = ${row.alterId},
+               voucher_date = ${row.date},
+               voucher_type = ${row.voucherType},
+               voucher_number = ${row.voucherNumber ?? ''},
+               party_name = ${row.partyName ?? ''},
+               party_id = ${partyId},
+               narration = ${row.narration ?? ''},
+               is_cancelled = ${row.isCancelled},
+               amount = ${row.amount},
+               connection_id = ${agent.connectionId},
+               last_pulled_at = now(),
+               updated_at = now()
+         WHERE id = ${mapping.internalId}
+      `);
+      await this.touchMapping(tx, agent, 'voucher', row.guid, row.alterId);
+      voucherId = mapping.internalId;
+      await tx.execute(sql`DELETE FROM voucher_lines WHERE voucher_id = ${voucherId}`);
+    } else {
+      const inserted = await tx.execute<{ id: string }>(sql`
+        INSERT INTO vouchers
+          (org_id, connection_id, master_id, alter_id, voucher_date, voucher_type, voucher_number,
+           party_name, party_id, narration, is_cancelled, amount)
+        VALUES
+          (${agent.orgId}, ${agent.connectionId}, ${row.masterId ?? null}, ${row.alterId}, ${row.date},
+           ${row.voucherType}, ${row.voucherNumber ?? ''}, ${row.partyName ?? ''}, ${partyId},
+           ${row.narration ?? ''}, ${row.isCancelled}, ${row.amount})
+        RETURNING id
+      `);
+      const id = inserted.rows[0]?.id;
+      if (id === undefined) throw new Error('Voucher insert returned no row.');
+      await this.insertMapping(tx, agent, 'voucher', row.guid, row.alterId, id);
+      voucherId = id;
+    }
+
+    let lineNo = 0;
+    for (const line of row.lines) {
+      lineNo += 1;
+      if (line.kind === 'ledger') {
+        await tx.execute(sql`
+          INSERT INTO voucher_lines
+            (org_id, voucher_id, line_no, kind, ledger_name, is_deemed_positive, amount)
+          VALUES
+            (${agent.orgId}, ${voucherId}, ${lineNo}, 'ledger', ${line.ledgerName},
+             ${line.isDeemedPositive}, ${line.amount})
+        `);
+      } else {
+        const itemId = await this.resolveStockItemId(tx, agent, line.stockItemName);
+        await tx.execute(sql`
+          INSERT INTO voucher_lines
+            (org_id, voucher_id, line_no, kind, stock_item_name, stock_item_id,
+             actual_qty, billed_qty, rate, amount)
+          VALUES
+            (${agent.orgId}, ${voucherId}, ${lineNo}, 'inventory', ${line.stockItemName}, ${itemId},
+             ${line.actualQty}, ${line.billedQty}, ${line.rate ?? null}, ${line.amount})
+        `);
+      }
+    }
+    // D-38 / REQ-W-06: a voucher this side pushed has come back. Tell the
+    // document's module what Tally now says about it — cancelled, renumbered
+    // — through the same seam that told it the push landed.
+    await this.mirrorToDocument(tx, agent, row);
+  }
+
+  private async mirrorToDocument(tx: Transaction, agent: WriterScope, row: VoucherPullRow): Promise<void> {
+    const refs = await tx.execute<{ internal_type: string; internal_id: string }>(sql`
+      SELECT internal_type, internal_id FROM external_refs
+       WHERE org_id = ${agent.orgId} AND system = 'TALLY' AND entity_type = 'voucher_push' AND external_guid = ${row.guid} AND deleted_at IS NULL
+       LIMIT 1
+    `);
+    const ref = refs.rows[0];
+    if (ref === undefined) return;
+    if (!(PUSH_KINDS as readonly string[]).includes(ref.internal_type)) return;
+    const handler = this.pushOutcomes.find(ref.internal_type as PushKind);
+    if (handler?.onMirror === undefined) return;
+    await handler.onMirror(tx, agent.orgId, ref.internal_id, {
+      remoteGuid: row.guid,
+      remoteVoucherNumber: row.voucherNumber ?? null,
+      isCancelled: row.isCancelled,
+      alterId: row.alterId,
+    });
+    await tx.execute(sql`
+      UPDATE external_refs SET sync_state = ${row.isCancelled ? 'voided_in_tally' : 'pushed'}, external_alter_id = ${row.alterId}, last_pulled_at = now(), updated_at = now()
+       WHERE org_id = ${agent.orgId} AND system = 'TALLY' AND entity_type = 'voucher_push' AND external_guid = ${row.guid} AND deleted_at IS NULL
+    `);
+  }
+
+  private async resolvePartyId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
+    if (name === '') return null;
+    const rows = await tx.execute<{ id: string }>(sql`
+      SELECT id FROM parties
+       WHERE connection_id = ${agent.connectionId} AND name = ${name}
+       LIMIT 1
+    `);
+    return rows.rows[0]?.id ?? null;
+  }
+
+  private async resolveStockItemId(tx: Transaction, agent: WriterScope, name: string): Promise<string | null> {
+    if (name === '') return null;
+    const rows = await tx.execute<{ id: string }>(sql`
+      SELECT id FROM stock_items
+       WHERE connection_id = ${agent.connectionId} AND name = ${name}
+       LIMIT 1
+    `);
+    return rows.rows[0]?.id ?? null;
   }
 
   /**
@@ -424,7 +716,7 @@ export class SyncWriterService {
    */
   private async upsertPriceEntry(
     tx: Transaction,
-    agent: AgentPrincipal,
+    agent: WriterScope,
     row: PriceListPullRow,
   ): Promise<void> {
     const mapping = await this.resolveMapping(tx, agent, 'stock_item', row.stockItemGuid);

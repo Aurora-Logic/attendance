@@ -30,6 +30,10 @@ export const integrationConnectionSchema = z.object({
   companyName: z.string().nullable(),
   /** REQ-Q-05: the specific problem the last heartbeat carried, so ERROR names its fix. */
   lastCondition: z.enum(AGENT_CONDITIONS).nullable(),
+  /** Which door: a Vyuha agent token, an OpsTally webhook secret, or neither yet. */
+  transport: z.enum(['unset', 'agent', 'webhook']),
+  /** OpsTally's install id once the first verified delivery bound it. */
+  webhookInstallId: z.string().nullable(),
 });
 
 export type IntegrationConnection = z.infer<typeof integrationConnectionSchema>;
@@ -100,11 +104,26 @@ export function statusExplanation(
   connection: IntegrationConnection,
   staleAfterMinutes: number,
 ): string {
+  if (connection.transport === 'webhook') {
+    switch (connection.status) {
+      case 'DISCONNECTED':
+        return 'A signing secret is stored but OpsTally has not delivered anything yet. Send a test event from the Agent to check the door.';
+      case 'CONNECTED':
+        return 'OpsTally has delivered to this connection. It sends only when something changes in Tally, so a quiet stretch is normal.';
+      case 'STALE':
+        return 'OpsTally has not delivered for a while. It sends only on change; if Tally has been busy, check the Agent is running.';
+      case 'ERROR':
+        return connection.lastCondition === 'WRONG_COMPANY_OPEN'
+          ? 'The last delivery came from a different Tally company than the one this connection is bound to. Switch OpsTally back, or create a connection for the new company.'
+          : CONDITION_EXPLANATIONS[connection.lastCondition ?? 'OK'];
+    }
+  }
   switch (connection.status) {
     case 'DISCONNECTED':
-      return connection.tokenIssued
-        ? 'A token has been issued but no agent has ever reported in on it.'
-        : 'No agent has ever reported in, and no token has been issued for one to use.';
+      if (connection.transport === 'unset') {
+        return 'Nothing has reported in. Issue an agent token, or store an OpsTally signing secret — the first credential decides how this connection receives data.';
+      }
+      return 'A token has been issued but no agent has ever reported in on it.';
     case 'CONNECTED':
       return 'The agent reported in within the last few minutes.';
     case 'STALE':

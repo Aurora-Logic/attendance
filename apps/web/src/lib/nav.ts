@@ -1,18 +1,30 @@
 import {
+  AddressBookIcon,
   BooksIcon,
   CalendarBlankIcon,
   CalendarDotsIcon,
   ChartBarIcon,
+  CheckSquareIcon,
   ClipboardTextIcon,
   ClockCounterClockwiseIcon,
   ClockIcon,
   DownloadSimpleIcon,
+  FileTextIcon,
   FingerprintIcon,
+  ClipboardIcon,
+  BarcodeIcon,
+  ReceiptXIcon,
+  TruckIcon,
+  ShoppingCartIcon,
+  ListChecksIcon,
+  ArchiveIcon,
   GearIcon,
+  HandshakeIcon,
   type Icon,
   LockIcon,
   PackageIcon,
   PlugIcon,
+  ReceiptIcon,
   TagIcon,
   BuildingsIcon,
   ChartLineUpIcon,
@@ -405,6 +417,191 @@ export const MODULES: ModuleDef[] = [
           },
         ],
       },
+      {
+        label: 'Books',
+        items: [
+          {
+            to: '/masters/vouchers',
+            label: 'Vouchers',
+            icon: ReceiptIcon,
+            // Money moving, not a master: 08 §2.2's receivables key.
+            permission: PERMISSIONS.RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: 'REQ-S-01, REQ-Y-06',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'crm',
+    label: 'CRM',
+    icon: HandshakeIcon,
+    // REQ-V-07: My tasks is the CRM landing screen.
+    home: '/tasks',
+    // 08 §2.2 gives view.self to everyone who holds view.all, so the narrower
+    // key is the module gate: whoever may see any contact may open the module.
+    permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+    groups: [
+      {
+        label: 'Work',
+        items: [
+          {
+            to: '/tasks',
+            label: 'My tasks',
+            shortLabel: 'Tasks',
+            icon: CheckSquareIcon,
+            permission: PERMISSIONS.CRM_TASK_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-V-01, REQ-V-03, REQ-V-05, REQ-V-07',
+          },
+        ],
+      },
+      {
+        label: 'Sales',
+        items: [
+          {
+            to: '/crm/deals',
+            label: 'Deals',
+            icon: HandshakeIcon,
+            permission: PERMISSIONS.CRM_DEAL_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-U-04, REQ-U-05, REQ-U-06',
+          },
+        ],
+      },
+      {
+        label: 'People',
+        items: [
+          {
+            to: '/crm/contacts',
+            label: 'Contacts',
+            icon: AddressBookIcon,
+            permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-U-01, REQ-U-08',
+          },
+          {
+            to: '/crm/companies',
+            label: 'Companies',
+            icon: BuildingsIcon,
+            permission: PERMISSIONS.CRM_CONTACT_VIEW_SELF,
+            phase: 7,
+            reqs: 'REQ-U-02, REQ-U-03',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'sales',
+    label: 'Sales',
+    icon: FileTextIcon,
+    home: '/sales/estimates',
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    groups: [
+      {
+        label: 'Documents',
+        items: [
+          {
+            to: '/sales/estimates',
+            label: 'Estimates',
+            icon: FileTextIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-W-01, REQ-W-02',
+          },
+          {
+            to: '/sales/orders',
+            label: 'Sales orders',
+            shortLabel: 'Orders',
+            icon: ClipboardIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-W-03, REQ-W-06, REQ-W-07',
+          },
+          {
+            to: '/sales/invoices',
+            label: 'Invoices',
+            icon: ReceiptIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-AA-11, D-38',
+          },
+        ],
+      },
+      {
+        label: 'Fulfilment',
+        items: [
+          {
+            to: '/sales/pick-queue',
+            label: 'Pick queue',
+            shortLabel: 'Pick',
+            icon: BarcodeIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-AA-05, REQ-AA-06, REQ-AA-07',
+          },
+          {
+            to: '/sales/awaiting-invoice',
+            label: 'Awaiting invoice',
+            shortLabel: 'Billing',
+            icon: ReceiptXIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-AA-10, REQ-AA-12, REQ-AA-13',
+          },
+          {
+            to: '/sales/dispatches',
+            label: 'Dispatches',
+            icon: TruckIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-AA-17, REQ-AA-21, REQ-AA-24',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'purchase',
+    label: 'Purchase',
+    icon: ShoppingCartIcon,
+    home: '/purchase/requirements',
+    permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+    groups: [
+      {
+        label: 'Procurement',
+        items: [
+          {
+            to: '/purchase/requirements',
+            label: 'Requirements',
+            shortLabel: 'Needs',
+            icon: ListChecksIcon,
+            permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+            phase: 8,
+            reqs: 'REQ-X-01, REQ-X-02, REQ-X-03',
+          },
+          {
+            to: '/purchase/orders',
+            label: 'Purchase orders',
+            shortLabel: 'POs',
+            icon: ShoppingCartIcon,
+            permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+            phase: 8,
+            reqs: 'REQ-X-05, REQ-X-06, REQ-X-07',
+          },
+          {
+            to: '/purchase/grns',
+            label: 'Goods receipts',
+            shortLabel: 'GRNs',
+            icon: ArchiveIcon,
+            permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+            phase: 8,
+            reqs: 'REQ-X-10, REQ-X-11, REQ-X-12',
+          },
+        ],
+      },
     ],
   },
 ];
@@ -506,6 +703,18 @@ const OFF_NAV_LABELS: Record<string, string> = {
  */
 const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }[] = [
   { pattern: /^\/employees\/[^/]+$/u, parent: '/employees', label: 'Employee' },
+  { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
+  { pattern: /^\/crm\/contacts\/[^/]+$/u, parent: '/crm/contacts', label: 'Contact' },
+  { pattern: /^\/crm\/companies\/[^/]+$/u, parent: '/crm/companies', label: 'Company' },
+  { pattern: /^\/tasks\/[^/]+$/u, parent: '/tasks', label: 'Task' },
+  { pattern: /^\/crm\/deals\/[^/]+$/u, parent: '/crm/deals', label: 'Deal' },
+  { pattern: /^\/sales\/estimates\/[^/]+$/u, parent: '/sales/estimates', label: 'Estimate' },
+  { pattern: /^\/sales\/orders\/[^/]+$/u, parent: '/sales/orders', label: 'Sales order' },
+  { pattern: /^\/sales\/invoices\/[^/]+$/u, parent: '/sales/invoices', label: 'Invoice' },
+  { pattern: /^\/sales\/pick-queue\/[^/]+$/u, parent: '/sales/pick-queue', label: 'Pack' },
+  { pattern: /^\/sales\/dispatches\/[^/]+$/u, parent: '/sales/dispatches', label: 'Dispatch' },
+  { pattern: /^\/purchase\/orders\/[^/]+$/u, parent: '/purchase/orders', label: 'Purchase order' },
+  { pattern: /^\/purchase\/grns\/[^/]+$/u, parent: '/purchase/grns', label: 'Goods receipt' },
 ];
 
 export function findBreadcrumbs(pathname: string): [Crumb, ...Crumb[]] {

@@ -139,6 +139,9 @@ export const partyPullRowSchema = z.object({
   parentGroup: z.string().min(1).max(120),
   gstin: z.string().min(1).max(20).optional(),
   address: z.string().min(1).max(1000).optional(),
+  /** 12 REQ-AA-28: the ledger's email and mobile, where the company keeps them. */
+  email: z.string().min(3).max(254).optional(),
+  phone: z.string().min(6).max(40).optional(),
   creditLimit: decimalString.optional(),
   creditDays: z.number().int().min(0).max(3650).optional(),
   openingBalance: decimalString.optional(),
@@ -161,6 +164,15 @@ export const stockItemPullRowSchema = z.object({
   /** The stock group, verbatim from the parent. */
   parentGroup: z.string().min(1).max(120),
   gstRate: decimalString.optional(),
+  /**
+   * Held figures a source may carry (OpsTally does; Tally XML pulls need
+   * not). Exact decimals as text, stored, never computed on (D-01). A sale
+   * or cost price of "0" means the source could not resolve one, and the
+   * writer keeps a stored non-zero figure over it — zero is not "free".
+   */
+  closingQty: decimalString.optional(),
+  salePrice: decimalString.optional(),
+  costPrice: decimalString.optional(),
 });
 
 export type StockItemPullRow = z.infer<typeof stockItemPullRowSchema>;
@@ -183,6 +195,50 @@ export const priceListPullRowSchema = z.object({
 });
 
 export type PriceListPullRow = z.infer<typeof priceListPullRowSchema>;
+
+/**
+ * One voucher as a source read it out of Tally (09 §4.3, Phase 6c). Vyuha's
+ * own shape — OpsTally's payload maps onto it in the API, and the pull agent
+ * will produce it directly. Lines carry no identity: they are the voucher's
+ * and are replaced wholesale on every upsert.
+ */
+export const voucherLinePullSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('ledger'),
+    ledgerName: z.string().max(200),
+    amount: decimalString,
+    /** Tally's debit/credit convention — true on the debit side. */
+    isDeemedPositive: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal('inventory'),
+    stockItemName: z.string().max(200),
+    /** Tally's formatted quantity strings, unit suffix and all. */
+    actualQty: z.string().max(80),
+    billedQty: z.string().max(80),
+    rate: decimalString.optional(),
+    amount: decimalString,
+  }),
+]);
+
+export type VoucherLinePull = z.infer<typeof voucherLinePullSchema>;
+
+export const voucherPullRowSchema = z.object({
+  guid: z.string().min(1).max(120),
+  masterId: z.string().max(80).optional(),
+  alterId: z.number().int().min(0),
+  /** ISO date (YYYY-MM-DD). Sources convert from Tally's YYYYMMDD. */
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  voucherType: z.string().min(1).max(120),
+  voucherNumber: z.string().max(120).optional(),
+  partyName: z.string().max(200).optional(),
+  narration: z.string().max(4000).optional(),
+  isCancelled: z.boolean(),
+  amount: decimalString,
+  lines: z.array(voucherLinePullSchema).max(2000),
+});
+
+export type VoucherPullRow = z.infer<typeof voucherPullRowSchema>;
 
 /** Chunk bounds: small enough to commit fast, large enough not to chatter. */
 export const SYNC_CHUNK_MAX_ROWS = 500;
@@ -227,6 +283,22 @@ export const agentResultsSchema = z.discriminatedUnion('entityType', [
     ...resultsCommon,
     entityType: z.literal('price_list'),
     rows: z.array(priceListPullRowSchema).max(SYNC_CHUNK_MAX_ROWS),
+  }),
+  /**
+   * The outcome of one push (09 §3.3), reported by the agent and never
+   * inferred (REQ-W-06). `accepted` carries what Tally answered with;
+   * `rejected` carries LINEERROR verbatim (REQ-T-01); `landed_on_retry` is
+   * the idempotency case — the previous attempt timed out, the agent found
+   * the key in Tally, and no second voucher was created.
+   */
+  z.object({
+    ...resultsCommon,
+    entityType: z.literal('voucher_push'),
+    outcome: z.enum(['accepted', 'landed_on_retry', 'rejected']),
+    remoteGuid: z.string().min(1).max(80).optional(),
+    remoteVoucherNumber: z.string().max(80).optional(),
+    errorText: z.string().trim().min(1).max(8_000).optional(),
+    rows: z.array(z.never()).max(0).default([]),
   }),
 ]);
 

@@ -302,6 +302,19 @@ export interface IntegrationConnectionView {
    * are different instructions to the person walking to that machine.
    */
   readonly lastCondition: AgentCondition | null;
+  /**
+   * How data reaches this connection. 'agent' once a Vyuha agent token has
+   * been issued; 'webhook' once an OpsTally signing secret has been stored;
+   * 'unset' before either. The first credential decides, and the two are
+   * mutually exclusive — one company, one connection, one door.
+   */
+  readonly transport: 'unset' | 'agent' | 'webhook';
+  /**
+   * OpsTally's install id, bound on the first verified delivery. A second
+   * install pointed at the same connection is refused, the way a second
+   * agent instance is refused by the lease.
+   */
+  readonly webhookInstallId: string | null;
 }
 
 export interface IntegrationListResponse {
@@ -320,3 +333,24 @@ export const recycleBinQuerySchema = pageQuerySchema.extend({
 });
 
 export type RecycleBinQuery = z.infer<typeof recycleBinQuerySchema>;
+
+
+// ------------------------------------------------------------ access window
+
+/**
+ * 12 Area AB. A setting, not a constant (REQ-AB-02): when sign-in closes and
+ * reopens, on the organisation's clock, and which weekdays it applies to
+ * (0 = Sunday). Overnight windows (start after end) close at `start` and
+ * reopen at `end` the next morning.
+ */
+export const accessWindowSchema = z.object({
+  enabled: z.boolean(),
+  /** `HH:mm`, the organisation's clock. */
+  closesAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/u, 'HH:mm'),
+  reopensAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/u, 'HH:mm'),
+  /** Weekdays the window applies to, 0 = Sunday. Empty means never. */
+  days: z.array(z.number().int().min(0).max(6)).max(7),
+});
+export type AccessWindow = z.infer<typeof accessWindowSchema>;
+
+export const DEFAULT_ACCESS_WINDOW: AccessWindow = { enabled: false, closesAt: '19:30', reopensAt: '09:00', days: [0, 1, 2, 3, 4, 5, 6] };

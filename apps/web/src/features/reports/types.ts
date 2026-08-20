@@ -12,6 +12,12 @@ import {
   attendanceExceptionCell,
   attendanceRegisterCell,
   headcountCell,
+  creditCycleCell,
+  customerStatementCell,
+  lowStockCell,
+  pendingDispatchCell,
+  salesAnalysisCell,
+  voucherReconciliationCell,
   leaveAvailedCell,
   leaveBalanceCell,
   leaveLedgerCell,
@@ -58,6 +64,7 @@ export const reportDefinitionSchema = z.object({
   columns: z.array(reportColumnSchema).min(1),
   defaultSort: z.string(),
   filters: z.array(z.enum(REPORT_FILTER_NAMES)),
+  requiredFilters: z.array(z.enum(REPORT_FILTER_NAMES)).optional(),
 }) satisfies z.ZodType<ReportDefinition>;
 
 export const reportCatalogueSchema = z.object({
@@ -344,6 +351,86 @@ export const headcountRowSchema = z.object({
   closing: z.number(),
 });
 
+export const voucherReconciliationRowSchema = z.object({
+  month: z.string(),
+  voucherType: z.string(),
+  count: z.number(),
+  cancelled: z.number(),
+  total: z.string(),
+  lastPulledAt: z.string(),
+});
+
+export type VoucherReconciliationRow = z.infer<typeof voucherReconciliationRowSchema>;
+
+export const customerStatementRowSchema = z.object({
+  id: z.string(),
+  date: z.string(),
+  voucherType: z.string(),
+  voucherNumber: z.string(),
+  narration: z.string().nullable(),
+  debit: z.string().nullable(),
+  credit: z.string().nullable(),
+  unclassified: z.string().nullable(),
+  balance: z.string(),
+  asOf: z.string().nullable(),
+});
+export type CustomerStatementRow = z.infer<typeof customerStatementRowSchema>;
+
+export const creditCycleRowSchema = z.object({
+  partyId: z.string(),
+  partyName: z.string(),
+  creditLimit: z.string().nullable(),
+  creditDays: z.number().nullable(),
+  exposure: z.string(),
+  headroom: z.string().nullable(),
+  overLimit: z.boolean(),
+  lastInvoiceDate: z.string().nullable(),
+  lastReceiptDate: z.string().nullable(),
+  asOf: z.string().nullable(),
+});
+export type CreditCycleRow = z.infer<typeof creditCycleRowSchema>;
+
+export const salesAnalysisRowSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  vouchers: z.number(),
+  quantity: z.string().nullable(),
+  value: z.string(),
+  share: z.string(),
+  asOf: z.string().nullable(),
+});
+export type SalesAnalysisRow = z.infer<typeof salesAnalysisRowSchema>;
+
+export const pendingDispatchRowSchema = z.object({
+  id: z.string(),
+  orderId: z.string(),
+  orderNumber: z.string(),
+  customerName: z.string(),
+  orderDate: z.string(),
+  ageDays: z.number(),
+  item: z.string(),
+  ordered: z.string(),
+  packed: z.string(),
+  invoiced: z.string(),
+  dispatched: z.string(),
+  balance: z.string(),
+  fulfilment: z.string(),
+});
+export type PendingDispatchRow = z.infer<typeof pendingDispatchRowSchema>;
+
+export const lowStockRowSchema = z.object({
+  stockItemId: z.string(),
+  item: z.string(),
+  closing: z.string().nullable(),
+  committed: z.string(),
+  available: z.string().nullable(),
+  reorderLevel: z.string(),
+  openPo: z.string(),
+  shortfall: z.string(),
+  asOf: z.string().nullable(),
+});
+export type LowStockRow = z.infer<typeof lowStockRowSchema>;
+
 // --------------------------------------------------------------- the row view
 
 /**
@@ -478,6 +565,55 @@ const HEADCOUNT_SHAPE: RowViewShape<HeadcountRow> = {
   status: () => null,
 };
 
+const VOUCHER_RECONCILIATION_SHAPE: RowViewShape<VoucherReconciliationRow> = {
+  schema: voucherReconciliationRowSchema,
+  cell: voucherReconciliationCell,
+  // A grouped row has no id of its own; month and type together are the key.
+  id: (row) => `${row.month}:${row.voucherType}`,
+  primary: (row) => `${row.month} · ${row.voucherType}`,
+  status: () => null,
+};
+
+const CUSTOMER_STATEMENT_SHAPE: RowViewShape<CustomerStatementRow> = {
+  schema: customerStatementRowSchema,
+  cell: customerStatementCell,
+  id: (row) => row.id,
+  primary: (row) => `${row.voucherType}${row.voucherNumber ? ` ${row.voucherNumber}` : ''}`,
+  status: () => null,
+};
+
+const CREDIT_CYCLE_SHAPE: RowViewShape<CreditCycleRow> = {
+  schema: creditCycleRowSchema,
+  cell: creditCycleCell,
+  id: (row) => row.partyId,
+  primary: (row) => row.partyName,
+  status: (row) => (row.overLimit ? 'OVER_LIMIT' : null),
+};
+
+const SALES_ANALYSIS_SHAPE: RowViewShape<SalesAnalysisRow> = {
+  schema: salesAnalysisRowSchema,
+  cell: salesAnalysisCell,
+  id: (row) => row.key || row.label,
+  primary: (row) => row.label,
+  status: () => null,
+};
+
+const PENDING_DISPATCH_SHAPE: RowViewShape<PendingDispatchRow> = {
+  schema: pendingDispatchRowSchema,
+  cell: pendingDispatchCell,
+  id: (row) => row.id,
+  primary: (row) => `${row.orderNumber} · ${row.item}`,
+  status: (row) => row.fulfilment.toUpperCase(),
+};
+
+const LOW_STOCK_SHAPE: RowViewShape<LowStockRow> = {
+  schema: lowStockRowSchema,
+  cell: lowStockCell,
+  id: (row) => row.stockItemId,
+  primary: (row) => row.item,
+  status: () => null,
+};
+
 function build<T>(
   shape: RowViewShape<T>,
   reportKey: ReportKey,
@@ -533,6 +669,18 @@ export function toRowViews(reportKey: ReportKey, rows: readonly unknown[]): Repo
       return build(LEAVE_AVAILED_SHAPE, reportKey, rows);
     case 'headcount':
       return build(HEADCOUNT_SHAPE, reportKey, rows);
+    case 'voucher-reconciliation':
+      return build(VOUCHER_RECONCILIATION_SHAPE, reportKey, rows);
+    case 'customer-statement':
+      return build(CUSTOMER_STATEMENT_SHAPE, reportKey, rows);
+    case 'credit-cycle':
+      return build(CREDIT_CYCLE_SHAPE, reportKey, rows);
+    case 'sales-analysis':
+      return build(SALES_ANALYSIS_SHAPE, reportKey, rows);
+    case 'pending-dispatch':
+      return build(PENDING_DISPATCH_SHAPE, reportKey, rows);
+    case 'low-stock':
+      return build(LOW_STOCK_SHAPE, reportKey, rows);
   }
 }
 

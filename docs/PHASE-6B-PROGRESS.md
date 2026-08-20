@@ -29,6 +29,7 @@ Branch: **`phase-6a`** (6b work continues on it until 6a's gate closes).
 | Journal body sweep, nightly 02:45 — D-20 | `29a862e` | Ages real rows: 40-day bodies cleared, hash kept, fresh kept, repeat finds nothing; trigger side already held by `sync-journal.test.ts` |
 | Full re-pull + absent marking — REQ-R-05, REQ-R-06 | `ac6707f` | Watermark = job created_at (claimed_at moves per chunk); mark/unmark/incremental-never 32/32; CDP: confirm dialog queues 3 full jobs, cursors deleted. Vanishing price rates → OPEN-QUESTIONS P6b-1 |
 | Connector agent, loop half — REQ-Q-01, Q-02, Q-07 (`apps/agent`) | `a935690` | 5 loop tests vs a scripted server; **live run against the dev API**: UI-issued token, lease, 3 full jobs claimed in dependency order, chunks posted, absent marking landed from the real binary. Claim now carries `fromAlterId` (the server's cursor). Transport = seam + FixtureTransport; `TallyHttpTransport` and SEA packaging land with real fixtures (10 §8, D-05) |
+| **OpsTally webhook door** — the transport, answered by the API document (`0d94baa`, `3940868`) | `0d94baa` | Webhook suite 19/19 twice; secret box 3/3; live: UI handshake, signed ping/stock/ledger over HTTP, replay deduped, rival install 409, screens render the rows |
 
 New permission: `masters.tally.view` (08 §2.2), granted to Admin; other
 holders arrive with their roles. OPEN-QUESTIONS I-1 closed: staleness = lease
@@ -82,9 +83,192 @@ takeover = 5 minutes, one constant.
 - Go To sources skipping `count(*)` — measured cost is negligible at this
   size.
 
+### The transport question, answered
+
+The user supplied the **OpsTally Webhooks v1** reference: OpsTally Agent runs
+beside TallyPrime and *pushes* signed JSON events (stock, ledgers, vouchers)
+to an HTTPS endpoint we give out. That is the transport — Vyuha never
+parses Tally XML on this path, and the Tally-fixture blocker for the pull
+agent's `TallyHttpTransport` no longer gates masters sync. Built to the
+reference field for field (`packages/shared/src/opstally.ts`):
+
+- `POST /sync/webhooks/opstally/:connectionId` — `@Public()` at the guard,
+  HMAC-SHA256 over the **raw body** (`rawBody: true` on the app), 401 with
+  nothing touched on any failure, wrong signatures throttled as credential
+  guesses (limiter scope `webhook`).
+- The `whsec_` secret is the one credential stored *reversibly* — AES-GCM
+  under an HKDF key derived from `JWT_REFRESH_SECRET`
+  (`platform/auth/secret-box.ts`), never selected by a read path.
+  `PUT /integrations/:id/webhook-secret` stores it and answers the URL to
+  paste into the Agent. Transports are exclusive per connection.
+- First verified delivery **binds** install id and Tally's exact company
+  name (overwriting what the admin typed); later mismatches are 409 and set
+  `WRONG_COMPANY_OPEN`.
+- **`sync_inbox`** dedupes by event id in the same transaction as the
+  writes; a retry is a 200 no-op. Vouchers are acknowledged, journalled and
+  **retained** in the inbox (`payload`) for Phase 6c to replay.
+- Projection goes through `SyncWriterService.applyRows` (`WriterScope`
+  generalises `AgentPrincipal`): debtor/creditor ledgers → parties, stock
+  items → `stock_items` with OpsTally's held figures (`closing_qty`,
+  `sale_price`, `cost_price`; the reference's "zero is not free" rule in
+  SQL). Non-party ledgers acknowledged and skipped. Malformed-but-verified
+  events acknowledged and raised as `REJECTION` exceptions.
+- Webhook connections excluded from the heartbeat staleness alert; the
+  Integrations screen reads them as a push source.
+
+**Not done by design, recorded in OPEN-QUESTIONS P6b-2..P6b-5:** absent
+marking from `stock.snapshot` (chunks arrive out of order under failure);
+price lists (OpsTally has no per-level event); GST rate (not in the stock
+payload); voucher projection (6c); how 6c backfills history when the source
+is push-only with a 90-day lookback.
+
+## Phase 6c under this transport (started on this branch)
+
+| Deliverable | Commit | Proof |
+|---|---|---|
+| Voucher projection + writer + inbox replay; OpsTally voucher.* project on arrival | `26160e0` | webhook 21/21 (lines, party/item resolved by name, wholesale line replace, cancel flag, replay drains and is idempotent) |
+| `GET /masters/vouchers`, `/:id` under `receivables.view`; Go To by voucher number (09 §6) | `26160e0` | masters 16/16 |
+| REQ-S-05 reconciliation as a report-shell source (Tally report group; attendance narrows to its own) | `26160e0` | export+reports 89/89; live: catalogue lists it, page renders rows |
+| Vouchers screen (list, sheet with lines, URL-addressable detail) + nav Books group | — | live drive: rows, sheet Dr/Cr + inventory line, Go To opens the sheet, zero console errors |
+
+**Not buildable under a push-only source (needs the P6b-5 decision):** the
+historical backfill orchestrator and progress screen (REQ-S-01…S-04, S-06),
+bill-wise allocations (not in the OpsTally voucher payload — ageing waits),
+the daily drift check (REQ-T-08 needs to ask Tally). Recorded, not
+forgotten.
+
+## Phase 7 (CRM) on this branch
+
+| Deliverable | Commit | Proof |
+|---|---|---|
+| Ten `crm.*` keys from 08 §2.2 in the catalogue (Admin holds them until the Sales roles are seeded) | `097d64c` | seed reconciles; dev Admin holds 10/10 |
+| `crm_companies`, `crm_contacts` (migration 0028): owner is an employee so `ScopeService` resolves `view.self` with the existing chain walk; `party_id` waits for conversion (REQ-U-03) | `097d64c` | — |
+| `GET/POST/PATCH/DELETE /crm/contacts`, `/crm/companies`, `GET /crm/contacts/duplicates` (REQ-U-01, U-02, U-08); self/all scoping, owner reassignment only for `view.all`, company delete refused while contacts remain | `097d64c` | crm endpoints 16/16 |
+| Contacts and companies in Go To (REQ-O-05), scoped through the same service | `097d64c` | search suite green |
+| CRM module in the sidebar (People: Contacts, Companies), Contacts and Companies screens — URL-addressable sheet, Alt+C create, duplicate warning that names and links the match and never blocks, owner picker for `view.all` holders, 360px cards + bottom sheet | — | live drive: create company, create contact against it, duplicate warning on `09811122333` vs `+91 98111 22333` and on the email, Go To opens contact and company, zero console errors |
+
+| Tasks in the platform (D-17): `tasks`, `task_board_columns` (migration 0029), `TaskSubjectRegistry` (employee described by the platform, contact/company by CRM), one `filterPredicate` behind `GET /tasks` and `GET /tasks/board` (REQ-V-04), column config under `settings.manage` (REQ-V-03), moves audited as `task.moved` / `task.closed` / `task.reopened` (REQ-V-06), self/team scoping over assignee and owner, three notification events through the dispatcher + a daily reminder sweep (REQ-V-08), tasks in Go To | `37fd376` | tasks 15/15, jobs+notifications 49/49 |
+| My tasks screen (REQ-V-07 landing; CRM module home): list and board as two renderings of one filter set with a persisted default view (REQ-V-05), Alt+C create, Ctrl+A save, Alt+D done, keyboard Select for status and Command picker for assignee, native drag on the board → PATCH `columnId`, board columns sheet, `/tasks/:id` opens the sheet (notification links land there) | — | live drive: created by keyboard, assigned, closed with Alt+D, shown struck through under "Show closed", dragged Done → In progress ("Moved to In progress"), Go To opens it, columns added and removed, 360px cards without overflow, zero console errors. Web 416/416 |
+
+| Pipelines and deals (REQ-U-04, U-05; link half of REQ-U-03): `crm_pipelines`, `crm_pipeline_stages`, `crm_deals` (migration 0030); default pipeline on first read; stage move is one audited write, won/lost stages close (`crm.deal.won` / `.lost`); board = list by stage with a value total per lane; `PUT /crm/companies/:id/party` links a company to the Tally party by hand; deals in Go To | `0819766` | deals 10/10 |
+| Deals screen: list and board (shared `KanbanBoard`, also now behind the task board), Alt+C create with company → contact pickers, drag to Won opens the sheet with the party-link picker over the parties projection, stages sheet under `crm.pipeline.manage`, `/crm/deals/:id` | — | live drive: created with company and contact, value shown 1,25,000.50, dragged to Won ("Deal won"), party linked from the prompt ("Party linked", note shown), stage added and removed, Go To opens it, 360px cards, no failing requests |
+
+| Activities (REQ-U-07) as the audit trail: `POST /crm/activities` is one `AuditContext.record()` on the record, `GET /crm/activities` pages that record's audit rows through `AuditLogRepository`, so logged calls and system events (created, stage changed, won, party linked) are one ordered list with actor; timeline + composer embedded in the contact, company and deal sheets (Ctrl+Enter logs) | `a075c8d`, — | activities 4/4; live: deal timeline shows Won, Lead → Won, Linked to a Tally party, Created; call logged and listed with actor; contact timeline shows Created |
+
+| Sales and Sales manager system roles (08 §2, §2.2 columns for the keys that exist), held beside Employee per D-15; the seed creates them, the role picker and preview list them | — | shared+web 420/420; rbac/people/auth 194/194; seed: Sales +7, Sales manager +12 |
+
+Two decisions made without asking, both cheap to reverse: the company →
+party link is a `party_id` column on `crm_companies` rather than a hop
+through `external_refs` (that table already pins `parties.id` to the GUID,
+so a second GUID-keyed row would only restate it — see the schema comment);
+and the link is a company property offered when a deal is won, not a
+deal-only action, because the party is who invoices go to whichever deal
+opened the door.
+
+Not in this slice: REQ-U-06 (a won deal shows its estimate, sales order and
+invoice) — those documents are Phase 8's; the deal sheet gains a documents
+section when they exist.
+
+Open on this slice: P7-1 (an Admin with no employee record has no `.all`
+for tasks and so sees none) and P7-2 (which roles hold the task keys).
+
+Next in Phase 7: pipelines and deals with the won → party link (REQ-U-04…
+U-06), then activities through the audit interceptor (REQ-U-07).
+
+## Phase 6d on this branch — receivables and analysis (the part bill-wise allocations do not gate)
+
+| Deliverable | Commit | Proof |
+|---|---|---|
+| Customer statement (REQ-Y-01): every voucher for one party in the period with a running balance opening from what came before; debit/credit by voucher type, unclassified types shown and not summed; the shell asks for the party before it fetches (`requiredFilters`) | — | masters 19/19; live: Opening 0.00 → Sales 4150.50 → Receipt 0.00 for Live Drive Traders |
+| Credit cycle (REQ-Y-03): limit and days against exposure, headroom, over-limit flag, last invoice/receipt; overdue-by-bill deliberately absent until bill-wise (P6b) | — | live: Asha 250000.00 / 30 / 0.00 / 250000.00 within limit |
+| Sales analysis (REQ-Y-05): value by party / item / item group / month from invoiced inventory lines, share of total, quantity only when the unit agrees; salesperson absent (Tally's voucher carries none), margin absent (held cost is not a figure to compute on) | — | live: By item — Live Drive Cable 1 · 1 NOS · 4150.50 · 100.0; By month — 2026-08 |
+| All under the report shell (REQ-Y-06): party picker and group-by in the filter bar, saved views/export/Excel unchanged; every row stamped As of (REQ-Y-07) | — | web 420/420, no failing requests, 360px cards |
+
+Not buildable yet: ageing (REQ-Y-02) and payment analysis (REQ-Y-04) —
+both need bill-wise allocations, which the push-only source does not
+carry (P6b). A statement can be honest without them; an ageing cannot.
+
+## Phase 8a on this branch (the part that needs no push transport)
+
+| Deliverable | Commit | Proof |
+|---|---|---|
+| Estimates (REQ-W-01): `sales_documents` + lines + per-org sequence (migration 0031), arithmetic once in SQL as exact text, tax for information from the item's GST rate, draft editable / later read-only, transition table, five `sales.*` keys held by the Sales roles; item history (REQ-W-02) from the party's vouchers and earlier estimates; estimates in Go To | `198e30d` | sales 7/7 |
+| Estimates screen: Sales module in the sidebar, register with status filter, wide sheet with the line editor (party or CRM company or a name; item picker prefills description, unit, rate and tax; Enter on the last box appends a line — Alt+N is the calculator's), item-history affordance as a popover / bottom sheet, preview totals replaced by the server's on save, status Select, 360px bottom sheet | — | live drive: raised EST-0003 for Live Drive Traders with an item line and a free line — server totals 14,952.00 / 622.57 / 2,579.30 / 16,908.73 — history popover shows Sales INV-2026-0042 and the current price, marked Sent and read-only, Go To opens it, no failing requests |
+
+| REQ-U-06, the estimate half: the deal sheet lists the estimates raised against it and raises one carrying the deal, company and party into the sheet | — | live drive: "Estimate" from the deal opens the sheet with Asha Traders preset, saved, and the deal lists Estimate EST-000n Draft 999.00 |
+
+| Sales orders + the push path (REQ-W-03, W-06, W-07; 09 §3.3): same table and line editor under `SALES_ORDER`; convert from an accepted estimate; confirm queues one PUSH `sync_jobs` row per document (`voucher_push:<id>`), payload is the document as data; `voucher_push` results outcome (accepted / landed_on_retry / rejected) settled by the writer in one transaction — journal, job, `external_refs` on the GUID with the idempotency key, exception with Tally's verbatim text, `PushOutcomeRegistry` tells the sales module; Alter re-pushes against the GUID; five sync-state columns (migration 0032) | `5deb627` | orders 7/7 with a played agent; sync+sales 103/103 |
+| Agent push executor: renders TallyPrime's Import Data envelope (one voucher per envelope, key in the narration, `ACTION="Alter"` + GUID on alter), asks Tally for the key before any retry, reports outcomes; parser makes a wrong guess loud; fixture transport rehearses acceptance, the retry rule and a rejection | `f954c02` | agent 10/10 |
+| Sales orders screen: register with status and Tally-state filters, sheet with the sync badge as the agent's last word, Confirm and push / Push again / Alter and re-push, Tally's rejection text shown verbatim; "Sales order" button on an accepted estimate; shared `DocumentLinesEditor` behind both sheets | — | live: SO-0001 raised → Confirmed · Queued for Tally → (agent played through the real endpoints) In Tally · #42 → Alter re-queued; no failing requests |
+
+**Not yet verified against a live TallyPrime**: the XML the agent renders,
+and the Phase 6e exit gate (kill the agent between import and ack, retry,
+count vouchers). Both need a Tally on a machine the agent can reach
+(D-05, fixtures). The pipeline up to that hop is proven end to end.
+
+Still not buildable: delivery challans / POs / GRNs (the same push path,
+their own document types — a slice each once the first push is proven
+against Tally), REQ-W-08 discount approval and REQ-W-09 credit block (the
+approvals framework hooks are ready; the thresholds are a decision),
+REQ-T-05 period-lock check (needs the agent to read Tally's lock date).
+
+## Order-to-dispatch and shortage-to-GRN (docs 12 and 13) on this branch
+
+Built backend-first on the recommended defaults (D-21…D-38 in docs/11),
+verified by API suites with the agent played through the real endpoints,
+UI in one pass after (below).
+
+| Deliverable | Commit | Proof |
+|---|---|---|
+| Quantities are the state (REQ-AA-01…04, D-34): `packed_qty` / `invoiced_qty` / `dispatched_qty` on every sales line with the CHECK chain, fulfilment derived in SQL (open → picking → awaiting_invoice → ready_to_dispatch → partially_dispatched → closed / short_closed); pick queue, pack records with boxes and comments, a short pack raises a shortage requirement carrying the order (D-31); awaiting-invoice queue with waiting hours; the invoice handshake — Tally's Sales voucher naming the order links itself and advances invoiced_qty, an invoice naming nobody waits on the unlinked screen with the party's open orders beside it (D-21); short-close with reason (`sales.document.alter`); job `link-sales-invoices` every five minutes | slices A–B | orders 15/15 |
+| Dispatch (REQ-AA-16…28): a dispatch record with its own lines, mode decides the fields and the refusal names each missing one; nothing leaves ahead of the invoice; box and LR photographs as multipart parts (`DISPATCH_PHOTO` purpose, signed URLs); pushed as a Delivery Note; customer notification composed per channel with the balance, `manual` until the API lands, marked sent by hand (REQ-AA-26); dispatch board with mode / age / sync filters | slice C | orders + dispatch cases |
+| Procurement (13): requirements in the platform (D-35) from shortage, reorder sweep (01:15, D-28) and manual; availability = Tally closing − committed with no sync running (REQ-AC-03/04, in item history too); purchase module (D-36): POs (create, from selected requirements one line per item, edit, confirm, push as Purchase Order, short-close, cancel), GRNs with received / rejected / reason pushed as Receipt Notes, allocation of an insufficient receipt between waiting orders decided by a person (REQ-X-27, D-30), the released order's owner told once (REQ-X-28), item vendors and reorder settings Vyuha-owned (D-27, D-28), purchase history per vendor (REQ-X-14) | slice D | purchase 6/6 |
+| Access window (REQ-AB-01…04): a setting, evaluated per request in the org's clock; punch and its context exempt; login refusal audited | — | access-window 2 files |
+| Reports: customer statement, credit cycle, sales analysis, low stock (`receivables.view`), pending dispatch (sales) — all through the report shell with `requiredFilters` | `5181914` | reports suite |
+| **Invoices raised in both places, kept in sync (D-38, owner's instruction 18 Aug evening)**: an `INVOICE` document raised against an order's packed-and-uninvoiced balance at the order's rates; confirming advances invoiced_qty, links with method `vyuha`, and queues a `Sales` voucher; the pulled-back voucher attaches to the same link (GUID in `external_refs`) and never counts twice. Fixing this found and removed a latent bug: push refs anchored under entity_type `voucher` collided with the pull's own mapping — now `voucher_push` | `4345be4` | orders 19/19 |
+| PO approval by value through `platform/approvals` (REQ-X-16, D-32): confirming an over-threshold PO raises a `purchase_order` request routed to every holder of `purchase.document.approve`; the inbox decision or the PO's own Approve button decides the same request; rejection returns it to draft; cancel withdraws it. Thresholds are one settings endpoint (`/purchase/settings`: approval threshold, invoice-waiting hours). REQ-AA-15: the link sweep tells accounts once per order that packed goods have waited longer than the configured hours | `01ec5c1` | purchase 10/10, approvals 5 files |
+| REQ-X-18: the vendor's copy of a PO per channel, composed at release, sent by hand and marked (REQ-AA-26); vendor email / WhatsApp on the PO since a Tally party carries no contact | `e319887` | purchase 11/11 |
+| REQ-AB-05: refresh refused after the cutoff, decided before the cookie rotates; `/me` says how long until the close and the shell warns once, fifteen minutes ahead | `aa5140b` | auth 13 files |
+| REQ-X-26: the waiting order carries its requirements and the POs behind them (vendor, status, expected date) through the platform seam | `dc77ebd` | purchase 12/12 |
+| REQ-AA-28: party email/phone from the pull, inherited by the order, overridable per order and per dispatch | `c3ee809` | orders 22/22 |
+| REQ-W-09 (D-40): an order past the party's credit limit answers `CREDIT_BLOCKED` with the position; `sales.credit.override` with a reason releases it, audited | `2d9d083` | orders 25/25 |
+| REQ-W-08 (D-39): a discount past the threshold waits in the approvals inbox as `PENDING_APPROVAL`; approve from the order or the inbox; reject → draft; cancel withdraws; threshold a sales setting | `ab88f06` | orders 25/25, approvals 90/90 |
+| REQ-AC-07: no route writes a stock figure — 405 on every verb, items included | `a57591b` | purchase 12/12 |
+| **The mirror (D-38, both ways)**: what the pull says about a pushed voucher comes back to the document through the push seam — an order or PO cancelled in Tally is cancelled here; a Vyuha invoice cancelled there gives its quantity back to the order (never below dispatched); a voided Delivery/Receipt Note is shown in Tally's words; refs carry Tally's number and `voided_in_tally` | `392bd11` | orders 27/27 |
+| Go To: sales order, invoice, dispatch and PO numbers open from the palette (REQ-O-05); Purchase and Accounts system roles from 08 §2.2 | `43ff23b`, `444d10c` | live: DN-0003 opens from Alt+G |
+| **Owner's answers (18 Aug evening)**: the customer sees Tally's number (P8-1); dispatch waits for Tally's acceptance — invoiced_qty and the link move on acceptance, an invoice in flight keeps its packed quantity spoken for and the order shows it (P8-2); credit days accepted (P8-3); attendance not linked to Tally, 6e dropped (D-06); the picker marks lines Fulfilled (D-44) | `8e67651`, `1cbf382` | orders 27/27; live: pack 40 by Fulfilled → INV-0004 confirmed → order shows 60 +40 in flight, no Raise invoice, no Dispatch, still on the awaiting queue → agent accepts → 100 invoiced, Tally numbers on the invoice list, Dispatch offered |
+| **UI pass, one go, house pattern**: purchase (requirements queue with select-and-raise-PO, item purchasing sheet, PO list/sheet with receive → GRN → allocate, GRN list/sheet, thresholds dialog), Sales module's Fulfilment group (pick queue as a phone screen with the pack bottom sheet, awaiting invoice with the unlinked tab and link-by-hand, dispatch board and sheet with signed photo links, composed messages, Copy, Mark sent), invoices register and sheet, the order sheet's quantities table / waiting on / invoices / dispatch history / pack records / customer contact / Pack · Raise invoice · Dispatch · Short close · Approve discount / credit-block release, item history's availability line, Settings → Access window tab, sales and purchase settings dialogs. Every document sheet was quietly 384px wide (a primitive-variant specificity bug since 12 Aug) — fixed at the primitive | `7c069cf`, `faeb504`, `4bb3f2b`, `ab88f06` | web 439/439; live: docs 12 §7 / 13 §6 walked through the real screens (order of 100 → pack 60 on a 360px phone → requirement → PO → GRN → back on the queue with 40 → invoice raised here → outstation dispatch of 60 with two real photographs → Delivery Note → message with the balance → marked sent → 100/60/60/60 partially dispatched), 0 exceptions, 0 failing requests, no overflow at 1440 or 360 |
+
 ## Next, in order
 
-Nothing buildable remains; see "Blocked, and on whom".
+Every phase now has its transport-free part built: 6b/6c (masters,
+vouchers, reconciliation), 6d (statement, credit cycle, sales analysis),
+7 (CRM complete), 8a (estimates). What remains is gated, all of it on
+inputs outside this branch:
+
+1. **A live TallyPrime the agent can reach** — proves the push XML and the
+   idempotency gate (lost response, retry, one voucher). The pipeline, every
+   document type and the agent executor are built. (6e's attendance voucher
+   is dropped: D-06 answered — attendance is not linked to Tally.)
+2. **Bill-wise allocations / backfill decision (P6b-5)** — ageing (REQ-Y-02),
+   payment analysis (REQ-Y-04), overdue-by-bill on the credit cycle.
+3. **Tally XML fixtures + D-05** — the pull agent's transport and packaging.
+
+Until one of those lands, the useful next steps are the code review the
+user asked to hold for the end (`/code-review`), the Phase 7 exit gate (one
+salesperson for a fortnight), and merging `phase-6a` back to `main`.
+
+Still open after docs 12/13 and D-38 (18 Aug evening):
+
+- **REQ-W-09's overdue half** (credit days) waits on bill-wise allocations
+  (P6b-5); the limit half is enforced (D-40). Accepted for go-live (P8-3).
+- **REQ-T-05** (Tally period lock) needs the agent to read Tally's lock date.
+- **The Delivery Note / Receipt Note / Sales / Purchase Order XML** the
+  agent renders is unproven against a live TallyPrime, like the Sales
+  Order's (6e gate).
+- **Photograph upload from a real phone camera** was exercised through CDP
+  with real JPEG files, not through a device; the gallery re-encode ran in
+  jsdom only.
 
 ### 6b exit gate — run, passed
 
@@ -104,8 +288,9 @@ read an employee, a punch photo, or another connection's data.
 
 ## Blocked, and on whom
 
-- **Real Tally XML fixtures from the company data** — gathering task, not
-  development; blocks the agent's transport and every parser test (10 §8).
+- **Real Tally XML fixtures from the company data** — now only blocks the
+  *pull agent's* `TallyHttpTransport` and single-binary packaging; masters
+  sync itself flows through the OpsTally webhook door.
 - **D-05** (Tally on one machine or a server?) — decides where the agent
   installs; blocks nothing in the API.
 - **6a's `/ultrareview` verdict** — the finder batches landed and were

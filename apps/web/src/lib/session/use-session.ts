@@ -30,6 +30,8 @@ export interface Me {
   } | null;
   roles: { id: string; name: string }[];
   permissions: PermissionKey[];
+  /** 12 REQ-AB-05: when today's sign-in window closes, so the shell can warn fifteen minutes ahead. Absent on a snapshot from before it existed. */
+  accessWindow?: { closesInMinutes: number | null; exempt: boolean };
 }
 
 interface LoginResponse {
@@ -82,6 +84,7 @@ const meSnapshotSchema = z.object({
         (ALL_PERMISSIONS as readonly string[]).includes(value),
       ),
     ),
+  accessWindow: z.object({ closesInMinutes: z.number().nullable(), exempt: z.boolean() }).optional(),
 });
 
 // localStorage can be denied outright (privacy modes). Each helper treats

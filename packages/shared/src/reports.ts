@@ -37,9 +37,22 @@ export const REPORT_KEYS = [
   'leave-availed',
   'punch-audit',
   'headcount',
+  // Phase 6c (REQ-S-05): the Tally module's first report. Listed with the
+  // rest so ReportKey stays one union; grouped separately below.
+  'voucher-reconciliation',
+  'customer-statement',
+  'credit-cycle',
+  'sales-analysis',
+  'pending-dispatch',
+  'low-stock',
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
+
+/** The keys the Tally module's source claims; everything else is attendance's. */
+export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'sales-analysis', 'low-stock'] as const satisfies readonly ReportKey[];
+/** The sales module's reports (12 REQ-AA-30). */
+export const SALES_REPORT_KEYS = ['pending-dispatch'] as const satisfies readonly ReportKey[];
 
 export function isReportKey(value: string): value is ReportKey {
   return (REPORT_KEYS as readonly string[]).includes(value);
@@ -92,6 +105,12 @@ export interface ReportDefinition {
   /** Filters this report understands; the shell hides the rest. */
   readonly filters: readonly ReportFilterName[];
   /**
+   * Filters without which the report has no answer — a customer statement
+   * is for one party. The shell asks before it fetches, rather than fetching
+   * a 400 and rendering it as an error.
+   */
+  readonly requiredFilters?: readonly ReportFilterName[];
+  /**
    * The period is one calendar date rather than a range.
    *
    * REQ-J-01's daily muster is "one row per employee **for a date**". The shell
@@ -119,6 +138,10 @@ export const REPORT_FILTER_NAMES = [
   'status',
   'flags',
   'punchType',
+  /** Phase 6d: the receivables reports are about a party (REQ-Y-01, Y-03). */
+  'partyId',
+  /** Phase 6d: REQ-Y-05's dimension — by party, item, item group or month. */
+  'groupBy',
 ] as const;
 
 export type ReportFilterName = (typeof REPORT_FILTER_NAMES)[number];
@@ -388,6 +411,115 @@ const PEOPLE_FILTERS: readonly ReportFilterName[] = [
   'locationId',
 ];
 
+/**
+ * REQ-S-05: one row per voucher type per month. `total` is the sum of
+ * `vouchers.amount` — a held figure summed for reconciliation only, shown as
+ * exact decimal text; nothing downstream computes on it.
+ */
+const VOUCHER_RECONCILIATION_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'voucherType', header: 'Voucher type', type: 'text', sortField: 'voucherType', width: 18 },
+  { key: 'count', header: 'Vouchers', type: 'number', width: 10 },
+  { key: 'cancelled', header: 'Cancelled', type: 'number', secondary: true, width: 10 },
+  { key: 'total', header: 'Total value', type: 'text', width: 16 },
+  { key: 'lastPulledAt', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/**
+ * REQ-Y-05's dimensions. Salesperson is not among them: Tally's voucher does
+ * not carry one, and a dimension the projection cannot answer would be a
+ * column of blanks presented as a choice.
+ */
+export const SALES_ANALYSIS_DIMENSIONS = ['party', 'item', 'itemGroup', 'month'] as const;
+export type SalesAnalysisDimension = (typeof SALES_ANALYSIS_DIMENSIONS)[number];
+export const SALES_ANALYSIS_DIMENSION_LABELS: Record<SalesAnalysisDimension, string> = {
+  party: 'By party',
+  item: 'By item',
+  itemGroup: 'By item group',
+  month: 'By month',
+};
+
+/**
+ * REQ-Y-01: every voucher for one party in the period, with a running
+ * balance that starts from what came before the period. Debit and credit
+ * follow the voucher type (Sales and Debit Note debit the customer; Receipt
+ * and Credit Note credit them); a type outside that table shows its amount
+ * unclassified and leaves the balance alone — an honest blank beats a
+ * guessed sign.
+ */
+const CUSTOMER_STATEMENT_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'date', header: 'Date', type: 'date', sortField: 'date', width: 12 },
+  { key: 'voucherType', header: 'Type', type: 'text', width: 14 },
+  { key: 'voucherNumber', header: 'Number', type: 'code', width: 16 },
+  { key: 'narration', header: 'Narration', type: 'text', secondary: true, width: 30 },
+  { key: 'debit', header: 'Debit', type: 'text', width: 14 },
+  { key: 'credit', header: 'Credit', type: 'text', width: 14 },
+  { key: 'unclassified', header: 'Unclassified', type: 'text', secondary: true, width: 14 },
+  { key: 'balance', header: 'Balance', type: 'text', width: 16 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/**
+ * REQ-Y-03: credit limit and days against exposure. Exposure is the party's
+ * balance from every voucher this projection holds (debits less credits).
+ * "Actual overdue" is deliberately absent until bill-wise allocations
+ * arrive (P6b): without them, which invoice a receipt settled is a guess.
+ */
+const CREDIT_CYCLE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'creditLimit', header: 'Credit limit', type: 'text', width: 14 },
+  { key: 'creditDays', header: 'Credit days', type: 'number', width: 10 },
+  { key: 'exposure', header: 'Exposure', type: 'text', sortField: 'exposure', width: 14 },
+  { key: 'headroom', header: 'Headroom', type: 'text', width: 14 },
+  { key: 'overLimit', header: 'Over limit', type: 'status', width: 10 },
+  { key: 'lastInvoiceDate', header: 'Last invoice', type: 'date', secondary: true, width: 12 },
+  { key: 'lastReceiptDate', header: 'Last receipt', type: 'date', secondary: true, width: 12 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/**
+ * REQ-Y-05: sales value by the chosen dimension, from the inventory lines of
+ * Sales vouchers that were not cancelled. Value only — margin needs a cost
+ * the projection holds only as a "held figure" that Tally may or may not
+ * maintain, and a margin computed on a stale cost is a wrong number that
+ * looks right.
+ */
+const SALES_ANALYSIS_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'label', header: 'Group', type: 'text', sortField: 'label', width: 28 },
+  { key: 'vouchers', header: 'Invoices', type: 'number', width: 10 },
+  { key: 'quantity', header: 'Quantity', type: 'text', secondary: true, width: 12 },
+  { key: 'value', header: 'Value', type: 'text', sortField: 'value', width: 16 },
+  { key: 'share', header: 'Share', type: 'text', secondary: true, width: 8 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 12 REQ-AA-30: every open order with a balance, by party, by age, by item. */
+const PENDING_DISPATCH_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'orderNumber', header: 'Order', type: 'code', sortField: 'orderNumber', width: 12 },
+  { key: 'customerName', header: 'Party', type: 'text', sortField: 'customerName', width: 26 },
+  { key: 'orderDate', header: 'Order date', type: 'date', sortField: 'orderDate', width: 12 },
+  { key: 'ageDays', header: 'Age (days)', type: 'number', sortField: 'ageDays', width: 10 },
+  { key: 'item', header: 'Item', type: 'text', width: 26 },
+  { key: 'ordered', header: 'Ordered', type: 'text', width: 10 },
+  { key: 'packed', header: 'Packed', type: 'text', secondary: true, width: 10 },
+  { key: 'invoiced', header: 'Invoiced', type: 'text', secondary: true, width: 10 },
+  { key: 'dispatched', header: 'Dispatched', type: 'text', width: 10 },
+  { key: 'balance', header: 'Balance', type: 'text', width: 10 },
+  { key: 'fulfilment', header: 'Stage', type: 'status', width: 16 },
+];
+
+/** 13 REQ-AC-06: at or below reorder level, with committed, available, open PO and the shortfall. */
+const LOW_STOCK_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'closing', header: 'Closing (Tally)', type: 'text', width: 12 },
+  { key: 'committed', header: 'Committed', type: 'text', width: 12 },
+  { key: 'available', header: 'Available', type: 'text', sortField: 'available', width: 12 },
+  { key: 'reorderLevel', header: 'Reorder level', type: 'text', width: 12 },
+  { key: 'openPo', header: 'On order', type: 'text', width: 12 },
+  { key: 'shortfall', header: 'Shortfall', type: 'text', sortField: 'shortfall', width: 12 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   'attendance-register': {
     key: 'attendance-register',
@@ -510,21 +642,80 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: 'month',
     filters: ['departmentId', 'locationId', 'period'],
   },
+  'voucher-reconciliation': {
+    key: 'voucher-reconciliation',
+    label: 'Voucher reconciliation',
+    description:
+      'Voucher count and total value per voucher type per month, from the Tally projection — compare against Tally’s own Day Book totals before signing off a backfill (REQ-S-05).',
+    columns: VOUCHER_RECONCILIATION_COLUMNS,
+    defaultSort: 'month',
+    filters: ['period'],
+  },
+  'customer-statement': {
+    key: 'customer-statement',
+    label: 'Customer statement',
+    description:
+      'Every voucher for one party in the period with a running balance, opening from what came before (REQ-Y-01). Choose a party to begin.',
+    columns: CUSTOMER_STATEMENT_COLUMNS,
+    defaultSort: 'date',
+    filters: ['partyId', 'period'],
+    requiredFilters: ['partyId'],
+  },
+  'credit-cycle': {
+    key: 'credit-cycle',
+    label: 'Credit cycle',
+    description:
+      'Credit limit and credit days per party against current exposure (REQ-Y-03). Overdue by bill waits for bill-wise allocations.',
+    columns: CREDIT_CYCLE_COLUMNS,
+    defaultSort: '-exposure',
+    filters: ['partyId'],
+  },
+  'sales-analysis': {
+    key: 'sales-analysis',
+    label: 'Sales analysis',
+    description: 'Sales value by party, item, item group or month, from invoiced inventory lines (REQ-Y-05).',
+    columns: SALES_ANALYSIS_COLUMNS,
+    defaultSort: '-value',
+    filters: ['groupBy', 'period', 'partyId'],
+  },
+  'pending-dispatch': {
+    key: 'pending-dispatch',
+    label: 'Pending dispatch',
+    description: 'Every open sales order line with a balance still to dispatch — by party, by age, by item (REQ-AA-30).',
+    columns: PENDING_DISPATCH_COLUMNS,
+    defaultSort: '-ageDays',
+    filters: ['partyId'],
+  },
+  'low-stock': {
+    key: 'low-stock',
+    label: 'Low stock',
+    description: 'Items at or below their reorder level: Tally closing, committed to open orders, available, on order, and the shortfall (REQ-AC-06).',
+    columns: LOW_STOCK_COLUMNS,
+    defaultSort: '-shortfall',
+    filters: [],
+  },
 };
 
 /**
- * The attendance module's reports — today, all of them. Named as a group so
- * Phase 6d's receivables definitions can join `ALL_REPORTS` without the
- * attendance source claiming their keys: each module's source claims its own
- * group, and the registry's duplicate refusal stays a safety net instead of
- * becoming a planned boot failure.
+ * The attendance module's reports. Named as a group so another module's
+ * definitions can join `ALL_REPORTS` without the attendance source claiming
+ * their keys: each module's source claims its own group, and the registry's
+ * duplicate refusal stays a safety net instead of becoming a planned boot
+ * failure. The Tally group is the first such joiner.
  */
-export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.map(
+export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.filter(
+  (key) => !(TALLY_REPORT_KEYS as readonly string[]).includes(key) && !(SALES_REPORT_KEYS as readonly string[]).includes(key),
+).map((key) => REPORT_DEFINITIONS[key]);
+
+export const SALES_REPORTS: readonly ReportDefinition[] = SALES_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
+
+/** The Tally module's reports (Phase 6c onward). */
+export const TALLY_REPORTS: readonly ReportDefinition[] = TALLY_REPORT_KEYS.map(
   (key) => REPORT_DEFINITIONS[key],
 );
 
 /** Every module's reports. Grows by concatenation as modules add groups. */
-export const ALL_REPORTS: readonly ReportDefinition[] = ATTENDANCE_REPORTS;
+export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS];
 
 /** The columns a report shows before anyone touches the F12 chooser. */
 export function defaultVisibleColumns(reportKey: ReportKey): string[] {
@@ -583,6 +774,8 @@ export const reportFilterSchema = z.object({
   /** Comma-separated `ATTENDANCE_FLAGS`; a row matching any of them is kept. */
   flags: z.string().max(200).optional(),
   punchType: z.enum(PUNCH_TYPES).optional(),
+  partyId: z.uuid().optional(),
+  groupBy: z.enum(SALES_ANALYSIS_DIMENSIONS).optional(),
 });
 
 export type ReportFilters = z.infer<typeof reportFilterSchema>;
@@ -1378,6 +1571,204 @@ export interface HeadcountSource {
   readonly joiners: number;
   readonly leavers: number;
   readonly closing: number;
+}
+
+/** One reconciliation row as the source produces it (Phase 6c, REQ-S-05). */
+export interface VoucherReconciliationSource {
+  readonly month: string;
+  readonly voucherType: string;
+  readonly count: number;
+  readonly cancelled: number;
+  /** Exact decimal text — summed once for reconciliation, never computed on again. */
+  readonly total: string;
+  readonly lastPulledAt: string;
+}
+
+export function voucherReconciliationCell(row: VoucherReconciliationSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'month':
+      return row.month;
+    case 'voucherType':
+      return row.voucherType;
+    case 'count':
+      return row.count;
+    case 'cancelled':
+      return row.cancelled;
+    case 'total':
+      return row.total;
+    case 'lastPulledAt':
+      return row.lastPulledAt;
+    default:
+      return null;
+  }
+}
+
+/** One statement line (Phase 6d, REQ-Y-01). Money as exact decimal text. */
+export interface CustomerStatementSource {
+  readonly id: string;
+  readonly date: string;
+  readonly voucherType: string;
+  readonly voucherNumber: string;
+  readonly narration: string | null;
+  readonly debit: string | null;
+  readonly credit: string | null;
+  readonly unclassified: string | null;
+  readonly balance: string;
+  readonly asOf: string | null;
+}
+
+export function customerStatementCell(row: CustomerStatementSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'date':
+      return row.date;
+    case 'voucherType':
+      return row.voucherType;
+    case 'voucherNumber':
+      return row.voucherNumber;
+    case 'narration':
+      return row.narration;
+    case 'debit':
+      return row.debit;
+    case 'credit':
+      return row.credit;
+    case 'unclassified':
+      return row.unclassified;
+    case 'balance':
+      return row.balance;
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
+}
+
+/** One party's credit position (Phase 6d, REQ-Y-03). */
+export interface CreditCycleSource {
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly creditLimit: string | null;
+  readonly creditDays: number | null;
+  readonly exposure: string;
+  readonly headroom: string | null;
+  readonly overLimit: boolean;
+  readonly lastInvoiceDate: string | null;
+  readonly lastReceiptDate: string | null;
+  readonly asOf: string | null;
+}
+
+export function creditCycleCell(row: CreditCycleSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName':
+      return row.partyName;
+    case 'creditLimit':
+      return row.creditLimit;
+    case 'creditDays':
+      return row.creditDays;
+    case 'exposure':
+      return row.exposure;
+    case 'headroom':
+      return row.headroom;
+    case 'overLimit':
+      return row.overLimit ? 'OVER_LIMIT' : 'WITHIN_LIMIT';
+    case 'lastInvoiceDate':
+      return row.lastInvoiceDate;
+    case 'lastReceiptDate':
+      return row.lastReceiptDate;
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
+}
+
+/** One group of sales (Phase 6d, REQ-Y-05). */
+export interface SalesAnalysisSource {
+  readonly key: string;
+  readonly label: string;
+  readonly vouchers: number;
+  readonly quantity: string | null;
+  readonly value: string;
+  /** Percentage of the period's total, one decimal, as text. */
+  readonly share: string;
+  readonly asOf: string | null;
+}
+
+export function salesAnalysisCell(row: SalesAnalysisSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'label':
+      return row.label;
+    case 'vouchers':
+      return row.vouchers;
+    case 'quantity':
+      return row.quantity;
+    case 'value':
+      return row.value;
+    case 'share':
+      return row.share;
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
+}
+
+export interface PendingDispatchSource {
+  readonly id: string;
+  readonly orderId: string;
+  readonly orderNumber: string;
+  readonly customerName: string;
+  readonly orderDate: string;
+  readonly ageDays: number;
+  readonly item: string;
+  readonly ordered: string;
+  readonly packed: string;
+  readonly invoiced: string;
+  readonly dispatched: string;
+  readonly balance: string;
+  readonly fulfilment: string;
+}
+
+export function pendingDispatchCell(row: PendingDispatchSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'orderNumber': return row.orderNumber;
+    case 'customerName': return row.customerName;
+    case 'orderDate': return row.orderDate;
+    case 'ageDays': return row.ageDays;
+    case 'item': return row.item;
+    case 'ordered': return row.ordered;
+    case 'packed': return row.packed;
+    case 'invoiced': return row.invoiced;
+    case 'dispatched': return row.dispatched;
+    case 'balance': return row.balance;
+    case 'fulfilment': return row.fulfilment.toUpperCase();
+    default: return null;
+  }
+}
+
+export interface LowStockSource {
+  readonly stockItemId: string;
+  readonly item: string;
+  readonly closing: string | null;
+  readonly committed: string;
+  readonly available: string | null;
+  readonly reorderLevel: string;
+  readonly openPo: string;
+  readonly shortfall: string;
+  readonly asOf: string | null;
+}
+
+export function lowStockCell(row: LowStockSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'item': return row.item;
+    case 'closing': return row.closing;
+    case 'committed': return row.committed;
+    case 'available': return row.available;
+    case 'reorderLevel': return row.reorderLevel;
+    case 'openPo': return row.openPo;
+    case 'shortfall': return row.shortfall;
+    case 'asOf': return row.asOf;
+    default: return null;
+  }
 }
 
 export function headcountCell(row: HeadcountSource, key: string): ReportCellValue {

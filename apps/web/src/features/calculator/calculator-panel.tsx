@@ -6,6 +6,7 @@ import {
   TextAlignRightIcon,
 } from '@phosphor-icons/react';
 
+import { HeaderTooltip } from '@/components/shared/header-tooltip';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Button } from '@/components/ui/button';
 import {
@@ -393,21 +394,26 @@ export function CalculatorButton({ className }: { className?: string }) {
   const toggle = useCalculatorStore((s) => s.toggle);
 
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      aria-label="Calculator"
-      // Not `size="icon"`: that is a fixed square, and the chip has to sit
-      // inside the control it belongs to rather than beside it.
-      className={cn('gap-2 font-normal', className)}
-      onClick={toggle}
-    >
-      <CalculatorIcon />
-      {/* Both keys, as §6.4 requires for a browser-reserved one. Desktop only:
-          there is no keyboard to hint at on a phone, and the header has no room
-          for a chip at 360px. */}
-      <ShortcutHint keys="ctrl+n" alias="alt+n" className="hidden lg:inline-flex" />
-    </Button>
+    /*
+     * The key is advertised in the tooltip rather than in a chip beside the
+     * icon. Both keys still appear, as §6.4 requires for a browser-reserved
+     * one — but permanently, the pair rendered five chips ("Ctrl N or Alt N")
+     * next to a 20px icon and made this the widest control in a 56px header
+     * at 154px. The tooltip is owned here rather than applied by the shell so
+     * that the component still carries its own advertisement, and the test
+     * that enforces §6.4 has something local to assert against.
+     */
+    <HeaderTooltip label="Calculator" keys="ctrl+n" alias="alt+n">
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Calculator"
+        className={cn(className)}
+        onClick={toggle}
+      >
+        <CalculatorIcon />
+      </Button>
+    </HeaderTooltip>
   );
 }
 

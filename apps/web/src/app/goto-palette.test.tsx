@@ -126,6 +126,39 @@ describe('GoToPalette', () => {
     expect(apiRequestMock).not.toHaveBeenCalled();
   });
 
+  it('forgets the query when a selection closes it, so it does not reopen on stale results', async () => {
+    apiRequestMock.mockResolvedValue({
+      query: 'vy-0003',
+      records: [{ type: 'employee', id: 'emp-1', title: 'Asha Menon', subtitle: 'VY-0003', code: 'VY-0003' }],
+    });
+    renderPalette('Admin');
+    openPalette();
+    const input = await screen.findByPlaceholderText('Screen, report, or employee');
+    await userEvent.type(input, 'vy-0003');
+    await userEvent.click(await screen.findByText('Asha Menon'));
+    expect(useUiStore.getState().gotoOpen).toBe(false);
+
+    openPalette();
+    const reopened = await screen.findByPlaceholderText('Screen, report, or employee');
+    expect((reopened as HTMLInputElement).value).toBe('');
+    // The screen list is unfiltered again, not narrowed to the last term.
+    expect(await screen.findByText('Audit log')).toBeTruthy();
+  });
+
+  it('settles on "nothing matches" for an over-cap query instead of searching forever', async () => {
+    // The server echoes the capped query; the palette must compare its own
+    // capped term against it, or the empty state never resolves.
+    const long = 'x'.repeat(100);
+    apiRequestMock.mockImplementation((path: string) =>
+      path.startsWith('/go-to') ? Promise.resolve({ query: long.slice(0, 80), records: [] }) : Promise.resolve({}),
+    );
+    renderPalette('Admin');
+    openPalette();
+    const input = await screen.findByPlaceholderText('Screen, report, or employee');
+    await userEvent.type(input, long);
+    expect(await screen.findByText('Nothing matches that.', {}, { timeout: 3000 })).toBeTruthy();
+  });
+
   it('opens the employee a selected record names', async () => {
     apiRequestMock.mockResolvedValue({
       query: 'vy-0003',

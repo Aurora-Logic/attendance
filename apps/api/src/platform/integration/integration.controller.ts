@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { z } from 'zod';
@@ -17,6 +18,7 @@ import {
   SYNC_EXCEPTION_STATES,
   createIntegrationConnectionSchema,
   resolveSyncExceptionSchema,
+  setWebhookSecretSchema,
   type IntegrationConnectionView,
   type IntegrationListResponse,
   type IssuedAgentToken,
@@ -43,6 +45,7 @@ const exceptionListQuerySchema = z.object({
 });
 class ExceptionListQueryDto extends createZodDto(exceptionListQuerySchema) {}
 class ResolveExceptionDto extends createZodDto(resolveSyncExceptionSchema) {}
+class SetWebhookSecretDto extends createZodDto(setWebhookSecretSchema) {}
 
 /**
  * `/api/v1/integrations` (technical design §14). PRD §2.1's `integration.manage`.
@@ -126,6 +129,22 @@ export class IntegrationController {
     @Body() body: ManualPullDto,
   ): Promise<{ jobId: string; entityType: string; alreadyQueued: boolean }> {
     return this.scheduler.enqueueManualPull(principal, id, body.entityType, body.full ?? false);
+  }
+
+  /**
+   * The OpsTally handshake's Vyuha half: paste the whsec_ secret the Agent
+   * generated; get back the URL to paste into the Agent. Replacing it later
+   * re-binds the connection to whichever install now signs with it.
+   */
+  @Put(':id/webhook-secret')
+  @RequirePermission(PERMISSIONS.INTEGRATION_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  setWebhookSecret(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SetWebhookSecretDto,
+  ): Promise<{ connectionId: string; webhookUrl: string }> {
+    return this.integrations.setWebhookSecret(principal, id, body.secret);
   }
 
   /**

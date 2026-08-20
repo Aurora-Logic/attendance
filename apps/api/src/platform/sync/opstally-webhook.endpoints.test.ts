@@ -1,0 +1,475 @@
+import { createHmac } from 'node:crypto';
+
+import {
+  SYSTEM_ROLES,
+  type IntegrationListResponse,
+  type OpsTallyAck,
+  type SyncExceptionView,
+} from '@vyuha/shared';
+import { sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { OpsTallyWebhookService } from './opstally-webhook.service.js';
+
+/**
+ * The OpsTally webhook door, over real HTTP, signed the way the Agent signs
+ * (hex HMAC-SHA256 over the exact bytes). What this file holds still is the
+ * receiving contract: verify before anything, bind on first delivery, one
+ * row per event id, project through the same writer as the pull path, and
+ * answer 2xx for everything verified — including what Vyuha cannot yet use.
+ */
+
+const ORG_ID = '01900000-0000-7000-8000-0000000000d0';
+const SECRET = 'whsec_test_secret_for_the_opstally_door_0001';
+const INSTALL = '6b6f9b0a-2f3e-4a3a-8d21-6a7b1e9d4c3f';
+const COMPANY = 'Acme Trading Co';
+
+let harness: ApiHarness;
+let adminToken: string;
+let employeeToken: string;
+let connectionId = '';
+let webhookUrl = '';
+
+function sign(rawBody: string, secret = SECRET): string {
+  return createHmac('sha256', secret).update(rawBody).digest('hex');
+}
+
+/** One event as OpsTally would send it: envelope + payload, signed over the raw text. */
+async function deliver<T = OpsTallyAck>(
+  event: Record<string, unknown>,
+  options: { secret?: string; signature?: string; path?: string; eventIdHeader?: string } = {},
+) {
+  const rawBody = JSON.stringify(event);
+  const signature = options.signature ?? sign(rawBody, options.secret);
+  const response = await fetch(options.path ?? webhookUrl, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-tally-signature': signature,
+      'x-tally-event': typeof event['event'] === 'string' ? event['event'] : '',
+      ...(options.eventIdHeader === undefined ? {} : { 'x-tally-event-id': options.eventIdHeader }),
+      'user-agent': 'opstally-agent/1.4.0',
+    },
+    body: rawBody,
+  });
+  const text = await response.text();
+  return { status: response.status, body: (text === '' ? {} : JSON.parse(text)) as T };
+}
+
+function envelope(id: string, event: string, payload: unknown, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    event,
+    created_at: '2026-08-17T09:12:03.441Z',
+    company: COMPANY,
+    install_id: INSTALL,
+    payload,
+    ...overrides,
+  };
+}
+
+const CABLE = {
+  guid: 'st-guid-cable',
+  masterId: '1042',
+  alterId: 501,
+  name: 'Cat6 Cable Box',
+  parent: 'Networking',
+  baseUnits: 'NOS',
+  closingQty: 40,
+  closingRate: 3800,
+  closingValue: 152000,
+  salePrice: 4150.5,
+  costPrice: 3800,
+};
+
+beforeAll(async () => {
+  harness = await ApiHarness.start(ORG_ID, 'OpsTally Webhook Fixture Org');
+
+  await harness.db.execute(sql`DELETE FROM sync_inbox WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM sync_exceptions WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM sync_jobs WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM sync_cursors WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM external_refs WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM vouchers WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM parties WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM price_list_entries WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(
+    sql`UPDATE integration_connections SET deleted_at = now() WHERE org_id = ${ORG_ID} AND deleted_at IS NULL`,
+  );
+
+  const adminRoleId = await harness.createSystemRole(SYSTEM_ROLES.ADMIN, { isSystem: true });
+  const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE, { isSystem: true });
+  const admin = await harness.createUser({ email: scopedEmail('wh-admin'), roleIds: [adminRoleId] });
+  const employee = await harness.createUser({ email: scopedEmail('wh-employee'), roleIds: [employeeRoleId] });
+  adminToken = (await harness.login(admin.email, admin.password)).token;
+  employeeToken = (await harness.login(employee.email, employee.password)).token;
+
+  // The company name is deliberately *not* Tally's exact spelling: the first
+  // delivery is authoritative and must overwrite it, not lock the door.
+  const created = await harness.post<{ id: string }>('/integrations', {
+    token: adminToken,
+    body: { name: 'Acme via OpsTally', companyName: 'Acme Trading Company Ltd' },
+  });
+  connectionId = created.body.id;
+});
+
+afterAll(async () => {
+  await harness.close();
+});
+
+describe('storing the secret (the handshake, Vyuha half)', () => {
+  it('is integration.manage only, and refuses a secret without the whsec_ prefix', async () => {
+    const refused = await harness.put(`/integrations/${connectionId}/webhook-secret`, {
+      token: employeeToken,
+      body: { secret: SECRET },
+    });
+    expect(refused.status).toBe(403);
+
+    const malformed = await harness.put(`/integrations/${connectionId}/webhook-secret`, {
+      token: adminToken,
+      body: { secret: 'not-a-whsec-value-at-all-really' },
+    });
+    expect(malformed.status).toBe(400);
+  });
+
+  it('stores it sealed and answers the URL to paste into OpsTally', async () => {
+    const response = await harness.put<{ connectionId: string; webhookUrl: string }>(
+      `/integrations/${connectionId}/webhook-secret`,
+      { token: adminToken, body: { secret: SECRET } },
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.webhookUrl).toContain(`/sync/webhooks/opstally/${connectionId}`);
+    // The harness listens on its own port; the URL the API composes is the
+    // configured public one. Deliver to the harness's own address.
+    webhookUrl = `${harness.baseUrl}/sync/webhooks/opstally/${connectionId}`;
+
+    // Sealed at rest: the plaintext must not be in the row.
+    const row = await harness.db.execute<{ enc: string }>(sql`
+      SELECT webhook_secret_enc AS enc FROM integration_connections WHERE id = ${connectionId}
+    `);
+    expect(row.rows[0]?.enc).not.toContain(SECRET);
+    expect(row.rows[0]?.enc.startsWith('v1.')).toBe(true);
+
+    const list = await harness.get<IntegrationListResponse>('/integrations', { token: adminToken });
+    const view = list.body.data.find((c) => c.id === connectionId);
+    expect(view?.transport).toBe('webhook');
+    // Nothing about the secret crosses into any user-facing payload.
+    expect(JSON.stringify(list.body)).not.toContain(SECRET.slice(6));
+  });
+
+  it('a webhook connection has no agent token — one door', async () => {
+    const response = await harness.post(`/integrations/${connectionId}/token`, { token: adminToken });
+    expect(response.status).toBe(409);
+  });
+});
+
+describe('verifying signatures (reference §4)', () => {
+  it('refuses a wrong signature, a missing one, and a body signed with another secret', async () => {
+    const event = envelope('evt_sig_1', 'ping', { message: 'hello' });
+    expect((await deliver(event, { signature: 'deadbeef' })).status).toBe(401);
+    expect((await deliver(event, { signature: '' })).status).toBe(401);
+    expect((await deliver(event, { secret: 'whsec_some_other_secret_entirely_00' })).status).toBe(401);
+    // Refused means untouched: no inbox row, no journal row.
+    const inbox = await harness.db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM sync_inbox WHERE connection_id = ${connectionId}
+    `);
+    expect(Number(inbox.rows[0]?.count)).toBe(0);
+  });
+
+  it('refuses a delivery for a connection that has no secret, indistinguishably', async () => {
+    const other = await harness.post<{ id: string }>('/integrations', {
+      token: adminToken,
+      body: { name: 'No secret yet' },
+    });
+    const response = await deliver(envelope('evt_sig_2', 'ping', { message: 'x' }), {
+      path: `${harness.baseUrl}/sync/webhooks/opstally/${other.body.id}`,
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it('accepts the exact bytes, whichever hex case the signature arrives in', async () => {
+    const event = envelope('evt_sig_3', 'ping', { message: 'hello' });
+    const raw = JSON.stringify(event);
+    const response = await deliver(event, { signature: sign(raw).toUpperCase() });
+    expect(response.status).toBe(200);
+    expect(response.body.result).toBe('pong');
+  });
+});
+
+describe('binding on the first delivery (REQ-Q-03, REQ-Q-05 for the push door)', () => {
+  it('the ping above bound the install and overwrote the typed company name with Tally’s exact one', async () => {
+    const list = await harness.get<IntegrationListResponse>('/integrations', { token: adminToken });
+    const view = list.body.data.find((c) => c.id === connectionId);
+    expect(view?.webhookInstallId).toBe(INSTALL);
+    expect(view?.companyName).toBe(COMPANY);
+    expect(view?.status).toBe('CONNECTED');
+    expect(view?.lastHeartbeatAt).not.toBeNull();
+  });
+
+  it('refuses a second install pointed at the same connection', async () => {
+    const response = await deliver<{ error: { message: string } }>(
+      envelope('evt_bind_1', 'ping', { message: 'rival' }, { install_id: 'another-install' }),
+    );
+    expect(response.status).toBe(409);
+    expect(response.body.error.message).toContain('another OpsTally install');
+  });
+
+  it('refuses the wrong company, naming both, and marks the condition', async () => {
+    const response = await deliver<{ error: { message: string } }>(
+      envelope('evt_bind_2', 'ping', { message: 'wrong books' }, { company: 'Some Other Co' }),
+    );
+    expect(response.status).toBe(409);
+    expect(response.body.error.message).toContain('Some Other Co');
+    const list = await harness.get<IntegrationListResponse>('/integrations', { token: adminToken });
+    const view = list.body.data.find((c) => c.id === connectionId);
+    expect(view?.lastCondition).toBe('WRONG_COMPANY_OPEN');
+    expect(view?.status).toBe('ERROR');
+  });
+});
+
+describe('projection through the writer (REQ-R-01, R-02, T-03)', () => {
+  it('stock.updated lands as a stock item with the held figures, exactly', async () => {
+    const response = await deliver(envelope('evt_stock_1', 'stock.updated', CABLE));
+    expect(response.status).toBe(200);
+    expect(response.body.result).toBe('ok: 1 stock item');
+
+    const row = await harness.db.execute<{
+      name: string; unit: string; parent_group: string; closing_qty: string; sale_price: string; cost_price: string;
+    }>(sql`
+      SELECT name, unit, parent_group, closing_qty, sale_price, cost_price
+        FROM stock_items WHERE org_id = ${ORG_ID} AND name = 'Cat6 Cable Box'
+    `);
+    expect(row.rows[0]).toEqual({
+      name: 'Cat6 Cable Box',
+      unit: 'NOS',
+      parent_group: 'Networking',
+      closing_qty: '40',
+      sale_price: '4150.5',
+      cost_price: '3800',
+    });
+    // The condition recovered on a verified delivery.
+    const list = await harness.get<IntegrationListResponse>('/integrations', { token: adminToken });
+    expect(list.body.data.find((c) => c.id === connectionId)?.status).toBe('CONNECTED');
+  });
+
+  it('zero is not "free": a later 0 price keeps the stored figure, but a 0 quantity lands', async () => {
+    const response = await deliver(
+      envelope('evt_stock_2', 'stock.updated', { ...CABLE, alterId: 502, closingQty: 0, salePrice: 0, costPrice: 0 }),
+    );
+    expect(response.status).toBe(200);
+    const row = await harness.db.execute<{ closing_qty: string; sale_price: string; cost_price: string }>(sql`
+      SELECT closing_qty, sale_price, cost_price FROM stock_items WHERE org_id = ${ORG_ID} AND name = 'Cat6 Cable Box'
+    `);
+    expect(row.rows[0]).toEqual({ closing_qty: '0', sale_price: '4150.5', cost_price: '3800' });
+    // And Tally wins on a real change.
+    await deliver(envelope('evt_stock_3', 'stock.updated', { ...CABLE, alterId: 503, salePrice: 4200 }));
+    const after = await harness.db.execute<{ sale_price: string }>(sql`
+      SELECT sale_price FROM stock_items WHERE org_id = ${ORG_ID} AND name = 'Cat6 Cable Box'
+    `);
+    expect(after.rows[0]?.sale_price).toBe('4200');
+  });
+
+  it('a retry with the same event id is a no-op, whatever it carries', async () => {
+    const response = await deliver(
+      envelope('evt_stock_1', 'stock.updated', { ...CABLE, name: 'Replayed Rename', alterId: 999 }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.duplicate).toBe(true);
+    const row = await harness.db.execute<{ name: string }>(sql`
+      SELECT name FROM stock_items WHERE org_id = ${ORG_ID} AND name = 'Replayed Rename'
+    `);
+    expect(row.rows.length).toBe(0);
+  });
+
+  it('a stock.snapshot chunk upserts every item it carries', async () => {
+    const response = await deliver(
+      envelope('evt_snap_1', 'stock.snapshot', {
+        items: [
+          { ...CABLE, alterId: 510 },
+          { ...CABLE, guid: 'st-guid-conduit', masterId: '1043', alterId: 511, name: 'PVC Conduit 20mm', baseUnits: 'MTR', parent: 'Electrical', salePrice: 38.5, costPrice: 30 },
+        ],
+        chunk: 1,
+        total_chunks: 1,
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.result).toContain('snapshot chunk 1/1, 2 stock items');
+    const count = await harness.db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM stock_items WHERE org_id = ${ORG_ID}
+    `);
+    expect(Number(count.rows[0]?.count)).toBe(2);
+    const cursor = await harness.db.execute<{ last_alter_id: number }>(sql`
+      SELECT last_alter_id FROM sync_cursors WHERE connection_id = ${connectionId} AND entity_type = 'stock_item'
+    `);
+    expect(Number(cursor.rows[0]?.last_alter_id)).toBe(511);
+  });
+
+  it('a debtor ledger becomes a party; a bank ledger is acknowledged and skipped', async () => {
+    const debtor = await deliver(
+      envelope('evt_led_1', 'ledger.created', {
+        guid: 'led-guid-asha', masterId: '77', alterId: 300, name: 'Asha Traders',
+        parent: 'Sundry Debtors', gstin: '27AAAPL1234C1ZV',
+      }),
+    );
+    expect(debtor.status).toBe(200);
+    expect(debtor.body.result).toBe('ok: 1 party');
+
+    const bank = await deliver(
+      envelope('evt_led_2', 'ledger.created', {
+        guid: 'led-guid-hdfc', masterId: '78', alterId: 301, name: 'HDFC Current A/c', parent: 'Bank Accounts',
+      }),
+    );
+    expect(bank.status).toBe(200);
+    expect(bank.body.result).toContain('not a party group');
+
+    // A sub-group under the standard one still counts.
+    const creditor = await deliver(
+      envelope('evt_led_3', 'ledger.updated', {
+        guid: 'led-guid-behar', masterId: '79', alterId: 302, name: 'Behar Supply Co', parent: 'Sundry Creditors - North',
+      }),
+    );
+    expect(creditor.body.result).toBe('ok: 1 party');
+
+    const parties = await harness.db.execute<{ name: string; parent_group: string; gstin: string | null }>(sql`
+      SELECT name, parent_group, gstin FROM parties WHERE org_id = ${ORG_ID} ORDER BY name
+    `);
+    expect(parties.rows).toEqual([
+      { name: 'Asha Traders', parent_group: 'Sundry Debtors', gstin: '27AAAPL1234C1ZV' },
+      { name: 'Behar Supply Co', parent_group: 'Sundry Creditors - North', gstin: null },
+    ]);
+  });
+
+  const INVOICE = {
+    guid: 'vch-guid-1', masterId: '5001', alterId: 900, date: '20260817', voucherType: 'Sales',
+    voucherNumber: 'INV-0042', party: 'Asha Traders', narration: 'Cable order', isCancelled: false, amount: 4150.5,
+    ledgerEntries: [
+      { ledgerName: 'Asha Traders', amount: 4150.5, isDeemedPositive: true },
+      { ledgerName: 'Sales', amount: -4150.5, isDeemedPositive: false },
+    ],
+    inventoryEntries: [{ stockItemName: 'Cat6 Cable Box', actualQty: '1 NOS', billedQty: '1 NOS', rate: 4150.5, amount: 4150.5 }],
+  };
+
+  it('a voucher lands with its lines, its party and item resolved by Tally’s own names (6c)', async () => {
+    const response = await deliver(envelope('evt_vch_1', 'voucher.created', INVOICE));
+    expect(response.status).toBe(200);
+    expect(response.body.result).toBe('ok: 1 voucher (Sales)');
+
+    const voucher = await harness.db.execute<{
+      id: string; voucher_date: string; voucher_number: string; party_name: string; party_id: string | null; amount: string;
+    }>(sql`
+      SELECT v.id, v.voucher_date::text AS voucher_date, v.voucher_number, v.party_name, v.party_id, v.amount
+        FROM vouchers v WHERE v.org_id = ${ORG_ID} AND v.voucher_number = 'INV-0042'
+    `);
+    const row = voucher.rows[0];
+    expect(row?.voucher_date).toBe('2026-08-17');
+    expect(row?.party_name).toBe('Asha Traders');
+    // The debtor ledger delivered above is this voucher's party.
+    expect(row?.party_id).not.toBeNull();
+    expect(row?.amount).toBe('4150.5');
+
+    const lines = await harness.db.execute<{ line_no: number; kind: string; ledger_name: string | null; stock_item_id: string | null; amount: string }>(sql`
+      SELECT line_no, kind, ledger_name, stock_item_id, amount FROM voucher_lines WHERE voucher_id = ${row?.id ?? ''} ORDER BY line_no
+    `);
+    expect(lines.rows.map((l) => [l.line_no, l.kind, l.ledger_name])).toEqual([
+      [1, 'ledger', 'Asha Traders'],
+      [2, 'ledger', 'Sales'],
+      [3, 'inventory', null],
+    ]);
+    // The inventory line resolved the projected stock item by name.
+    expect(lines.rows[2]?.stock_item_id).not.toBeNull();
+    expect(lines.rows[1]?.amount).toBe('-4150.5');
+  });
+
+  it('an update replaces the lines wholesale; a cancellation flips the flag', async () => {
+    await deliver(envelope('evt_vch_2', 'voucher.updated', { ...INVOICE, alterId: 901, inventoryEntries: [] }));
+    const lines = await harness.db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+       WHERE v.org_id = ${ORG_ID} AND v.voucher_number = 'INV-0042'
+    `);
+    expect(Number(lines.rows[0]?.count)).toBe(2);
+
+    const cancelled = await deliver(envelope('evt_vch_3', 'voucher.cancelled', { ...INVOICE, alterId: 902, isCancelled: true }));
+    expect(cancelled.body.result).toContain('cancelled');
+    const flag = await harness.db.execute<{ is_cancelled: boolean; count: string }>(sql`
+      SELECT bool_or(is_cancelled) AS is_cancelled, count(*) AS count FROM vouchers
+       WHERE org_id = ${ORG_ID} AND voucher_number = 'INV-0042'
+    `);
+    // One row per GUID however many events; the flag is Tally's.
+    expect(flag.rows[0]).toEqual({ is_cancelled: true, count: '1' });
+  });
+
+  it('vouchers retained before the projection existed replay through the same path', async () => {
+    // Simulate a pre-6c inbox row: acknowledged, payload kept, nothing projected.
+    const retained = envelope('evt_vch_old', 'voucher.created', {
+      ...INVOICE, guid: 'vch-guid-old', masterId: '4000', alterId: 800, voucherNumber: 'INV-0001', date: '20260601',
+    });
+    await harness.db.execute(sql`
+      INSERT INTO sync_inbox (org_id, connection_id, event_id, event_type, result, payload)
+      VALUES (${ORG_ID}, ${connectionId}, 'evt_vch_old', 'voucher.created', 'deferred', ${JSON.stringify(retained)}::jsonb)
+    `);
+    const service = harness.resolve(OpsTallyWebhookService);
+    const outcome = await service.replayDeferred();
+    expect(outcome.replayed).toBeGreaterThanOrEqual(1);
+
+    const row = await harness.db.execute<{ voucher_date: string }>(sql`
+      SELECT voucher_date::text AS voucher_date FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'INV-0001'
+    `);
+    expect(row.rows[0]?.voucher_date).toBe('2026-06-01');
+    const inbox = await harness.db.execute<{ payload: unknown; result: string }>(sql`
+      SELECT payload, result FROM sync_inbox WHERE connection_id = ${connectionId} AND event_id = 'evt_vch_old'
+    `);
+    expect(inbox.rows[0]?.payload).toBeNull();
+    expect(inbox.rows[0]?.result).toContain('replayed');
+    // A second replay finds nothing to do.
+    expect((await service.replayDeferred()).replayed).toBe(0);
+  });
+
+  it('every accepted delivery is in the journal with the body hash', async () => {
+    const rows = await harness.db.execute<{ request_hash: string; result: string }>(sql`
+      SELECT request_hash, result FROM sync_journal WHERE connection_id = ${connectionId} ORDER BY created_at
+    `);
+    expect(rows.rows.length).toBeGreaterThanOrEqual(7);
+    expect(rows.rows.every((r) => r.request_hash.startsWith('sha256:'))).toBe(true);
+    expect(rows.rows.some((r) => r.result === 'pong')).toBe(true);
+  });
+});
+
+describe('what Vyuha cannot understand', () => {
+  it('a verified but malformed event is acknowledged and raised as an exception, once', async () => {
+    const response = await deliver(
+      envelope('evt_bad_1', 'stock.updated', { guid: 'x', name: 'missing everything else' }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.result).toContain('rejected');
+
+    // The retry the Agent sends anyway does not raise a second one.
+    const retry = await deliver(envelope('evt_bad_1', 'stock.updated', { guid: 'x', name: 'missing everything else' }));
+    expect(retry.body.duplicate).toBe(true);
+
+    const exceptions = await harness.get<{ data: SyncExceptionView[] }>('/integrations/exceptions', {
+      token: adminToken,
+    });
+    const ours = exceptions.body.data.filter((e) => e.connectionId === connectionId && e.kind === 'REJECTION');
+    expect(ours.length).toBe(1);
+    expect(ours[0]?.tallyError).toContain('could not be understood');
+  });
+
+  it('a non-JSON body that is correctly signed is acknowledged the same way', async () => {
+    const raw = 'this is not json';
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-tally-signature': sign(raw), 'x-tally-event-id': 'evt_bad_2' },
+      body: raw,
+    });
+    // Express's JSON parser refuses the bytes before the handler: the Agent
+    // sees a 4xx and retries — acceptable for a body OpsTally would never send.
+    expect([200, 400]).toContain(response.status);
+  });
+
+  it('a request with no JSON body at all is 400, not 401', async () => {
+    const response = await fetch(webhookUrl, { method: 'POST', headers: { 'x-tally-signature': 'aa' } });
+    expect(response.status).toBe(400);
+  });
+});

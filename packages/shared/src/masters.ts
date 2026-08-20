@@ -19,6 +19,9 @@ export interface PartyView {
   readonly parentGroup: string;
   readonly gstin: string | null;
   readonly address: string | null;
+  /** 12 REQ-AA-28: where the customer is told, when the ledger carries it. */
+  readonly email: string | null;
+  readonly phone: string | null;
   /** Exact decimal as text (D-01): Tally's figure, held not computed. */
   readonly creditLimit: string | null;
   readonly creditDays: number | null;
@@ -47,6 +50,10 @@ export interface StockItemView {
   readonly parentGroup: string;
   /** GST percentage as exact decimal text, or null where none is set. */
   readonly gstRate: string | null;
+  /** Held figures, exact decimal text, null when the source carried none (D-01). */
+  readonly closingQty: string | null;
+  readonly salePrice: string | null;
+  readonly costPrice: string | null;
   readonly absentInTally: boolean;
   readonly lastPulledAt: string;
 }
@@ -80,3 +87,53 @@ export const priceListListQuerySchema = pageQuerySchema.extend({
 });
 
 export type PriceListListQuery = z.infer<typeof priceListListQuerySchema>;
+
+// ------------------------------------------------------------- vouchers
+
+/** A voucher as the screens read it (Phase 6c; Area Y builds on it). */
+export interface VoucherView {
+  readonly id: string;
+  readonly connectionId: string;
+  /** YYYY-MM-DD. */
+  readonly date: string;
+  readonly voucherType: string;
+  readonly voucherNumber: string;
+  readonly partyName: string;
+  /** The projected party this names, when one exists; null otherwise. */
+  readonly partyId: string | null;
+  readonly narration: string;
+  readonly isCancelled: boolean;
+  /** Exact decimal as text (D-01). */
+  readonly amount: string;
+  /** REQ-Y-07: every figure says its age. */
+  readonly lastPulledAt: string;
+}
+
+export interface VoucherLineView {
+  readonly lineNo: number;
+  readonly kind: 'ledger' | 'inventory';
+  readonly ledgerName: string | null;
+  readonly isDeemedPositive: boolean | null;
+  readonly stockItemName: string | null;
+  readonly stockItemId: string | null;
+  readonly actualQty: string | null;
+  readonly billedQty: string | null;
+  readonly rate: string | null;
+  readonly amount: string;
+}
+
+export interface VoucherDetailView extends VoucherView {
+  readonly lines: readonly VoucherLineView[];
+}
+
+export const voucherListQuerySchema = pageQuerySchema.extend({
+  /** Free text over voucher number, party name and narration. */
+  q: z.string().trim().min(1).max(80).optional(),
+  voucherType: z.string().trim().min(1).max(120).optional(),
+  partyId: z.string().uuid().optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+  includeCancelled: z.coerce.boolean().optional(),
+});
+
+export type VoucherListQuery = z.infer<typeof voucherListQuerySchema>;

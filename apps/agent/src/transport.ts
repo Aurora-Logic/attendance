@@ -11,6 +11,7 @@ import {
   type PriceListPullRow,
   type StockItemPullRow,
   type SyncEntityType,
+  type VoucherPushPayload,
 } from '@vyuha/shared';
 import { z } from 'zod';
 
@@ -42,11 +43,32 @@ export interface PullChunk {
   readonly responseBody?: string;
 }
 
+/** One push, as Tally answered it (09 §3.3). Hashes over the raw exchange, like a pull chunk. */
+export interface PushResult {
+  readonly outcome: 'accepted' | 'rejected';
+  readonly remoteGuid: string | null;
+  readonly remoteVoucherNumber: string | null;
+  /** Tally's LINEERROR text verbatim (REQ-T-01), on rejection. */
+  readonly errorText: string | null;
+  readonly requestHash: string;
+  readonly responseHash: string;
+  readonly requestBody?: string;
+  readonly responseBody?: string;
+}
+
 export interface TallyTransport {
   /** What the heartbeat reports: is Tally up, which company is open. */
   probe(): Promise<TallyProbe>;
   /** Everything above the cursor, already chunked to the contract's cap. */
   pull(entityType: SyncEntityType, fromAlterId: number): Promise<PullChunk[]>;
+  /** One voucher, one request (09 §3.3). */
+  push(payload: VoucherPushPayload): Promise<PushResult>;
+  /**
+   * The idempotency check before a retry: is a voucher carrying this key
+   * already in Tally? Present means the previous attempt landed and the
+   * agent reports `landed_on_retry`; absent means push again.
+   */
+  findByIdempotencyKey(key: string): Promise<{ remoteGuid: string; remoteVoucherNumber: string | null } | null>;
 }
 
 const fixtureFileSchema = z.object({
@@ -82,10 +104,54 @@ function chunked<T>(rows: T[]): T[][] {
  */
 export class FixtureTransport implements TallyTransport {
   private readonly fixture: FixtureFile;
+  /** What the fixture "Tally" has imported, by idempotency key — enough to rehearse the retry rule. */
+  private readonly imported = new Map<string, { remoteGuid: string; remoteVoucherNumber: string | null }>();
 
   constructor(fixturePath: string) {
     const parsed: unknown = JSON.parse(readFileSync(fixturePath, 'utf8'));
     this.fixture = fixtureFileSchema.parse(parsed);
+  }
+
+  /**
+   * Accepts any voucher whose party the fixture knows and refuses the rest
+   * with the sentence Tally uses, so the rejection path is rehearsed with
+   * words of the right shape.
+   */
+  push(payload: VoucherPushPayload): Promise<PushResult> {
+    const request = `fixture:push:${payload.idempotencyKey}`;
+    const known = this.fixture.parties.some((party) => party.name === payload.partyName);
+    if (!known) {
+      const errorText = `Ledger '${payload.partyName}' does not exist!`;
+      return Promise.resolve({
+        outcome: 'rejected',
+        remoteGuid: null,
+        remoteVoucherNumber: null,
+        errorText,
+        requestHash: sha256(request),
+        responseHash: sha256(errorText),
+        requestBody: request,
+        responseBody: `<RESPONSE><CREATED>0</CREATED><ERRORS>1</ERRORS><LINEERROR>${errorText}</LINEERROR></RESPONSE>`,
+      });
+    }
+    const existing = this.imported.get(payload.idempotencyKey);
+    const remoteGuid = payload.remoteGuid ?? existing?.remoteGuid ?? `${this.fixture.companyGuid}-${String(this.imported.size + 1).padStart(8, '0')}`;
+    const record = { remoteGuid, remoteVoucherNumber: existing?.remoteVoucherNumber ?? String(this.imported.size + 1) };
+    this.imported.set(payload.idempotencyKey, record);
+    const response = `<RESPONSE><CREATED>${existing === undefined ? '1' : '0'}</CREATED><ALTERED>${existing === undefined ? '0' : '1'}</ALTERED><ERRORS>0</ERRORS></RESPONSE>`;
+    return Promise.resolve({
+      outcome: 'accepted',
+      remoteGuid: record.remoteGuid,
+      remoteVoucherNumber: record.remoteVoucherNumber,
+      errorText: null,
+      requestHash: sha256(request),
+      responseHash: sha256(response),
+      requestBody: request,
+      responseBody: response,
+    });
+  }
+
+  findByIdempotencyKey(key: string): Promise<{ remoteGuid: string; remoteVoucherNumber: string | null } | null> {
+    return Promise.resolve(this.imported.get(key) ?? null);
   }
 
   probe(): Promise<TallyProbe> {

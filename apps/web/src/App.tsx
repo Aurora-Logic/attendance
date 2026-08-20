@@ -24,9 +24,31 @@ import { AdministrationScreen } from '@/features/administration/administration-s
 import { RolesPage } from '@/features/roles';
 import { SettingsPage } from '@/features/settings';
 import { NotificationsPage } from '@/features/notifications';
+import { CompaniesPage } from '@/features/crm/companies-page';
+import { ContactsPage } from '@/features/crm/contacts-page';
+import { DealsPage } from '@/features/crm/deals-page';
+import { EstimatesPage } from '@/features/sales/estimates-page';
+import { EstimateEditorPage } from '@/features/sales/estimate-editor-page';
+import { DocumentPrintPage } from '@/features/documents/print-page';
+import { SalesOrdersPage } from '@/features/sales/sales-orders-page';
+import { DispatchPaperPage } from '@/features/sales/dispatch-paper-page';
+import { PackingSlipPage } from '@/features/sales/packing-slip-page';
+import { SalesOrderEditorPage } from '@/features/sales/sales-order-editor-page';
+import { InvoicesPage } from '@/features/sales/invoices-page';
+import { InvoiceEditorPage } from '@/features/sales/invoice-editor-page';
+import { PickQueuePage } from '@/features/sales/pick-queue-page';
+import { AwaitingInvoicePage } from '@/features/sales/awaiting-invoice-page';
+import { DispatchesPage } from '@/features/sales/dispatches-page';
+import { RequirementsPage } from '@/features/purchase/requirements-page';
+import { GrnPaperPage } from '@/features/purchase/grn-paper-page';
+import { PurchaseOrderEditorPage } from '@/features/purchase/purchase-order-editor-page';
+import { PurchaseOrdersPage } from '@/features/purchase/purchase-orders-page';
+import { GrnsPage } from '@/features/purchase/grns-page';
 import { PartiesPage } from '@/features/masters/parties-page';
+import { TasksPage } from '@/features/tasks/tasks-page';
 import { PriceListsPage } from '@/features/masters/price-lists-page';
 import { StockItemsPage } from '@/features/masters/stock-items-page';
+import { VouchersPage } from '@/features/masters/vouchers-page';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { OrgMastersPage } from '@/features/org-masters';
 import { ProfilePage } from '@/features/profile/profile-page';
@@ -41,9 +63,23 @@ import { ALL_NAV_ITEMS } from '@/lib/nav';
  * that would go stale the next time a screen ships.
  */
 const BUILT_ROUTES = new Set([
+  '/sales/estimates',
+  '/sales/orders',
+  '/sales/invoices',
+  '/sales/pick-queue',
+  '/sales/awaiting-invoice',
+  '/sales/dispatches',
+  '/purchase/requirements',
+  '/purchase/orders',
+  '/purchase/grns',
+  '/tasks',
+  '/crm/deals',
+  '/crm/contacts',
+  '/crm/companies',
   '/masters/parties',
   '/masters/items',
   '/masters/price-lists',
+  '/masters/vouchers',
   '/',
   '/employees',
   '/punch',
@@ -87,6 +123,9 @@ export default function App() {
         <SessionGate>
         <ShortcutProvider>
           <Routes>
+            {/* The paper and nothing else: printed from its own tab, outside the shell (REQ-W-01, print and PDF). */}
+            <Route path="print/:kind/:id" element={<DocumentPrintPage />} />
+
             <Route element={<AppShell />}>
               <Route index element={<DashboardPage />} />
 
@@ -108,6 +147,36 @@ export default function App() {
               <Route path="masters/parties" element={<PartiesPage />} />
               <Route path="masters/items" element={<StockItemsPage />} />
               <Route path="masters/price-lists" element={<PriceListsPage />} />
+              <Route path="masters/vouchers" element={<VouchersPage />} />
+              <Route path="masters/vouchers/:id" element={<VouchersPage />} />
+              <Route path="crm/contacts" element={<ContactsPage />} />
+              <Route path="crm/contacts/:id" element={<ContactsPage />} />
+              <Route path="crm/companies" element={<CompaniesPage />} />
+              <Route path="crm/companies/:id" element={<CompaniesPage />} />
+              <Route path="tasks" element={<TasksPage />} />
+              <Route path="tasks/:id" element={<TasksPage />} />
+              <Route path="crm/deals" element={<DealsPage />} />
+              <Route path="crm/deals/:id" element={<DealsPage />} />
+              <Route path="sales/estimates" element={<EstimatesPage />} />
+              <Route path="sales/estimates/new" element={<EstimateEditorPage />} />
+              <Route path="sales/estimates/:id" element={<EstimateEditorPage />} />
+              <Route path="sales/orders" element={<SalesOrdersPage />} />
+              <Route path="sales/orders/new" element={<SalesOrderEditorPage />} />
+              <Route path="sales/orders/:id" element={<SalesOrderEditorPage />} />
+              <Route path="sales/invoices" element={<InvoicesPage />} />
+              <Route path="sales/invoices/:id" element={<InvoiceEditorPage />} />
+              <Route path="sales/pick-queue" element={<PickQueuePage />} />
+              <Route path="sales/pick-queue/:id" element={<PickQueuePage />} />
+              <Route path="sales/awaiting-invoice" element={<AwaitingInvoicePage />} />
+              <Route path="sales/dispatches" element={<DispatchesPage />} />
+              <Route path="sales/dispatches/:id" element={<DispatchPaperPage />} />
+              <Route path="sales/packs/:id" element={<PackingSlipPage />} />
+              <Route path="purchase/requirements" element={<RequirementsPage />} />
+              <Route path="purchase/orders" element={<PurchaseOrdersPage />} />
+              <Route path="purchase/orders/new" element={<PurchaseOrderEditorPage />} />
+              <Route path="purchase/orders/:id" element={<PurchaseOrderEditorPage />} />
+              <Route path="purchase/grns" element={<GrnsPage />} />
+              <Route path="purchase/grns/:id" element={<GrnPaperPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />

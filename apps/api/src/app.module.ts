@@ -3,6 +3,9 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 
 import { AttendanceModule } from './modules/attendance/attendance.module.js';
+import { CrmModule } from './modules/crm/crm.module.js';
+import { SalesModule } from './modules/sales/sales.module.js';
+import { PurchaseModule } from './modules/purchase/purchase.module.js';
 import { AuditContextMiddleware } from './platform/audit/audit-context.middleware.js';
 import { AuditInterceptor } from './platform/audit/audit.interceptor.js';
 import { AuditModule } from './platform/audit/audit.module.js';
@@ -31,6 +34,8 @@ import { RedisModule } from './platform/redis/redis.module.js';
 import { SearchModule } from './platform/search/search.module.js';
 import { SettingsModule } from './platform/settings/settings.module.js';
 import { SyncModule } from './platform/sync/sync.module.js';
+import { TasksModule } from './platform/tasks/tasks.module.js';
+import { DocumentsModule } from './platform/documents/documents.module.js';
 import { StorageModule } from './platform/storage/storage.module.js';
 
 /**
@@ -78,11 +83,16 @@ import { StorageModule } from './platform/storage/storage.module.js';
     // Before IntegrationModule, whose token issuance mints through it, and
     // reachable by AccessGuard, which resolves agent credentials through it.
     SyncModule,
+    TasksModule,
+    DocumentsModule,
     IntegrationModule,
     HealthModule,
     // The first `modules/` entry. Everything above it is the shared kernel;
     // CRM and ERP will sit beside this one and import nothing from it.
     AttendanceModule,
+    CrmModule,
+    SalesModule,
+    PurchaseModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AppExceptionFilter },

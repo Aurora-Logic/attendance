@@ -1,5 +1,5 @@
 import type { AgentCondition } from '@vyuha/shared';
-import { asc, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 import type { Database } from '../db/db.provider.js';
 import { integrationConnections } from '../db/schema/index.js';
@@ -15,6 +15,8 @@ export interface ConnectionRow {
   readonly companyName: string | null;
   readonly lastCondition: AgentCondition | null;
   readonly tokenIssued: boolean;
+  readonly transport: 'unset' | 'agent' | 'webhook';
+  readonly webhookInstallId: string | null;
 }
 
 /**
@@ -36,6 +38,14 @@ const CONNECTION_COLUMNS = {
   // as `SQL<unknown>`, and an `unknown` here would either need a cast at the
   // call site or leak into the response shape.
   tokenIssued: sql<boolean>`${integrationConnections.agentTokenHash} IS NOT NULL`,
+  // Same discipline for the sealed webhook secret: presence crosses, bytes
+  // never do. The transport is derived here so the two credentials cannot be
+  // read as anything but the exclusive pair they are.
+  transport: sql<'unset' | 'agent' | 'webhook'>`CASE
+    WHEN ${integrationConnections.webhookSecretEnc} IS NOT NULL THEN 'webhook'
+    WHEN ${integrationConnections.agentTokenHash} IS NOT NULL THEN 'agent'
+    ELSE 'unset' END`,
+  webhookInstallId: integrationConnections.webhookInstallId,
 } as const;
 
 /**
@@ -87,9 +97,43 @@ export class IntegrationRepository extends ScopedRepository<typeof integrationCo
       companyName: row.companyName,
       lastCondition: row.lastCondition,
       tokenIssued: false,
+      transport: 'unset',
+      webhookInstallId: null,
     };
   }
 
+  /**
+   * Stores (or replaces) the sealed OpsTally signing secret. Refused while an
+   * agent token stands: one company, one connection, one door — a row that
+   * could be written to by both would be two idempotency scopes over one set
+   * of books. Replacing a webhook secret also unbinds the install, because a
+   * regenerated secret is how OpsTally rotates, and the next verified
+   * delivery re-binds whichever install now holds it.
+   */
+  async setWebhookSecret(
+    id: string,
+    sealed: string,
+  ): Promise<'stored' | 'not-found' | 'agent-connection'> {
+    const rows = await this.db.execute<{ agent: boolean }>(sql`
+      WITH cur AS (
+        SELECT id, agent_token_hash IS NOT NULL AS agent
+          FROM integration_connections
+         WHERE id = ${id} AND org_id = ${this.ctx.orgId} AND deleted_at IS NULL
+         FOR UPDATE
+      )
+      UPDATE integration_connections c
+         SET webhook_secret_enc = CASE WHEN cur.agent THEN c.webhook_secret_enc ELSE ${sealed} END,
+             webhook_install_id = CASE WHEN cur.agent THEN c.webhook_install_id ELSE NULL END,
+             updated_at = now(),
+             updated_by = ${this.ctx.actorUserId}
+        FROM cur
+       WHERE c.id = cur.id
+       RETURNING cur.agent AS agent
+    `);
+    const row = rows.rows[0];
+    if (row === undefined) return 'not-found';
+    return row.agent ? 'agent-connection' : 'stored';
+  }
   /**
    * Rotation in one statement, reading "was there a previous token" from the
    * locked pre-image, so two administrators clicking together serialize on
@@ -132,3 +176,38 @@ export class IntegrationRepository extends ScopedRepository<typeof integrationCo
     return { found: true, rotated: row.rotated };
   }
 }
+
+/**
+ * What the webhook receiver needs to verify and bind a delivery. Not org
+ * scoped through `ScopedRepository`, on purpose: the connection id in the URL
+ * is the only claim an unauthenticated delivery makes, and the org is read
+ * *from* the row, then trusted only after the HMAC has verified.
+ */
+export interface WebhookConnectionRow {
+  readonly id: string;
+  readonly orgId: string;
+  readonly companyName: string | null;
+  readonly webhookSecretEnc: string | null;
+  readonly webhookInstallId: string | null;
+  readonly agentTokenIssued: boolean;
+}
+
+export async function findWebhookConnection(
+  db: Database,
+  connectionId: string,
+): Promise<WebhookConnectionRow | null> {
+  const rows = await db
+    .select({
+      id: integrationConnections.id,
+      orgId: integrationConnections.orgId,
+      companyName: integrationConnections.companyName,
+      webhookSecretEnc: integrationConnections.webhookSecretEnc,
+      webhookInstallId: integrationConnections.webhookInstallId,
+      agentTokenIssued: sql<boolean>`${integrationConnections.agentTokenHash} IS NOT NULL`,
+    })
+    .from(integrationConnections)
+    .where(and(eq(integrationConnections.id, connectionId), isNull(integrationConnections.deletedAt)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+

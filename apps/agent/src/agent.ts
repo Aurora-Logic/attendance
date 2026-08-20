@@ -1,5 +1,5 @@
 import type { AgentResultsInput, SyncEntityType } from '@vyuha/shared';
-import { SYNC_ENTITY_TYPES } from '@vyuha/shared';
+import { SYNC_ENTITY_TYPES, voucherPushPayloadSchema } from '@vyuha/shared';
 
 import { type AgentApiClient, AgentApiError } from './api-client.js';
 import type { TallyTransport } from './transport.js';
@@ -84,6 +84,26 @@ export class VyuhaAgent {
       }
       if (job === null) break;
 
+      if (job.direction === 'PUSH' && job.entityType.startsWith('voucher_push:')) {
+        try {
+          await this.runPush(job.id, job.payload, job.attempts, openCompanyGuid ?? '');
+          completed += 1;
+        } catch (error: unknown) {
+          failed += 1;
+          if (error instanceof AgentApiError) {
+            this.log.warn(`Push outcome refused for job ${job.id}: ${error.serverMessage}`);
+          } else {
+            await this.reportQuietly({
+              agentInstanceId: this.instanceId,
+              jobId: job.id,
+              errorCode: 'TRANSPORT_ERROR',
+              errorText: describe(error),
+            });
+          }
+        }
+        continue;
+      }
+
       if (job.direction !== 'PULL' || !isPullable(job.entityType)) {
         // A job this build cannot run: report rather than silently strand it
         // CLAIMED until the sweep fails it with no explanation anywhere.
@@ -147,6 +167,55 @@ export class VyuhaAgent {
         `Job ${jobId}: chunk ${String(index + 1)}/${String(chunks.length)} written=${String(ack.written)} cursor=${String(ack.lastAlterId)}`,
       );
     }
+  }
+
+  /**
+   * One voucher, one request (09 §3.3). On any attempt after the first the
+   * agent asks Tally for the idempotency key before pushing: a previous
+   * attempt whose response was lost may have landed, and pushing again would
+   * make the second voucher this whole design exists to prevent. Found means
+   * `landed_on_retry`; not found means push.
+   */
+  private async runPush(jobId: string, rawPayload: unknown, attempts: number, openCompanyGuid: string): Promise<void> {
+    const payload = voucherPushPayloadSchema.parse(rawPayload);
+    if (attempts > 1 && payload.remoteGuid === null) {
+      const landed = await this.transport.findByIdempotencyKey(payload.idempotencyKey);
+      if (landed !== null) {
+        await this.api.results({
+          agentInstanceId: this.instanceId,
+          openCompanyGuid,
+          jobId,
+          entityType: 'voucher_push',
+          outcome: 'landed_on_retry',
+          remoteGuid: landed.remoteGuid,
+          ...(landed.remoteVoucherNumber === null ? {} : { remoteVoucherNumber: landed.remoteVoucherNumber }),
+          requestHash: `sha256:idempotency:${payload.idempotencyKey}`,
+          responseHash: `sha256:found:${landed.remoteGuid}`,
+          rows: [],
+          final: true,
+        });
+        this.log.info(`Job ${jobId}: ${payload.reference} had already landed as ${landed.remoteGuid}; no second voucher.`);
+        return;
+      }
+    }
+    const result = await this.transport.push(payload);
+    await this.api.results({
+      agentInstanceId: this.instanceId,
+      openCompanyGuid,
+      jobId,
+      entityType: 'voucher_push',
+      outcome: result.outcome,
+      ...(result.remoteGuid === null ? {} : { remoteGuid: result.remoteGuid }),
+      ...(result.remoteVoucherNumber === null ? {} : { remoteVoucherNumber: result.remoteVoucherNumber }),
+      ...(result.errorText === null ? {} : { errorText: result.errorText }),
+      requestHash: result.requestHash,
+      responseHash: result.responseHash,
+      ...(result.requestBody === undefined ? {} : { requestBody: result.requestBody }),
+      ...(result.responseBody === undefined ? {} : { responseBody: result.responseBody }),
+      rows: [],
+      final: true,
+    });
+    this.log.info(`Job ${jobId}: ${payload.reference} ${result.outcome}${result.remoteGuid === null ? '' : ` as ${result.remoteGuid}`}`);
   }
 
   /** An error report must never mask the error it is about. */

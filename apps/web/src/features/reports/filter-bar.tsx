@@ -1,6 +1,9 @@
 import type { DateRange } from 'react-day-picker';
 
+import { BooksIcon } from '@phosphor-icons/react';
+
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,7 +19,10 @@ import {
   ATTENDANCE_FLAGS,
   ATTENDANCE_STATUSES,
   PUNCH_TYPES,
+  SALES_ANALYSIS_DIMENSIONS,
+  SALES_ANALYSIS_DIMENSION_LABELS,
   type ReportFilterName,
+  type SalesAnalysisDimension,
 } from '@vyuha/shared';
 
 // The date pickers are shadcn Calendar/Popover/Sheet compositions living in the
@@ -53,6 +59,10 @@ export interface ReportFilterState {
   readonly status: string | null;
   readonly flags: string | null;
   readonly punchType: string | null;
+  /** Phase 6d: the receivables reports are about a party. */
+  readonly partyId: string | null;
+  /** Phase 6d: REQ-Y-05's dimension. */
+  readonly groupBy: string | null;
 }
 
 interface Option {
@@ -67,6 +77,9 @@ interface FilterBarProps {
   onChange: (patch: Partial<ReportFilterState>) => void;
   departments: readonly Option[];
   locations: readonly Option[];
+  /** Tally parties, for the receivables reports; empty when the caller may not read the masters. */
+  parties: readonly PickerOption[];
+  partiesLoading?: boolean;
   periodOpen: boolean;
   onPeriodOpenChange: (open: boolean) => void;
   onClear: () => void;
@@ -121,6 +134,8 @@ export function ReportFilterBar({
   onChange,
   departments,
   locations,
+  parties,
+  partiesLoading = false,
   periodOpen,
   onPeriodOpenChange,
   onClear,
@@ -130,6 +145,48 @@ export function ReportFilterBar({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {shows('partyId') ? (
+        <div className="w-full sm:w-64">
+          <RecordPicker
+            label="Filter by party"
+            placeholder="Choose a party"
+            searchPlaceholder="Search parties"
+            emptyMessage="No party matches that."
+            icon={<BooksIcon className="text-muted-foreground" />}
+            options={parties}
+            loading={partiesLoading}
+            clearable
+            clearLabel="Any party"
+            value={parties.find((option) => option.id === value.partyId) ?? null}
+            onValueChange={(next) => {
+              onChange({ partyId: next?.id ?? null });
+            }}
+          />
+        </div>
+      ) : null}
+
+      {shows('groupBy') ? (
+        <Select
+          value={value.groupBy ?? 'party'}
+          onValueChange={(next: string | null) => {
+            onChange({ groupBy: next === null || next === 'party' ? null : next });
+          }}
+        >
+          <SelectTrigger aria-label="Group by" className="pointer-coarse:h-11 w-full sm:w-40">
+            <SelectValue>{(current: SalesAnalysisDimension) => SALES_ANALYSIS_DIMENSION_LABELS[current]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {SALES_ANALYSIS_DIMENSIONS.map((dimension) => (
+                <SelectItem key={dimension} value={dimension}>
+                  {SALES_ANALYSIS_DIMENSION_LABELS[dimension]}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      ) : null}
+
       {shows('period') ? <PeriodField
         mode={periodMode}
         value={value.period}

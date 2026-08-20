@@ -13,10 +13,13 @@ import {
   partyListQuerySchema,
   priceListListQuerySchema,
   stockItemListQuerySchema,
+  voucherListQuerySchema,
   type Paginated,
   type PartyView,
   type PriceListEntryView,
   type StockItemView,
+  type VoucherDetailView,
+  type VoucherView,
 } from '@vyuha/shared';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
@@ -27,6 +30,7 @@ import { MastersService } from './masters.service.js';
 class PartyListQueryDto extends createZodDto(partyListQuerySchema) {}
 class StockItemListQueryDto extends createZodDto(stockItemListQuerySchema) {}
 class PriceListListQueryDto extends createZodDto(priceListListQuerySchema) {}
+class VoucherListQueryDto extends createZodDto(voucherListQuerySchema) {}
 
 /**
  * `/api/v1/masters/*` (09 §5): the Tally masters projection, read-only —
@@ -80,6 +84,30 @@ export class MastersController {
     return this.masters.listPriceListEntries(principal, query);
   }
 
+  /**
+   * Phase 6c: the books, read-only like the masters, behind `receivables.view`
+   * rather than `masters.tally.view` — a voucher is money moving, and 08 §2.2
+   * gives it to Accounts and Sales managers, not to everyone who may look up
+   * a party.
+   */
+  @Get('vouchers')
+  @RequirePermission(PERMISSIONS.RECEIVABLES_VIEW)
+  listVouchers(
+    @CurrentUser() principal: Principal,
+    @Query() query: VoucherListQueryDto,
+  ): Promise<Paginated<VoucherView>> {
+    return this.masters.listVouchers(principal, query);
+  }
+
+  @Get('vouchers/:id')
+  @RequirePermission(PERMISSIONS.RECEIVABLES_VIEW)
+  findVoucher(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<VoucherDetailView> {
+    return this.masters.findVoucher(principal, id);
+  }
+
   @Post('parties')
   @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
   refuseCreate(): never {
@@ -93,6 +121,23 @@ export class MastersController {
   refuseEdit(): never {
     throw new MethodNotAllowedException(
       'Masters are read-only in Vyuha (REQ-R-04). Edit the party in Tally; the change arrives on the next pull.',
+    );
+  }
+
+  /** 13 REQ-AC-07: a stock figure is never written here — not the item, not its closing balance. */
+  @Post('items')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  refuseCreateItem(): never {
+    throw new MethodNotAllowedException(
+      'Stock items are read-only in Vyuha (REQ-R-04, REQ-AC-07). Create the item in Tally; it appears here on the next pull.',
+    );
+  }
+
+  @Patch('items/:id')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  refuseEditItem(): never {
+    throw new MethodNotAllowedException(
+      'Stock items are read-only in Vyuha (REQ-R-04, REQ-AC-07). Stock moves only through a Delivery Note or a Receipt Note in Tally.',
     );
   }
 }

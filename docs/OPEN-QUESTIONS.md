@@ -144,6 +144,8 @@ exists for either surface; neither appears in the PRD or in
 | OS-3 | **REQ-H-02's calendar-to-location link has no write path.** An employee inherits a holiday calendar from `locations.holiday_calendar_id` (or an override on `employees.holiday_calendar_id`), and neither column is writable through any endpoint or screen — `createLocationSchema` and the location sheet do not carry it. So a freshly seeded organisation can create a calendar, mark holidays restricted and set an allowance, and every employee's restricted-holiday pool is still empty, because nothing points at the calendar. Found while verifying REQ-H-03: the pool answered `allowance 0, options []` until the column was set with SQL. | REQ-H-02, and REQ-H-03 in practice | **Not built, because it is a masters change on a screen another slice may be holding.** The employee picker and the location sheet are the two places it belongs, and the shape is one nullable column added to each write schema plus a calendar picker on each form. Until then the restricted-holiday band says exactly which of the three states it is in — no calendar attached, calendar with no allowance, or allowance with no restricted days listed — so nobody is left staring at a blank list wondering which. |
 | OS-4 | **The five REQ-G-02 seed leave types are a constant nothing calls.** `apps/api/src/modules/attendance/leave/leave-seed-types.ts` exports `SEED_LEAVE_TYPES` with its placeholder values, and the only other reference in the repository is its own test: `seed/run-seed.ts` never inserts them. A fresh database therefore has zero leave types, so nobody can apply for leave, no balance can exist, and comp-off refuses with "No leave type with the code CO exists" — REQ-G-11's grant is unreachable until somebody creates the type by hand. | REQ-G-02, and REQ-G-11 on a fresh database | **Not changed, because seed content is a data decision.** Every number on those five types is a placeholder standing in for OPEN-QUESTIONS item 4, and inserting them makes placeholders look like policy on any database somebody seeds. Two ways out: seed them as they are, clearly labelled by the `placeholderNote` they already carry, or leave the seed alone and make it an explicit step in the launch plan alongside the holiday calendar. Recommend seeding them — REQ-G-02 says "seed types", and a pilot that cannot apply for leave until somebody invents five records by hand is worse than a placeholder somebody edits. |
 
+| G-10 | **Header shortcut chips moved into tooltips, which softens PRD §6.4.** §6.4 says "every control with a shortcut renders a small hint chip showing the key", and `shortcut-hint.tsx` calls a missing chip a review failure. The header was carrying up to eight chips permanently in a 56px bar — the calculator alone rendered "Ctrl N or Alt N", five chips beside a 20px icon, making it the widest control in the row at 154px. | Nothing — flagging a deliberate departure | **Moved, not removed.** Each header control now shows its name and its key in a hover tooltip it owns. Both keys still appear for a browser-reserved one, and the key stays discoverable three ways: on hover, in the `Ctrl+F1` sheet which lists every active shortcut, and in the guided tour. Measured: the header actions row went from 377px to 255px and the calculator from 154px to 32px. **What this does cost is a touch device**, where there is no hover — but the chips were already hidden below `sm`, so nothing regressed there; it is the desktop that changed. Say the word and the chips come back on the two controls that matter most. |
+
 ## Carried from `05-decisions.md` — still open
 
 | # | Question | Needed by | Recommended default in use |
@@ -211,3 +213,114 @@ still never delete.
 
 Not implemented without a decision because it is the one place the sync
 engine would hard-delete data on its own initiative.
+
+---
+
+## P6b-2 — Absent marking from an OpsTally `stock.snapshot` (REQ-R-06)
+
+A `stock.snapshot` is the push analogue of a full pull, so its final chunk
+*could* mark absentees. It does not: the reference says delivery is
+best-effort chronological under failure — chunk 3 can arrive before chunk 1
+is retried — so "not touched since the snapshot began" would mark items
+whose chunk is merely late. **Default in force:** snapshots upsert only. Mark
+absent from the pull path's full re-pull, or once OpsTally sends a snapshot
+completion marker. Say the word if a lag-tolerant heuristic is preferred.
+
+## P6b-3 — Price lists and GST rate under OpsTally (REQ-R-02, R-03)
+
+OpsTally's stock payload carries no GST rate and no per-price-level rates
+(its `salePrice` already resolves the Standard Price List into one number).
+Under this transport `stock_items.gst_rate` stays null and
+`price_list_entries` receives nothing; both fill from the pull agent when
+its Tally transport lands. Recorded so nobody reads an empty Price lists
+screen as a defect.
+
+## P6b-4 — Voucher projection from the retained inbox (Phase 6c)
+
+Vouchers arrive now and are retained in `sync_inbox.payload`. 6c's voucher
+writer should replay `sync_inbox WHERE payload IS NOT NULL` oldest-first per
+connection, then clear `payload` on success — the deferred index already
+exists for that read. Idempotency by voucher GUID as for every projection.
+
+## P6b-5 — Backfill when the source is push-only (REQ-S-01, S-04)
+
+OpsTally emits `voucher.*` only for changes within its lookback (90 days by
+default) and offers no on-demand voucher snapshot. A first-time historical
+backfill against a copy of the books (REQ-S-04) therefore cannot come
+through this door alone. Options for 6c: raise the Agent's lookback for one
+baseline pass; a one-off pull-agent run with the XML transport; or an
+export/import step. Needs a decision before 6c starts.
+
+## P7-1 — An administrator with no employee record sees no tasks (REQ-V-01, 08 §2.2)
+
+08 §2.2 gives tasks `view.self` and `view.team` only — no `view.all` — and
+both breadths are resolved against the caller's employee record. The seeded
+`admin@vyuha.local` has none, so it sees an empty task list and any task it
+creates is owned by nobody and vanishes from its own view. Contacts and
+deals do not have this problem because they carry `view.all`.
+Recommended default: add `crm.task.view.all`, held by Admin, so an
+administrator can see and reassign every task the way it can every contact.
+Until decided, tasks are built exactly to the table as written; the dev
+account with an employee record (`info@example.com`) is unaffected.
+
+## P7-2 — Which roles hold the task keys (REQ-V-01) — partly closed 18 Aug 2026
+
+Sales and Sales manager now exist as system roles with the §2.2 keys that
+exist. Still open: whether Employee/Operations/HR should hold
+`crm.task.view.self` and `crm.task.manage`.
+
+08 §2.2's task rows cover Sales, Sales manager, Purchase, Accounts and
+Admin — the four roles that do not exist yet plus Admin. The existing
+Employee/Operations/HR roles are not in the table, so an operations
+manager cannot be assigned a task today. Recommended default: give
+`crm.task.view.self` and `crm.task.manage` to every system role once the
+Sales roles land, since REQ-V-02 lets a task hang off an employee and
+REQ-V-07 makes tasks a landing screen. Held at Admin only until then.
+
+## P8-1 — Which number the customer sees on a Vyuha-raised invoice (D-38, REQ-AA-11) — closed 18 Aug 2026: Tally's number
+
+A Vyuha-raised invoice carries INV-0001 here and is pushed as a Sales
+voucher whose `REFERENCE` is INV-0001; Tally then assigns its own voucher
+number, which comes back as `remoteVoucherNumber` and is shown beside the
+badge. Recommended default (in use): Vyuha's number is the reference on
+the voucher and on the customer's dispatch message; Tally's number is
+shown alongside and never printed as the invoice number. Say the word if
+Tally's number should be the customer's.
+
+## P8-2 — Should dispatch wait for the pushed invoice to be accepted by Tally? (D-38, REQ-AA-14) — closed 18 Aug 2026: it waits
+
+Confirming a Vyuha-raised invoice advances `invoiced_qty` at once, so a
+dispatch may follow while the Sales voucher is still queued or after Tally
+rejected it (the invoice then shows FAILED with Tally's words).
+Recommended default (in use): dispatch on confirm; the sync badge on the
+invoice is the accountant's signal to fix a rejection. The stricter rule —
+count `invoiced_qty` only when the push is accepted — is a one-line change
+in `InvoiceService.confirm` if you prefer it.
+
+## P8-3 — Credit days (REQ-W-09's overdue half) — blocked on P6b-5 — accepted for go-live 18 Aug 2026
+
+The credit block enforces the limit (D-40). "Overdue bills beyond credit
+days" needs bill-wise allocations from Tally. Until then credit days are
+shown, not enforced. Confirm this is acceptable for go-live.
+
+## P8-4 — Attendance push shape (D-06, Phase 6e) — closed 18 Aug 2026: attendance is not linked to Tally; 6e dropped
+
+Vouchers (Tally Payroll's Attendance voucher, which needs Payroll enabled
+with employee masters and attendance types in the company) or a file
+handoff to whoever runs payroll? Everything else in the push path is
+built; this is the only reason 6e is not started. Recommended default:
+file handoff (less coupling) unless payroll is run inside Tally Payroll.
+
+## P8-5 — Who picks and packs: which key does the warehouse hold? (REQ-AA-06, D-26)
+
+The pick queue and Pack sit behind `sales.document.view.*` (to see) and
+`sales.document.create` (to pack), because 08 §2.2 names no warehouse
+role and no fulfilment key. A salesperson therefore sees only their own
+orders on the queue; a warehouse person needs a role holding
+`sales.document.view.all` + `sales.document.create` — which also lets them
+raise orders. Recommended default until you say otherwise: an Admin-made
+"Warehouse" role with exactly those two keys (roles are editable, REQ-B-07).
+The cleaner shape, if picking is a separate job, is a `sales.fulfil` key
+held by Warehouse, Sales and Sales manager, with Pack, Dispatch and the
+queue behind it and `create` no longer implying them — a one-line seam
+change per route, plus a matrix row.

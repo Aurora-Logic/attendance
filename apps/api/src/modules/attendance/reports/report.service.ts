@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
-  ALL_REPORTS,
+  ATTENDANCE_REPORTS,
   ATTENDANCE_DAY_SORT_FIELDS,
   DEFAULT_LEAVE_YEAR_START_MONTH,
   REPORT_DEFINITIONS,
@@ -163,7 +163,9 @@ export class ReportService {
    * silent failure the empty state must not be used for.
    */
   catalogue(principal: Principal): readonly ReportDefinition[] {
-    return ALL_REPORTS.filter(
+    // This source's own group, not the whole catalogue: the Tally module's
+    // reports are another source's to offer, under another key.
+    return ATTENDANCE_REPORTS.filter(
       (report) => this.scopes.breadth(principal, grantsFor(report.key)) !== 'none',
     );
   }

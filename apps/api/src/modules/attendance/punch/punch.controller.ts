@@ -30,7 +30,7 @@ import type { Request, Response } from 'express';
 
 import { AppError } from '../../../platform/common/errors.js';
 import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js';
-import { RequirePermission } from '../../../platform/rbac/route-policy.js';
+import { RequirePermission, WindowExempt } from '../../../platform/rbac/route-policy.js';
 import {
   PunchFeedQueryDto,
   PunchFormDto,
@@ -107,6 +107,8 @@ function metaOf(request: Request): RequestMeta {
   };
 }
 
+// D-23 / REQ-AB-06: a person can punch out at 21:00 whatever the window says.
+@WindowExempt()
 @Controller('punches')
 export class PunchController {
   constructor(private readonly punches: PunchService) {}
@@ -217,6 +219,7 @@ export class PunchController {
  * attendance module because everything in it -- shift, window, last punch --
  * is attendance data.
  */
+@WindowExempt()
 @Controller('me')
 export class PunchContextController {
   constructor(private readonly punches: PunchService) {}

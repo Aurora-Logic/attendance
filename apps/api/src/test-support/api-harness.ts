@@ -181,7 +181,7 @@ export class ApiHarness {
       .useClass(RecordingMailer)
       .compile();
 
-    const app = moduleRef.createNestApplication({ logger: false });
+    const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
     app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
     await app.listen(0);
 
@@ -214,7 +214,7 @@ export class ApiHarness {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
 
-    const app = moduleRef.createNestApplication({ logger: false });
+    const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
     app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
     await app.listen(0);
 
@@ -251,6 +251,7 @@ export class ApiHarness {
       ...['::1', '127.0.0.1', '::ffff:127.0.0.1'].flatMap((ip) => [
         loginRateLimitKey(ip),
         loginRateLimitKey(ip, 'agent'),
+        loginRateLimitKey(ip, 'webhook'),
       ]),
     );
   }
@@ -372,8 +373,20 @@ export class ApiHarness {
     return this.request<T>('GET', path, options, jar);
   }
 
+  /** A binary GET — an export, a photograph — with the body as bytes rather than parsed JSON. */
+  async getRaw(path: string, options: RequestOptions = {}): Promise<{ status: number; headers: Headers; body: Buffer }> {
+    const headers: Record<string, string> = { ...options.headers };
+    if (options.token != null) headers.authorization = `Bearer ${options.token}`;
+    const response = await fetch(`${this.baseUrl}${path}`, { method: 'GET', headers });
+    return { status: response.status, headers: response.headers, body: Buffer.from(await response.arrayBuffer()) };
+  }
+
   patch<T = unknown>(path: string, options?: RequestOptions, jar?: CookieJar): Promise<HttpResult<T>> {
     return this.request<T>('PATCH', path, options, jar);
+  }
+
+  put<T = unknown>(path: string, options?: RequestOptions, jar?: CookieJar): Promise<HttpResult<T>> {
+    return this.request<T>('PUT', path, options, jar);
   }
 
   /**
@@ -467,6 +480,37 @@ export class ApiHarness {
     );
     await this.db.execute(sql`DELETE FROM regularizations WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM on_duty_requests WHERE org_id = ${this.orgId}`);
+    // CRM records own an employee (`owner_id`, RESTRICT), so they go before
+    // the employees do — same reasoning, same raw SQL.
+    // Fulfilment and procurement rows point at documents, lines and stock items.
+    await this.db.execute(sql`DELETE FROM dispatch_notifications WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM dispatch_attachments WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM dispatch_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM dispatches WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM pack_record_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM pack_records WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_order_invoices WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM grn_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM grns WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM po_line_requirements WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM purchase_order_notifications WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM purchase_order_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM purchase_orders WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM item_vendors WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM procurement_requirements WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM item_settings WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM document_sequences WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_document_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_documents WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_document_sequences WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM crm_deals WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM crm_pipeline_stages WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM crm_pipelines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM crm_contacts WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM crm_companies WHERE org_id = ${this.orgId}`);
+    // Tasks point at employees twice (assignee, owner) and at their column.
+    await this.db.execute(sql`DELETE FROM tasks WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM task_board_columns WHERE org_id = ${this.orgId}`);
 
     // Employees reference each other through reporting_manager_id and
     // departments through head_employee_id, so the links are cut before the

@@ -20,11 +20,22 @@ afterEach(() => {
 });
 
 describe('CalculatorButton', () => {
-  it('shows both keys, because Ctrl+N is reserved by the browser', () => {
-    // PRD §6.4: register the Tally key, provide a documented alias, show both.
+  it('shows both keys, because Ctrl+N is reserved by the browser', async () => {
+    /*
+     * PRD §6.4: register the Tally key, provide a documented alias, show both.
+     *
+     * "Show" is now the tooltip rather than a chip beside the icon — the pair
+     * rendered five chips permanently and made this the widest control in the
+     * header. The requirement this asserts is unchanged: both keys reach the
+     * reader from the control itself. Only the moment changed, and that
+     * departure is recorded as OPEN-QUESTIONS G-10.
+     */
+    const user = userEvent.setup();
     renderWithProviders(<CalculatorButton />);
 
-    const chips = screen.getAllByText(/^(Ctrl|⌃|N|Alt|⌥)$/u).map((el) => el.textContent);
+    await user.hover(screen.getByRole('button', { name: 'Calculator' }));
+
+    const chips = (await screen.findAllByText(/^(Ctrl|⌃|N|Alt|⌥)$/u)).map((el) => el.textContent);
     expect(chips).toContain('N');
     expect(chips.filter((c) => c === 'N')).toHaveLength(2);
     expect(screen.getByText('or')).toBeDefined();

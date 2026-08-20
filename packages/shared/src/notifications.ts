@@ -39,6 +39,15 @@ export const NOTIFICATION_EVENTS = {
 
   SYNC_AGENT_STALE: 'sync.agent_stale',
   SYNC_AGENT_RECOVERED: 'sync.agent_recovered',
+
+  TASK_ASSIGNED: 'task.assigned',
+  TASK_DUE_TODAY: 'task.due_today',
+  TASK_OVERDUE: 'task.overdue',
+
+  /** 13 REQ-X-28: stock arrived for an order that was waiting on it. */
+  PROCUREMENT_STOCK_ARRIVED: 'procurement.stock_arrived',
+  /** 12 REQ-AA-15: an order has waited for its invoice longer than the configured hours. */
+  SALES_INVOICE_WAITING: 'sales.invoice_waiting',
 } as const;
 
 export type NotificationEventType =
@@ -70,6 +79,8 @@ export const NOTIFICATION_EVENT_GROUPS = [
   'Approvals',
   'Attendance',
   'Integrations',
+  'Tasks',
+  'Orders',
 ] as const;
 export type NotificationEventGroup = (typeof NOTIFICATION_EVENT_GROUPS)[number];
 
@@ -159,6 +170,31 @@ export const NOTIFICATION_EVENT_DESCRIPTORS: Record<
     label: 'Tally agent back',
     note: 'When a quiet connection starts heartbeating again.',
   },
+  'task.assigned': {
+    group: 'Tasks',
+    label: 'Task assigned to you',
+    note: 'When somebody assigns you a task, or moves one onto you.',
+  },
+  'task.due_today': {
+    group: 'Tasks',
+    label: 'Task due today',
+    note: 'On the morning a task of yours falls due.',
+  },
+  'task.overdue': {
+    group: 'Tasks',
+    label: 'Task overdue',
+    note: 'The morning after a task of yours went past its date. Once per task.',
+  },
+  'procurement.stock_arrived': {
+    group: 'Orders',
+    label: 'Stock arrived for your order',
+    note: 'When a receipt releases a sales order of yours back to the pick queue.',
+  },
+  'sales.invoice_waiting': {
+    group: 'Orders',
+    label: 'Packed order waiting for its invoice',
+    note: 'To accounts, once per order, when packed goods have waited longer than the configured hours (REQ-AA-15).',
+  },
 };
 
 /**
@@ -198,6 +234,11 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   'period.unlocked': '/period-lock',
   'sync.agent_stale': '/integrations',
   'sync.agent_recovered': '/integrations',
+  'task.assigned': '/tasks',
+  'task.due_today': '/tasks',
+  'task.overdue': '/tasks',
+  'procurement.stock_arrived': '/sales/orders',
+  'sales.invoice_waiting': '/sales/awaiting-invoice',
 };
 
 /** Only the channels this phase actually delivers on (REQ-K-02). */

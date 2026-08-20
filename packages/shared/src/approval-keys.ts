@@ -75,6 +75,22 @@ export const APPROVAL_SUBJECT_KEYS: Partial<
     raise: [PERMISSIONS.REGULARIZATION_RAISE],
     scope: {},
   },
+  // 13 REQ-X-16: a PO over the threshold is decided by holders of
+  // purchase.document.approve, and by nobody else -- HR's leave key does
+  // not buy a purchase.
+  purchase_order: {
+    act: [PERMISSIONS.PURCHASE_DOCUMENT_APPROVE],
+    override: [PERMISSIONS.PURCHASE_DOCUMENT_APPROVE],
+    raise: [PERMISSIONS.PURCHASE_DOCUMENT_CREATE],
+    scope: { all: [PERMISSIONS.PURCHASE_DOCUMENT_APPROVE] },
+  },
+  // 08 REQ-W-08: a discount past the threshold is a Sales manager's call.
+  sales_order: {
+    act: [PERMISSIONS.SALES_DISCOUNT_APPROVE],
+    override: [PERMISSIONS.SALES_DISCOUNT_APPROVE],
+    raise: [PERMISSIONS.SALES_DOCUMENT_CREATE],
+    scope: { all: [PERMISSIONS.SALES_DISCOUNT_APPROVE] },
+  },
 };
 
 /**

@@ -71,6 +71,10 @@ export const APPROVAL_TYPES = [
   'ON_DUTY',
   'FLAGGED_PUNCH',
   'DEVICE_REBIND',
+  /** 13 REQ-X-16: a purchase order over the configured value. */
+  'PURCHASE_ORDER',
+  /** 08 REQ-W-08: a sales order discounted past the threshold. */
+  'SALES_DISCOUNT',
 ] as const;
 export type ApprovalType = (typeof APPROVAL_TYPES)[number];
 
@@ -112,6 +116,8 @@ export const FILE_PURPOSES = [
   'ATTACHMENT',
   'ORG_LOGO',
   'IMPORT',
+  /** REQ-AA-20: a dispatch's box and LR photographs, through the same pipeline. */
+  'DISPATCH_PHOTO',
 ] as const;
 export type FilePurpose = (typeof FILE_PURPOSES)[number];
 

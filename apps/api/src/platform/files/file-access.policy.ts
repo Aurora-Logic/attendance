@@ -63,6 +63,10 @@ export const FILE_READ_RULES: Record<FilePurpose, FileReadRule> = {
 
   // REQ-A-06 bulk import files contain the whole workforce in one spreadsheet.
   IMPORT: { kind: 'permission', anyOf: [PERMISSIONS.EMPLOYEE_MANAGE] },
+
+  // REQ-AA-20: a box or an LR photograph, evidence about a shipment, readable
+  // by whoever may read the sales documents it belongs to.
+  DISPATCH_PHOTO: { kind: 'permission', anyOf: [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL] },
 };
 
 export interface ReadableFile {

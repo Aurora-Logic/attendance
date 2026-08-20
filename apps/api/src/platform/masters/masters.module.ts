@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { MastersController } from './masters.controller.js';
 import { MastersService } from './masters.service.js';
 import { PartyGoToSource } from './party-goto.source.js';
+import { TallyReportSource } from './tally-report.source.js';
+import { VoucherGoToSource } from './voucher-goto.source.js';
 
 /**
  * The Tally masters projection's read surface (09 §5). Nothing is imported
@@ -11,7 +13,7 @@ import { PartyGoToSource } from './party-goto.source.js';
  */
 @Module({
   controllers: [MastersController],
-  providers: [MastersService, PartyGoToSource],
+  providers: [MastersService, PartyGoToSource, VoucherGoToSource, TallyReportSource],
   exports: [MastersService],
 })
 export class MastersModule {}

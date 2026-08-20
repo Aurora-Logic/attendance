@@ -54,6 +54,8 @@ const MAX_EDGE_BY_PURPOSE: Record<FilePurpose, number> = {
   ORG_LOGO: 256,
   EXPORT: 1280,
   IMPORT: 1280,
+  // An LR photograph must stay legible: the widest edge a phone camera gives is kept.
+  DISPATCH_PHOTO: 1600,
 };
 
 const BUCKET_BY_PURPOSE: Record<FilePurpose, BucketName> = {
@@ -63,6 +65,7 @@ const BUCKET_BY_PURPOSE: Record<FilePurpose, BucketName> = {
   ORG_LOGO: BUCKETS.PHOTOS,
   EXPORT: BUCKETS.EXPORTS,
   IMPORT: BUCKETS.EXPORTS,
+  DISPATCH_PHOTO: BUCKETS.PHOTOS,
 };
 
 /** The leading path segment, so a bucket listing is readable by a human. */
@@ -73,6 +76,7 @@ const PREFIX_BY_PURPOSE: Record<FilePurpose, string> = {
   ORG_LOGO: 'logos',
   EXPORT: 'exports',
   IMPORT: 'imports',
+  DISPATCH_PHOTO: 'dispatches',
 };
 
 export interface StoreImageInput {

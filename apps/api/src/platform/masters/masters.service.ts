@@ -9,12 +9,16 @@ import {
   type PriceListListQuery,
   type StockItemListQuery,
   type StockItemView,
+  type VoucherDetailView,
+  type VoucherLineView,
+  type VoucherListQuery,
+  type VoucherView,
 } from '@vyuha/shared';
-import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
 
 import { AppError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
-import { parties, priceListEntries, stockItems } from '../db/schema/index.js';
+import { parties, priceListEntries, stockItems, voucherLines, vouchers } from '../db/schema/index.js';
 import { masterSearch } from '../org/master-query.js';
 import { type Principal } from '../rbac/principal.js';
 
@@ -102,6 +106,9 @@ export class MastersService {
         unit: row.unit,
         parentGroup: row.parentGroup,
         gstRate: row.gstRate,
+        closingQty: row.closingQty,
+        salePrice: row.salePrice,
+        costPrice: row.costPrice,
         absentInTally: row.absentInTally,
         lastPulledAt: row.lastPulledAt.toISOString(),
       })),
@@ -174,6 +181,80 @@ export class MastersService {
     );
   }
 
+  /**
+   * Phase 6c, read side. Newest first — the books are read from today
+   * backwards — with the cancelled hidden unless asked for, because a
+   * cancelled voucher is a fact about history, not a line in the ledger.
+   */
+  async listVouchers(principal: Principal, query: VoucherListQuery): Promise<Paginated<VoucherView>> {
+    const { limit, offset } = pageSlice(query);
+    const where = this.voucherPredicate(principal, query);
+
+    const [rows, total] = await Promise.all([
+      this.db
+        .select()
+        .from(vouchers)
+        .where(where)
+        .orderBy(desc(vouchers.voucherDate), desc(vouchers.createdAt), asc(vouchers.id))
+        .limit(limit)
+        .offset(offset),
+      this.db.select({ value: sql<number>`count(*)::int` }).from(vouchers).where(where),
+    ]);
+
+    return paginated(rows.map(toVoucherView), query, total[0]?.value ?? 0);
+  }
+
+  async findVoucher(principal: Principal, id: string): Promise<VoucherDetailView> {
+    const rows = await this.db
+      .select()
+      .from(vouchers)
+      .where(and(eq(vouchers.orgId, principal.orgId), eq(vouchers.id, id)))
+      .limit(1);
+    const row = rows[0];
+    if (row === undefined) throw AppError.notFound('Voucher', id);
+
+    const lines = await this.db
+      .select()
+      .from(voucherLines)
+      .where(eq(voucherLines.voucherId, row.id))
+      .orderBy(asc(voucherLines.lineNo));
+
+    return {
+      ...toVoucherView(row),
+      lines: lines.map(
+        (line): VoucherLineView => ({
+          lineNo: line.lineNo,
+          kind: line.kind,
+          ledgerName: line.ledgerName,
+          isDeemedPositive: line.isDeemedPositive,
+          stockItemName: line.stockItemName,
+          stockItemId: line.stockItemId,
+          actualQty: line.actualQty,
+          billedQty: line.billedQty,
+          rate: line.rate,
+          amount: line.amount,
+        }),
+      ),
+    };
+  }
+
+  private voucherPredicate(principal: Principal, query: VoucherListQuery): SQL {
+    const parts: (SQL | undefined)[] = [eq(vouchers.orgId, principal.orgId)];
+    if (query.voucherType !== undefined) parts.push(eq(vouchers.voucherType, query.voucherType));
+    if (query.partyId !== undefined) parts.push(eq(vouchers.partyId, query.partyId));
+    if (query.from !== undefined) parts.push(gte(vouchers.voucherDate, query.from));
+    if (query.to !== undefined) parts.push(lte(vouchers.voucherDate, query.to));
+    if (query.includeCancelled !== true) parts.push(eq(vouchers.isCancelled, false));
+    if (query.q !== undefined) {
+      parts.push(masterSearch(query.q, [vouchers.voucherNumber, vouchers.partyName, vouchers.narration]));
+    }
+    const predicate = and(...parts);
+    if (predicate === undefined) {
+      throw new Error('Voucher predicate collapsed to undefined; refusing an unscoped query.');
+    }
+    return predicate;
+  }
+
   private partyPredicate(principal: Principal, query: PartyListQuery): SQL {
     const parts: (SQL | undefined)[] = [eq(parties.orgId, principal.orgId)];
 
@@ -203,11 +284,29 @@ function toView(row: typeof parties.$inferSelect): PartyView {
     alias: row.alias,
     parentGroup: row.parentGroup,
     gstin: row.gstin,
+    email: row.email,
+    phone: row.phone,
     address: row.address,
     creditLimit: row.creditLimit,
     creditDays: row.creditDays,
     openingBalance: row.openingBalance,
     absentInTally: row.absentInTally,
+    lastPulledAt: row.lastPulledAt.toISOString(),
+  };
+}
+
+function toVoucherView(row: typeof vouchers.$inferSelect): VoucherView {
+  return {
+    id: row.id,
+    connectionId: row.connectionId,
+    date: row.voucherDate,
+    voucherType: row.voucherType,
+    voucherNumber: row.voucherNumber,
+    partyName: row.partyName,
+    partyId: row.partyId,
+    narration: row.narration,
+    isCancelled: row.isCancelled,
+    amount: row.amount,
     lastPulledAt: row.lastPulledAt.toISOString(),
   };
 }
