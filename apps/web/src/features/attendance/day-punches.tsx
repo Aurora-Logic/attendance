@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { PUNCH_FLAG_REVIEW_LABELS } from '@vyuha/shared';
+import { createElement, useState } from 'react';
+import { PUNCH_SOURCE_ICONS } from '@/components/shared/entity-icons';
+import { PUNCH_FLAG_REVIEW_LABELS, type PunchSource } from '@vyuha/shared';
 import { ImageBrokenIcon, UserGearIcon } from '@phosphor-icons/react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -166,9 +167,10 @@ export function DayPunches({
                 </span>
               </div>
               <span className="text-muted-foreground truncate text-xs">
+                <SourceGlyph source={punch.source} />
                 {punch.source === 'ADMIN_ENTRY'
-                  ? `Recorded by admin${punch.recordedBy === null ? '' : ` (${punch.recordedBy.name})`}`
-                  : humaniseEnum(punch.source)}
+                  ? ` Recorded by admin${punch.recordedBy === null ? '' : ` (${punch.recordedBy.name})`}`
+                  : ` ${humaniseEnum(punch.source)}`}
                 {punch.reason === null ? '' : ` · ${punch.reason}`}
                 {punch.flagReview === null
                   ? ''
@@ -208,4 +210,9 @@ export function DayPunches({
       </Dialog>
     </>
   );
+}
+
+/** Owner, 22 Aug 2026: where a punch came from, as the glyph the source wears everywhere. */
+function SourceGlyph({ source }: { source: PunchSource }) {
+  return createElement(PUNCH_SOURCE_ICONS[source], { 'aria-hidden': true, className: 'inline size-3.5 align-[-2px]' });
 }

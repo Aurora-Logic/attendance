@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { createElement, useMemo, useState } from 'react';
 import { CheckIcon, ProhibitIcon, TrayIcon, UserGearIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import type { HalfDayPart, PunchFlagReviewAction } from '@vyuha/shared';
 import { useSearchParams } from 'react-router';
@@ -8,6 +8,7 @@ import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { APPROVAL_TYPE_ICONS } from '@/components/shared/entity-icons';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -305,7 +306,7 @@ export function ApprovalsPage() {
       header: 'Type',
       cell: (row) => (
         <Badge variant="outline">
-          {row.type === 'FLAGGED_PUNCH' ? <ACTION_ICONS.flag aria-hidden /> : null}
+          <TypeGlyph type={row.type} />
           {APPROVAL_TYPE_LABELS[row.type]}
         </Badge>
       ),
@@ -485,7 +486,7 @@ export function ApprovalsPage() {
                 <SelectItem value={ALL}>All types</SelectItem>
                 {APPROVAL_TYPES.map((value) => (
                   <SelectItem key={value} value={value}>
-                    {value === 'FLAGGED_PUNCH' ? <ACTION_ICONS.flag aria-hidden /> : null}
+                    <TypeGlyph type={value} />
                     {APPROVAL_TYPE_LABELS[value]}
                   </SelectItem>
                 ))}
@@ -757,4 +758,9 @@ export function ApprovalsPage() {
       />
     </>
   );
+}
+
+/** Owner, 22 Aug 2026: a request type wears one glyph in the inbox, its filter and the bell. */
+function TypeGlyph({ type }: { type: ApprovalType }) {
+  return createElement(APPROVAL_TYPE_ICONS[type], { 'aria-hidden': true });
 }

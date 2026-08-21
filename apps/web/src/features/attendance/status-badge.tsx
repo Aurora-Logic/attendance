@@ -1,6 +1,8 @@
+import { createElement } from 'react';
 import { SunHorizonIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { ATTENDANCE_STATUS_ICONS } from '@/components/shared/entity-icons';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,6 +33,7 @@ export function AttendanceStatusBadge({
     // takes its shape and typography and leaves the colour to the tokens in
     // status.ts rather than to a second, competing palette.
     <Badge variant="ghost" className={cn(statusClasses(status), className)}>
+      <StatusGlyph status={status} />
       {STATUS_TONES[status].label}
     </Badge>
   );
@@ -78,4 +81,9 @@ export function EarlyStreakBadge({ streak, className }: { streak: number; classN
       {streak} {streak === 1 ? 'day early' : 'days early'}
     </Badge>
   );
+}
+
+/** Owner, 22 Aug 2026: each status wears one glyph, here and on the calendar legend. */
+function StatusGlyph({ status }: { status: AttendanceStatus }) {
+  return createElement(ATTENDANCE_STATUS_ICONS[status], { 'aria-hidden': true });
 }

@@ -7,6 +7,7 @@ import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
@@ -43,7 +44,12 @@ import { usePurchaseOrders } from './use-purchase';
 const ALL = '__all__';
 
 const COLUMNS: RecordColumn<PurchaseOrderSummary>[] = [
-  { key: 'number', header: 'Number', cell: (row) => <span className="font-medium tabular-nums">{row.number}</span> },
+  { key: 'number', header: 'Number', cell: (row) => (
+    <span className="inline-flex items-center gap-1.5 font-medium tabular-nums [&_svg]:size-3.5">
+      <DOCUMENT_ICONS.purchase_order aria-hidden className="text-muted-foreground" />
+      {row.number}
+    </span>
+  ) },
   { key: 'vendor', header: 'Vendor', cell: (row) => row.vendorName },
   { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
   { key: 'status', header: 'Status', cell: (row) => <Badge variant="outline">{PURCHASE_ORDER_STATUS_LABELS[row.status]}</Badge> },

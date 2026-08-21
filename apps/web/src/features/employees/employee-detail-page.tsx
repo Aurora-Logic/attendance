@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { type ReactNode, createElement, useMemo, useState } from 'react';
 import {
   ArrowLeftIcon,
   CalendarXIcon,
@@ -17,6 +17,7 @@ import { RecordTable, type RecordColumn } from '@/components/shared/record-table
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { PUNCH_SOURCE_ICONS } from '@/components/shared/entity-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
@@ -260,7 +261,17 @@ const PUNCH_COLUMNS: RecordColumn<EmployeePunch>[] = [
       </Badge>
     ),
   },
-  { key: 'source', header: 'Source', cell: (row) => humaniseEnum(row.source), secondary: true },
+  {
+    key: 'source',
+    header: 'Source',
+    cell: (row) => (
+      <span className="inline-flex items-center gap-1.5 [&_svg]:size-3.5">
+        {createElement(PUNCH_SOURCE_ICONS[row.source], { 'aria-hidden': true, className: 'text-muted-foreground' })}
+        {humaniseEnum(row.source)}
+      </span>
+    ),
+    secondary: true,
+  },
   {
     key: 'flags',
     header: 'Flags',

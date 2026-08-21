@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
+import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
@@ -42,7 +43,12 @@ function NotificationSummary({ row }: { row: Dispatch }) {
 }
 
 const COLUMNS: RecordColumn<Dispatch>[] = [
-  { key: 'number', header: 'Number', cell: (row) => <span className="font-medium tabular-nums">{row.number}</span> },
+  { key: 'number', header: 'Number', cell: (row) => (
+    <span className="inline-flex items-center gap-1.5 font-medium tabular-nums [&_svg]:size-3.5">
+      <DOCUMENT_ICONS.dispatch aria-hidden className="text-muted-foreground" />
+      {row.number}
+    </span>
+  ) },
   { key: 'order', header: 'Order', cell: (row) => <span className="tabular-nums">{row.orderNumber}</span> },
   { key: 'customer', header: 'Customer', cell: (row) => row.customerName },
   { key: 'mode', header: 'Mode', cell: (row) => DISPATCH_MODE_LABELS[row.mode] },

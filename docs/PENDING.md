@@ -59,10 +59,10 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 
 | ID | Item | Description | Status |
 |----|------|-------------|--------|
-| B-01 | Approval-type glyphs | One glyph per request type, worn in inbox rows, the type filter and bell notifications | Not started |
-| B-02 | Attendance status glyphs | One glyph per status on the pill, the calendar legend and the muster | Not started |
-| B-03 | Punch source glyphs | Phone, browser, offline sync, admin entry on punch rows, the receipt and the source chart | Not started |
-| B-04 | Document-type glyphs | Estimate, order, invoice, dispatch, PO, GRN on the Sales/Purchase lists and Go To | Not started |
+| B-01 | Approval-type glyphs | One glyph per request type (`APPROVAL_TYPE_ICONS`), worn in inbox rows, the type filter and every bell row | Done |
+| B-02 | Attendance status glyphs | One glyph per status (`ATTENDANCE_STATUS_ICONS`) on the pill and the calendar legend, hence the muster and every day list | Done |
+| B-03 | Punch source glyphs | Phone, browser, offline sync, admin entry (`PUNCH_SOURCE_ICONS`) on day-sheet punch rows and the profile punch list; the source chart keeps its colours | Done |
+| B-04 | Document-type glyphs | Estimate, order, invoice, dispatch, PO, GRN (`DOCUMENT_ICONS`) on the six list pages; Go To reads the same table | Done |
 | B-05 | Flag review log | Who accepted / kept / half-dayed what, per admin per week | Not started |
 | B-06 | Approvals turnaround | Median and p90 time-to-decision by request type; oldest pending | Not started |
 | B-07 | Early-arrival leaderboard | Current streaks and early minutes by employee and department | Not started |

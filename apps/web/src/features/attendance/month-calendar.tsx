@@ -1,8 +1,9 @@
-import { createContext, useContext, useMemo, type ComponentProps } from 'react';
+import { type ComponentProps, createContext, createElement, useContext, useMemo } from 'react';
+import { ATTENDANCE_STATUS_ICONS } from '@/components/shared/entity-icons';
 
 import { Calendar, CalendarDayButton } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
-import { ATTENDANCE_STATUSES } from '@vyuha/shared';
+import { ATTENDANCE_STATUSES, type AttendanceStatus } from '@vyuha/shared';
 
 import { toDateParam } from './format';
 import { statusClasses, statusLabel } from './status';
@@ -110,6 +111,7 @@ export function MonthCalendar({
                 aria-hidden
                 className={cn('size-3 shrink-0 border', statusClasses(status))}
               />
+              <StatusGlyph status={status} />
               <span className="text-muted-foreground">{statusLabel(status)}</span>
             </li>
           ))}
@@ -117,4 +119,9 @@ export function MonthCalendar({
       ) : null}
     </div>
   );
+}
+
+/** The status's own glyph beside its swatch (owner, 22 Aug 2026), the same one the pill wears. */
+function StatusGlyph({ status }: { status: AttendanceStatus }) {
+  return createElement(ATTENDANCE_STATUS_ICONS[status], { 'aria-hidden': true, className: 'text-muted-foreground size-3' });
 }
