@@ -114,7 +114,7 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
     <div className="flex flex-col gap-4 border p-4">
       <SectionHeading
         title="Office location"
-        note="REQ-D-08. The centre and radius that decide where a punch from a phone is accepted."
+        note="The centre and radius that decide where a punch from a phone is accepted."
       />
 
       {query.isPending ? <PanelSkeleton /> : null}
@@ -379,8 +379,8 @@ function AllowlistNote({ location }: { location: LocationSummary }) {
       <h3 className="text-sm font-medium">Office IP allowlist</h3>
       <p className="text-muted-foreground max-w-prose text-xs">
         {count === 0
-          ? `Not enforced. No addresses are listed for ${location.name}, so a punch from a browser is not restricted by network (REQ-D-09) — it is accepted and flagged to say the check was off. Geofencing above is the control that decides where a punch may come from.`
-          : `Enforced. ${String(count)} address${count === 1 ? '' : 'es'} listed, so a punch from a browser at ${location.name} is accepted only from ${count === 1 ? 'it' : 'them'} (REQ-D-09).`}{' '}
+          ? `Not enforced. No addresses are listed for ${location.name}, so a punch from a browser is not restricted by network — it is accepted and flagged to say the check was off. Geofencing above is the control that decides where a punch may come from.`
+          : `Enforced. ${String(count)} address${count === 1 ? '' : 'es'} listed, so a punch from a browser at ${location.name} is accepted only from ${count === 1 ? 'it' : 'them'}.`}{' '}
         It is set per location under Organisation → Locations, not here.
       </p>
     </div>

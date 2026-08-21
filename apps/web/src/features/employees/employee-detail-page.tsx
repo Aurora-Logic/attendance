@@ -892,7 +892,7 @@ export function EmployeeDetailPage() {
       />
       {/* Same dialog as the register's, from the same action list, so the two
           screens cannot come to different conclusions about who may be
-          invited (REQ-B-03). */}
+          invited. */}
       <EmployeeInviteDialog
         employee={inviting}
         onOpenChange={(open) => {

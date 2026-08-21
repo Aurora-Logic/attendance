@@ -618,7 +618,7 @@ const CUSTOMER_LAPSE_COLUMNS: readonly ReportColumnSpec[] = [
 
 /** 14 REQ-AE-02: one ledger's transactions with a running balance, opening from what came before. */
 const LEDGER_EXTRACT_COLUMNS: readonly ReportColumnSpec[] = [
-  { key: 'date', header: 'Date', type: 'date', width: 12 },
+  { key: 'date', header: 'Date', type: 'date', sortField: 'date', width: 12 },
   { key: 'voucherType', header: 'Type', type: 'text', width: 14 },
   { key: 'voucherNumber', header: 'Number', type: 'code', width: 12 },
   { key: 'partyName', header: 'Party', type: 'text', secondary: true, width: 24 },
@@ -661,7 +661,7 @@ const STALE_PROJECTIONS_COLUMNS: readonly ReportColumnSpec[] = [
 /** 14 REQ-AH-12: near-matching master names. Vyuha flags; the accountant merges in Tally. */
 const DUPLICATE_MASTERS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'kind', header: 'Master', type: 'text', width: 10 },
-  { key: 'nameA', header: 'Name', type: 'text', width: 30 },
+  { key: 'nameA', header: 'Name', type: 'text', sortField: 'nameA', width: 30 },
   { key: 'nameB', header: 'Looks like', type: 'text', width: 30 },
   { key: 'reason', header: 'Why flagged', type: 'text', secondary: true, width: 24 },
 ];

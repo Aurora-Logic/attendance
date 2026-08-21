@@ -112,7 +112,7 @@ function CompanySheetBody({
         <SheetTitle>{isNew ? 'New company' : initial.name}</SheetTitle>
         <SheetDescription>
           {isNew
-            ? 'A prospect organisation. It becomes a Tally party only when a deal is won (REQ-U-03).'
+            ? 'A prospect organisation. It becomes a Tally party only when a deal is won.'
             : record !== null && record.contactCount > 0
               ? `${record.contactCount} contact${record.contactCount === 1 ? '' : 's'}.`
               : 'No contacts yet.'}

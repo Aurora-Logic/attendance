@@ -214,7 +214,7 @@ function WeeklyOffSheetBody({
             />
           </Field>
           <FieldDescription>
-            REQ-C-03&apos;s alternate-Saturday rule. This is not the same as ticking Saturday
+            The alternate-Saturday rule. This is not the same as ticking Saturday
             above, which makes every Saturday off.
           </FieldDescription>
 

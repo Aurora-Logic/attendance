@@ -172,7 +172,7 @@ function HolidaySheetBody({ initial, onClose }: { initial: HolidayDraft; onClose
             />
           </Field>
           <FieldDescription>
-            REQ-H-03: a restricted day is a holiday only for the employees who elect it, and each
+            A restricted day is a holiday only for the employees who elect it, and each
             election spends one of the calendar&rsquo;s allowance.
           </FieldDescription>
         </FieldGroup>

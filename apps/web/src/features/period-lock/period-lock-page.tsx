@@ -348,7 +348,7 @@ function PeriodLockBody({ canLock, canUnlock }: { canLock: boolean; canUnlock: b
               ]
         }
         prompt="Why is this being unlocked?"
-        hint="REQ-E-09 requires it. Write what a reader in six months would need."
+        hint="Required. Write what a reader in six months would need."
         confirmLabel="Unlock"
         pendingLabel="Unlocking"
         confirmIcon={<LockKeyOpenIcon data-icon="inline-start" />}

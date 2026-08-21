@@ -125,7 +125,7 @@ function PurchaseSettingsForm({ saved, save, onClose }: { saved: PurchaseSetting
                 setThreshold(event.target.value);
               }}
             />
-            <FieldDescription>POs at or above this amount wait for approval in the inbox (REQ-X-16); leave empty for none.</FieldDescription>
+            <FieldDescription>POs at or above this amount wait for approval in the inbox; leave empty for none.</FieldDescription>
           </Field>
           <Field>
             <FieldLabel htmlFor="purchase-invoice-hours">Invoice waiting hours</FieldLabel>
@@ -139,7 +139,7 @@ function PurchaseSettingsForm({ saved, save, onClose }: { saved: PurchaseSetting
                 setHours(event.target.value);
               }}
             />
-            <FieldDescription>Hours packed goods may wait for an invoice before accounts is told (REQ-AA-15); 0 disables.</FieldDescription>
+            <FieldDescription>Hours packed goods may wait for an invoice before accounts is told; 0 disables.</FieldDescription>
           </Field>
         </FieldGroup>
       </Form>

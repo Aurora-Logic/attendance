@@ -187,7 +187,7 @@ function RecycleBinBody({ allowed }: { allowed: readonly SoftDeletableEntity[] }
 
   return (
     <>
-      <PageHeader description="Nothing is ever hard-deleted (REQ-M-04). Anything removed lands here with who removed it and why, and can be put back." />
+      <PageHeader description="Nothing is ever hard-deleted. Anything removed lands here with who removed it and why, and can be put back." />
 
       <div className="flex flex-col gap-4">
         {/* Toolbar row (PRD §6.2). Wraps at 360px rather than scrolling. */}

@@ -410,7 +410,7 @@ export function AnalyticsPage() {
           <section className="flex flex-col gap-3">
             <SectionHeading
               title="Punctuality"
-              note="Late arrivals, by how late and by who. Minutes come from the shift's own late threshold (REQ-C-01)."
+              note="Late arrivals, by how late and by who. Minutes come from the shift's own late threshold."
             />
 
             <div className="grid gap-3 lg:grid-cols-2">
@@ -444,7 +444,7 @@ export function AnalyticsPage() {
           <section className="flex flex-col gap-3">
             <SectionHeading
               title="Overtime"
-              note="Minutes only. This product records overtime and never prices it (REQ-E-05)."
+              note="Minutes only. This product records overtime and never prices it."
             />
 
             <ChartPanel

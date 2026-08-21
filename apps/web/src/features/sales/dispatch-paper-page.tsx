@@ -106,7 +106,7 @@ export function DispatchPaperPage() {
               <AlertTitle>{record.syncState === 'FAILED' ? 'Tally rejected the Delivery Note' : 'Tally has since changed it'}</AlertTitle>
               <AlertDescription>
                 <p className="font-mono text-xs">{record.lastError}</p>
-                <p className="mt-1">{record.syncState === 'FAILED' ? 'Tally’s own words (REQ-T-01). Fix the cause there, then push again.' : 'Seen on the pull (D-38). The goods left either way; the accountant decides what replaces the voucher.'}</p>
+                <p className="mt-1">{record.syncState === 'FAILED' ? 'Tally’s own words. Fix the cause there, then push again.' : 'Seen on the pull (D-38). The goods left either way; the accountant decides what replaces the voucher.'}</p>
               </AlertDescription>
             </Alert>
           ) : null}

@@ -64,7 +64,7 @@ export function AllocationForm({ grn, onAllocated, footer }: AllocationFormProps
           toast.add({
             type: 'success',
             title: `${saved.number} allocated`,
-            description: saved.pendingAllocations.length === 0 ? 'Every waiting order has its share; the owners are told (REQ-X-28).' : `${String(saved.pendingAllocations.length)} line${saved.pendingAllocations.length === 1 ? '' : 's'} still wait for a decision.`,
+            description: saved.pendingAllocations.length === 0 ? 'Every waiting order has its share; the owners are told.' : `${String(saved.pendingAllocations.length)} line${saved.pendingAllocations.length === 1 ? '' : 's'} still wait for a decision.`,
           });
           onAllocated?.(saved);
         },
@@ -158,7 +158,7 @@ export function AllocateDialog({ grn, onGrnChange }: { grn: Grn | null; onGrnCha
           <ShortcutLayer id={`modal:allocate-${grn.id}`}>
             <DialogHeader>
               <DialogTitle>Who gets {grn.number}?</DialogTitle>
-              <DialogDescription>Less came in than the waiting orders need. Decide who gets what; the rest keeps waiting for the next receipt (REQ-X-27).</DialogDescription>
+              <DialogDescription>Less came in than the waiting orders need. Decide who gets what; the rest keeps waiting for the next receipt.</DialogDescription>
             </DialogHeader>
             <AllocationForm
               key={grn.id}

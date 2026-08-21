@@ -86,7 +86,7 @@ function AvailabilitySection({ stockItemId }: { stockItemId: string }) {
   const availability = useItemAvailability(stockItemId);
   return (
     <section className="flex flex-col gap-3">
-      <SectionHeading title="Availability" note="Available is Tally's closing balance less what open sales orders have committed (REQ-AC-04). Vyuha never writes a stock figure (REQ-AC-07)." />
+      <SectionHeading title="Availability" note="Available is Tally's closing balance less what open sales orders have committed. Vyuha never writes a stock figure." />
       {availability.isPending ? (
         <div role="status" aria-busy="true" aria-label="Loading availability" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {Array.from({ length: 4 }, (_, index) => (
@@ -112,7 +112,7 @@ function AvailabilitySection({ stockItemId }: { stockItemId: string }) {
             <Fact label="On order" value={formatQty(availability.data.openPoQty)} />
           </dl>
           <p className="text-muted-foreground text-xs">
-            {availability.data.asOf === null ? 'No stock pull has landed for this item yet; the closing figure is unknown (REQ-AC-05).' : `Tally figures as of the pull ${formatRelativeAge(availability.data.asOf)} (REQ-AC-05).`}
+            {availability.data.asOf === null ? 'No stock pull has landed for this item yet; the closing figure is unknown.' : `Tally figures as of the pull ${formatRelativeAge(availability.data.asOf)}.`}
           </p>
         </>
       ) : null}
@@ -163,7 +163,7 @@ function SettingsSection({ stockItemId, canEdit }: { stockItemId: string; canEdi
       {
         onSuccess: () => {
           setEdited(null);
-          toast.add({ type: 'success', title: 'Purchasing settings saved', description: 'The nightly reorder check reads the new level (REQ-X-09).' });
+          toast.add({ type: 'success', title: 'Purchasing settings saved', description: 'The nightly reorder check reads the new level.' });
         },
       },
     );
@@ -295,7 +295,7 @@ function VendorsSection({ stockItemId, canEdit }: { stockItemId: string; canEdit
     <section className="flex flex-col gap-3">
       <SectionHeading
         title="Vendors"
-        note="Who supplies this item, which one is preferred, and their lead time in days (REQ-X-15, D-27, D-33). One preferred at most."
+        note="Who supplies this item, which one is preferred, and their lead time in days. One preferred at most."
         action={
           canEdit ? (
             <>
@@ -428,7 +428,7 @@ function HistorySection({ stockItemId, partyId }: { stockItemId: string; partyId
     <section className="flex flex-col gap-3">
       <SectionHeading
         title="Purchase history"
-        note="Purchase vouchers pulled from Tally and earlier purchase orders here, newest first (REQ-X-14)."
+        note="Purchase vouchers pulled from Tally and earlier purchase orders here, newest first."
         action={
           partyId === null ? null : (
             <ToggleGroup

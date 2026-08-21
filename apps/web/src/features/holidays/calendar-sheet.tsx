@@ -181,7 +181,7 @@ function CalendarSheetBody({
               }}
             />
             <FieldDescription>
-              REQ-H-03. Zero means this calendar does not offer restricted holidays; a restricted
+              Zero means this calendar does not offer restricted holidays; a restricted
               date then counts as an ordinary working day for everyone.
             </FieldDescription>
           </Field>

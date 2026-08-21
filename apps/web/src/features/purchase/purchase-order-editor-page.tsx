@@ -336,7 +336,7 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
       {
         onSuccess: (saved) => {
           if (saved.status === 'PENDING_APPROVAL') {
-            toast.add({ type: 'success', title: `${saved.number} awaiting approval`, description: `${formatMoney(saved.grandTotal)} is above the approval threshold: a holder of purchase.document.approve decides it in the Approvals inbox (REQ-X-16).` });
+            toast.add({ type: 'success', title: `${saved.number} awaiting approval`, description: `${formatMoney(saved.grandTotal)} is above the approval threshold: a holder of purchase.document.approve decides it in the Approvals inbox.` });
           } else {
             toast.add({
               type: 'success',
@@ -394,7 +394,7 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
                   <AlertTitle>Tally rejected it</AlertTitle>
                   <AlertDescription>
                     <p className="font-mono text-xs">{record.lastError}</p>
-                    <p className="mt-1">Tally&rsquo;s own words (REQ-T-01). Fix the cause there or here, then push again.</p>
+                    <p className="mt-1">Tally&rsquo;s own words. Fix the cause there or here, then push again.</p>
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -415,11 +415,11 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
                 <Alert>
                   <ProhibitIcon />
                   <AlertTitle>Short-closed {formatRelativeAge(record.shortClosedAt)}</AlertTitle>
-                  <AlertDescription>{record.shortCloseReason ?? 'The vendor will not supply the balance.'} What was not received went back to the queue (REQ-X-23).</AlertDescription>
+                  <AlertDescription>{record.shortCloseReason ?? 'The vendor will not supply the balance.'} What was not received went back to the queue.</AlertDescription>
                 </Alert>
               ) : null}
               {isDraft && record.approvalRequired && !canApprove ? (
-                <p className="text-muted-foreground text-sm">At {formatMoney(record.grandTotal)} this order is above the approval threshold: confirming sends it to the Approvals inbox rather than to Tally (REQ-X-16).</p>
+                <p className="text-muted-foreground text-sm">At {formatMoney(record.grandTotal)} this order is above the approval threshold: confirming sends it to the Approvals inbox rather than to Tally.</p>
               ) : null}
               {record.salesOrderId ? (
                 <p className="text-muted-foreground text-sm">
@@ -516,7 +516,7 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
               }
             }}
             title={`Short-close ${record.number}?`}
-            description="The vendor will not supply the balance (REQ-X-23). Nothing more can be received against it."
+            description="The vendor will not supply the balance. Nothing more can be received against it."
             consequences={[`${formatQty(String(owed))} still owed goes back to the queue as open requirements.`, 'The reason is recorded and audited.']}
             prompt="Why will the balance not come?"
             confirmLabel="Short close"

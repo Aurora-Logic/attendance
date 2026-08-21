@@ -331,7 +331,7 @@ function DepartmentBody({
           }}
         />
         <FieldDescription>
-          REQ-A-02: a hierarchy. The server refuses a parent that would close a loop.
+          A hierarchy. The server refuses a parent that would close a loop.
         </FieldDescription>
       </Field>
     </MasterSheetBody>
@@ -731,7 +731,7 @@ function LocationBody({
           }}
         />
         <FieldDescription>
-          REQ-D-08. Both halves or neither: a centre with one coordinate is not a centre, and the
+          Both halves or neither: a centre with one coordinate is not a centre, and the
           server refuses it.
         </FieldDescription>
       </Field>
@@ -781,7 +781,7 @@ function LocationBody({
           }}
         />
         <FieldDescription>
-          REQ-D-09. One address or CIDR block per line, up to 50. An empty list blocks web punch
+          One address or CIDR block per line, up to 50. An empty list blocks web punch
           from this location; it does not mean everything is allowed.
         </FieldDescription>
       </Field>

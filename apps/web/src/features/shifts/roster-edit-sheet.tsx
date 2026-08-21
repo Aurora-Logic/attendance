@@ -137,7 +137,7 @@ function RosterEditBody({
         <SheetTitle>{entry.employee.name}</SheetTitle>
         <SheetDescription>
           {entry.employee.employeeCode}. Changing the shift or the dates recomputes the attendance
-          days this assignment covers, unless the period is locked (REQ-C-06).
+          days this assignment covers, unless the period is locked.
         </SheetDescription>
       </SheetHeader>
 

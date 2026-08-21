@@ -231,7 +231,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
                 label="Tally party"
                 placeholder="Tally party"
                 searchPlaceholder="Search parties"
-                emptyMessage="No party matches. A prospect is a CRM company until it buys (REQ-U-03)."
+                emptyMessage="No party matches. A prospect is a CRM company until it buys."
                 icon={<BooksIcon className="text-muted-foreground" />}
                 options={partyOptions}
                 loading={parties.isPending}

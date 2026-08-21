@@ -158,7 +158,7 @@ export function LoginPage() {
               <FieldLabel htmlFor="password">Password</FieldLabel>
               {/* Reveal, because a typo in a masked field is invisible and the
                   cost of getting it wrong is a lockout after five attempts
-                  (REQ-B-10). The button is a real control, not an icon glued
+. The button is a real control, not an icon glued
                   onto the input, so it is reachable by keyboard and announces
                   which state it will switch to. */}
               <InputGroup>

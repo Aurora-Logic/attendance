@@ -616,7 +616,7 @@ export function PunchPage() {
             <AlertTitle>This device's clock is wrong</AlertTitle>
             <AlertDescription>
               It differs from the server by more than five minutes. The punch will still be
-              recorded against the server time and flagged for review (REQ-D-05).
+              recorded against the server time and flagged for review.
             </AlertDescription>
           </Alert>
         ) : null}

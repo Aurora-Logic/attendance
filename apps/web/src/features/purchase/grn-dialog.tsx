@@ -122,7 +122,7 @@ function GrnDialogBody({ order, onReceived, onClose }: { order: PurchaseOrder; o
       <DialogHeader>
         <DialogTitle>Receive against {order.number}</DialogTitle>
         <DialogDescription>
-          {order.vendorName}. Enter what arrived per line; anything rejected needs a reason and does not go into stock (REQ-X-21). Leave a line blank if none of it came.
+          {order.vendorName}. Enter what arrived per line; anything rejected needs a reason and does not go into stock. Leave a line blank if none of it came.
         </DialogDescription>
       </DialogHeader>
       <Form onSubmit={submit} className="max-h-[60vh] overflow-y-auto">
@@ -199,7 +199,7 @@ function GrnDialogBody({ order, onReceived, onClose }: { order: PurchaseOrder; o
                   setVendorInvoiceRef(event.target.value);
                 }}
               />
-              <FieldDescription>Carried into the Receipt Note narration for the accountant booking the bill (REQ-X-22).</FieldDescription>
+              <FieldDescription>Carried into the Receipt Note narration for the accountant booking the bill.</FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="grn-notes">Notes</FieldLabel>

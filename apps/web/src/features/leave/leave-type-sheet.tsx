@@ -385,7 +385,7 @@ function LeaveTypeForm({
                         }}
                       />
                       <FieldDescription>
-                        REQ-G-08: how far a balance may go below zero. Zero disallows it.
+                        How far a balance may go below zero. Zero disallows it.
                       </FieldDescription>
                       {attempted ? <FieldError>{errors.negativeBalanceLimit}</FieldError> : null}
                     </Field>

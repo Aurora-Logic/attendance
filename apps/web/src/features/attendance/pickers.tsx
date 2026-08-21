@@ -32,7 +32,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-import { formatClock, toDateParam } from './format';
+import { formatClock, formatDuration, toDateParam } from './format';
 
 /**
  * Date, month, range and time entry, composed from shadcn primitives.
@@ -579,6 +579,114 @@ export function TimeField({
               {MINUTES.map((m) => (
                 <SelectItem key={m} value={m} className="tabular-nums">
                   {m}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+    </PickerSurface>
+  );
+}
+
+// ------------------------------------------------------------ duration field
+
+/** Up to a full day, which is the ceiling every policy duration shares. */
+const DURATION_HOURS = Array.from({ length: 25 }, (_, index) => String(index));
+
+interface DurationFieldProps extends OpenControl {
+  /** Whole minutes. */
+  value: number;
+  onValueChange: (minutes: number) => void;
+  label: string;
+  id?: string;
+  disabled?: boolean;
+  className?: string;
+}
+
+/**
+ * A duration as hours and minutes in five-minute steps, in the same surface
+ * as the clock picker - so a grace window is picked the way a shift start is,
+ * and nothing about a policy is typed. Values that arrive off the five-minute
+ * grid (an older typed value) show rounded down to it.
+ */
+export function DurationField({
+  value,
+  onValueChange,
+  label,
+  id,
+  disabled,
+  className,
+  ...control
+}: DurationFieldProps) {
+  const [open, setOpen] = useOpenState(control);
+  const hours = String(Math.min(24, Math.floor(Math.max(0, value) / 60)));
+  const minutes = String(Math.floor((Math.max(0, value) % 60) / 5) * 5).padStart(2, '0');
+
+  return (
+    <PickerSurface
+      open={open}
+      onOpenChange={setOpen}
+      title={label}
+      description="Pick hours and minutes."
+      trigger={
+        <Button
+          id={id}
+          variant="outline"
+          aria-label={label}
+          disabled={disabled}
+          className={cn('w-full justify-start gap-2 tabular-nums', className)}
+        >
+          <ClockIcon data-icon="inline-start" />
+          {/* Zero is a real policy value here (no grace), not an absence. */}
+          {value <= 0 ? '0m' : formatDuration(value)}
+        </Button>
+      }
+      footer={
+        <Button
+          className="w-full"
+          onClick={() => {
+            setOpen(false);
+          }}
+        >
+          Done
+        </Button>
+      }
+    >
+      <div className="flex w-full items-center gap-2">
+        <Select
+          value={hours}
+          onValueChange={(next: string | null) => {
+            if (next !== null) onValueChange(Number(next) * 60 + Number(minutes));
+          }}
+        >
+          <SelectTrigger aria-label={`${label} hours`} className="pointer-coarse:h-11 flex-1">
+            <SelectValue>{(selected: string) => `${selected} h`}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {DURATION_HOURS.map((h) => (
+                <SelectItem key={h} value={h} className="tabular-nums">
+                  {h} h
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <Select
+          value={minutes}
+          onValueChange={(next: string | null) => {
+            if (next !== null) onValueChange(Number(hours) * 60 + Number(next));
+          }}
+        >
+          <SelectTrigger aria-label={`${label} minutes`} className="pointer-coarse:h-11 flex-1">
+            <SelectValue>{(selected: string) => `${selected} m`}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {MINUTES.map((m) => (
+                <SelectItem key={m} value={m} className="tabular-nums">
+                  {m} m
                 </SelectItem>
               ))}
             </SelectGroup>

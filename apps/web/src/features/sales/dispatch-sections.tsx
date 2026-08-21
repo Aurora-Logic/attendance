@@ -43,7 +43,7 @@ export function DispatchNotifications({ dispatch }: { dispatch: Dispatch }) {
   const mark = useMarkNotification();
   return (
     <div className="flex flex-col gap-2">
-      <SectionHeading title="Customer notification" note="Composed here; sent by hand until the channels are wired (REQ-AA-26). Mark it once it has gone." />
+      <SectionHeading title="Customer notification" note="Composed here; sent by hand until the channels are wired. Mark it once it has gone." />
       {dispatch.notifications.length === 0 ? <p className="text-muted-foreground text-xs">No notification was composed.</p> : null}
       <ul className="flex flex-col divide-y border">
         {dispatch.notifications.map((notification) => (
@@ -75,7 +75,7 @@ export function DispatchNotifications({ dispatch }: { dispatch: Dispatch }) {
                       { dispatchId: dispatch.id, notificationId: notification.id, status: 'sent' },
                       {
                         onSuccess: () => {
-                          toast.add({ type: 'success', title: `${notification.channel === 'email' ? 'Email' : 'WhatsApp'} marked sent`, description: `Recorded against ${dispatch.number} (REQ-AA-27).` });
+                          toast.add({ type: 'success', title: `${notification.channel === 'email' ? 'Email' : 'WhatsApp'} marked sent`, description: `Recorded against ${dispatch.number}.` });
                         },
                       },
                     );

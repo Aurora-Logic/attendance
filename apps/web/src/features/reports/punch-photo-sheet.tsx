@@ -77,7 +77,7 @@ function PhotoFrame({
         <AlertTitle>The photo could not be loaded</AlertTitle>
         <AlertDescription>
           {/* A punch photo past its retention window is deleted by design
-              (REQ-L-03); the punch record survives without it. */}
+; the punch record survives without it. */}
           It may have passed its retention window, or you may not have permission to view it.
         </AlertDescription>
       </Alert>

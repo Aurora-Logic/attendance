@@ -190,7 +190,7 @@ export function PatternsPage() {
                 }
               }}
             />
-            <FieldDescription>Immutable once created (REQ-A-04).</FieldDescription>
+            <FieldDescription>Immutable once created.</FieldDescription>
           </Field>
           <Field>
             <FieldLabel htmlFor="demo-name">Name</FieldLabel>

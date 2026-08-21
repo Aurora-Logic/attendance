@@ -401,7 +401,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Organisation profile"
-              note="REQ-L-01. These decide how every date on every screen and export is written."
+              note="These decide how every date on every screen and export is written."
             />
             <FieldGroup className="grid gap-5 md:grid-cols-2">
               <Field>
@@ -477,7 +477,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                   value: String(month.value),
                   label: month.label,
                 }))}
-                help="REQ-G-04. Accruals, carry-forward and lapse are all measured from here."
+                help="Accruals, carry-forward and lapse are all measured from here."
                 onValueChange={(next) => {
                   patchOrganisation({ leaveYearStartMonth: Number(next) });
                 }}
@@ -501,7 +501,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Attendance policy"
-              note="REQ-L-02. Changing a value here alters behaviour without a redeploy."
+              note="Changing a value here alters behaviour without a redeploy."
             />
             <FieldGroup className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               <PolicyChoiceField
@@ -616,7 +616,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Punch photos"
-              note="REQ-L-03. Retention decides how long a face is kept, so it is a privacy setting as much as a storage one."
+              note="Retention decides how long a face is kept, so it is a privacy setting as much as a storage one."
             />
 
             {draft.photo.retentionMonths !== saved.photo.retentionMonths ? (
@@ -716,7 +716,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         // including the logo (REQ-L-01), so one id covers all four tabs.
         entityId={saved.organisation.id}
         title="Organisation settings"
-        description="Every settings change, with the values before and after (REQ-L-05)."
+        description="Every settings change, with the values before and after."
       />
     </div>
   );
@@ -737,7 +737,7 @@ function EmailTab({ settings }: { settings: OrgSettings }) {
     <div className="flex flex-col gap-4 border p-4">
       <SectionHeading
         title="Outbound email"
-        note="REQ-L-04. Read from the server's own configuration; change it where the service is deployed."
+        note="Read from the server's own configuration; change it where the service is deployed."
       />
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">

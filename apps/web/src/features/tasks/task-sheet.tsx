@@ -296,7 +296,7 @@ function TaskSheetBody({
                   setDraft((current) => ({ ...current, assigneeId: next?.id ?? null }));
                 }}
               />
-              <FieldDescription>They are told when it lands on them (REQ-V-08).</FieldDescription>
+              <FieldDescription>They are told when it lands on them.</FieldDescription>
             </Field>
           ) : null}
 

@@ -132,7 +132,7 @@ export function AppSidebar() {
       </SidebarContent>
 
       {/*
-        REQ-O-02. The workspace's screens are reached from here rather than from
+        The workspace's screens are reached from here rather than from
         a group in the module's own list -- they outlive whichever module is
         open, so they sit below the module rather than inside it.
       */}
