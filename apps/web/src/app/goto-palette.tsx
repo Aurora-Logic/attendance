@@ -66,8 +66,12 @@ function dedupeDestinations(groups: NavGroup[]): NavGroup[] {
     .map((group) => ({
       label: group.label,
       items: group.items.filter((item) => {
-        if (seen.has(item.to)) return false;
-        seen.add(item.to);
+        // The screen is the pathname: the report catalogue's category links
+        // (/reports?category=…) are doors into one screen, and the palette
+        // lists a screen once.
+        const pathname = item.to.split('?')[0] ?? item.to;
+        if (seen.has(pathname)) return false;
+        seen.add(pathname);
         return true;
       }),
     }))

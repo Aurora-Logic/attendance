@@ -133,9 +133,14 @@ export interface ReportColumnSpec {
   readonly width?: number;
 }
 
+export const REPORT_CATEGORIES = ['Attendance', 'Leave', 'Books', 'Receivables', 'Customers', 'Inventory', 'Vendors', 'Fulfilment', 'Exceptions'] as const;
+export type ReportCategory = (typeof REPORT_CATEGORIES)[number];
+
 export interface ReportDefinition {
   readonly key: ReportKey;
   readonly label: string;
+  /** REQ-AD-02: the catalogue's grouping; the sidebar of the Reports module lists these. */
+  readonly category: ReportCategory;
   readonly description: string;
   readonly columns: readonly ReportColumnSpec[];
   readonly defaultSort: string;
@@ -765,6 +770,7 @@ const STOCK_AGEING_COLUMNS: readonly ReportColumnSpec[] = [
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   'attendance-register': {
     key: 'attendance-register',
+    category: 'Attendance',
     label: 'Attendance register',
     description: 'One row per employee per day: shift, in, out, hours, status and flags.',
     columns: ATTENDANCE_REGISTER_COLUMNS,
@@ -773,6 +779,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'daily-muster': {
     key: 'daily-muster',
+    category: 'Attendance',
     label: 'Daily muster',
     description: 'One row per employee for a single date: shift, in, out, hours, status and flags.',
     columns: DAILY_MUSTER_COLUMNS,
@@ -782,6 +789,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'monthly-muster': {
     key: 'monthly-muster',
+    category: 'Attendance',
     label: 'Monthly muster grid',
     description: 'Employees against the days of one month, with a totals block.',
     columns: MUSTER_GRID_COLUMNS,
@@ -791,6 +799,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'late-arrivals': {
     key: 'late-arrivals',
+    category: 'Attendance',
     label: 'Late arrivals',
     description: 'Days recorded late, with the minutes, gathered per employee.',
     columns: exceptionColumns({
@@ -804,6 +813,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'early-exits': {
     key: 'early-exits',
+    category: 'Attendance',
     label: 'Early exits',
     description: 'Days that ended early, with the minutes, gathered per employee.',
     columns: exceptionColumns({
@@ -817,6 +827,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   absenteeism: {
     key: 'absenteeism',
+    category: 'Attendance',
     label: 'Absenteeism',
     description: 'Absent days and the share of scheduled days they are, by employee and month.',
     columns: ABSENTEEISM_COLUMNS,
@@ -825,6 +836,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'missing-punch': {
     key: 'missing-punch',
+    category: 'Attendance',
     label: 'Missing punch',
     description: 'Days flagged for a missing punch, and where their correction stands.',
     columns: MISSING_PUNCH_COLUMNS,
@@ -833,6 +845,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   overtime: {
     key: 'overtime',
+    category: 'Attendance',
     label: 'Overtime',
     description: 'Overtime minutes by employee for the period. Minutes only, never money.',
     columns: exceptionColumns({
@@ -846,6 +859,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'leave-balance': {
     key: 'leave-balance',
+    category: 'Leave',
     label: 'Leave balance',
     description: 'Balances by employee and leave type for the leave year the period falls in.',
     columns: LEAVE_BALANCE_COLUMNS,
@@ -854,6 +868,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'leave-ledger': {
     key: 'leave-ledger',
+    category: 'Leave',
     label: 'Leave ledger',
     description: 'Every leave movement posted in the period. Filter to one employee for a history.',
     columns: LEAVE_LEDGER_COLUMNS,
@@ -862,6 +877,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'leave-availed': {
     key: 'leave-availed',
+    category: 'Leave',
     label: 'Leave availed',
     description: 'Approved leave days falling inside the period, by employee and type.',
     columns: LEAVE_AVAILED_COLUMNS,
@@ -870,6 +886,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'punch-audit': {
     key: 'punch-audit',
+    category: 'Attendance',
     label: 'Punch audit',
     description: 'The raw punch log with photo, location, device and flags.',
     columns: PUNCH_AUDIT_COLUMNS,
@@ -878,6 +895,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   headcount: {
     key: 'headcount',
+    category: 'Attendance',
     label: 'Headcount',
     description: 'Opening headcount, joiners, leavers and closing headcount by month.',
     columns: HEADCOUNT_COLUMNS,
@@ -886,6 +904,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'voucher-reconciliation': {
     key: 'voucher-reconciliation',
+    category: 'Books',
     label: 'Voucher reconciliation',
     description:
       'Voucher count and total value per voucher type per month, from the Tally projection — compare against Tally’s own Day Book totals before signing off a backfill (REQ-S-05).',
@@ -895,6 +914,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'customer-statement': {
     key: 'customer-statement',
+    category: 'Receivables',
     label: 'Customer statement',
     description:
       'Every voucher for one party in the period with a running balance, opening from what came before (REQ-Y-01). Choose a party to begin.',
@@ -905,6 +925,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'credit-cycle': {
     key: 'credit-cycle',
+    category: 'Receivables',
     label: 'Credit cycle',
     description:
       'Credit limit and credit days per party against current exposure (REQ-Y-03). Overdue by bill waits for bill-wise allocations.',
@@ -914,6 +935,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'sales-analysis': {
     key: 'sales-analysis',
+    category: 'Customers',
     label: 'Sales analysis',
     description: 'Sales value by party, item, item group or month, from invoiced inventory lines (REQ-Y-05).',
     columns: SALES_ANALYSIS_COLUMNS,
@@ -922,6 +944,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'pending-dispatch': {
     key: 'pending-dispatch',
+    category: 'Fulfilment',
     label: 'Pending dispatch',
     description: 'Every open sales order line with a balance still to dispatch — by party, by age, by item (REQ-AA-30).',
     columns: PENDING_DISPATCH_COLUMNS,
@@ -930,6 +953,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'low-stock': {
     key: 'low-stock',
+    category: 'Inventory',
     label: 'Low stock',
     description: 'Items at or below their reorder level: Tally closing, committed to open orders, available, on order, and the shortfall (REQ-AC-06).',
     columns: LOW_STOCK_COLUMNS,
@@ -938,6 +962,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'day-book': {
     key: 'day-book',
+    category: 'Books',
     label: 'Day book',
     description: 'Every voucher for the period, from the Tally projection — filter by type or party; Vyuha computes nothing (14 REQ-AE-01).',
     columns: DAY_BOOK_COLUMNS,
@@ -946,6 +971,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'customer-lapse': {
     key: 'customer-lapse',
+    category: 'Customers',
     label: 'Customer lapse',
     description: 'Customers who bought regularly and then stopped — measured against each customer’s own usual gap, ranked by the revenue at risk (14 REQ-AG-02).',
     columns: CUSTOMER_LAPSE_COLUMNS,
@@ -954,6 +980,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'ledger-extract': {
     key: 'ledger-extract',
+    category: 'Books',
     label: 'Ledger extract',
     description: 'Every line for one ledger with a running balance, opening from what came before (14 REQ-AE-02). Type the ledger as Tally names it.',
     columns: LEDGER_EXTRACT_COLUMNS,
@@ -963,6 +990,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'stock-summary': {
     key: 'stock-summary',
+    category: 'Inventory',
     label: 'Stock summary',
     description: 'Closing, committed and available per item, valued at the held cost (14 REQ-AF-01; REQ-AC-03, AC-04).',
     columns: STOCK_SUMMARY_COLUMNS,
@@ -971,6 +999,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'negative-stock': {
     key: 'negative-stock',
+    category: 'Inventory',
     label: 'Negative stock',
     description: 'Items showing a negative closing in Tally — something was billed that was never received (14 REQ-AF-07, AH-01). The ideal state is empty.',
     columns: NEGATIVE_STOCK_COLUMNS,
@@ -979,6 +1008,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'stale-projections': {
     key: 'stale-projections',
+    category: 'Exceptions',
     label: 'Stale projections',
     description: 'Companies whose last successful pull is older than a day — the figures under every other report (14 REQ-AH-11).',
     columns: STALE_PROJECTIONS_COLUMNS,
@@ -987,6 +1017,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'duplicate-masters': {
     key: 'duplicate-masters',
+    category: 'Exceptions',
     label: 'Duplicate masters',
     description: 'Party and item names that collapse to the same thing once case, spaces and punctuation are ignored. Vyuha flags; the merge happens in Tally (14 REQ-AH-12).',
     columns: DUPLICATE_MASTERS_COLUMNS,
@@ -995,6 +1026,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'customer-item-matrix': {
     key: 'customer-item-matrix',
+    category: 'Customers',
     label: 'Customer × product',
     description: 'What each customer buys — quantity, value, last sale — one row per customer and item; sort by item to read it the other way (14 REQ-AG-01, AG-12).',
     columns: CUSTOMER_ITEM_COLUMNS,
@@ -1003,6 +1035,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'purchase-rhythm': {
     key: 'purchase-rhythm',
+    category: 'Customers',
     label: 'Purchase rhythm',
     description: 'Orders per month, the usual gap, the last gap and days since — who to call, before the lapse report has to say so (14 REQ-AG-03).',
     columns: PURCHASE_RHYTHM_COLUMNS,
@@ -1011,6 +1044,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'price-variance': {
     key: 'price-variance',
+    category: 'Customers',
     label: 'Customer price variance',
     description: 'The same item sold at different rates, ranked by the spread — answers "why is this customer paying more" before the customer asks (14 REQ-AG-04).',
     columns: PRICE_VARIANCE_COLUMNS,
@@ -1019,6 +1053,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'item-velocity': {
     key: 'item-velocity',
+    category: 'Inventory',
     label: 'Item velocity',
     description: 'Units per month over twelve months against the last three, and the stock cover in days that makes the figure actionable (14 REQ-AG-13, AG-14).',
     columns: ITEM_VELOCITY_COLUMNS,
@@ -1027,6 +1062,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'dead-stock': {
     key: 'dead-stock',
+    category: 'Inventory',
     label: 'Dead and slow stock',
     description: 'No sale in ninety days, ranked by the money locked up rather than the quantity (14 REQ-AG-15).',
     columns: DEAD_STOCK_COLUMNS,
@@ -1035,6 +1071,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'movement-analysis': {
     key: 'movement-analysis',
+    category: 'Inventory',
     label: 'Movement analysis',
     description: 'Inward and outward per item per month, from purchase and sales lines (14 REQ-AG-16).',
     columns: MOVEMENT_COLUMNS,
@@ -1043,6 +1080,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'vendor-item-history': {
     key: 'vendor-item-history',
+    category: 'Vendors',
     label: 'Vendor × item history',
     description: 'What was bought from whom — quantity, last and average rate, and which way the rate is moving (14 REQ-AG-23).',
     columns: VENDOR_ITEM_COLUMNS,
@@ -1051,6 +1089,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'vendor-price-comparison': {
     key: 'vendor-price-comparison',
+    category: 'Vendors',
     label: 'Vendor price comparison',
     description: 'The same item across vendors, best and highest last rate with the spread — read it before raising the PO (14 REQ-AG-27).',
     columns: VENDOR_PRICE_COLUMNS,
@@ -1059,6 +1098,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'credit-breaches': {
     key: 'credit-breaches',
+    category: 'Receivables',
     label: 'Credit breaches',
     description: 'Parties over their credit limit now, with how often the block was released in the last ninety days (14 REQ-AH-04).',
     columns: CREDIT_BREACHES_COLUMNS,
@@ -1067,6 +1107,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'stock-ageing': {
     key: 'stock-ageing',
+    category: 'Inventory',
     label: 'Stock ageing',
     description: 'Closing stock bucketed by how long it has been held, FIFO-assumed from purchase inwards, valued at cost (14 REQ-AF-03, AG-37).',
     columns: STOCK_AGEING_COLUMNS,

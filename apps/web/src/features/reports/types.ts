@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   EXPORT_FORMATS,
   EXPORT_STATUSES,
+  REPORT_CATEGORIES,
   REPORT_COLUMN_TYPES,
   REPORT_DEFINITIONS,
   REPORT_FILTER_NAMES,
@@ -63,6 +64,7 @@ export const reportColumnSchema = z.object({
 export const reportDefinitionSchema = z.object({
   key: z.enum(REPORT_KEYS),
   label: z.string(),
+  category: z.enum(REPORT_CATEGORIES),
   description: z.string(),
   columns: z.array(reportColumnSchema).min(1),
   defaultSort: z.string(),
@@ -672,8 +674,14 @@ function analyticsShape(idKey: string, primaryKey: string, statusKey?: string): 
   return {
     schema: analyticsRowSchema,
     cell: recordCell,
-    id: (row) => String(row[idKey] ?? JSON.stringify(row)),
-    primary: (row) => String(row[primaryKey] ?? ''),
+    id: (row) => {
+      const value = row[idKey];
+      return typeof value === 'string' ? value : JSON.stringify(row);
+    },
+    primary: (row) => {
+      const value = row[primaryKey];
+      return typeof value === 'string' ? value : '';
+    },
     status: (row) => (statusKey === undefined ? null : ((row[statusKey] as string | null | undefined) ?? null)),
   };
 }

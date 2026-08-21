@@ -82,6 +82,7 @@ import {
 import { useParties } from '@/features/masters/use-parties';
 
 import { ColumnChooser } from './column-chooser';
+import { ReportCatalogue } from './report-catalogue';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
 import { periodFor, periodModeOf } from './period';
 import { ScheduleDialog } from './schedule-dialog';
@@ -217,6 +218,8 @@ export function ReportsPage() {
 
 
   const reportParam = searchParams.get('report');
+  // No report chosen: the module's front door is the catalogue (REQ-AD-03), not a default report.
+  const browsing = reportParam === null || !isReportKey(reportParam);
   const reportKey: ReportKey = isReportKey(reportParam ?? '')
     ? (reportParam as ReportKey)
     : REPORT_KEYS[0];
@@ -425,7 +428,7 @@ export function ReportsPage() {
   // Not until the catalogue has said what the report needs: a statement asked
   // for before its definition arrived would fetch a 400 for a party nobody
   // had a chance to choose.
-  const active = useReportRows(reportKey, rowParams, { enabled: definition !== undefined && missingRequired.length === 0 });
+  const active = useReportRows(reportKey, rowParams, { enabled: !browsing && definition !== undefined && missingRequired.length === 0 });
 
   const savedViews = useSavedViews(reportKey);
   const saveView = useSaveView();
@@ -587,6 +590,8 @@ export function ReportsPage() {
   // REQ-L-01, the same formatting the exported file uses, so the caption bar on
   // screen and the header block in the download agree about what a date is.
   const captions = describeFilters(exportFilters, {}, formatDate);
+
+  if (browsing) return <ReportCatalogue reports={catalogue.data ?? []} loading={catalogue.isPending} />;
 
   return (
     <>

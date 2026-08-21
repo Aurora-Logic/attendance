@@ -537,7 +537,10 @@ export const ALL_STEPS: GuideStep[] = [
 
 /** The intro for a route, if it has one. */
 export function introFor(route: string): GuideStep | undefined {
-  return [...SCREEN_INTROS, ...TRADING_INTROS].find((step) => step.route === route);
+  // A nav link may carry a query (the report catalogue's categories); the
+  // screen it lands on — and therefore its guide — is the pathname's.
+  const pathname = route.split('?')[0] ?? route;
+  return [...SCREEN_INTROS, ...TRADING_INTROS].find((step) => step.route === pathname);
 }
 
 /** Every route the tour knows how to introduce. */

@@ -195,14 +195,6 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 4,
         reqs: 'REQ-K-01, REQ-J-01',
       },
-      {
-        to: '/reports',
-        label: 'Reports',
-        icon: ChartBarIcon,
-        permission: PERMISSIONS.REPORT_VIEW,
-        phase: 3,
-        reqs: 'REQ-J-01',
-      },
     ],
   },
 ];
@@ -599,6 +591,93 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
             phase: 8,
             reqs: 'REQ-X-10, REQ-X-11, REQ-X-12',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: ChartBarIcon,
+    home: '/reports',
+    permission: PERMISSIONS.REPORT_VIEW,
+    // REQ-AD-03: the catalogue is the destination and search is the menu —
+    // sixty reports cannot live in a sidebar, so the sidebar lists the
+    // categories, each a filtered view of the one catalogue.
+    groups: [
+      {
+        label: 'Catalogue',
+        items: [
+          {
+            to: '/reports',
+            label: 'All reports',
+            shortLabel: 'Reports',
+            icon: ChartBarIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 3,
+            reqs: 'REQ-J-01, REQ-AD-03',
+          },
+          {
+            to: '/reports?category=Books',
+            label: 'Books',
+            icon: BooksIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AE',
+          },
+          {
+            to: '/reports?category=Customers',
+            label: 'Customers',
+            icon: UsersThreeIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AG',
+          },
+          {
+            to: '/reports?category=Inventory',
+            label: 'Inventory',
+            icon: PackageIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AF',
+          },
+          {
+            to: '/reports?category=Vendors',
+            label: 'Vendors',
+            icon: ArchiveIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AG',
+          },
+          {
+            to: '/reports?category=Exceptions',
+            label: 'Exceptions',
+            icon: ScrollIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AH',
+          },
+          {
+            to: '/reports?category=Attendance',
+            label: 'Attendance',
+            icon: CalendarDotsIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 3,
+            reqs: 'REQ-J-01',
+          },
+        ],
+      },
+      {
+        label: 'Output',
+        items: [
+          {
+            to: '/downloads',
+            label: 'Downloads',
+            icon: DownloadSimpleIcon,
+            permission: PERMISSIONS.REPORT_EXPORT,
+            phase: 3,
+            reqs: 'REQ-J-03',
           },
         ],
       },
