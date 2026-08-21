@@ -17,7 +17,7 @@ Purchase going live). Updated as work lands.
 | P-08 | Attendance nav regroup | Me / Team / People, Administration separate — owner confirmed 21 Aug | Nav | Confirmed | Done |
 | P-09 | Module switcher | Desktop switcher + per-module sidebars, namespaced routes, permission-gated | Nav | No | Done (predates brief: Attendance/Masters/CRM/Sales/Purchase/Reports all live) |
 | P-10 | Approvals/export framework out of attendance keys | Approvals inbox + report/export framework live in `platform/` and are not gated on attendance permission keys | Platform | No | Done (approvals: platform/approvals; reports/export: platform/export; per-module sources) |
-| P-11 | Mobile bottom nav per module | Bottom bar shows the active module's top destinations; More sheet holds the full grouped nav; module switching reachable on mobile; safe-area insets | Nav | No | Not started |
+| P-11 | Mobile bottom nav per module | The bar follows the active module (per-module remembered customisation, v1 preference migrated to Attendance); More opens with a module switcher row, the module's destinations, then Administration and inbox; safe-area kept | Nav | No | Done |
 | P-12 | Mobile creation screens | Estimate/SO/PO editors usable one-handed: compact toolbar + overflow (owner chose paper-stays, no second entry model), sticky total/action, numeric keypads, no zoom-on-focus, sheet-based pickers kept | Documents | No (decided 21 Aug) | Not started |
 | P-13 | Report sort control | Desktop sorts by clicking column headers (with direction indicators); the compact Select remains for phones, where stacked rows have no headers | Reports | No | Done |
 | P-14 | REQ IDs in report copy | Doc references stripped from every report description | Reports | No | Done |

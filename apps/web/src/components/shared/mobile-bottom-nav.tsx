@@ -18,7 +18,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { ALL_NAV_ITEMS, type NavItem } from '@/lib/nav';
+import { ADMIN_GROUPS, MODULES, TOP_BAR_ITEMS, findModuleForPath, type ModuleDef, type NavItem } from '@/lib/nav';
 import { BOTTOM_NAV_SLOTS, useNavPreferencesStore } from '@/lib/nav-preferences-store';
 import { usePermissions } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
@@ -42,34 +42,54 @@ export function MobileBottomNav() {
   const granted = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
-  const chosen = useNavPreferencesStore((s) => s.bottomNavRoutes);
+  const byModule = useNavPreferencesStore((s) => s.bottomNavByModule);
 
   const [moreOpen, setMoreOpen] = useState(false);
   const [customiseOpen, setCustomiseOpen] = useState(false);
 
-  const permitted = useMemo(
-    () => ALL_NAV_ITEMS.filter((item) => !item.permission || granted.has(item.permission)),
-    [granted],
+  // The bar belongs to the module the screen belongs to: switch module and
+  // the four tabs switch with it, each module keeping its own preference.
+  const module = findModuleForPath(location.pathname);
+  const chosen = Object.prototype.hasOwnProperty.call(byModule, module.id) ? (byModule[module.id] ?? null) : null;
+
+  const permits = (item: NavItem) => !item.permission || granted.has(item.permission);
+  const moduleItems = useMemo(
+    () => module.groups.flatMap((group) => group.items).filter(permits),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- permits closes over granted, which is the real dependency
+    [module, granted],
   );
+  const visibleModules = useMemo(() => MODULES.filter((m) => !m.permission || granted.has(m.permission)), [granted]);
+  const elsewhere = useMemo(() => {
+    // Administration and the inbox sit beside the modules, not inside one;
+    // one entry per pathname, however many doors lead to it.
+    const seen = new Set(moduleItems.map((item) => item.to.split('?')[0]));
+    return [...TOP_BAR_ITEMS, ...ADMIN_GROUPS.flatMap((group) => group.items)].filter((item) => {
+      const pathname = item.to.split('?')[0] ?? item.to;
+      if (seen.has(pathname) || !permits(item)) return false;
+      seen.add(pathname);
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- permits closes over granted
+  }, [moduleItems, granted]);
 
   // A stored route the person can no longer reach is dropped rather than
   // rendered as a dead tab: permissions change, and a bar remembered from a
   // wider role must not outlive the access that justified it.
   const primary = useMemo(() => {
-    const permittedRoutes = new Set(permitted.map((i) => i.to));
+    const permittedRoutes = new Set(moduleItems.map((i) => i.to));
     const fromPreference = (chosen ?? [])
       .filter((route) => permittedRoutes.has(route))
-      .map((route) => permitted.find((i) => i.to === route))
+      .map((route) => moduleItems.find((i) => i.to === route))
       .filter((i): i is NavItem => Boolean(i));
 
     if (chosen !== null) return fromPreference.slice(0, BOTTOM_NAV_SLOTS);
-    return permitted.slice(0, BOTTOM_NAV_SLOTS);
-  }, [chosen, permitted]);
+    return moduleItems.slice(0, BOTTOM_NAV_SLOTS);
+  }, [chosen, moduleItems]);
 
   const primaryRoutes = new Set(primary.map((i) => i.to));
-  const overflow = permitted.filter((item) => !primaryRoutes.has(item.to));
+  const overflow = moduleItems.filter((item) => !primaryRoutes.has(item.to));
 
-  if (permitted.length === 0) return null;
+  if (moduleItems.length === 0 && elsewhere.length === 0) return null;
 
   return (
     <>
@@ -136,14 +156,37 @@ export function MobileBottomNav() {
             never require scrolling back to find. */}
         <SheetContent side="bottom" className="max-h-[80vh] gap-0">
           <SheetHeader className="shrink-0 border-b">
-            <SheetTitle>All destinations</SheetTitle>
-            <SheetDescription>Everything your access allows.</SheetDescription>
+            <SheetTitle>{module.label}</SheetTitle>
+            <SheetDescription>Everything your access allows, and the other modules.</SheetDescription>
           </SheetHeader>
 
           {/* min-h-0 is load-bearing: a flex child defaults to min-height:auto,
               which refuses to shrink below its content and would push the
               footer off the sheet instead of scrolling. */}
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            {visibleModules.length > 1 ? (
+              <div className="mb-4 flex flex-col gap-2">
+                <p className="text-muted-foreground text-xs font-medium">Modules</p>
+                <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
+                  {visibleModules.map((m) => (
+                    <Button
+                      key={m.id}
+                      variant={m.id === module.id ? 'default' : 'outline'}
+                      size="sm"
+                      className="pointer-coarse:min-h-11 shrink-0"
+                      aria-current={m.id === module.id ? 'true' : undefined}
+                      onClick={() => {
+                        setMoreOpen(false);
+                        if (m.id !== module.id) void navigate(m.home);
+                      }}
+                    >
+                      <m.icon data-icon="inline-start" />
+                      {m.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {/* A grid of tiles rather than a single column of rows. One row per
                 destination pushed the last few below the fold on a phone and
                 wasted the full width on a 20px icon; two columns fit twelve
@@ -173,6 +216,31 @@ export function MobileBottomNav() {
                 </Item>
               ))}
             </ItemGroup>
+            {elsewhere.length > 0 ? (
+              <div className="mt-4 flex flex-col gap-2">
+                <p className="text-muted-foreground text-xs font-medium">Administration and inbox</p>
+                <ItemGroup role="presentation" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {elsewhere.map((item) => (
+                    <Item
+                      key={item.to}
+                      variant="outline"
+                      render={<NavLink to={item.to} />}
+                      onClick={() => {
+                        setMoreOpen(false);
+                      }}
+                      className="min-h-20 flex-col items-center justify-center gap-1.5 px-2 py-3"
+                    >
+                      <ItemMedia>
+                        <item.icon aria-hidden className="size-5" />
+                      </ItemMedia>
+                      <ItemContent className="flex-none">
+                        <ItemTitle className="line-clamp-2 w-full justify-center text-center leading-tight">{item.label}</ItemTitle>
+                      </ItemContent>
+                    </Item>
+                  ))}
+                </ItemGroup>
+              </div>
+            ) : null}
           </div>
 
           <SheetFooter className="shrink-0 border-t">
@@ -194,10 +262,11 @@ export function MobileBottomNav() {
       <CustomiseSheet
         open={customiseOpen}
         onOpenChange={setCustomiseOpen}
-        permitted={permitted}
+        module={module}
+        permitted={moduleItems}
         current={primary.map((i) => i.to)}
         onNavigateHome={() => {
-          void navigate('/');
+          void navigate(module.home);
         }}
       />
     </>
@@ -207,6 +276,7 @@ export function MobileBottomNav() {
 interface CustomiseSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  module: ModuleDef;
   permitted: NavItem[];
   current: string[];
   onNavigateHome: () => void;
@@ -215,6 +285,7 @@ interface CustomiseSheetProps {
 function CustomiseSheet({
   open,
   onOpenChange,
+  module,
   permitted,
   current,
   onNavigateHome,
@@ -251,8 +322,7 @@ function CustomiseSheet({
         <SheetHeader className="shrink-0 border-b">
           <SheetTitle>Customise the bar</SheetTitle>
           <SheetDescription>
-            Pick up to {BOTTOM_NAV_SLOTS} destinations for the bottom bar. Everything else stays
-            under More.
+            Pick up to {BOTTOM_NAV_SLOTS} {module.label} destinations for the bottom bar. Each module keeps its own bar; everything else stays under More.
           </SheetDescription>
         </SheetHeader>
 
@@ -306,7 +376,7 @@ function CustomiseSheet({
             variant="ghost"
             className="flex-1 sm:flex-none"
             onClick={() => {
-              resetBottomNav();
+              resetBottomNav(module.id);
               onOpenChange(false);
             }}
           >
@@ -326,7 +396,7 @@ function CustomiseSheet({
           <Button
             className="flex-1 sm:flex-none"
             onClick={() => {
-              setBottomNavRoutes(draft);
+              setBottomNavRoutes(module.id, draft);
               onOpenChange(false);
               // If the current screen just left the bar entirely, the person is
               // standing somewhere they can no longer see; take them home.
