@@ -209,3 +209,23 @@ export const reportSchedules = pgTable(
       .where(sql`is_active AND deleted_at IS NULL`),
   ],
 );
+
+/**
+ * REQ-AD-09 / D14-6: who opened which report, when. The quarterly review of
+ * the catalogue reads this — a report nobody has opened in ninety days is a
+ * retirement candidate. Twelve months' retention, pruned by the same daily
+ * sweep that sends the exception digests.
+ */
+export const reportUsage = pgTable(
+  'report_usage',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id').notNull(),
+    reportKey: text('report_key').notNull(),
+    openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('report_usage_org_key_idx').on(t.orgId, t.reportKey, t.openedAt)],
+);
