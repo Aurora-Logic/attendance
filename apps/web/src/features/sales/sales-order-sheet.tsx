@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowsClockwiseIcon, BooksIcon, CheckIcon, LockKeyOpenIcon, PackageIcon, PencilSimpleIcon, ProhibitIcon, ReceiptIcon, TruckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
+import { PersonChip } from '@/components/shared/person';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
@@ -719,7 +720,7 @@ export function FulfilmentSections({ record, packs, dispatches }: { record: Esti
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <span className="text-xs">
                     <Link to={`/sales/packs/${pack.id}`} className="font-medium underline-offset-4 hover:underline" title="The packing slip">
-                      {pack.packedByName ?? 'Someone'}
+                      <PersonChip name={pack.packedByName ?? 'Someone'} tiny />
                     </Link>
                     <span className="text-muted-foreground"> · {formatRelativeAge(pack.packedAt)} · {String(pack.boxCount)} box{pack.boxCount === 1 ? '' : 'es'}</span>
                   </span>

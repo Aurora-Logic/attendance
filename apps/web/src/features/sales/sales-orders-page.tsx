@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FileTextIcon, GearIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams } from 'react-router';
 
+import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -13,7 +14,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { formatDate } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
@@ -38,7 +39,7 @@ const COLUMNS: RecordColumn<EstimateSummary>[] = [
   { key: 'status', header: 'Status', cell: (row) => <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[row.status]}</Badge> },
   { key: 'sync', header: 'Tally', cell: (row) => <SyncStateBadge record={row} /> },
   { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },
-  { key: 'owner', header: 'Owner', cell: (row) => row.ownerName ?? EMPTY_VALUE, secondary: true },
+  { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
 
 function ListSkeleton() {

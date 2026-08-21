@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AddressBookIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
+import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -33,7 +34,7 @@ const COLUMNS: RecordColumn<Contact>[] = [
   { key: 'designation', header: 'Designation', cell: (row) => row.designation ?? EMPTY_VALUE, secondary: true },
   { key: 'phone', header: 'Phone', cell: (row) => row.phone ?? EMPTY_VALUE, className: 'tabular-nums' },
   { key: 'email', header: 'Email', cell: (row) => row.email ?? EMPTY_VALUE, secondary: true },
-  { key: 'owner', header: 'Owner', cell: (row) => row.ownerName ?? EMPTY_VALUE, secondary: true },
+  { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
 
 function ListSkeleton() {

@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { PersonChip } from '@/components/shared/person';
 import { SavedViews } from '@/components/shared/saved-views';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -20,7 +21,7 @@ import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE } from '@/lib/format';
+
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, TASK_DUE_FILTERS, TASK_PRIORITIES, TASK_PRIORITY_LABELS, type TaskDueFilter, type TaskPriority } from '@vyuha/shared';
@@ -70,7 +71,7 @@ const COLUMNS: RecordColumn<Task>[] = [
     cell: (row) => TASK_PRIORITY_LABELS[row.priority],
     secondary: true,
   },
-  { key: 'assignee', header: 'Assigned to', cell: (row) => row.assigneeName ?? EMPTY_VALUE, secondary: true },
+  { key: 'assignee', header: 'Assigned to', cell: (row) => <PersonChip name={row.assigneeName} />, secondary: true },
 ];
 
 function ListSkeleton() {
@@ -417,7 +418,7 @@ export function TasksPage() {
               mobileSupporting={(row) => (
                 <span className="flex flex-wrap gap-x-2">
                   <DueDate value={row.dueDate} closed={row.isClosed} />
-                  {row.assigneeName === null ? null : <span>{row.assigneeName}</span>}
+                  {row.assigneeName === null ? null : <PersonChip name={row.assigneeName} tiny />}
                 </span>
               )}
               onRowActivate={(row) => {

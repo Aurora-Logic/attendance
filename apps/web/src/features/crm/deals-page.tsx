@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { BuildingsIcon, CalendarBlankIcon, CircleDashedIcon, CircleHalfIcon, CircleIcon, CurrencyInrIcon, GearIcon, HandshakeIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon, SealCheckIcon, UserCircleIcon, XCircleIcon } from '@phosphor-icons/react';
+import { BuildingsIcon, CalendarBlankIcon, CircleDashedIcon, CircleHalfIcon, CircleIcon, CurrencyInrIcon, GearIcon, HandshakeIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon, SealCheckIcon, XCircleIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { KanbanBoard } from '@/components/shared/kanban-board';
+import { PersonChip } from '@/components/shared/person';
 import { SavedViews } from '@/components/shared/saved-views';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -91,7 +92,7 @@ const COLUMNS: RecordColumn<Deal>[] = [
   { key: 'stage', header: 'Stage', cell: (row) => `${row.stageName} · ${String(row.probability)}%` },
   { key: 'value', header: 'Value', cell: (row) => formatValue(row.value), numeric: true },
   { key: 'close', header: 'Expected close', cell: (row) => formatDate(row.expectedCloseDate), className: 'tabular-nums', secondary: true },
-  { key: 'owner', header: 'Owner', cell: (row) => row.ownerName ?? EMPTY_VALUE, secondary: true },
+  { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
 
 function ListSkeleton() {
@@ -491,12 +492,7 @@ export function DealsPage() {
                       {formatDate(deal.expectedCloseDate)}
                     </span>
                   )}
-                  {deal.ownerName === null ? null : (
-                    <span className="flex min-w-0 items-center gap-1">
-                      <UserCircleIcon className="shrink-0" />
-                      <span className="truncate">{deal.ownerName}</span>
-                    </span>
-                  )}
+                  {deal.ownerName === null ? null : <PersonChip name={deal.ownerName} tiny />}
                 </span>
               </>
             )}

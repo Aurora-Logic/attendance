@@ -3,6 +3,7 @@ import { CheckIcon, ProhibitIcon, TrayIcon, WarningCircleIcon } from '@phosphor-
 import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -286,7 +287,7 @@ export function ApprovalsPage() {
     {
       key: 'requester',
       header: 'Requester',
-      cell: (row) => <span className="font-medium">{row.requester.name}</span>,
+      cell: (row) => <PersonChip name={row.requester.name} className="font-medium" />,
     },
     {
       key: 'type',

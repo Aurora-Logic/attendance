@@ -3,6 +3,7 @@ import { LockKeyIcon, PackageIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -13,7 +14,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SyncStateBadge } from '@/features/sales/sales-order-sheet';
-import { EMPTY_VALUE, formatRelativeAge } from '@/lib/format';
+import { formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -41,7 +42,7 @@ const COLUMNS: RecordColumn<Grn>[] = [
   { key: 'received', header: 'Received', cell: (row) => formatRelativeAge(row.receivedAt), className: 'tabular-nums' },
   { key: 'sync', header: 'Tally', cell: (row) => <SyncStateBadge record={row} /> },
   { key: 'pending', header: 'Allocation', cell: (row) => <PendingBadge grn={row} /> },
-  { key: 'by', header: 'Received by', cell: (row) => row.receivedByName ?? EMPTY_VALUE, secondary: true },
+  { key: 'by', header: 'Received by', cell: (row) => <PersonChip name={row.receivedByName} />, secondary: true },
 ];
 
 function ListSkeleton() {

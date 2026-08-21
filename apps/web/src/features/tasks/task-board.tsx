@@ -1,5 +1,6 @@
-import { CheckCircleIcon, CircleDashedIcon, LinkSimpleIcon, UserCircleIcon } from '@phosphor-icons/react';
+import { CheckCircleIcon, CircleDashedIcon, LinkSimpleIcon } from '@phosphor-icons/react';
 
+import { PersonChip } from '@/components/shared/person';
 import { KanbanBoard } from '@/components/shared/kanban-board';
 import { cn } from '@/lib/utils';
 import { TASK_PRIORITY_LABELS } from '@vyuha/shared';
@@ -61,12 +62,7 @@ export function TaskBoard({
           <span className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-normal">
             {task.priority === 'HIGH' ? <span className={PRIORITY_CHIP}>{TASK_PRIORITY_LABELS.HIGH}</span> : null}
             <DueDate value={task.dueDate} closed={task.isClosed} />
-            {task.assigneeName === null ? null : (
-              <span className="flex min-w-0 items-center gap-1">
-                <UserCircleIcon className="shrink-0" />
-                <span className="truncate">{task.assigneeName}</span>
-              </span>
-            )}
+            {task.assigneeName === null ? null : <PersonChip name={task.assigneeName} tiny />}
             {task.subjectLabel === null ? null : (
               <span className="flex min-w-0 items-center gap-1">
                 <LinkSimpleIcon className="shrink-0" />

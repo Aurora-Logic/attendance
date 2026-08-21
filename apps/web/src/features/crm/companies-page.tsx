@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BuildingsIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
+import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -41,7 +42,7 @@ const COLUMNS: RecordColumn<Company>[] = [
   { key: 'phone', header: 'Phone', cell: (row) => row.phone ?? EMPTY_VALUE, className: 'tabular-nums' },
   { key: 'website', header: 'Website', cell: (row) => row.website ?? EMPTY_VALUE, secondary: true },
   { key: 'contacts', header: 'Contacts', cell: (row) => String(row.contactCount), numeric: true },
-  { key: 'owner', header: 'Owner', cell: (row) => row.ownerName ?? EMPTY_VALUE, secondary: true },
+  { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
 
 function ListSkeleton() {
