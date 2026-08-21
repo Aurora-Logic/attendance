@@ -4,13 +4,14 @@ import {
   ArrowLeftIcon,
   CalendarDotIcon,
   CheckIcon,
+  FlagPennantIcon,
   FunnelXIcon,
+  type Icon,
   PencilSimpleIcon,
   PlusIcon,
   SkipForwardIcon,
   TrashIcon,
   XIcon,
-  type Icon,
 } from '@phosphor-icons/react';
 
 /**
@@ -60,6 +61,12 @@ export const ACTION_ICONS = {
   skip: SkipForwardIcon,
   /** Step backwards through a flow. */
   back: ArrowLeftIcon,
+  /**
+   * Owner, 21 Aug 2026: the one glyph that means "flagged for review". A
+   * pennant rather than the plain flag, so nothing else in the product can
+   * be mistaken for it; every flag surface reads it from here.
+   */
+  flag: FlagPennantIcon,
 } as const satisfies Record<string, Icon>;
 
 export type ActionName = keyof typeof ACTION_ICONS;

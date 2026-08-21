@@ -1,4 +1,6 @@
-import { FlagPennantIcon, SunHorizonIcon } from '@phosphor-icons/react';
+import { SunHorizonIcon } from '@phosphor-icons/react';
+
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,7 +62,7 @@ export function AttendanceFlags({ flags, className }: { flags: string[]; classNa
                 />
               }
             >
-              <FlagPennantIcon weight={NEEDS_REVIEW.has(flag) ? 'fill' : 'regular'} />
+              <ACTION_ICONS.flag weight={NEEDS_REVIEW.has(flag) ? 'fill' : 'regular'} />
             </TooltipTrigger>
             <TooltipContent>{flagLabel(flag)}</TooltipContent>
           </Tooltip>
