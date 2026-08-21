@@ -7,11 +7,12 @@ import { useChartIntro } from '@/components/shared/use-chart-motion';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { useReportRows } from './api';
-import { MonthlyValueChart, ReportChart } from './report-charts';
+import { CompositionDonut, GenericReportChart, MonthlyValueChart, ReportChart, ShareRadialChart } from './report-charts';
 import { inr, lapseSeries } from './report-series';
 
 /**
@@ -30,6 +31,11 @@ const TWELVE_MONTHS_AGO = () => {
   return d.toLocaleDateString('en-CA');
 };
 const TODAY = () => new Date().toLocaleDateString('en-CA');
+
+/** One bordered surface per block — a dashboard reads as tiles, not floating ink. */
+function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={cn('rounded-lg border p-4', className)}>{children}</div>;
+}
 
 function StatTile({ label, value, hint, icon, onOpen, tone }: { label: string; value: string; hint: string; icon: React.ReactNode; onOpen: () => void; tone?: 'warn' | 'bad' }) {
   return (
@@ -60,6 +66,8 @@ export function ReportsDashboardPage() {
   const lowStock = useReportRows('low-stock', { page: 1, pageSize: 1 }, { enabled: canView });
   const stale = useReportRows('stale-projections', { page: 1, pageSize: 1 }, { enabled: canView });
   const salesByMonth = useReportRows('sales-analysis', { ...page, groupBy: 'month', from: TWELVE_MONTHS_AGO(), to: TODAY() }, { enabled: canView });
+  const salesByParty = useReportRows('sales-analysis', { ...page, groupBy: 'party', from: TWELVE_MONTHS_AGO(), to: TODAY() }, { enabled: canView });
+  const ageing = useReportRows('stock-ageing', page, { enabled: canView });
   const movement = useReportRows('movement-analysis', { ...page, from: TWELVE_MONTHS_AGO(), to: TODAY() }, { enabled: canView });
 
   const chartsReady = salesByMonth.isSuccess && movement.isSuccess && lapse.isSuccess;
@@ -162,6 +170,7 @@ export function ReportsDashboardPage() {
           </div>
         )}
 
+        <Panel>
         <section className="flex flex-col gap-2">
           <SectionHeading
             title="Sales by month"
@@ -183,7 +192,77 @@ export function ReportsDashboardPage() {
           {salesByMonth.isSuccess ? <MonthlySales rows={salesByMonth.data.data} animate={intro} /> : null}
           {salesByMonth.isError ? <p className="text-muted-foreground text-sm">Could not load the sales series: {salesByMonth.error.message}</p> : null}
         </section>
+        </Panel>
 
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel>
+            <section className="flex flex-col gap-2">
+              <SectionHeading
+                title="Revenue mix by customer"
+                note="Who the last twelve months' invoicing came from."
+                action={
+                  <Button variant="ghost" size="sm" onClick={() => { open(`report=sales-analysis&from=${TWELVE_MONTHS_AGO()}&to=${TODAY()}`); }}>
+                    Open report
+                    <ArrowRightIcon data-icon="inline-end" />
+                  </Button>
+                }
+              />
+              {salesByParty.isPending ? <Skeleton className="h-56 w-full" /> : null}
+              {salesByParty.isSuccess ? <CompositionDonut rows={salesByParty.data.data} labelKey="label" valueKey="value" animate={intro} /> : null}
+            </section>
+          </Panel>
+          <Panel>
+            <section className="flex flex-col gap-2">
+              <SectionHeading title="Top customers' share" note="Concentration: how much of the revenue the top five carry." />
+              {salesByParty.isPending ? <Skeleton className="h-56 w-full" /> : null}
+              {salesByParty.isSuccess ? <ShareRadialChart rows={salesByParty.data.data} labelKey="label" valueKey="value" title="Share of twelve months' revenue" animate={intro} /> : null}
+            </section>
+          </Panel>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel>
+            <section className="flex flex-col gap-2">
+              <SectionHeading
+                title="Top customers by value"
+                note="The five that matter, ranked."
+                action={
+                  <Button variant="ghost" size="sm" onClick={() => { open(`report=customer-item-matrix`); }}>
+                    Open report
+                    <ArrowRightIcon data-icon="inline-end" />
+                  </Button>
+                }
+              />
+              {salesByParty.isPending ? <Skeleton className="h-56 w-full" /> : null}
+              {salesByParty.isSuccess ? (
+                <GenericReportChart
+                  reportKey="customer-item-matrix"
+                  definition={{ columns: [{ key: 'label', header: 'Customer', type: 'text' }, { key: 'value', header: 'Value', type: 'text' }], defaultSort: '-value' }}
+                  rows={salesByParty.data.data}
+                  animate={intro}
+                />
+              ) : null}
+            </section>
+          </Panel>
+          <Panel>
+            <section className="flex flex-col gap-2">
+              <SectionHeading
+                title="Stock ageing snapshot"
+                note="Where stock is sitting old, valued at cost."
+                action={
+                  <Button variant="ghost" size="sm" onClick={() => { open('report=stock-ageing'); }}>
+                    Open report
+                    <ArrowRightIcon data-icon="inline-end" />
+                  </Button>
+                }
+              />
+              {ageing.isPending ? <Skeleton className="h-56 w-full" /> : null}
+              {ageing.isSuccess ? <ReportChart reportKey="stock-ageing" rows={ageing.data.data} animate={intro} /> : null}
+            </section>
+          </Panel>
+        </div>
+
+        <Panel>
         <section className="flex flex-col gap-2">
           <SectionHeading
             title="Stock movement"
@@ -205,11 +284,14 @@ export function ReportsDashboardPage() {
           {movement.isSuccess ? <ReportChart reportKey="movement-analysis" rows={movement.data.data} animate={intro} /> : null}
           {movement.isError ? <p className="text-muted-foreground text-sm">Could not load the movement series: {movement.error.message}</p> : null}
         </section>
+        </Panel>
 
+        <Panel>
         <section className="flex flex-col gap-2">
           {lapse.isPending ? <Skeleton className="h-56 w-full" /> : null}
-          {lapse.isSuccess && lapse.data.data.length > 0 ? <ReportChart reportKey="customer-lapse" rows={lapse.data.data} animate={intro} /> : null}
+          {lapse.isSuccess && lapse.data.data.length > 0 ? <ReportChart reportKey="customer-lapse" rows={lapse.data.data} animate={intro} /> : <p className="text-muted-foreground text-sm">No customer is off their rhythm — nothing lapsing to draw.</p>}
         </section>
+        </Panel>
       </div>
     </>
   );

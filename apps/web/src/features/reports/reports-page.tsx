@@ -580,6 +580,7 @@ export function ReportsPage() {
     header: column.header,
     numeric: isNumericColumn(column.type),
     secondary: column.secondary === true,
+    ...(column.sortField === undefined ? {} : { sortField: column.sortField }),
     cell: (row) => renderCell(row.cells[column.key] ?? null, column.type),
   }));
 
@@ -889,6 +890,8 @@ export function ReportsPage() {
                 {compare !== 'off' && compareRange !== null ? <span className="text-muted-foreground text-xs tabular-nums">against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}{currentRange !== null ? ', to date' : ''}</span> : null}
               </>
             ) : null}
+            {/* Desktop sorts by clicking the column headers; this control is the phone's, where stacked rows have no headers. */}
+            <div className="flex items-center gap-1.5 md:hidden">
             <Select
               value={sort.startsWith('-') ? sort.slice(1) : sort}
               onValueChange={(value: string | null) => {
@@ -922,6 +925,7 @@ export function ReportsPage() {
             >
               {sort.startsWith('-') ? <ArrowDownIcon /> : <ArrowUpIcon />}
             </Button>
+            </div>
           </div>
         ) : null}
 
@@ -1048,12 +1052,16 @@ export function ReportsPage() {
             ) : null}
             {viewMode !== 'table' && chartKind === 'bespoke' ? <ReportChart reportKey={reportKey} rows={chartRows} animate={chartIntro} /> : null}
             {viewMode !== 'table' && chartKind === 'generic' && definition !== undefined ? (
-              <GenericReportChart definition={definition} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} />
+              <GenericReportChart reportKey={reportKey} definition={definition} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} />
             ) : null}
             {viewMode !== 'table' && chartSource.isSuccess && total > 200 ? <p className="text-muted-foreground text-xs">The chart reads the top 200 rows by the current sort; the table has all {String(total)}.</p> : null}
             {viewMode === 'chart' ? null : (
             <RecordTable
               columns={tableColumns}
+              sort={sort === '' ? null : { field: sort.startsWith('-') ? sort.slice(1) : sort, descending: sort.startsWith('-') }}
+              onSortChange={(next) => {
+                setSort(next.descending ? `-${next.field}` : next.field);
+              }}
               rows={rows}
               rowKey={(row) => row.id}
               mobilePrimary={(row) => row.primary}

@@ -265,3 +265,93 @@ export function primaryNumericColumn(definition: Pick<ReportDefinition, 'columns
   const chosen = numeric.find((c) => c.key === sortKey) ?? numeric[0];
   return chosen === undefined ? null : { key: chosen.key, header: chosen.header };
 }
+
+// ---------------------------------------------------------------- chart forms
+
+export type GenericChartForm = 'hbar' | 'line' | 'donut';
+
+export interface ChartFormSpec {
+  readonly form: GenericChartForm;
+  readonly category: string;
+  readonly series: readonly string[];
+}
+
+/**
+ * Which form a report's generic chart takes (data-analyst skill §2): a
+ * time-shaped category draws a line, a ranking draws horizontal bars, and
+ * the named overrides draw the form their question demands — a day book is
+ * a composition of voucher types, a statement is a balance walking through
+ * time. Anything unlisted resolves by shape.
+ */
+export const REPORT_FORM_OVERRIDES: Partial<Record<ReportKey, ChartFormSpec>> = {
+  'day-book': { form: 'donut', category: 'voucherType', series: ['amount'] },
+  'ledger-extract': { form: 'line', category: 'date', series: ['balance'] },
+  'customer-statement': { form: 'line', category: 'date', series: ['balance'] },
+  'voucher-reconciliation': { form: 'line', category: 'month', series: ['total'] },
+  'headcount': { form: 'line', category: 'month', series: ['closing'] },
+};
+
+const TIME_CATEGORY = /^\d{4}-\d{2}(?:-\d{2})?$/u;
+
+/** The generic chart's resolved shape for a report: what to draw and from which keys. */
+export function resolveChartForm(reportKey: ReportKey, definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>, rows: readonly ChartRow[]): ChartFormSpec | null {
+  const override = REPORT_FORM_OVERRIDES[reportKey];
+  if (override !== undefined) return override;
+  const auto = genericSeries(definition, rows);
+  if (auto === null) return null;
+  const categoryColumn = definition.columns.find((c) => c.header === auto.categoryLabel);
+  if (categoryColumn === undefined) return null;
+  const sample = rows.slice(0, 5).map((row) => text(row.cells[categoryColumn.key]));
+  const timeShaped = sample.length > 0 && sample.every((v) => TIME_CATEGORY.test(v));
+  return { form: timeShaped ? 'line' : 'hbar', category: categoryColumn.key, series: auto.series.map((entry) => entry.key) };
+}
+
+export interface FormPoint extends Record<string, string | number> {
+  readonly category: string;
+}
+
+/**
+ * Rows shaped for the resolved form. A line aggregates duplicate categories
+ * and walks chronologically; a donut aggregates into the top five slices
+ * plus Other; bars keep the report's own order, top rows only.
+ */
+export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): FormPoint[] {
+  if (spec.form === 'hbar') {
+    return rows.slice(0, MAX_BARS).map((row) => {
+      const point: Record<string, string | number> = { category: text(row.cells[spec.category]) || '—' };
+      for (const key of spec.series) point[key] = num(row.cells[key]);
+      return point as FormPoint;
+    });
+  }
+  const byCategory = new Map<string, Record<string, number>>();
+  for (const row of rows) {
+    const category = text(row.cells[spec.category]);
+    if (category === '') continue;
+    const entry = byCategory.get(category) ?? {};
+    for (const key of spec.series) entry[key] = (entry[key] ?? 0) + num(row.cells[key]);
+    byCategory.set(category, entry);
+  }
+  if (spec.form === 'line') {
+    // A running balance is a last-value series, not a sum; the last row of a
+    // date already carries the day's closing figure.
+    const isBalance = spec.series.length === 1 && spec.series[0] === 'balance';
+    if (isBalance) {
+      const lastPerDay = new Map<string, number>();
+      for (const row of rows) {
+        const category = text(row.cells[spec.category]);
+        if (category !== '') lastPerDay.set(category, num(row.cells.balance));
+      }
+      return [...lastPerDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([category, balance]) => ({ category, balance }));
+    }
+    return [...byCategory.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([category, entry]) => ({ category, ...entry }));
+  }
+  // donut: top five slices of the first series, everything else as Other
+  const key = spec.series[0] ?? '';
+  const slices = [...byCategory.entries()].map(([category, entry]) => ({ category, value: entry[key] ?? 0 })).filter((p) => p.value > 0);
+  slices.sort((a, b) => b.value - a.value);
+  const top = slices.slice(0, 5);
+  const rest = slices.slice(5).reduce((sum, p) => sum + p.value, 0);
+  const points: FormPoint[] = top.map((p) => ({ category: p.category, value: p.value }));
+  if (rest > 0) points.push({ category: 'Other', value: rest });
+  return points;
+}

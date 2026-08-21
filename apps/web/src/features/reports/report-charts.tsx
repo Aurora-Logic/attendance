@@ -1,4 +1,4 @@
-import { Bar, BarChart, CartesianGrid, RadialBar, RadialBarChart, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Line, LineChart, Pie, PieChart, RadialBar, RadialBarChart, XAxis, YAxis } from 'recharts';
 
 import { SectionHeading } from '@/components/shared/section-heading';
 import { CHART_INTRO_MS } from '@/components/shared/use-chart-motion';
@@ -8,7 +8,9 @@ import type { ReportDefinition, ReportKey } from '@vyuha/shared';
 
 import {
   ageingSeries,
+  formSeries,
   genericSeries,
+  resolveChartForm,
   lapseSeries,
   movementSeries,
   salesAnalysisSeries,
@@ -179,7 +181,7 @@ export function ReportChart({ reportKey, rows, animate }: { reportKey: ReportKey
       return (
         <div className="grid gap-6 lg:grid-cols-2">
           <ShareRadialChart rows={rows} labelKey="item" valueKey="value" title="Share of stock value" animate={animate} />
-          <GenericReportChart definition={{ columns: [{ key: 'item', header: 'Item', type: 'text' }, { key: 'value', header: 'Value at cost', type: 'text' }], defaultSort: '-value' }} rows={rows} animate={animate} />
+          <GenericReportChart reportKey="stock-summary" definition={{ columns: [{ key: 'item', header: 'Item', type: 'text' }, { key: 'value', header: 'Value at cost', type: 'text' }], defaultSort: '-value' }} rows={rows} animate={animate} />
         </div>
       );
     default:
@@ -239,7 +241,10 @@ const GENERIC_FILLS = ['var(--primary)', 'var(--info)'] as const;
  * sort sizes them, in the table's order. The honest fallback behind the
  * Table | Chart | Both toggle — a report genericSeries refuses stays a table.
  */
-export function GenericReportChart({ definition, rows, animate, compare }: { definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string } }) {
+export function GenericReportChart({ reportKey, definition, rows, animate, compare }: { reportKey: ReportKey; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string } }) {
+  const spec = resolveChartForm(reportKey, definition, rows);
+  if (spec === null) return null;
+  if (spec.form !== 'hbar') return <FormChart spec={spec} definition={definition} rows={rows} animate={animate} compare={compare} />;
   const series = genericSeries(definition, rows);
   if (series === null) return null;
   const first = series.series[0];
@@ -258,16 +263,16 @@ export function GenericReportChart({ definition, rows, animate, compare }: { def
   ]) as ChartConfig;
   return (
     <Frame title={`Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`} insight={null}>
-      <ChartContainer config={config} className="h-56 w-full">
-        <BarChart data={data} margin={AXIS_MARGIN}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="category" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
-          <YAxis tickLine={false} axisLine={false} width={56} />
+      <ChartContainer config={config} className="h-64 w-full">
+        <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24, top: 4 }}>
+          <CartesianGrid horizontal={false} />
+          <XAxis type="number" tickLine={false} axisLine={false} />
+          <YAxis type="category" dataKey="category" tickLine={false} axisLine={false} width={120} tickFormatter={truncate} interval={0} />
           <ChartTooltip content={<ChartTooltipContent />} />
           {series.series.length > 1 || withPrev ? <ChartLegend content={<ChartLegendContent />} /> : null}
-          {withPrev ? <Bar dataKey="compare" fill="var(--color-compare)" radius={[4, 4, 0, 0]} maxBarSize={28} fillOpacity={0.55} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} /> : null}
+          {withPrev ? <Bar dataKey="compare" fill="var(--color-compare)" radius={[0, 4, 4, 0]} maxBarSize={18} fillOpacity={0.55} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} /> : null}
           {series.series.map((s) => (
-            <Bar key={s.key} dataKey={s.key} fill={`var(--color-${s.key})`} radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+            <Bar key={s.key} dataKey={s.key} fill={`var(--color-${s.key})`} radius={[0, 4, 4, 0]} maxBarSize={22} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
           ))}
         </BarChart>
       </ChartContainer>
@@ -275,3 +280,75 @@ export function GenericReportChart({ definition, rows, animate, compare }: { def
   );
 }
 
+/** The non-bar generic forms: a line through time, or a donut of composition. */
+function FormChart({ spec, definition, rows, animate, compare }: { spec: NonNullable<ReturnType<typeof resolveChartForm>>; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string } }) {
+  const points = formSeries(spec, rows);
+  if (points.length === 0) return null;
+  const headers = new Map(definition.columns.map((c) => [c.key, c.header]));
+
+  if (spec.form === 'line') {
+    const config = Object.fromEntries([
+      ...spec.series.map((key, index) => [key, { label: headers.get(key) ?? key, color: GENERIC_FILLS[index % GENERIC_FILLS.length] }]),
+      ...(compare ? [['compare', { label: compare.label, color: 'var(--muted-foreground)' }]] : []),
+    ]) as ChartConfig;
+    const prev = compare ? formSeries(spec, compare.rows) : [];
+    const firstKey = spec.series[0] ?? '';
+    // The comparison walks the same span shifted, so it joins by position, not by date.
+    const data = points.map((point, index) => (compare ? { ...point, compare: Number(prev[index]?.[firstKey] ?? 0) } : point));
+    return (
+      <Frame title={`${headers.get(firstKey) ?? 'Value'} over time`} insight={null}>
+        <ChartContainer config={config} className="h-56 w-full">
+          <LineChart data={data} margin={{ left: 0, right: 24, top: 4 }}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="category" tickLine={false} axisLine={false} minTickGap={24} />
+            <YAxis tickLine={false} axisLine={false} width={64} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            {spec.series.length > 1 || compare ? <ChartLegend content={<ChartLegendContent />} /> : null}
+            {compare ? <Line dataKey="compare" stroke="var(--color-compare)" strokeDasharray="4 4" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} /> : null}
+            {spec.series.map((key) => (
+              <Line key={key} dataKey={key} stroke={`var(--color-${key})`} strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+            ))}
+          </LineChart>
+        </ChartContainer>
+      </Frame>
+    );
+  }
+
+  // donut: five slices plus Other, the fixed ramp in order, labels in the legend
+  const config = Object.fromEntries([
+    ['value', { label: headers.get(spec.series[0] ?? '') ?? 'Value' }],
+    ...points.map((p, index) => [`slice${String(index)}`, { label: String(p.category), color: index < 5 ? SHARE_FILLS[index] : 'var(--muted-foreground)' }]),
+  ]) as ChartConfig;
+  const data = points.map((p, index) => ({ name: String(p.category), value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
+  return (
+    <Frame title="Composition" insight={null}>
+      <ChartContainer config={config} className="mx-auto aspect-square max-h-64 w-full">
+        <PieChart>
+          <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
+          <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+          <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+        </PieChart>
+      </ChartContainer>
+    </Frame>
+  );
+}
+
+/** A composition donut for any labelled value set: five slices plus Other, the ramp in fixed order. */
+export function CompositionDonut({ rows, labelKey, valueKey, animate }: { rows: readonly ChartRow[]; labelKey: string; valueKey: string; animate: boolean }) {
+  const points = formSeries({ form: 'donut', category: labelKey, series: [valueKey] }, rows);
+  if (points.length < 2) return null;
+  const config = Object.fromEntries([
+    ['value', { label: 'Value' }],
+    ...points.map((p, index) => [`slice${String(index)}`, { label: String(p.category), color: index < 5 ? SHARE_FILLS[index] : 'var(--muted-foreground)' }]),
+  ]) as ChartConfig;
+  const data = points.map((p, index) => ({ name: String(p.category), value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
+  return (
+    <ChartContainer config={config} className="mx-auto aspect-square max-h-64 w-full">
+      <PieChart>
+        <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
+        <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+        <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+      </PieChart>
+    </ChartContainer>
+  );
+}
