@@ -219,7 +219,7 @@ export function SavedViews({
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             <DialogClose render={<Button variant="outline">Cancel</Button>} />
             <Button
               disabled={name.trim().length === 0 || isSaving}

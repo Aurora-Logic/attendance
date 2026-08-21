@@ -189,7 +189,7 @@ export function GuideOverlay() {
                 : 'Alt+G gets you anywhere, and the pin in the header explains whichever screen you are on. The full tour is in your account menu whenever you want it again.'}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             {/* A page guide offers the whole thing; the whole thing has
                 nothing left to offer. */}
             {isPage ? (

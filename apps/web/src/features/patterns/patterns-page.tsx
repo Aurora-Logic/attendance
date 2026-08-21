@@ -261,7 +261,7 @@ export function PatternsPage() {
                   This form has unsaved changes. They will be discarded.
                 </DialogDescription>
               </DialogHeader>
-              <DialogFooter>
+              <DialogFooter className="flex-row justify-end gap-2">
                 <Button
                   variant="outline"
                   onClick={() => {

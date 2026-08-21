@@ -670,7 +670,7 @@ export function IntegrationsPage() {
               </Alert>
             ) : null}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             <Button
               variant="outline"
               onClick={() => {
@@ -814,7 +814,7 @@ export function IntegrationsPage() {
               <CopyField value={webhookUrl} label="Webhook URL" id="opstally-webhook-url" />
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             {webhookUrl === null ? (
               <>
                 <Button
@@ -883,7 +883,7 @@ export function IntegrationsPage() {
               </Alert>
             ) : null}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             <Button
               variant="outline"
               onClick={() => {
@@ -919,7 +919,7 @@ export function IntegrationsPage() {
           {issuedToken === null ? null : (
             <CopyField value={issuedToken} label="Agent token" id="issued-agent-token" />
           )}
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             <Button
               onClick={() => {
                 setIssuedToken(null);

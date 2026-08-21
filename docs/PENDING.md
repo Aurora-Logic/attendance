@@ -74,5 +74,16 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-13 | Gross margin proxy | Realised rate minus held cost, by item and customer, behind `reports.margin.view` | Done |
 | B-14 | Sales heatmap | Customer × month grid, the matrix's dense-grid form | Done |
 | B-15 | Attendance block on the Reports dashboard | On-time radial, open flags, oldest pending approval, top streaks | Done — shown to dashboard viewers who also hold attendance.view.all (the dashboard itself stays a receivables surface) |
-| B-16 | Screen audit | Every route through emil-design-eng and thumb-reach; findings fixed | Not started |
+| B-16 | Screen audit | Source-level pass over every route (Chrome stays off by owner instruction), both skills' violation classes probed in bulk; see the findings table below | Done |
+
+### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
+
+| Before | After | Why |
+| --- | --- | --- |
+| Seven dialog footers stacked their two actions full-width below `sm`, primary on top | `flex-row justify-end gap-2` on each (guide overlay, patterns, four integration dialogs, saved views, schedule) | Two short actions fit one row at 360px; stacking puts the primary furthest from the thumb (thumb-reach) |
+| `Input` and `SelectTrigger` had no coarse-pointer floor; screens added `pointer-coarse:h-11` one field at a time | `pointer-coarse:min-h-11` in the two primitives | Touch floors key on pointer, not width, and belong to the primitive so no screen can forget them (thumb-reach) |
+| Profile page had loading and empty states but no error state | An Empty with the message and Try again | Every screen carries all three states (CLAUDE.md §4) |
+| Flag, request-type, status, source and document glyphs were picked per screen | Registries (`ACTION_ICONS`, `entity-icons.ts`) read everywhere | Unseen consistency compounds (emil); one table cannot drift |
+
+Checked and clean: no `transition-all`, no `ease-in`, no hover-only affordances, no animation over 300ms, every sheet pins its edges with a `min-h-0` scroll region (the calculator keypad has no scrolling body by design), every list page has loading/empty/error states, every dropdown with more than three rows on a phone arrives as a bottom sheet (the Views menu sits mid-toolbar and stays a dropdown), icon buttons all carry labels (the one-line probe's hits were multi-line props). Accepted: editor and paper pages carry no PageHeader because the paper is the page; the patterns showcase lists sample rows and needs no empty state.
 
