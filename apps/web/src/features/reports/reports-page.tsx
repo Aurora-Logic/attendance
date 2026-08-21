@@ -6,6 +6,8 @@ import {
   CaretDownIcon,
   ChartBarIcon,
   FunnelIcon,
+  FileCsvIcon,
+  FileXlsIcon,
   PrinterIcon,
   TableIcon,
   DownloadSimpleIcon,
@@ -221,6 +223,7 @@ export function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [chooserOpen, setChooserOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [exportSheetOpen, setExportSheetOpen] = useState(false);
   const [periodOpen, setPeriodOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [selectedPunch, setSelectedPunch] = useState<PunchAuditRow | null>(null);
@@ -761,6 +764,17 @@ export function ReportsPage() {
                 Export
                 <ShortcutHint keys="alt+e" className="hidden md:inline-flex" />
               </Button>
+              {isMobile ? (
+                <Button
+                  aria-label="Choose an export format"
+                  disabled={!canExport || requestExport.isPending}
+                  onClick={() => {
+                    setExportSheetOpen(true);
+                  }}
+                >
+                  <CaretDownIcon />
+                </Button>
+              ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
@@ -809,6 +823,7 @@ export function ReportsPage() {
                   </DropdownMenuItem>
 </DropdownMenuContent>
               </DropdownMenu>
+              )}
             </ButtonGroup>
           </>
         }
@@ -861,6 +876,40 @@ export function ReportsPage() {
               </ToggleGroup>
             ) : null}
           </div>
+          {/* Thumb-reach: a four-row menu on a phone arrives from the bottom
+              edge, not from the top-right corner the dropdown would pin to. */}
+          <Sheet open={exportSheetOpen} onOpenChange={setExportSheetOpen}>
+            <SheetContent side="bottom" className="gap-0 p-0">
+              <SheetHeader className="border-b">
+                <SheetTitle>Export</SheetTitle>
+                <SheetDescription>{definition?.label ?? 'This report'}, with the filters as they stand.</SheetDescription>
+              </SheetHeader>
+              <div className="flex flex-col p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+                {(
+                  [
+                    { label: 'Excel workbook (.xlsx)', icon: <FileXlsIcon data-icon="inline-start" />, run: () => { startExport('XLSX'); } },
+                    { label: 'Comma-separated (.csv)', icon: <FileCsvIcon data-icon="inline-start" />, run: () => { startExport('CSV'); } },
+                    { label: 'Schedule this report', icon: <CalendarPlusIcon data-icon="inline-start" />, run: () => { setScheduleOpen(true); } },
+                    { label: 'Print / save as PDF', icon: <PrinterIcon data-icon="inline-start" />, run: () => { window.print(); } },
+                  ] as const
+                ).map((action) => (
+                  <Button
+                    key={action.label}
+                    variant="ghost"
+                    className="min-h-11 justify-start"
+                    onClick={() => {
+                      setExportSheetOpen(false);
+                      action.run();
+                    }}
+                  >
+                    {action.icon}
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            </SheetContent>
+          </Sheet>
+
           <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
             <SheetContent side="bottom" className="max-h-[88vh] gap-0 p-0">
               <SheetHeader className="border-b">
