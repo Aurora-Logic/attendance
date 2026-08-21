@@ -252,12 +252,19 @@ export function DateField({
   );
 }
 
+export interface RangePreset {
+  readonly label: string;
+  readonly range: () => DateRange;
+}
+
 interface DateRangeFieldProps extends OpenControl {
   value: DateRange;
   onValueChange: (value: DateRange) => void;
   label: string;
   hint?: ReactNode;
   className?: string;
+  /** Named ranges above the calendar; one tap sets and closes. */
+  presets?: readonly RangePreset[];
 }
 
 /** A from/to range, for a roster period or a report window (Alt+F2). */
@@ -267,6 +274,7 @@ export function DateRangeField({
   label,
   hint,
   className,
+  presets,
   ...control
 }: DateRangeFieldProps) {
   const [open, setOpen] = useOpenState(control);
@@ -304,6 +312,24 @@ export function DateRangeField({
         </Button>
       }
     >
+      {presets !== undefined && presets.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 border-b px-1 pb-3">
+          {presets.map((preset) => (
+            <Button
+              key={preset.label}
+              variant="outline"
+              size="sm"
+              className="pointer-coarse:min-h-11"
+              onClick={() => {
+                onValueChange(preset.range());
+                setOpen(false);
+              }}
+            >
+              {preset.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       {/* The surface stays open after the first click on purpose: a range needs
           two, and closing on the first would look like the control losing the
           selection. */}

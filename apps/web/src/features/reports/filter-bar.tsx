@@ -31,7 +31,11 @@ import {
 // are there only because that directory was locked while several screens were
 // being built in parallel. Reusing them beats a second copy of the same
 // composition, which is exactly what CLAUDE.md §3 asks for.
-import { DateField, DateRangeField, MonthField } from '@/features/attendance/pickers';
+import { DateField, DateRangeField, MonthField, type RangePreset } from '@/features/attendance/pickers';
+import { subDays } from 'date-fns';
+
+import { fromDateParam } from '@/features/attendance/format';
+import { periodForGranularity } from './period-compare';
 
 import { monthRange, type PeriodMode } from './period';
 
@@ -422,6 +426,43 @@ function PeriodField({
       onOpenChange={onOpenChange}
       className="w-full sm:w-auto"
       hint={hint}
+      presets={PERIOD_PRESETS}
     />
   );
+}
+
+/** REQ-AD-19's presets in its order; the financial year runs April to March (REQ-AD-20). */
+const PERIOD_PRESETS: readonly RangePreset[] = [
+  { label: 'Today', range: () => ({ from: new Date(), to: new Date() }) },
+  { label: 'Yesterday', range: () => ({ from: subDays(new Date(), 1), to: subDays(new Date(), 1) }) },
+  { label: 'Last 7 days', range: () => ({ from: subDays(new Date(), 6), to: new Date() }) },
+  { label: 'This month', range: () => fromStrings(periodForGranularity('month', todayString())) },
+  { label: 'Last month', range: () => lastCalendarMonth() },
+  { label: 'Last 30 days', range: () => ({ from: subDays(new Date(), 29), to: new Date() }) },
+  { label: 'This quarter', range: () => fromStrings(periodForGranularity('quarter', todayString())) },
+  { label: 'Last quarter', range: () => previousOf('quarter') },
+  { label: 'This FY', range: () => fromStrings(periodForGranularity('year', todayString())) },
+  { label: 'Last FY', range: () => previousOf('year') },
+];
+
+function todayString(): string {
+  return new Date().toLocaleDateString('en-CA');
+}
+
+function fromStrings(range: { from: string; to: string }): DateRange {
+  return { from: fromDateParam(range.from) ?? new Date(), to: fromDateParam(range.to) ?? new Date() };
+}
+
+/** The whole previous FY period (quarter or year), full months rather than to-date. */
+function previousOf(granularity: 'quarter' | 'year'): DateRange {
+  const current = periodForGranularity(granularity, todayString());
+  const startDate = fromDateParam(current.from) ?? new Date();
+  const endOfPrevious = subDays(startDate, 1);
+  const previous = periodForGranularity(granularity, endOfPrevious.toLocaleDateString('en-CA'));
+  return { from: fromDateParam(previous.from) ?? endOfPrevious, to: endOfPrevious };
+}
+
+function lastCalendarMonth(): DateRange {
+  const now = new Date();
+  return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
 }

@@ -23,7 +23,7 @@ Purchase going live). Updated as work lands.
 | P-14 | REQ IDs in report copy | Doc references stripped from every report description | Reports | No | Done |
 | P-15 | Daily exception notifications | Non-empty exception reports notify Admin+Accounts daily via the dispatcher (owner decided 21 Aug) | Platform | No | Not started |
 | P-16 | Report usage recording | REQ-AD-09: opens recorded, 12-month retention | Platform | No | Not started |
-| P-17 | FY period presets | §10 presets (Today…This financial year, Apr–Mar) on the period control, Alt+F2 everywhere | Reports | No | Not started |
+| P-17 | FY period presets | The §10 preset row on the period picker — Today, Yesterday, Last 7 days, This/Last month, Last 30 days, This/Last quarter, This/Last FY (Apr–Mar, FY-aware maths) — one tap sets and closes; Alt+F2 already opens the picker on every report | Reports | No | Done |
 | P-18 | /ultrareview + /security-review | Close-out reviews | QA | No | Not started (ultrareview is owner-triggered: run `/code-review ultra` when ready) |
 | P-19 | Mobile report toolbar | Filters, compare and sort move into a bottom sheet behind one Filters button on phones (REQ-AD-15); Views and Columns stay reachable; view toggle compact icons | Reports | No | Done |
 | P-20 | Raw `__all__` in a select | The parties page's ledger-side select rendered its sentinel; every bare SelectValue audited, the others show real values | UI | No | Done |
