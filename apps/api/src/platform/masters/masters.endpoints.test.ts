@@ -1,8 +1,10 @@
 import { SYSTEM_ROLES, type Paginated, type PartyView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { ExceptionSweepHandler } from './exception-sweep.handler.js';
+import { NotificationDispatcher, type NotificationEvent } from '../notifications/notification.dispatcher.js';
 
 /**
  * The masters read surface (09 §5), and the 6b acceptance line it exists to
@@ -455,4 +457,56 @@ describe('the Tier 1 analytics, the wider set (14, D-46)', () => {
     expect(matrix.body.data.every((r) => r.invoices >= 1)).toBe(true);
   });
 
+});
+
+describe('the daily exception sweep and usage retention (D-46, D14-6)', () => {
+  it('opening a report records one usage row, deduplicated within the minute', async () => {
+    await harness.db.execute(sql`DELETE FROM report_usage WHERE org_id = ${ORG_ID}`);
+    await harness.get('/reports/negative-stock/rows', { token: adminToken });
+    await harness.get('/reports/negative-stock/rows', { token: adminToken });
+    // The insert is deliberately fire-and-forget, so give it a beat.
+    let rows: { rows: { n: number }[] } = { rows: [] };
+    for (let i = 0; i < 20; i += 1) {
+      rows = await harness.db.execute<{ n: number }>(
+        sql`SELECT count(*)::int AS n FROM report_usage WHERE org_id = ${ORG_ID} AND report_key = 'negative-stock'`,
+      );
+      if ((rows.rows[0]?.n ?? 0) > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(rows.rows[0]?.n).toBe(1);
+  });
+
+  it('notifies the permission holders about non-empty exception reports and prunes year-old usage', async () => {
+    const emitted: NotificationEvent[] = [];
+    const spy = vi.spyOn(harness.resolve(NotificationDispatcher), 'emit').mockImplementation((event) => {
+      emitted.push(event);
+      return Promise.resolve('spied');
+    });
+    try {
+      await harness.db.execute(sql`
+        INSERT INTO report_usage (org_id, user_id, report_key, opened_at)
+        SELECT ${ORG_ID}, (SELECT id FROM users WHERE org_id = ${ORG_ID} LIMIT 1), 'day-book', t.at
+          FROM (VALUES (now() - interval '13 months'), (now())) AS t(at)
+      `);
+      const sweep = harness.resolve(ExceptionSweepHandler);
+      const result = await sweep.run({ now: '2026-08-21T02:00:00.000Z' }, { jobId: 'test', attempt: 1 });
+      const mine = emitted.filter((e) => e.orgId === ORG_ID && e.type === 'reports.exceptions_daily');
+      expect(mine).toHaveLength(1);
+      expect(mine[0]?.audience).toEqual({ kind: 'permission', key: 'reports.exceptions.notify' });
+      expect(String(mine[0]?.payload?.summary)).toContain('duplicate masters');
+      expect(mine[0]?.idempotencyKey).toBe(`exception-sweep-${ORG_ID}-2026-08-21`);
+      expect(Number(result.usageRowsPruned)).toBeGreaterThanOrEqual(1);
+      const kept = await harness.db.execute<{ n: number }>(
+        sql`SELECT count(*)::int AS n FROM report_usage WHERE org_id = ${ORG_ID} AND report_key = 'day-book'`,
+      );
+      expect(kept.rows[0]?.n).toBe(1);
+
+      // The same morning run twice carries the same idempotency key, so BullMQ delivers once.
+      await sweep.run({ now: '2026-08-21T04:00:00.000Z' }, { jobId: 'test', attempt: 1 });
+      const again = emitted.filter((e) => e.orgId === ORG_ID && e.type === 'reports.exceptions_daily');
+      expect(again[1]?.idempotencyKey).toBe(again[0]?.idempotencyKey);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

@@ -155,6 +155,11 @@ export interface JobPayloads {
     readonly now?: string;
   };
 
+  /** D-46: count the exception reports per org; notify the holders when any has rows. */
+  'sweep-exception-reports': {
+    readonly now?: string;
+  };
+
   /** REQ-K-02: one queued envelope per domain event, fanned out by channel. */
   'send-notification': {
     readonly orgId: string;
@@ -259,6 +264,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'send-task-reminders': QUEUES.NOTIFICATION,
   'link-sales-invoices': QUEUES.MAINTENANCE,
   'raise-reorder-requirements': QUEUES.MAINTENANCE,
+  'sweep-exception-reports': QUEUES.MAINTENANCE,
   'send-notification': QUEUES.NOTIFICATION,
   'deliver-password-reset': QUEUES.NOTIFICATION,
   'accrue-leave': QUEUES.LEAVE,
@@ -366,6 +372,8 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   { schedulerId: 'sales:link-invoices', jobName: 'link-sales-invoices', pattern: '*/5 * * * *' },
   // After the night's pulls have landed and before the purchase team sits down.
   { schedulerId: 'purchase:reorder-sweep', jobName: 'raise-reorder-requirements', pattern: '15 1 * * *' },
+  // D-46. After the reorder sweep, still before anyone reads the digest with breakfast.
+  { schedulerId: 'reports:exception-sweep', jobName: 'sweep-exception-reports', pattern: '45 1 * * *' },
   // REQ-G-05. On the 1st, for the month that has just finished. Accruing on
   // the last day of a month instead would need a cron that can say "last day",
   // and would pro-rate a leaver's final month before their last day had ended.

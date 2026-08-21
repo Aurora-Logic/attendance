@@ -60,6 +60,12 @@ export const PERMISSIONS = {
    */
   MASTERS_TALLY_VIEW: 'masters.tally.view',
   RECEIVABLES_VIEW: 'receivables.view',
+  /**
+   * D-46: the daily exception sweep writes to whoever holds this, seeded to
+   * Admin and Accounts. A permission rather than a role name because roles
+   * are not hardcoded into logic — an org can hand the digest to anyone.
+   */
+  REPORTS_EXCEPTIONS_NOTIFY: 'reports.exceptions.notify',
 
   /**
    * Phase 7 (08 §2.2). Self/all breadths for contacts and deals; tasks are a
@@ -125,6 +131,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'audit.view': 'View the audit log',
   'masters.tally.view': 'View the Tally masters projection: parties, items, price lists',
   'receivables.view': 'View vouchers and receivables pulled from Tally: invoices, receipts, statements, ageing',
+  'reports.exceptions.notify': 'Receive the daily exception-report digest',
   'crm.contact.view.self': 'View the contacts and companies you own',
   'crm.contact.view.all': 'View every contact and company',
   'crm.contact.manage': 'Create and edit contacts and companies',
@@ -217,6 +224,7 @@ const ADMIN_PERMISSIONS = [
   PERMISSIONS.MASTERS_TALLY_VIEW,
   // 08 §2.2: Sales manager and Accounts hold this too, when those roles land.
   PERMISSIONS.RECEIVABLES_VIEW,
+  PERMISSIONS.REPORTS_EXCEPTIONS_NOTIFY,
   PERMISSIONS.CRM_CONTACT_VIEW_SELF,
   PERMISSIONS.CRM_CONTACT_VIEW_ALL,
   PERMISSIONS.CRM_CONTACT_MANAGE,
@@ -295,6 +303,7 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
   PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
   PERMISSIONS.RECEIVABLES_VIEW,
+  PERMISSIONS.REPORTS_EXCEPTIONS_NOTIFY,
 ] as const satisfies readonly PermissionKey[];
 
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {

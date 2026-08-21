@@ -35,6 +35,9 @@ import { hasPermission, type Principal } from '../rbac/principal.js';
  * the shell's behaviour elsewhere.
  */
 
+export const EXCEPTION_REPORT_KEYS = ['negative-stock', 'credit-breaches', 'stale-projections', 'duplicate-masters'] as const;
+export type ExceptionReportKey = (typeof EXCEPTION_REPORT_KEYS)[number];
+
 interface AnalyticsPage extends ReportSourcePage {
   readonly key: ReportKey;
   readonly rows: readonly Record<string, unknown>[];
@@ -93,6 +96,20 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
     // The ledger extract's opening row rides above the lines, like the statement's.
     if (key === 'ledger-extract') return (await this.scalar(sql`SELECT count(*)::int AS value FROM (${this.body(key, principal.orgId, usable)}) t`)) + 1;
     return this.scalar(sql`SELECT count(*)::int AS value FROM (${this.body(key, principal.orgId, usable)}) t`);
+  }
+
+  /**
+   * D-46's daily sweep reads the very bodies the four exception reports
+   * serve, so a count in the morning digest can never disagree with the
+   * report the reader opens. No principal: the caller is a job, and the
+   * audience is decided by the notification's permission, not by this read.
+   */
+  async exceptionCounts(orgId: string): Promise<Record<ExceptionReportKey, number>> {
+    const counts = {} as Record<ExceptionReportKey, number>;
+    for (const key of EXCEPTION_REPORT_KEYS) {
+      counts[key] = await this.scalar(sql`SELECT count(*)::int AS value FROM (${this.body(key, orgId, {})}) t`);
+    }
+    return counts;
   }
 
   async page(
