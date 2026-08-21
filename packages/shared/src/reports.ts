@@ -2485,8 +2485,9 @@ export function customerLapseCell(row: CustomerLapseSource, key: string): Report
 export function recordCell(row: Record<string, unknown>, key: string): ReportCellValue {
   const value = row[key];
   if (value === null || value === undefined) return null;
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value as ReportCellValue;
-  return String(value);
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  // A Date from the driver, most likely; anything else has no honest cell.
+  return value instanceof Date ? value.toISOString() : null;
 }
 
 export interface LedgerExtractSource extends Record<string, unknown> {
