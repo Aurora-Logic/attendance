@@ -134,6 +134,55 @@ export const NEEDS_REVIEW = new Set<string>([
   'manual_override',
 ]);
 
+/**
+ * Owner, 22 Aug 2026: every flag has a colour of its own, from the theme's
+ * `--flag-*` tokens. A flag is an identity, not a state, so it does not
+ * borrow the status colours; the label always sits beside the glyph, so
+ * nobody has to tell twelve hues apart unaided. Unknown flags stay quiet.
+ */
+const FLAG_TONE: Record<(typeof ATTENDANCE_FLAGS)[number], string> = {
+  late: 'late',
+  early_exit: 'early-exit',
+  missing_punch: 'missing-punch',
+  outside_geofence: 'outside-geofence',
+  outside_window: 'outside-window',
+  offline_sync: 'offline-sync',
+  device_mismatch: 'device-mismatch',
+  manual_override: 'manual-override',
+  low_gps_accuracy: 'low-gps-accuracy',
+  no_location: 'no-location',
+  mock_location: 'mock-location',
+  clock_skew: 'clock-skew',
+};
+
+/** Tailwind classes for a flag's hue: text, border and soft fill. Spelled out so the scanner can see them. */
+const FLAG_CLASSES: Record<string, { text: string; border: string; fill: string }> = {
+  late: { text: 'text-flag-late', border: 'border-flag-late/40', fill: 'bg-flag-late/10' },
+  'early-exit': { text: 'text-flag-early-exit', border: 'border-flag-early-exit/40', fill: 'bg-flag-early-exit/10' },
+  'missing-punch': { text: 'text-flag-missing-punch', border: 'border-flag-missing-punch/40', fill: 'bg-flag-missing-punch/10' },
+  'outside-geofence': { text: 'text-flag-outside-geofence', border: 'border-flag-outside-geofence/40', fill: 'bg-flag-outside-geofence/10' },
+  'outside-window': { text: 'text-flag-outside-window', border: 'border-flag-outside-window/40', fill: 'bg-flag-outside-window/10' },
+  'offline-sync': { text: 'text-flag-offline-sync', border: 'border-flag-offline-sync/40', fill: 'bg-flag-offline-sync/10' },
+  'device-mismatch': { text: 'text-flag-device-mismatch', border: 'border-flag-device-mismatch/40', fill: 'bg-flag-device-mismatch/10' },
+  'manual-override': { text: 'text-flag-manual-override', border: 'border-flag-manual-override/40', fill: 'bg-flag-manual-override/10' },
+  'low-gps-accuracy': { text: 'text-flag-low-gps-accuracy', border: 'border-flag-low-gps-accuracy/40', fill: 'bg-flag-low-gps-accuracy/10' },
+  'no-location': { text: 'text-flag-no-location', border: 'border-flag-no-location/40', fill: 'bg-flag-no-location/10' },
+  'mock-location': { text: 'text-flag-mock-location', border: 'border-flag-mock-location/40', fill: 'bg-flag-mock-location/10' },
+  'clock-skew': { text: 'text-flag-clock-skew', border: 'border-flag-clock-skew/40', fill: 'bg-flag-clock-skew/10' },
+};
+
+export function flagClasses(flag: string): { text: string; border: string; fill: string } {
+  const tone = FLAG_TONE[flag as keyof typeof FLAG_TONE];
+  const classes = tone === undefined ? undefined : FLAG_CLASSES[tone];
+  return classes ?? { text: FAMILY_TEXT.quiet, border: FAMILY_BORDER.neutral, fill: FAMILY_FILL.quiet };
+}
+
+/** The CSS variable behind a flag's hue, for charts that paint by identity. */
+export function flagColourVar(flag: string): string {
+  const tone = FLAG_TONE[flag as keyof typeof FLAG_TONE];
+  return tone === undefined ? 'var(--muted-foreground)' : `var(--flag-${tone})`;
+}
+
 export function flagLabel(flag: string): string {
   return FLAG_LABELS[flag as keyof typeof FLAG_LABELS] ?? humaniseEnum(flag);
 }

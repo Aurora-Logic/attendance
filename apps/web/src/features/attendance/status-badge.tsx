@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 import type { AttendanceStatus } from '@vyuha/shared';
 
-import { FAMILY_TEXT, NEEDS_REVIEW, STATUS_TONES, flagLabel, statusClasses } from './status';
+import { FAMILY_TEXT, NEEDS_REVIEW, STATUS_TONES, flagClasses, flagLabel, statusClasses } from './status';
 
 /**
  * The two things that render a status: the pill and the flag row.
@@ -55,10 +55,7 @@ export function AttendanceFlags({ flags, className }: { flags: string[]; classNa
                   variant="ghost"
                   size="icon-xs"
                   aria-label={flagLabel(flag)}
-                  className={cn(
-                    'size-6 pointer-coarse:size-8',
-                    NEEDS_REVIEW.has(flag) ? FAMILY_TEXT.destructive : FAMILY_TEXT.quiet,
-                  )}
+                  className={cn('size-6 pointer-coarse:size-8', flagClasses(flag).text)}
                 />
               }
             >

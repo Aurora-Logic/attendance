@@ -3,6 +3,7 @@ import type { DateRange } from 'react-day-picker';
 import { BooksIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { flagClasses, flagLabel } from '@/features/attendance/status';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -319,7 +320,8 @@ export function ReportFilterBar({
               <SelectItem value={ALL}>All flags</SelectItem>
               {ATTENDANCE_FLAGS.map((flag) => (
                 <SelectItem key={flag} value={flag}>
-                  {humaniseEnum(flag)}
+                  <ACTION_ICONS.flag aria-hidden className={flagClasses(flag).text} />
+                  {flagLabel(flag)}
                 </SelectItem>
               ))}
             </SelectGroup>

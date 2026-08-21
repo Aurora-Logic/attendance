@@ -38,12 +38,7 @@ import { DayDetailSheet } from '@/features/attendance/day-detail-sheet';
 import { formatClock, formatDuration, toDateParam } from '@/features/attendance/format';
 import { MonthField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import {
-  FAMILY_BORDER,
-  FAMILY_TEXT,
-  NEEDS_REVIEW,
-  flagLabel,
-} from '@/features/attendance/status';
+import { NEEDS_REVIEW, flagClasses, flagLabel } from '@/features/attendance/status';
 import { AttendanceFlags, AttendanceStatusBadge, EarlyStreakBadge } from '@/features/attendance/status-badge';
 import { employeeActions } from './employee-actions';
 import { EmployeeAccessSection } from './employee-access-section';
@@ -787,13 +782,9 @@ export function EmployeeDetailPage() {
                         <li key={flag}>
                           <Badge
                             variant="ghost"
-                            className={cn(
-                              'border gap-1.5',
-                              NEEDS_REVIEW.has(flag)
-                                ? cn(FAMILY_TEXT.destructive, FAMILY_BORDER.destructive)
-                                : cn(FAMILY_TEXT.quiet, FAMILY_BORDER.neutral),
-                            )}
+                            className={cn('border gap-1.5', flagClasses(flag).text, flagClasses(flag).border, flagClasses(flag).fill)}
                           >
+                            <ACTION_ICONS.flag aria-hidden weight={NEEDS_REVIEW.has(flag) ? 'fill' : 'regular'} />
                             {flagLabel(flag)}
                             <span className="tabular-nums">{count}</span>
                           </Badge>

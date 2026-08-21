@@ -10,7 +10,7 @@ import {
 import { axisTicks, hourTicks, shortDate } from '@/features/attendance/chart-series';
 import { OrderedChartLegend } from '@/features/attendance/charts';
 import { formatDuration } from '@/features/attendance/format';
-import { flagLabel, NEEDS_REVIEW } from '@/features/attendance/status';
+import { flagColourVar, flagLabel } from '@/features/attendance/status';
 import { CHART_INTRO_MS } from '@/features/attendance/use-chart-motion';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -561,7 +561,9 @@ export function FlagVolumeChart({ points, animate }: ChartProps<FlagPoint>) {
     flag: point.flag,
     label: flagLabel(point.flag),
     punches: point.punches,
-    fill: NEEDS_REVIEW.has(point.flag) ? 'var(--destructive)' : 'var(--muted-foreground)',
+    // Owner, 22 Aug 2026: each flag paints in its own hue; the label beside
+    // every bar carries the identity, the colour only agrees with the chips.
+    fill: flagColourVar(point.flag),
   }));
 
   return (

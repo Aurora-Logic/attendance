@@ -51,3 +51,28 @@ Notes:
 | A-08 | REQ IDs in copy | No screen is named Products; REQ-E-03 / REQ-C-02 rendered in the Shift editor help text. Every REQ ID is stripped from rendered copy across 45 files (help, notes, descriptions, JSX text); code comments keep them | Confirmed: the Shift editor | Done |
 | A-09 | Credential endpoint privilege escalation | `POST /employees/:id/access/credentials` (found by the P-18 security review) let `employee.manage` reset any same-org account, including an Admin's, and attach any role | Fixed: gated on `roles.manage`, role validated to the org, a target holding permissions the caller lacks is refused; four endpoint tests | Done |
 
+---
+
+# Pending — Glyphs, reports, audit (22 Aug 2026)
+
+Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more reports, dashboards and charts through the data-analyst lens, and every screen audited with emil-design-eng and thumb-reach.
+
+| ID | Item | Description | Status |
+|----|------|-------------|--------|
+| B-01 | Approval-type glyphs | One glyph per request type, worn in inbox rows, the type filter and bell notifications | Not started |
+| B-02 | Attendance status glyphs | One glyph per status on the pill, the calendar legend and the muster | Not started |
+| B-03 | Punch source glyphs | Phone, browser, offline sync, admin entry on punch rows, the receipt and the source chart | Not started |
+| B-04 | Document-type glyphs | Estimate, order, invoice, dispatch, PO, GRN on the Sales/Purchase lists and Go To | Not started |
+| B-05 | Flag review log | Who accepted / kept / half-dayed what, per admin per week | Not started |
+| B-06 | Approvals turnaround | Median and p90 time-to-decision by request type; oldest pending | Not started |
+| B-07 | Early-arrival leaderboard | Current streaks and early minutes by employee and department | Not started |
+| B-08 | On-time rate by department | Radial grid | Not started |
+| B-09 | AOV trend | Average order value by month, FY comparison | Not started |
+| B-10 | Partial shipments by customer | Orders needing two dispatches or a short-close ÷ orders dispatched | Not started |
+| B-11 | Vendor lead time | PO confirm to GRN, median and p90, against promised days | Not started |
+| B-12 | Stock-out frequency | Requirements raised from shortage per item per month | Not started |
+| B-13 | Gross margin proxy | Realised rate minus held cost, by item and customer, behind `reports.margin.view` | Not started |
+| B-14 | Sales heatmap | Customer × month grid, the matrix's dense-grid form | Not started |
+| B-15 | Attendance block on the Reports dashboard | On-time radial, open flags, oldest pending approval, top streaks | Not started |
+| B-16 | Screen audit | Every route through emil-design-eng and thumb-reach; findings fixed | Not started |
+

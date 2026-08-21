@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { cn } from '@/lib/utils';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { flagClasses, flagLabel } from '@/features/attendance/status';
 import {
   ArrowsOutIcon,
   DeviceMobileIcon,
@@ -224,8 +226,9 @@ export function PunchPhotoSheet({ punch, onOpenChange }: PunchPhotoSheetProps) {
                   <AlertDescription>
                     <span className="flex flex-wrap gap-1">
                       {punch.flags.map((flag) => (
-                        <Badge key={flag} variant="outline" className="font-normal">
-                          {humaniseEnum(flag)}
+                        <Badge key={flag} variant="outline" className={cn('font-normal', flagClasses(flag).text, flagClasses(flag).border, flagClasses(flag).fill)}>
+                          <ACTION_ICONS.flag aria-hidden />
+                          {flagLabel(flag)}
                         </Badge>
                       ))}
                     </span>
