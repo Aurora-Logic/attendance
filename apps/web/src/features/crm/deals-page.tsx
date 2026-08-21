@@ -39,21 +39,21 @@ import { useDeal, useDealBoard, useDeals, useMoveDeal, usePipelines, type DealFi
 const STATUS_LABELS: Record<DealStatusFilter, string> = { open: 'Open', won: 'Won', lost: 'Lost', all: 'All' };
 
 /**
- * A hue per open stage, cycled by position — stages are user-named, so the
- * colour says "which column" at a glance rather than anything semantic. Won
- * is always green, lost always rose. Full literal classes, for Tailwind.
+ * A tint per open stage, cycled by position, worn by the lane's header chip
+ * (the grouped-board idiom) — stages are user-named, so the colour says
+ * "which column" at a glance rather than anything semantic. Won is always
+ * green, lost always rose. Full literal classes, for Tailwind.
  */
 const STAGE_HUES = [
-  { top: 'border-t-sky-500', edge: 'border-l-sky-500', text: 'text-sky-600 dark:text-sky-400' },
-  { top: 'border-t-violet-500', edge: 'border-l-violet-500', text: 'text-violet-600 dark:text-violet-400' },
-  { top: 'border-t-amber-500', edge: 'border-l-amber-500', text: 'text-amber-600 dark:text-amber-400' },
-  { top: 'border-t-teal-500', edge: 'border-l-teal-500', text: 'text-teal-600 dark:text-teal-400' },
-  { top: 'border-t-pink-500', edge: 'border-l-pink-500', text: 'text-pink-600 dark:text-pink-400' },
-  { top: 'border-t-indigo-500', edge: 'border-l-indigo-500', text: 'text-indigo-600 dark:text-indigo-400' },
+  'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
+  'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
+  'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+  'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300',
+  'bg-pink-100 text-pink-700 dark:bg-pink-500/15 dark:text-pink-300',
+  'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300',
 ] as const;
-const WON_HUE = { top: 'border-t-emerald-500', edge: 'border-l-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' } as const;
-const LOST_HUE = { top: 'border-t-rose-500', edge: 'border-l-rose-500', text: 'text-rose-600 dark:text-rose-400' } as const;
-type StageHue = (typeof STAGE_HUES)[number] | typeof WON_HUE | typeof LOST_HUE;
+const WON_HUE = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300';
+const LOST_HUE = 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300';
 
 /** Won a seal, lost a cross; an open stage a circle filling with its probability. */
 function stageIcon(stage: { isWon: boolean; isLost: boolean; probability: number }, className: string) {
@@ -381,39 +381,30 @@ export function DealsPage() {
         {view === 'board' && board.data !== undefined && !nothing ? (
           <KanbanBoard
             ariaLabel="Deal pipeline"
-            lanes={board.data.lanes.map(({ stage, deals, total, valueTotal }, index) => {
-              const hue: StageHue = stage.isWon ? WON_HUE : stage.isLost ? LOST_HUE : (STAGE_HUES[index % STAGE_HUES.length] ?? STAGE_HUES[0]);
-              return {
-                id: stage.id,
-                label: stage.name,
-                accent: hue.top,
-                title: (
-                  <>
-                    {stageIcon(stage, cn('shrink-0', hue.text))}
-                    {stage.name}
-                    <span className="text-muted-foreground text-xs font-normal">{stage.isWon ? 'won' : stage.isLost ? 'lost' : `${String(stage.probability)}%`}</span>
-                  </>
-                ),
-                meta: (
-                  <span className="flex items-baseline gap-2">
-                    <span>{total}</span>
-                    <span className="text-muted-foreground">{formatValue(valueTotal)}</span>
-                  </span>
-                ),
-                items: deals,
-                total,
-                muted: stage.isWon || stage.isLost,
-              };
-            })}
+            lanes={board.data.lanes.map(({ stage, deals, total, valueTotal }, index) => ({
+              id: stage.id,
+              label: stage.name,
+              accent: stage.isWon ? WON_HUE : stage.isLost ? LOST_HUE : (STAGE_HUES[index % STAGE_HUES.length] ?? STAGE_HUES[0]),
+              title: (
+                <>
+                  {stageIcon(stage, 'shrink-0')}
+                  <span className="truncate">{stage.name}</span>
+                  {stage.isWon || stage.isLost ? null : <span className="font-normal opacity-70">{stage.probability}%</span>}
+                </>
+              ),
+              meta: (
+                <span className="flex items-baseline gap-2">
+                  <span>{total}</span>
+                  <span className="text-muted-foreground">{formatValue(valueTotal)}</span>
+                </span>
+              ),
+              items: deals,
+              total,
+              muted: stage.isWon || stage.isLost,
+            }))}
             itemKey={(deal) => deal.id}
             itemLaneId={(deal) => deal.stageId}
             itemLabel={(deal) => deal.name}
-            itemAccent={(deal) => {
-              if (deal.status === 'won') return WON_HUE.edge;
-              if (deal.status === 'lost') return LOST_HUE.edge;
-              const index = board.data?.lanes.findIndex((lane) => lane.stage.id === deal.stageId) ?? -1;
-              return index < 0 ? undefined : (STAGE_HUES[index % STAGE_HUES.length] ?? STAGE_HUES[0]).edge;
-            }}
             renderItem={(deal) => (
               <>
                 <span className={cn('font-medium', deal.status === 'lost' && 'text-muted-foreground line-through')}>{deal.name}</span>
