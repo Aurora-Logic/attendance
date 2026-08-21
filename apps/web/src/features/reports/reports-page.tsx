@@ -258,6 +258,8 @@ export function ReportsPage() {
     partyId: searchParams.get('partyId'),
     groupBy: searchParams.get('groupBy'),
     voucherType: searchParams.get('voucherType'),
+    ledgerName: searchParams.get('ledgerName'),
+    itemName: searchParams.get('itemName'),
   };
 
   const sort = searchParams.get('sort') ?? definition?.defaultSort ?? '';
@@ -295,7 +297,7 @@ export function ReportsPage() {
         if (patch.period.to) params.set('to', toDateParam(patch.period.to));
         else params.delete('to');
       }
-      for (const key of ['departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType'] as const) {
+      for (const key of ['departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType', 'ledgerName', 'itemName'] as const) {
         if (!(key in patch)) continue;
         const value = patch[key];
         if (value === null || value === undefined) params.delete(key);
@@ -306,7 +308,7 @@ export function ReportsPage() {
 
   function clearFilters() {
     patchParams((params) => {
-      for (const key of ['from', 'to', 'departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType'] as const) {
+      for (const key of ['from', 'to', 'departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType', 'ledgerName', 'itemName'] as const) {
         params.delete(key);
       }
     });
@@ -408,6 +410,8 @@ export function ReportsPage() {
     ...(filters.partyId ? { partyId: filters.partyId } : {}),
     ...(filters.groupBy ? { groupBy: filters.groupBy as ReportFilters['groupBy'] } : {}),
     ...(filters.voucherType ? { voucherType: filters.voucherType } : {}),
+    ...(filters.ledgerName ? { ledgerName: filters.ledgerName } : {}),
+    ...(filters.itemName ? { itemName: filters.itemName } : {}),
   };
 
   // A report that has no answer without a filter is not asked until it has
@@ -415,6 +419,7 @@ export function ReportsPage() {
   const missingRequired = (definition?.requiredFilters ?? []).filter((name) => {
     if (name === 'partyId') return filters.partyId === null;
     if (name === 'period') return !period.from;
+    if (name === 'ledgerName') return filters.ledgerName === null;
     return false;
   });
   // Not until the catalogue has said what the report needs: a statement asked
@@ -443,6 +448,8 @@ export function ReportsPage() {
     ...(filters.partyId ? { partyId: filters.partyId } : {}),
     ...(filters.groupBy ? { groupBy: filters.groupBy as ReportFilters['groupBy'] } : {}),
     ...(filters.voucherType ? { voucherType: filters.voucherType } : {}),
+    ...(filters.ledgerName ? { ledgerName: filters.ledgerName } : {}),
+    ...(filters.itemName ? { itemName: filters.itemName } : {}),
   };
 
   function startExport(format: ExportFormat) {
@@ -563,7 +570,9 @@ export function ReportsPage() {
     filters.punchType !== null ||
     filters.partyId !== null ||
     filters.groupBy !== null ||
-    filters.voucherType !== null;
+    filters.voucherType !== null ||
+    filters.ledgerName !== null ||
+    filters.itemName !== null;
 
   /*
    * REQ-J-05: the same filters without the period.

@@ -18,6 +18,7 @@ import {
   lowStockCell,
   pendingDispatchCell,
   dayBookCell,
+  recordCell,
   salesAnalysisCell,
   voucherReconciliationCell,
   leaveAvailedCell,
@@ -659,6 +660,42 @@ const LOW_STOCK_SHAPE: RowViewShape<LowStockRow> = {
   status: () => null,
 };
 
+/**
+ * The Tier 1 analytics rows (D-46) are flat records whose keys are the
+ * column keys; one loose shape serves all fifteen, with the id and the
+ * mobile-primary named per report. `recordCell` reads any of them.
+ */
+const analyticsRowSchema = z.record(z.string(), z.unknown());
+type AnalyticsRow = z.infer<typeof analyticsRowSchema>;
+
+function analyticsShape(idKey: string, primaryKey: string, statusKey?: string): RowViewShape<AnalyticsRow> {
+  return {
+    schema: analyticsRowSchema,
+    cell: recordCell,
+    id: (row) => String(row[idKey] ?? JSON.stringify(row)),
+    primary: (row) => String(row[primaryKey] ?? ''),
+    status: (row) => (statusKey === undefined ? null : ((row[statusKey] as string | null | undefined) ?? null)),
+  };
+}
+
+const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> = {
+  'ledger-extract': analyticsShape('id', 'voucherType'),
+  'stock-summary': analyticsShape('stockItemId', 'item'),
+  'negative-stock': analyticsShape('stockItemId', 'item'),
+  'stale-projections': analyticsShape('connectionId', 'companyName', 'connectionState'),
+  'duplicate-masters': analyticsShape('id', 'nameA'),
+  'customer-item-matrix': analyticsShape('id', 'partyName'),
+  'purchase-rhythm': analyticsShape('partyId', 'partyName', 'trend'),
+  'price-variance': analyticsShape('id', 'item'),
+  'item-velocity': analyticsShape('stockItemId', 'item', 'trend'),
+  'dead-stock': analyticsShape('stockItemId', 'item'),
+  'movement-analysis': analyticsShape('id', 'item'),
+  'vendor-item-history': analyticsShape('id', 'vendorName', 'rateTrend'),
+  'vendor-price-comparison': analyticsShape('id', 'item'),
+  'credit-breaches': analyticsShape('partyId', 'partyName'),
+  'stock-ageing': analyticsShape('stockItemId', 'item'),
+};
+
 function build<T>(
   shape: RowViewShape<T>,
   reportKey: ReportKey,
@@ -730,6 +767,11 @@ export function toRowViews(reportKey: ReportKey, rows: readonly unknown[]): Repo
       return build(DAY_BOOK_SHAPE, reportKey, rows);
     case 'customer-lapse':
       return build(CUSTOMER_LAPSE_SHAPE, reportKey, rows);
+    default: {
+      const shape = ANALYTICS_SHAPES[reportKey];
+      if (shape === undefined) throw new Error(`No row shape for "${reportKey}".`);
+      return build(shape, reportKey, rows);
+    }
   }
 }
 

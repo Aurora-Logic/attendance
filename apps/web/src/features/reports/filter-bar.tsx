@@ -66,6 +66,10 @@ export interface ReportFilterState {
   readonly groupBy: string | null;
   /** 14 REQ-AE-01: the day book's voucher-type narrowing. */
   readonly voucherType: string | null;
+  /** 14 REQ-AE-02: the ledger the extract is for. */
+  readonly ledgerName: string | null;
+  /** 14: the item analyses narrow by item name. */
+  readonly itemName: string | null;
 }
 
 interface Option {
@@ -177,6 +181,34 @@ export function ReportFilterBar({
             value={value.voucherType ?? ''}
             onValueChange={(next) => {
               onChange({ voucherType: next.trim() === '' ? null : next });
+            }}
+          />
+        </div>
+      ) : null}
+
+      {shows('ledgerName') ? (
+        <div className="w-full sm:w-56">
+          <SearchField
+            id="report-ledger-name"
+            label="Ledger name"
+            placeholder="Ledger, as Tally names it"
+            value={value.ledgerName ?? ''}
+            onValueChange={(next) => {
+              onChange({ ledgerName: next.trim() === '' ? null : next });
+            }}
+          />
+        </div>
+      ) : null}
+
+      {shows('itemName') ? (
+        <div className="w-full sm:w-48">
+          <SearchField
+            id="report-item-name"
+            label="Filter by item"
+            placeholder="Item name"
+            value={value.itemName ?? ''}
+            onValueChange={(next) => {
+              onChange({ itemName: next.trim() === '' ? null : next });
             }}
           />
         </div>

@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { MastersController } from './masters.controller.js';
 import { MastersService } from './masters.service.js';
 import { PartyGoToSource } from './party-goto.source.js';
+import { AnalyticsReportSource } from './analytics-report.source.js';
 import { TallyReportSource } from './tally-report.source.js';
 import { VoucherGoToSource } from './voucher-goto.source.js';
 
@@ -13,7 +14,7 @@ import { VoucherGoToSource } from './voucher-goto.source.js';
  */
 @Module({
   controllers: [MastersController],
-  providers: [MastersService, PartyGoToSource, VoucherGoToSource, TallyReportSource],
+  providers: [MastersService, PartyGoToSource, VoucherGoToSource, TallyReportSource, AnalyticsReportSource],
   exports: [MastersService],
 })
 export class MastersModule {}

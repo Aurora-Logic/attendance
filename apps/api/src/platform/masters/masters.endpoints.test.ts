@@ -401,3 +401,58 @@ describe('the Tier 1 analytics (14 REQ-AE-01, REQ-AG-02)', () => {
     expect(asha?.asOf).not.toBeNull();
   });
 });
+
+describe('the Tier 1 analytics, the wider set (14, D-46)', () => {
+  it('the ledger extract opens from what came before and runs a balance', async () => {
+    const noLedger = await harness.get<{ error: { details?: { fields?: { path: string }[] } } }>('/reports/ledger-extract/rows', { token: adminToken });
+    expect(noLedger.status).toBe(400);
+    expect(noLedger.body.error.details?.fields?.[0]?.path).toBe('ledgerName');
+
+    const extract = await harness.get<{ data: { voucherType: string; balance: string; debit: string | null; credit: string | null }[]; meta: { total: number } }>(
+      '/reports/ledger-extract/rows?ledgerName=Sales&from=2026-08-01&to=2026-08-31',
+      { token: adminToken },
+    );
+    expect(extract.status).toBe(200);
+    expect(extract.body.data[0]?.voucherType).toBe('Opening balance');
+    expect(extract.body.data.every((r) => /^-?\d+\.\d\d$/u.test(r.balance))).toBe(true);
+  });
+
+  it('stock summary values closing at cost and carries committed and available', async () => {
+    await harness.db.execute(sql`
+      INSERT INTO stock_items (org_id, connection_id, name, parent_group, unit, closing_qty, cost_price, absent_in_tally)
+      VALUES (${ORG_ID}, ${connectionId}, 'Summary Cable', 'Cables', 'NOS', 12, 250, false)
+    `);
+    const summary = await harness.get<{ data: { item: string; closingQty: string | null; committedQty: string; availableQty: string | null; value: string | null }[] }>(
+      '/reports/stock-summary/rows',
+      { token: adminToken },
+    );
+    expect(summary.status).toBe(200);
+    const cable = summary.body.data.find((r) => r.item === 'Summary Cable');
+    expect(cable).toBeDefined();
+    expect(Number(cable?.value)).toBe(3000);
+    expect(cable?.committedQty).toBe('0');
+    expect(Number(cable?.availableQty)).toBe(12);
+  });
+
+  it('duplicate masters flags names that collapse to the same key', async () => {
+    await harness.db.execute(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group)
+      VALUES (${ORG_ID}, ${connectionId}, 'ASHA  TRADERS.', 'Sundry Debtors')
+    `);
+    const dupes = await harness.get<{ data: { kind: string; nameA: string; nameB: string }[] }>('/reports/duplicate-masters/rows', { token: adminToken });
+    expect(dupes.status).toBe(200);
+    const pair = dupes.body.data.find((r) => r.kind === 'Party' && [r.nameA, r.nameB].some((n) => n.includes('Asha') || n.includes('ASHA')));
+    expect(pair).toBeDefined();
+  });
+
+  it('the customer × product matrix counts invoices per party and item', async () => {
+    const matrix = await harness.get<{ data: { partyName: string; item: string; invoices: number; value: string }[] }>(
+      '/reports/customer-item-matrix/rows',
+      { token: adminToken },
+    );
+    expect(matrix.status).toBe(200);
+    expect(matrix.body.data.length).toBeGreaterThan(0);
+    expect(matrix.body.data.every((r) => r.invoices >= 1)).toBe(true);
+  });
+
+});
