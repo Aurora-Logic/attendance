@@ -1,9 +1,13 @@
-import { SYSTEM_ROLES, type Paginated, type PartyView } from '@vyuha/shared';
+import { SYSTEM_ROLES, type ExportDownload, type ExportJobSummary, type Paginated, type PartyView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
+import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+import { env } from '../common/env.js';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
 import { ExceptionSweepHandler } from './exception-sweep.handler.js';
+import { ExportService } from '../export/export.service.js';
 import { NotificationDispatcher, type NotificationEvent } from '../notifications/notification.dispatcher.js';
 
 /**
@@ -23,6 +27,14 @@ let connectionId = '';
 let ashaId = '';
 
 beforeAll(async () => {
+  // export_jobs.requested_by is ON DELETE RESTRICT; a row left by a crashed
+  // run pins its user and breaks resetOrganisation for every later run.
+  const pool = new Pool({ connectionString: env.DATABASE_URL, max: 1 });
+  try {
+    await pool.query('DELETE FROM export_jobs WHERE org_id = $1', [ORG_ID]);
+  } finally {
+    await pool.end();
+  }
   harness = await ApiHarness.start(ORG_ID, 'Masters Fixture Org');
 
   await harness.db.execute(sql`DELETE FROM sync_jobs WHERE org_id = ${ORG_ID}`);
@@ -508,5 +520,43 @@ describe('the daily exception sweep and usage retention (D-46, D14-6)', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('comparison flows into the exported file (data-analyst §3)', () => {
+  it('a CSV export with compare carries a previous column and a change column, joined by the same key as the screen', async () => {
+    // Sales analysis reads inventory lines; the June fixture voucher has
+    // none, so give it one for the comparison period to find.
+    await harness.db.execute(sql`
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_name, billed_qty, rate, amount)
+      SELECT ${ORG_ID}, id, 1, 'inventory', 'Cat6 Cable Box', '1 NOS', '1000.00', '1000.00'
+        FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'INV-0031'
+    `);
+    const accepted = await harness.post<ExportJobSummary>('/reports/exports', {
+      token: adminToken,
+      body: {
+        reportKey: 'sales-analysis',
+        filters: { from: '2026-08-01', to: '2026-08-31' },
+        format: 'CSV',
+        compare: { from: '2026-06-01', to: '2026-06-30', columnKey: 'value', label: 'previous' },
+      },
+    });
+    expect(accepted.status).toBe(202);
+    // Run the job directly so the assertion does not race the queue; the
+    // queued worker's own attempt then reads DONE and skips.
+    await harness.resolve(ExportService).run(ORG_ID, accepted.body.id, 1);
+    const link = await harness.get<ExportDownload>(`/reports/exports/${accepted.body.id}/download`, { token: adminToken });
+    expect(link.status).toBe(200);
+    const response = await fetch(link.body.url);
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    const lines = text.split('\n');
+    const header = lines.find((line) => line.startsWith('Group,')) ?? '';
+    expect(header).toContain('Value (previous)');
+    expect(header).toContain('Change');
+    const asha = lines.find((line) => line.startsWith('Asha Traders')) ?? '';
+    // August 4150.50 against June 1000: the file states the base and the delta.
+    expect(asha).toContain('1000');
+    expect(asha).toContain('+3150.5 (315.1%)');
   });
 });

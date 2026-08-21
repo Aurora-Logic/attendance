@@ -66,7 +66,7 @@ function Frame({ title, insight, children }: { title: string; insight: string | 
   );
 }
 
-export function ReportChart({ reportKey, rows, animate }: { reportKey: ReportKey; rows: readonly ChartRow[]; animate: boolean }) {
+export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: ReportKey; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string } }) {
   if (rows.length === 0) return null;
   const motion = { isAnimationActive: animate, animationDuration: CHART_INTRO_MS } as const;
 
@@ -74,16 +74,31 @@ export function ReportChart({ reportKey, rows, animate }: { reportKey: ReportKey
     case 'sales-analysis': {
       const { points, insight } = salesAnalysisSeries(rows);
       if (points.length === 0) return null;
+      // Period-over-period wears the matrix's grouped form: current solid,
+      // comparison muted. The share radial stays single-period — a share is
+      // already a comparison within its own whole.
+      const prevByLabel = new Map(
+        compare === undefined ? [] : salesAnalysisSeries(compare.rows).points.map((point) => [point.label, point.value]),
+      );
+      const data = points.map((point) =>
+        compare === undefined ? point : { ...point, compare: prevByLabel.get(point.label) ?? 0 },
+      );
+      const config =
+        compare === undefined
+          ? VALUE_CONFIG
+          : ({ ...VALUE_CONFIG, compare: { label: compare.label, color: 'var(--muted-foreground)' } } satisfies ChartConfig);
       return (
         <div className="grid gap-6 lg:grid-cols-2">
           <Frame title="Where the value sits" insight={insight}>
-            <ChartContainer config={VALUE_CONFIG} className="h-56 w-full">
-              <BarChart data={[...points]} margin={AXIS_MARGIN}>
+            <ChartContainer config={config} className="h-56 w-full">
+              <BarChart data={data} margin={AXIS_MARGIN}>
                 <CartesianGrid vertical={false} />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
                 <YAxis tickLine={false} axisLine={false} width={64} />
                 <ChartTooltip content={<ChartTooltipContent />} />
+                {compare !== undefined ? <ChartLegend content={<ChartLegendContent />} /> : null}
                 <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} maxBarSize={44} {...motion} />
+                {compare !== undefined ? <Bar dataKey="compare" fill="var(--color-compare)" fillOpacity={0.55} radius={[4, 4, 0, 0]} maxBarSize={44} {...motion} /> : null}
               </BarChart>
             </ChartContainer>
           </Frame>

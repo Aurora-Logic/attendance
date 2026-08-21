@@ -537,6 +537,17 @@ export function ReportsPage() {
         columns: visibleColumns,
         sort,
         format,
+        // The comparison the screen is showing flows into the file with the
+        // same range, the same column and the same header wording.
+        ...(compare !== 'off' && compareRange !== null && primaryColumn !== null
+          ? {
+              compare: {
+                ...compareRange,
+                columnKey: primaryColumn.key,
+                label: compare === 'lastYear' ? 'last FY' : 'previous',
+              },
+            }
+          : {}),
       },
       {
         onSuccess: (job) => {
@@ -1029,7 +1040,19 @@ export function ReportsPage() {
                     <SelectItem value="lastYear">vs same period last FY</SelectItem>
                   </SelectContent>
                 </Select>
-                {compare !== 'off' && compareRange !== null ? <span className="text-muted-foreground text-xs tabular-nums">against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}{currentRange !== null ? ', to date' : ''}</span> : null}
+                {compare !== 'off' && compareRange !== null ? (
+                  <span className="text-muted-foreground text-xs tabular-nums">
+                    against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}
+                    {currentRange !== null ? ', to date' : ''}
+                    {/* The party filter above scopes both periods, which is what
+                        lets one customer or vendor be compared across them. */}
+                    {definition?.filters.includes('partyId')
+                      ? filters.partyId
+                        ? `, for ${partyOptions.find((option) => option.id === filters.partyId)?.label ?? 'one party'}`
+                        : ' · whole business — filter by party to compare one'
+                      : ''}
+                  </span>
+                ) : null}
               </>
             ) : null}
           </div>
@@ -1157,7 +1180,7 @@ export function ReportsPage() {
                 </ToggleGroupItem>
               </ToggleGroup>
             ) : null}
-            {viewMode !== 'table' && chartKind === 'bespoke' ? <ReportChart reportKey={reportKey} rows={chartRows} animate={chartIntro} /> : null}
+            {viewMode !== 'table' && chartKind === 'bespoke' ? <ReportChart reportKey={reportKey} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} /> : null}
             {viewMode !== 'table' && chartKind === 'generic' && definition !== undefined ? (
               <GenericReportChart reportKey={reportKey} definition={definition} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} />
             ) : null}

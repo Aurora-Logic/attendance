@@ -1502,6 +1502,71 @@ export const EXPORT_STATUS_LABELS: Record<ExportStatus, string> = {
   FAILED: 'Failed',
 };
 
+
+// ------------------------------------------------------- cross-period joins
+
+/**
+ * How a row is matched to its twin in a comparison period, per report.
+ * Mirrors the id extractors in the web's row shapes
+ * (`features/reports/types.ts`) — the screen's delta columns and an exported
+ * file's must join the same rows or the two will disagree. `join` composes
+ * the fields; `first` takes the first present one. Reports not listed join
+ * on their `id` field, which for voucher-grain reports means a different
+ * period never matches — correctly, since those rows have no twin.
+ */
+const ROW_JOIN_KEYS: Partial<Record<ReportKey, { fields: readonly string[]; mode: 'join' | 'first' }>> = {
+  'voucher-reconciliation': { fields: ['month', 'voucherType'], mode: 'join' },
+  'credit-cycle': { fields: ['partyId'], mode: 'first' },
+  'sales-analysis': { fields: ['key', 'label'], mode: 'first' },
+  'day-book': { fields: ['voucherId'], mode: 'first' },
+  'customer-lapse': { fields: ['partyId'], mode: 'first' },
+  'low-stock': { fields: ['stockItemId'], mode: 'first' },
+  'stock-summary': { fields: ['stockItemId'], mode: 'first' },
+  'negative-stock': { fields: ['stockItemId'], mode: 'first' },
+  'stale-projections': { fields: ['connectionId'], mode: 'first' },
+  'purchase-rhythm': { fields: ['partyId'], mode: 'first' },
+  'item-velocity': { fields: ['stockItemId'], mode: 'first' },
+  'dead-stock': { fields: ['stockItemId'], mode: 'first' },
+  'credit-breaches': { fields: ['partyId'], mode: 'first' },
+  'stock-ageing': { fields: ['stockItemId'], mode: 'first' },
+  'customer-concentration': { fields: ['partyId'], mode: 'first' },
+  'order-fill-rate': { fields: ['partyId'], mode: 'first' },
+  'new-vs-repeat': { fields: ['month'], mode: 'first' },
+};
+
+function joinKeyPart(value: unknown): string | null {
+  if (typeof value === 'string' && value !== '') return value;
+  if (typeof value === 'number') return String(value);
+  return null;
+}
+
+export function reportRowJoinKey(reportKey: ReportKey, row: Record<string, unknown>): string | null {
+  const spec = ROW_JOIN_KEYS[reportKey] ?? { fields: ['id'], mode: 'first' as const };
+  if (spec.mode === 'join') {
+    const parts = spec.fields.map((field) => joinKeyPart(row[field]));
+    return parts.every((part): part is string => part !== null) ? parts.join(':') : null;
+  }
+  for (const field of spec.fields) {
+    const part = joinKeyPart(row[field]);
+    if (part !== null) return part;
+  }
+  return null;
+}
+
+/**
+ * Comparison state flowing into a file (data-analyst skill §3). The client
+ * sends the comparison range it is already showing — computed with the same
+ * FY-aware arithmetic as the screen — plus the column the deltas ride on and
+ * the header label, so the file and the screen cannot disagree about either.
+ */
+export const exportCompareSchema = z.object({
+  from: z.iso.date(),
+  to: z.iso.date(),
+  columnKey: z.string().max(64),
+  label: z.string().max(40),
+});
+export type ExportCompare = z.infer<typeof exportCompareSchema>;
+
 export const exportRequestSchema = z.object({
   reportKey: z.enum(REPORT_KEYS),
   filters: exportFilterSchema,
@@ -1509,6 +1574,7 @@ export const exportRequestSchema = z.object({
   columns: z.array(z.string().max(64)).max(64).optional(),
   sort: z.string().max(200).optional(),
   format: z.enum(AVAILABLE_EXPORT_FORMATS).default('CSV'),
+  compare: exportCompareSchema.optional(),
 });
 
 export type ExportRequest = z.infer<typeof exportRequestSchema>;
