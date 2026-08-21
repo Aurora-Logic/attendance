@@ -370,6 +370,100 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
            WHERE i.org_id = ${orgId} AND NOT i.absent_in_tally AND COALESCE(i.closing_qty, 0) > 0
              ${this.itemClause(f, 'i.name')}
         `;
+      case 'customer-concentration':
+        return sql`
+          WITH revenue AS (
+            SELECT party_id, max(party_name) AS party_name,
+                   sum(CASE WHEN voucher_type = 'Credit Note' THEN -amount ELSE amount END) AS revenue
+              FROM vouchers
+             WHERE org_id = ${orgId} AND voucher_type IN ('Sales', 'Credit Note') AND NOT is_cancelled AND party_id IS NOT NULL
+               ${this.periodClause(f, 'voucher_date')}
+             GROUP BY party_id HAVING sum(CASE WHEN voucher_type = 'Credit Note' THEN -amount ELSE amount END) > 0
+          )
+          SELECT row_number() OVER (ORDER BY revenue DESC)::int AS rank,
+                 party_id AS "partyId", party_name AS "partyName", revenue::text AS revenue,
+                 round(revenue * 100.0 / sum(revenue) OVER (), 1)::text AS "sharePct",
+                 round(sum(revenue) OVER (ORDER BY revenue DESC) * 100.0 / sum(revenue) OVER (), 1)::text AS "cumulativePct"
+            FROM revenue
+        `;
+      case 'order-pipeline':
+        // One row per confirmed order with quantity still to dispatch; the
+        // stage is the first thing the balance waits on, read from the sums.
+        return sql`
+          WITH lines AS (
+            SELECT d.id, d.number, d.customer_name, d.party_id, d.date, d.grand_total,
+                   sum(l.quantity) AS ordered, sum(l.packed_qty) AS packed,
+                   sum(l.invoiced_qty) AS invoiced, sum(l.dispatched_qty) AS dispatched
+              FROM sales_documents d JOIN sales_document_lines l ON l.document_id = d.id
+             WHERE d.org_id = ${orgId} AND d.doc_type = 'SALES_ORDER' AND d.status = 'CONFIRMED'
+               AND d.short_closed_at IS NULL AND d.deleted_at IS NULL AND l.deleted_at IS NULL
+               ${f.partyId === undefined ? sql`` : sql`AND d.party_id = ${f.partyId}`}
+             GROUP BY d.id HAVING sum(l.dispatched_qty) < sum(l.quantity)
+          )
+          SELECT id, number, customer_name AS "customerName", date::text AS "orderDate",
+                 (CURRENT_DATE - date)::int AS "ageDays",
+                 (ordered - dispatched)::text AS "balanceQty", grand_total::text AS value,
+                 CASE WHEN packed < ordered THEN 'TO_PACK'
+                      WHEN invoiced < packed THEN 'AWAITING_INVOICE'
+                      ELSE 'TO_DISPATCH' END AS stage
+            FROM lines
+        `;
+      case 'dispatch-performance':
+        return sql`
+          SELECT dp.id, dp.number, d.number AS "orderNumber", d.customer_name AS "customerName",
+                 dp.mode, dp.dispatched_at::date::text AS "dispatchedOn",
+                 (dp.dispatched_at::date - d.date)::int AS "leadDays",
+                 (SELECT sum(dl.quantity)::text FROM dispatch_lines dl WHERE dl.dispatch_id = dp.id) AS quantity
+            FROM dispatches dp JOIN sales_documents d ON d.id = dp.document_id
+           WHERE dp.org_id = ${orgId} AND dp.deleted_at IS NULL
+             ${this.periodClause(f, 'dp.dispatched_at::date')}
+             ${f.partyId === undefined ? sql`` : sql`AND d.party_id = ${f.partyId}`}
+        `;
+      case 'order-fill-rate':
+        return sql`
+          SELECT d.party_id AS "partyId", max(d.customer_name) AS "partyName",
+                 count(DISTINCT d.id)::int AS orders,
+                 sum(l.quantity)::text AS "orderedQty", sum(l.dispatched_qty)::text AS "dispatchedQty",
+                 round(sum(l.dispatched_qty) * 100.0 / NULLIF(sum(l.quantity), 0), 1)::text AS "fillPct",
+                 count(DISTINCT d.id) FILTER (WHERE d.short_closed_at IS NOT NULL)::int AS "shortClosed"
+            FROM sales_documents d JOIN sales_document_lines l ON l.document_id = d.id
+           WHERE d.org_id = ${orgId} AND d.doc_type = 'SALES_ORDER' AND d.status = 'CONFIRMED'
+             AND d.deleted_at IS NULL AND l.deleted_at IS NULL
+             ${this.periodClause(f, 'd.date')}
+           GROUP BY d.party_id HAVING sum(l.quantity) > 0
+        `;
+      case 'new-vs-repeat':
+        // A party's first-ever Sales voucher decides which month it was new in.
+        return sql`
+          WITH sales AS (
+            SELECT party_id, voucher_date, amount,
+                   min(voucher_date) OVER (PARTITION BY party_id) AS first_sale
+              FROM vouchers
+             WHERE org_id = ${orgId} AND voucher_type = 'Sales' AND NOT is_cancelled AND party_id IS NOT NULL
+          ),
+          monthly AS (
+            SELECT to_char(voucher_date, 'YYYY-MM') AS month,
+                   count(DISTINCT party_id) FILTER (WHERE to_char(first_sale, 'YYYY-MM') = to_char(voucher_date, 'YYYY-MM'))::int AS new_parties,
+                   COALESCE(sum(amount) FILTER (WHERE to_char(first_sale, 'YYYY-MM') = to_char(voucher_date, 'YYYY-MM')), 0) AS new_revenue,
+                   COALESCE(sum(amount) FILTER (WHERE to_char(first_sale, 'YYYY-MM') <> to_char(voucher_date, 'YYYY-MM')), 0) AS repeat_revenue
+              FROM sales
+             WHERE true ${this.periodClause(f, 'voucher_date')}
+             GROUP BY to_char(voucher_date, 'YYYY-MM')
+          )
+          SELECT month, new_parties AS "newParties", new_revenue::text AS "newRevenue", repeat_revenue::text AS "repeatRevenue",
+                 CASE WHEN new_revenue + repeat_revenue > 0 THEN round(new_revenue * 100.0 / (new_revenue + repeat_revenue), 1)::text ELSE '0' END AS "newSharePct"
+            FROM monthly
+        `;
+      case 'requirement-ageing':
+        return sql`
+          SELECT r.id, s.name AS item, (r.quantity - r.ordered_qty)::text AS "openQty",
+                 upper(r.source::text) AS source, d.number AS "orderNumber",
+                 (CURRENT_DATE - r.created_at::date)::int AS "ageDays"
+            FROM procurement_requirements r
+            JOIN stock_items s ON s.id = r.stock_item_id
+            LEFT JOIN sales_documents d ON d.id = r.sales_order_id
+           WHERE r.org_id = ${orgId} AND r.state = 'open' AND r.deleted_at IS NULL
+        `;
       case 'ledger-extract':
         return sql`
           SELECT l.id FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
@@ -467,6 +561,12 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
 
 /** Sortable fields per report, whitelisted into fragments. */
 const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
+  'customer-concentration': { partyName: '"partyName"', revenue: 'revenue::numeric' },
+  'order-pipeline': { number: '"number"', customerName: '"customerName"', orderDate: '"orderDate"', ageDays: '"ageDays"', value: 'value::numeric' },
+  'dispatch-performance': { customerName: '"customerName"', dispatchedOn: '"dispatchedOn"', leadDays: '"leadDays"' },
+  'order-fill-rate': { partyName: '"partyName"', fillPct: '"fillPct"::numeric' },
+  'new-vs-repeat': { month: 'month' },
+  'requirement-ageing': { item: 'item', ageDays: '"ageDays"' },
   'stock-summary': { item: '"item"', closingQty: '"closingQty"::numeric', value: '"value"::numeric' },
   'negative-stock': { item: '"item"', closingQty: '"closingQty"::numeric' },
   'stale-projections': { hoursStale: '"hoursStale"' },
@@ -484,6 +584,12 @@ const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
 };
 
 const DEFAULT_ORDER: Partial<Record<ReportKey, string>> = {
+  'customer-concentration': 'revenue::numeric DESC',
+  'order-pipeline': '"ageDays" DESC',
+  'dispatch-performance': '"leadDays" DESC NULLS LAST',
+  'order-fill-rate': '"fillPct"::numeric ASC NULLS LAST',
+  'new-vs-repeat': 'month DESC',
+  'requirement-ageing': '"ageDays" DESC',
   'stock-summary': '"value"::numeric DESC NULLS LAST',
   'negative-stock': '"closingQty"::numeric ASC',
   'stale-projections': '"hoursStale" DESC NULLS FIRST',

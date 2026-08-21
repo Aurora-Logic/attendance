@@ -64,6 +64,13 @@ export const REPORT_KEYS = [
   'vendor-price-comparison',
   'credit-breaches',
   'stock-ageing',
+  // The approved catalogue (P-02, 21 Aug): concentration, pipeline, dispatch, fill, new-vs-repeat, requirement ageing.
+  'customer-concentration',
+  'order-pipeline',
+  'dispatch-performance',
+  'order-fill-rate',
+  'new-vs-repeat',
+  'requirement-ageing',
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
@@ -87,6 +94,12 @@ export const ANALYTICS_REPORT_KEYS = [
   'vendor-price-comparison',
   'credit-breaches',
   'stock-ageing',
+  'customer-concentration',
+  'order-pipeline',
+  'dispatch-performance',
+  'order-fill-rate',
+  'new-vs-repeat',
+  'requirement-ageing',
 ] as const satisfies readonly ReportKey[];
 /** The sales module's reports (12 REQ-AA-30). */
 export const SALES_REPORT_KEYS = ['pending-dispatch'] as const satisfies readonly ReportKey[];
@@ -767,6 +780,68 @@ const STOCK_AGEING_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
+/** How dependent the business is on its biggest buyers. */
+const CONCENTRATION_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'rank', header: 'Rank', type: 'number', width: 6 },
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'revenue', header: 'Revenue', type: 'text', sortField: 'revenue', width: 16 },
+  { key: 'sharePct', header: 'Share', type: 'text', width: 10 },
+  { key: 'cumulativePct', header: 'Cumulative', type: 'text', width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** Where working days leak: every open order and how long it has sat. */
+const ORDER_PIPELINE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'number', header: 'Order', type: 'code', sortField: 'number', width: 12 },
+  { key: 'customerName', header: 'Customer', type: 'text', sortField: 'customerName', width: 26 },
+  { key: 'stage', header: 'Stage', type: 'status', width: 14 },
+  { key: 'orderDate', header: 'Ordered', type: 'date', sortField: 'orderDate', width: 12 },
+  { key: 'ageDays', header: 'Age (days)', type: 'number', sortField: 'ageDays', width: 10 },
+  { key: 'balanceQty', header: 'Balance qty', type: 'text', width: 12 },
+  { key: 'value', header: 'Value', type: 'text', sortField: 'value', secondary: true, width: 14 },
+];
+
+/** Promise-keeping: how long each dispatch took from the order. */
+const DISPATCH_PERFORMANCE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'number', header: 'Dispatch', type: 'code', width: 12 },
+  { key: 'orderNumber', header: 'Order', type: 'code', secondary: true, width: 12 },
+  { key: 'customerName', header: 'Customer', type: 'text', sortField: 'customerName', width: 24 },
+  { key: 'mode', header: 'Mode', type: 'status', width: 12 },
+  { key: 'dispatchedOn', header: 'Dispatched', type: 'date', sortField: 'dispatchedOn', width: 12 },
+  { key: 'leadDays', header: 'Days from order', type: 'number', sortField: 'leadDays', width: 12 },
+  { key: 'quantity', header: 'Quantity', type: 'text', secondary: true, width: 10 },
+];
+
+/** Who is being short-supplied, and how often. */
+const ORDER_FILL_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 26 },
+  { key: 'orders', header: 'Orders', type: 'number', width: 8 },
+  { key: 'orderedQty', header: 'Ordered', type: 'text', width: 12 },
+  { key: 'dispatchedQty', header: 'Dispatched', type: 'text', width: 12 },
+  { key: 'fillPct', header: 'Fill rate', type: 'text', sortField: 'fillPct', width: 10 },
+  { key: 'shortClosed', header: 'Short-closed', type: 'number', secondary: true, width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** Is growth coming from new names or the same ones. */
+const NEW_REPEAT_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'newParties', header: 'First-time buyers', type: 'number', width: 12 },
+  { key: 'newRevenue', header: 'New revenue', type: 'text', width: 14 },
+  { key: 'repeatRevenue', header: 'Repeat revenue', type: 'text', width: 14 },
+  { key: 'newSharePct', header: 'New share', type: 'text', secondary: true, width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** Reorder pressure: how long shortages wait for a PO. */
+const REQUIREMENT_AGEING_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
+  { key: 'openQty', header: 'Open qty', type: 'text', width: 12 },
+  { key: 'source', header: 'Source', type: 'status', width: 10 },
+  { key: 'orderNumber', header: 'For order', type: 'code', secondary: true, width: 12 },
+  { key: 'ageDays', header: 'Waiting (days)', type: 'number', sortField: 'ageDays', width: 12 },
+];
+
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   'attendance-register': {
     key: 'attendance-register',
@@ -1103,6 +1178,60 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     description: 'Parties over their credit limit now, with how often the block was released in the last ninety days.',
     columns: CREDIT_BREACHES_COLUMNS,
     defaultSort: '-overBy',
+    filters: [],
+  },
+  'customer-concentration': {
+    key: 'customer-concentration',
+    category: 'Customers',
+    label: 'Customer concentration',
+    description: 'How much of the period’s revenue the biggest customers carry — share and cumulative share, ranked.',
+    columns: CONCENTRATION_COLUMNS,
+    defaultSort: '-revenue',
+    filters: ['period'],
+  },
+  'order-pipeline': {
+    key: 'order-pipeline',
+    category: 'Fulfilment',
+    label: 'Order pipeline',
+    description: 'Every open sales order by stage — to pack, awaiting invoice, to dispatch — and how long it has sat there.',
+    columns: ORDER_PIPELINE_COLUMNS,
+    defaultSort: '-ageDays',
+    filters: ['partyId'],
+  },
+  'dispatch-performance': {
+    key: 'dispatch-performance',
+    category: 'Fulfilment',
+    label: 'Dispatch performance',
+    description: 'Days from order to each dispatch, local against outstation — the slowest first.',
+    columns: DISPATCH_PERFORMANCE_COLUMNS,
+    defaultSort: '-leadDays',
+    filters: ['period', 'partyId'],
+  },
+  'order-fill-rate': {
+    key: 'order-fill-rate',
+    category: 'Customers',
+    label: 'Order fill rate',
+    description: 'Ordered against dispatched per customer — who is being short-supplied, worst first.',
+    columns: ORDER_FILL_COLUMNS,
+    defaultSort: 'fillPct',
+    filters: ['period'],
+  },
+  'new-vs-repeat': {
+    key: 'new-vs-repeat',
+    category: 'Customers',
+    label: 'New vs repeat revenue',
+    description: 'Each month’s invoicing split between first-time buyers and returning ones.',
+    columns: NEW_REPEAT_COLUMNS,
+    defaultSort: '-month',
+    filters: ['period'],
+  },
+  'requirement-ageing': {
+    key: 'requirement-ageing',
+    category: 'Vendors',
+    label: 'Requirement ageing',
+    description: 'Open shortages and reorders, and how long each has waited for a purchase order.',
+    columns: REQUIREMENT_AGEING_COLUMNS,
+    defaultSort: '-ageDays',
     filters: [],
   },
   'stock-ageing': {

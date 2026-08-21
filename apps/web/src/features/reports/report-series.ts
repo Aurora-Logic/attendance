@@ -289,6 +289,11 @@ export const REPORT_FORM_OVERRIDES: Partial<Record<ReportKey, ChartFormSpec>> = 
   'customer-statement': { form: 'line', category: 'date', series: ['balance'] },
   'voucher-reconciliation': { form: 'line', category: 'month', series: ['total'] },
   'headcount': { form: 'line', category: 'month', series: ['closing'] },
+  'customer-concentration': { form: 'hbar', category: 'partyName', series: ['revenue'] },
+  'order-pipeline': { form: 'hbar', category: 'number', series: ['ageDays'] },
+  'dispatch-performance': { form: 'hbar', category: 'number', series: ['leadDays'] },
+  'order-fill-rate': { form: 'hbar', category: 'partyName', series: ['fillPct'] },
+  'new-vs-repeat': { form: 'line', category: 'month', series: ['newRevenue', 'repeatRevenue'] },
 };
 
 const TIME_CATEGORY = /^\d{4}-\d{2}(?:-\d{2})?$/u;

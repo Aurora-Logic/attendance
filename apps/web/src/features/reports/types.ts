@@ -702,6 +702,12 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   'vendor-price-comparison': analyticsShape('id', 'item'),
   'credit-breaches': analyticsShape('partyId', 'partyName'),
   'stock-ageing': analyticsShape('stockItemId', 'item'),
+  'customer-concentration': analyticsShape('partyId', 'partyName'),
+  'order-pipeline': analyticsShape('id', 'number', 'stage'),
+  'dispatch-performance': analyticsShape('id', 'number', 'mode'),
+  'order-fill-rate': analyticsShape('partyId', 'partyName'),
+  'new-vs-repeat': analyticsShape('month', 'month'),
+  'requirement-ageing': analyticsShape('id', 'item', 'source'),
 };
 
 function build<T>(
