@@ -61,6 +61,12 @@ export interface PunchFact {
   readonly id: string;
   readonly punchType: PunchType;
   /**
+   * An admin accepted this punch's flags from Approvals (owner, 21 Aug 2026),
+   * so neither `late` nor `outside_window` is raised for it again. Optional
+   * because the fact is new and absent means unreviewed.
+   */
+  readonly flagAccepted?: boolean;
+  /**
    * The instant this punch counts at.
    *
    * `server_time` for every live punch, which is REQ-D-05 exactly as it has
@@ -303,7 +309,11 @@ function deriveFlags(
 
   // "Past this, the day is flagged Late" -- strictly past, so a punch landing
   // exactly on `late_after` is not late. Same for `early_exit_before`.
-  if (punches.firstIn !== null && timings.lateMinutes > input.shift.lateAfter) {
+  // An admin's own entry is already the admin's verdict (owner, 21 Aug 2026),
+  // so it is never flagged late or out of window for them to review again.
+  const firstInPunch = input.punches.find((punch) => punch.id === punches.firstInPunchId);
+  const firstInAccepted = firstInPunch?.flagAccepted === true || firstInPunch?.source === 'ADMIN_ENTRY';
+  if (punches.firstIn !== null && timings.lateMinutes > input.shift.lateAfter && !firstInAccepted) {
     present.add('late');
   }
   if (punches.lastOut !== null && timings.earlyExitMinutes > input.shift.earlyExitBefore) {
@@ -331,9 +341,11 @@ function deriveFlags(
     // repair script that never went through REQ-D-06 at all.
     const window = punchWindow(input, punch.punchType);
     if (
-      punch.outsideWindow ||
-      punch.effectiveTime < window.opens ||
-      punch.effectiveTime > window.closes
+      punch.flagAccepted !== true &&
+      punch.source !== 'ADMIN_ENTRY' &&
+      (punch.outsideWindow ||
+        punch.effectiveTime < window.opens ||
+        punch.effectiveTime > window.closes)
     ) {
       present.add('outside_window');
     }

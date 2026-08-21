@@ -433,9 +433,9 @@ describe('the punch audit rows', () => {
     const row = result.body.data[0];
     // REQ-D-03a: a list renders the thumbnail. Both ids are on the row and the
     // screen is what must reach for the cheap one.
-    expect(row?.photo.thumbnailFileId).toBeTruthy();
-    expect(row?.photo.fileId).toBeTruthy();
-    expect(row?.photo.fileId).not.toBe(row?.photo.thumbnailFileId);
+    expect(row?.photo?.thumbnailFileId).toBeTruthy();
+    expect(row?.photo?.fileId).toBeTruthy();
+    expect(row?.photo?.fileId).not.toBe(row?.photo?.thumbnailFileId);
     expect(row?.flags).toContain('low_gps_accuracy');
     expect(row?.location?.latitude).toBeCloseTo(12.9716, 4);
   });

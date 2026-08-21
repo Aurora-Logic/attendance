@@ -5,13 +5,13 @@ import {
   ATTENDANCE_STATUSES,
   HALF_DAY_PARTS,
   PUNCH_TYPES,
-  PUNCH_WINDOW_BEHAVIOURS,
+  PUNCH_FLAG_REVIEW_ACTIONS,
   type AttendanceFlag,
   type AttendanceStatus,
   type HalfDayPart,
   type PunchSource,
   type PunchType,
-  type PunchWindowBehaviour,
+  type PunchFlagReviewAction,
 } from './enums.js';
 import type { ErrorCode } from './errors.js';
 import { cursorQuerySchema, pageQuerySchema } from './pagination.js';
@@ -261,13 +261,65 @@ export interface PunchRecord {
   /** REQ-D-10: how long the punch sat in the offline queue. */
   readonly syncDelaySeconds: number | null;
   readonly source: PunchSource;
-  readonly photo: PunchPhotoRef;
+  /** Null only for an ADMIN_ENTRY: an admin's record carries no photograph. */
+  readonly photo: PunchPhotoRef | null;
   readonly location: PunchLocation | null;
+  /** Owner, 21 Aug 2026: the admin who recorded an ADMIN_ENTRY; null otherwise. */
+  readonly recordedBy: NamedRef | null;
   readonly isHalfDayMarked: boolean;
   readonly halfDayPart: HalfDayPart | null;
   readonly reason: string | null;
   readonly flags: readonly PunchFlag[];
+  /** The admin's last decisive word on this punch's flags; null while unreviewed. */
+  readonly flagReview: PunchFlagReview | null;
 }
+
+/** Owner, 21 Aug 2026: an admin's action on a flagged punch, taken from Approvals. */
+export interface PunchFlagReview {
+  readonly action: PunchFlagReviewAction;
+  readonly note: string | null;
+  readonly decidedBy: NamedRef | null;
+  readonly decidedAt: string;
+}
+
+export const PUNCH_FLAG_REVIEW_LABELS: Record<PunchFlagReviewAction, string> = {
+  ACCEPT: 'Accepted',
+  KEEP: 'Kept flagged',
+  HALF_DAY: 'Marked half day',
+  NOTE: 'Note added',
+};
+
+/**
+ * Owner, 21 Aug 2026: an admin records an IN or OUT for an employee (or for
+ * themselves). A separate event beside the employee's own punches, never a
+ * replacement; the reason is what the audit trail and the day record show.
+ */
+export const adminPunchSchema = z.object({
+  employeeId: z.string().uuid(),
+  type: z.enum(PUNCH_TYPES),
+  /** The instant the punch counts at. ISO-8601. */
+  at: z.iso.datetime({ offset: true }),
+  reason: z.string().trim().min(10, 'a reason of at least 10 characters is required').max(500),
+});
+export type AdminPunchInput = z.infer<typeof adminPunchSchema>;
+
+export const punchFlagReviewSchema = z
+  .object({
+    action: z.enum(PUNCH_FLAG_REVIEW_ACTIONS),
+    note: z.string().trim().min(10, 'a note of at least 10 characters is required').max(500).optional(),
+    halfDayPart: z.enum(HALF_DAY_PARTS).optional(),
+  })
+  .superRefine((value, ctx) => {
+    // Keeping a flag and adding a note both say something to the employee;
+    // an empty message is not a decision anyone can read later.
+    if ((value.action === 'KEEP' || value.action === 'NOTE') && value.note === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['note'], message: 'a note is required for this action' });
+    }
+    if (value.action === 'HALF_DAY' && value.halfDayPart === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['halfDayPart'], message: 'say which half of the day counts' });
+    }
+  });
+export type PunchFlagReviewInput = z.infer<typeof punchFlagReviewSchema>;
 
 export interface AttendanceDaySummary {
   readonly id: string;
@@ -399,9 +451,6 @@ export interface PunchContext {
     readonly inWindow: PunchWindowView;
     readonly outWindow: PunchWindowView;
   } | null;
-  readonly windowBehaviour: PunchWindowBehaviour;
-  /** True when punching now would be refused without a typed reason. */
-  readonly reasonRequired: boolean;
   readonly photoRequired: true;
   readonly geofence: {
     readonly enforced: boolean;
@@ -497,15 +546,5 @@ export function parseAttendanceFlags(input: string | undefined): AttendanceFlag[
   return ATTENDANCE_FLAGS.filter((flag) => chosen.has(flag));
 }
 
-/** The default when the org has expressed no preference (05-decisions). */
-export const DEFAULT_PUNCH_WINDOW_BEHAVIOUR: PunchWindowBehaviour = 'ALLOW_WITH_REASON';
 
-/** Exported so the web client can render the choices without a second list. */
-export const PUNCH_WINDOW_BEHAVIOUR_LABELS: Record<PunchWindowBehaviour, string> = {
-  BLOCK: 'Refuse a punch outside the shift window',
-  ALLOW_WITH_REASON: 'Allow with a typed reason, then flag for approval',
-  ALLOW_AND_FLAG: 'Allow and flag, no reason needed',
-};
 
-/** Guards the record above against a value being added to the enum unnoticed. */
-export const ALL_PUNCH_WINDOW_BEHAVIOURS = PUNCH_WINDOW_BEHAVIOURS;

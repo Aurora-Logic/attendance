@@ -5,12 +5,10 @@ import {
   HALF_DAY_PARTS,
   PUNCH_SOURCES,
   PUNCH_TYPES,
-  PUNCH_WINDOW_BEHAVIOURS,
   type AttendanceStatus,
   type HalfDayPart,
   type PunchSource,
   type PunchType,
-  type PunchWindowBehaviour,
 } from '@vyuha/shared';
 
 /**
@@ -68,7 +66,6 @@ export interface TodayStatus {
   lastPunch: LastPunch | null;
   /** REQ-D-06: whether the current moment is inside the shift's grace window. */
   withinWindow: boolean;
-  windowBehaviour: PunchWindowBehaviour;
   /** REQ-D-07: the half-day choice is offered at IN and nowhere else. */
   halfDayAllowed: boolean;
   /** REQ-M-03: the consent notice is shown until it has been accepted once. */
@@ -78,7 +75,6 @@ export interface TodayStatus {
   /** Set when punching is impossible right now, whatever the employee does. */
   blockedReason: { code: string; message: string } | null;
   /** REQ-D-06: true when the server will refuse this punch without a reason. */
-  reasonRequired: boolean;
 }
 
 /**
@@ -127,8 +123,6 @@ const punchContextSchema = z.object({
       outWindow: windowViewSchema,
     })
     .nullable(),
-  windowBehaviour: z.enum(PUNCH_WINDOW_BEHAVIOURS),
-  reasonRequired: z.boolean(),
   photoRequired: z.literal(true),
   geofence: z.object({
     enforced: z.boolean(),
@@ -194,7 +188,6 @@ export const todayStatusSchema = punchContextSchema.transform(
         : context.nextPunchType === 'OUT'
           ? context.shift.outWindow.isOpenNow
           : context.shift.inWindow.isOpenNow,
-    windowBehaviour: context.windowBehaviour,
     // REQ-D-07 offers the half-day choice at IN and nowhere else. There is no
     // server-side policy switch for it (OPEN-QUESTIONS P1-3), so this states
     // the requirement rather than inventing a setting.
@@ -206,7 +199,6 @@ export const todayStatusSchema = punchContextSchema.transform(
     consentAccepted: context.consentAccepted,
     photoRetentionMonths: context.photoRetentionMonths,
     blockedReason: context.blockedReason,
-    reasonRequired: context.reasonRequired,
   }),
 );
 

@@ -1,5 +1,5 @@
 import type { AttendanceFlag, AttendanceStatus } from '@vyuha/shared';
-import { and, asc, eq, gte, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { Database } from '../../../platform/db/db.provider.js';
@@ -13,6 +13,7 @@ import {
   leaveRequestDays,
   leaveRequests,
   onDutyRequests,
+  punchFlagReviews,
   punches,
   restrictedHolidayElections,
   shiftAssignments,
@@ -493,8 +494,28 @@ export class DayEngineRepository {
     // is. `server_time` itself is not passed on -- nothing downstream of this
     // needs the instant a punch arrived, and offering both is offering a way
     // to compute a day from the wrong one.
+    // Owner, 21 Aug 2026: an admin's acceptance (or half-day marking) from
+    // Approvals clears what a punch would otherwise flag. Read as its own
+    // query rather than a correlated subselect, so the verdict cannot depend
+    // on how the select above is rendered.
+    const accepted = new Set<string>();
+    if (rows.length > 0) {
+      const reviews = await this.db
+        .select({ punchId: punchFlagReviews.punchId })
+        .from(punchFlagReviews)
+        .where(
+          and(
+            eq(punchFlagReviews.orgId, this.ctx.orgId),
+            inArray(punchFlagReviews.punchId, rows.map((row) => row.id)),
+            inArray(punchFlagReviews.action, ['ACCEPT', 'HALF_DAY']),
+          ),
+        );
+      for (const review of reviews) accepted.add(review.punchId);
+    }
+
     return rows.map(({ serverTime, effectiveTime, ...row }) => ({
       ...row,
+      flagAccepted: accepted.has(row.id),
       effectiveTime: requireInstant(
         effectiveTime ?? serverTime,
         'punches.effective_time / punches.server_time',

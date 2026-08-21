@@ -450,16 +450,18 @@ const SOURCE_CONFIG = {
   MOBILE: { label: 'Mobile', color: 'var(--info)' },
   WEB: { label: 'Web', color: 'var(--muted-foreground)' },
   OFFLINE_SYNC: { label: 'Offline sync', color: 'var(--warning)' },
+  ADMIN_ENTRY: { label: 'Recorded by admin', color: 'var(--muted-foreground)' },
 } satisfies ChartConfig;
 
 /** The order the mix is stacked in, so the legend agrees with the bar. */
-const SOURCE_ORDER = ['MOBILE', 'WEB', 'OFFLINE_SYNC'];
+const SOURCE_ORDER = ['MOBILE', 'WEB', 'OFFLINE_SYNC', 'ADMIN_ENTRY'];
 
 interface SourceRow {
   row: string;
   MOBILE: number;
   WEB: number;
   OFFLINE_SYNC: number;
+  ADMIN_ENTRY: number;
 }
 
 /**
@@ -475,7 +477,7 @@ interface SourceRow {
  * (REQ-D-10), not because there is anything wrong with it.
  */
 export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
-  const row: SourceRow = { row: 'Punches', MOBILE: 0, WEB: 0, OFFLINE_SYNC: 0 };
+  const row: SourceRow = { row: 'Punches', MOBILE: 0, WEB: 0, OFFLINE_SYNC: 0, ADMIN_ENTRY: 0 };
   for (const point of points) row[point.source] = point.punches;
 
   return (
@@ -512,6 +514,15 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           dataKey="OFFLINE_SYNC"
           stackId="source"
           fill="var(--color-OFFLINE_SYNC)"
+          maxBarSize={36}
+          isAnimationActive={animate}
+          animationDuration={CHART_INTRO_MS}
+          animationEasing="ease-out"
+        />
+        <Bar
+          dataKey="ADMIN_ENTRY"
+          stackId="source"
+          fill="var(--color-ADMIN_ENTRY)"
           maxBarSize={36}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}

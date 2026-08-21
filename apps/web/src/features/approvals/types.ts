@@ -41,6 +41,8 @@ const namedRefSchema: z.ZodType<NamedRef> = z.object({
 export const approvalRequestSchema: z.ZodType<ApprovalRequest> = z.object({
   id: z.string(),
   type: z.enum(APPROVAL_TYPES),
+  subjectType: z.string(),
+  subjectId: z.string(),
   requester: namedRefSchema,
   subject: z.string(),
   submittedAt: z.string(),

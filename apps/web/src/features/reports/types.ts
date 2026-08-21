@@ -127,7 +127,7 @@ export const punchAuditRowSchema = z.object({
   clockSkewSeconds: z.number().nullable(),
   syncDelaySeconds: z.number().nullable(),
   source: z.string(),
-  photo: z.object({ fileId: z.string(), thumbnailFileId: z.string() }),
+  photo: z.object({ fileId: z.string(), thumbnailFileId: z.string() }).nullable(),
   location: z
     .object({
       latitude: z.number(),

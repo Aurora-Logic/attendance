@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ImageBrokenIcon } from '@phosphor-icons/react';
+import { PUNCH_FLAG_REVIEW_LABELS } from '@vyuha/shared';
+import { ImageBrokenIcon, UserGearIcon } from '@phosphor-icons/react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -32,7 +33,18 @@ import { formatClock } from './format';
 
 /** REQ-D-03a: the full image is fetched when asked for, never with the list. */
 function Thumbnail({ punch, onOpen }: { punch: EmployeePunch; onOpen: () => void }) {
-  const photo = usePunchPhoto(punch.id, 'thumbnail', true);
+  // An admin's entry has no photograph, so nothing is fetched for it.
+  const photo = usePunchPhoto(punch.id, 'thumbnail', punch.source !== 'ADMIN_ENTRY');
+  if (punch.source === 'ADMIN_ENTRY') {
+    return (
+      <span
+        aria-label="Recorded by an administrator, no photo"
+        className="bg-muted text-muted-foreground flex size-16 shrink-0 items-center justify-center"
+      >
+        <UserGearIcon className="size-5" aria-hidden />
+      </span>
+    );
+  }
 
   if (photo.isPending) {
     return <Skeleton className="size-16 shrink-0" aria-label="Loading the photo" />;
@@ -154,8 +166,13 @@ export function DayPunches({
                 </span>
               </div>
               <span className="text-muted-foreground truncate text-xs">
-                {humaniseEnum(punch.source)}
+                {punch.source === 'ADMIN_ENTRY'
+                  ? `Recorded by admin${punch.recordedBy === null ? '' : ` (${punch.recordedBy.name})`}`
+                  : humaniseEnum(punch.source)}
                 {punch.reason === null ? '' : ` · ${punch.reason}`}
+                {punch.flagReview === null
+                  ? ''
+                  : ` · ${PUNCH_FLAG_REVIEW_LABELS[punch.flagReview.action]} by ${punch.flagReview.decidedBy?.name ?? 'an administrator'}`}
               </span>
             </div>
           </div>

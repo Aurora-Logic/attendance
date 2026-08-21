@@ -320,22 +320,22 @@ export function PunchPage() {
     };
   }, [photoUrl]);
 
+  // Owner, 21 Aug 2026: an out-of-window punch is recorded and flagged for
+  // an admin to decide in Approvals; nothing here blocks it or asks why.
   const outsideWindow = today ? !today.withinWindow : false;
-  const blockedByWindow = outsideWindow && today?.windowBehaviour === 'BLOCK';
   const locationMissing =
     location.state === 'denied' ||
     location.state === 'unavailable' ||
     location.state === 'timed-out';
 
-  // REQ-D-06 is the one place a typed reason is mandatory. A missing
-  // location no longer has a reason path: the server refuses the punch
-  // (owner, 21 Aug 2026), so the button waits for a fix instead.
-  const reasonRequired = outsideWindow && today?.windowBehaviour === 'ALLOW_WITH_REASON';
-  const reasonOk = !reasonRequired || reason.trim().length >= MIN_REASON_LENGTH;
+  // No punch needs a typed reason any more: out-of-window is flagged for
+  // review and a missing location is refused by the server, so the reason
+  // field is an offer, never a gate.
+  const reasonOk = true;
   // Red only once something insufficient has been typed. An untouched field
   // painted red reads as a broken form (the leave form states the same rule);
   // until then the disabled button's helper line already says what is missing.
-  const reasonInvalid = reasonRequired && reason.trim().length > 0 && !reasonOk;
+  const reasonInvalid = false;
 
   // REQ-M-03: the notice is shown on the first punch and acceptance recorded.
   const consentNeeded = today ? !today.consentAccepted : false;
@@ -353,7 +353,6 @@ export function PunchPage() {
     today !== undefined &&
     camera.state === 'ready' &&
     camera.hasFrame &&
-    !blockedByWindow &&
     location.state === 'ready' &&
     reasonOk &&
     consentOk &&
@@ -769,13 +768,12 @@ export function PunchPage() {
                     </>
                   ) : null}
 
-                  {/* REQ-D-06 / REQ-D-08a. Shown only when it is actually
-                      required, so it never reads as an optional note box. */}
-                  {reasonRequired ? (
+                  {/* Owner, 21 Aug 2026: an out-of-window punch is flagged
+                      for an admin to decide in Approvals. The note is an
+                      offer to that reader, never a gate on the punch. */}
+                  {outsideWindow ? (
                     <Field data-invalid={reasonInvalid ? true : undefined}>
-                      <FieldLabel htmlFor="punch-reason">
-                        {outsideWindow ? 'Why are you punching outside the window?' : 'Why is your location unavailable?'}
-                      </FieldLabel>
+                      <FieldLabel htmlFor="punch-reason">Note for the reviewer (optional)</FieldLabel>
                       <Textarea
                         id="punch-reason"
                         aria-invalid={reasonInvalid ? true : undefined}
@@ -839,18 +837,7 @@ export function PunchPage() {
               </Form>
             </div>
 
-            {blockedByWindow ? (
-              <Alert variant="destructive">
-                <WarningCircleIcon />
-                <AlertTitle>The punch window is closed</AlertTitle>
-                <AlertDescription>
-                  {today.shift
-                    ? `${today.shift.name} accepts punches between ${shiftWindow}.`
-                    : 'No shift is scheduled for you today.'}{' '}
-                  Raise a regularization instead.
-                </AlertDescription>
-              </Alert>
-            ) : null}
+
 
             {captureError ? (
               <Alert variant="destructive">
@@ -929,11 +916,11 @@ export function PunchPage() {
                         // saying so is the difference between waiting and
                         // going looking for a permission setting.
                         'Waiting for the camera preview.'
-                      : blockedByWindow
-                        ? 'The window for this shift has closed.'
+                      : location.state !== 'ready'
+                        ? 'Waiting for your location. A punch needs one.'
                         : !consentOk
                           ? 'Accept the photo and location notice to continue.'
-                          : `Type a reason of at least ${String(MIN_REASON_LENGTH)} characters.`}
+                          : 'Punching is not available right now.'}
                 </p>
               ) : null}
             </div>

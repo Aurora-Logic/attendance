@@ -1,4 +1,4 @@
-import { DEVICE_BINDING_MODES, PUNCH_WINDOW_BEHAVIOURS } from '@vyuha/shared';
+import { DEVICE_BINDING_MODES } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -61,11 +61,6 @@ export interface SettingDescriptor {
  * that they were edited together.
  */
 export const ATTENDANCE_SETTINGS = {
-  punchWindowBehaviour: {
-    key: 'attendance.punch_window_behaviour',
-    help: 'What happens to a punch outside the shift window (REQ-D-06).',
-    enforcedBy: 'Punch',
-  },
   geofenceBehaviour: {
     key: 'attendance.geofence_behaviour',
     help: 'What happens to a punch outside the location radius (REQ-D-08).',
@@ -131,7 +126,6 @@ export const PHOTO_SETTINGS = {
  * feature would misbehave rather than merely be configured oddly.
  */
 export const attendancePolicySchema = z.object({
-  punchWindowBehaviour: z.enum(PUNCH_WINDOW_BEHAVIOURS),
   geofenceBehaviour: z.enum(GEOFENCE_BEHAVIOURS),
   deviceBindingMode: z.enum(DEVICE_BINDING_MODES),
   // The day engine's own guard is `positive().max(24h)`; 60 minutes is the
@@ -183,8 +177,6 @@ export type PhotoPolicy = z.infer<typeof photoPolicyObject>;
  * default from the one in force is worse than no screen.
  */
 export const DEFAULT_ATTENDANCE_POLICY: AttendancePolicy = {
-  // 05-decisions: out-of-window punches are allowed with a typed reason.
-  punchWindowBehaviour: 'ALLOW_WITH_REASON',
   // REQ-D-08 and 05-decisions: hard block.
   geofenceBehaviour: 'BLOCK',
   // REQ-B-08: warn.

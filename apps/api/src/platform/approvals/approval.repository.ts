@@ -295,6 +295,8 @@ export class ApprovalRepository extends ScopedRepository<typeof approvalRequests
       .select({
         id: approvalRequests.id,
         type: approvalRequests.type,
+        subjectType: approvalRequests.subjectType,
+        subjectId: approvalRequests.subjectId,
         requesterUserId: approvalRequests.requesterUserId,
         requesterFirstName: requesterEmployee.firstName,
         requesterLastName: requesterEmployee.lastName,
@@ -346,6 +348,8 @@ export class ApprovalRepository extends ScopedRepository<typeof approvalRequests
       rows: rows.map((row) => ({
         id: row.id,
         type: row.type,
+        subjectType: row.subjectType,
+        subjectId: row.subjectId,
         requester: {
           id: row.requesterUserId,
           name: nameOf(row.requesterFirstName, row.requesterLastName, row.requesterEmail),
@@ -370,6 +374,8 @@ export class ApprovalRepository extends ScopedRepository<typeof approvalRequests
     return {
       id: row.id,
       type: row.type,
+      subjectType: row.subjectType,
+      subjectId: row.subjectId,
       requester: {
         id: row.requesterUserId,
         name: nameOf(row.requesterFirstName, row.requesterLastName, row.requesterEmail),

@@ -75,6 +75,15 @@ export const APPROVAL_SUBJECT_KEYS: Partial<
     raise: [PERMISSIONS.REGULARIZATION_RAISE],
     scope: {},
   },
+  // Owner, 21 Aug 2026: a late or out-of-window punch is flagged into the
+  // inbox and acted on by whoever may edit attendance. The punch itself was
+  // raised by the employee punching.
+  punch: {
+    act: [PERMISSIONS.ATTENDANCE_EDIT],
+    override: [PERMISSIONS.ATTENDANCE_EDIT],
+    raise: [PERMISSIONS.PUNCH_SELF],
+    scope: { all: [PERMISSIONS.ATTENDANCE_EDIT] },
+  },
   // 13 REQ-X-16: a PO over the threshold is decided by holders of
   // purchase.document.approve, and by nobody else -- HR's leave key does
   // not buy a purchase.

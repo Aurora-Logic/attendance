@@ -27,7 +27,6 @@ export function sampleSettings(): OrgSettings {
       logoKey: null,
     },
     attendance: {
-      punchWindowBehaviour: 'ALLOW_WITH_REASON',
       geofenceBehaviour: 'BLOCK',
       deviceBindingMode: 'WARN',
       maxWorkMinutes: 16 * 60,
@@ -46,7 +45,6 @@ export function sampleSettings(): OrgSettings {
     },
     enforcement: {
       attendance: {
-        punchWindowBehaviour: 'Punch',
         geofenceBehaviour: null,
         deviceBindingMode: 'Punch',
         maxWorkMinutes: 'Day engine',

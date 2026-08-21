@@ -88,7 +88,7 @@ describe('GET /settings (REQ-L-01, REQ-L-02)', () => {
     expect(read.status, read.text).toBe(200);
     expect(read.body.organisation.timezone).toBe('Asia/Kolkata');
     expect(read.body.organisation.dateFormat).toBe('dd-MM-yyyy');
-    expect(read.body.attendance.punchWindowBehaviour).toBe('ALLOW_WITH_REASON');
+    expect(read.body.attendance.deviceBindingMode).toBe('WARN');
     expect(read.body.attendance.maxWorkMinutes).toBe(16 * 60);
     expect(read.body.photo.retentionMonths).toBe(12);
     expect(read.body.unreadableKeys).toEqual([]);
@@ -274,25 +274,25 @@ describe('a corrupt stored row (REQ-L-02)', () => {
         orgId: ORG_ID,
         scope: 'ORG',
         scopeId: null,
-        key: ATTENDANCE_SETTINGS.punchWindowBehaviour.key,
-        value: 'BLOCk',
+        key: ATTENDANCE_SETTINGS.deviceBindingMode.key,
+        value: 'WARn',
       })
       .onConflictDoNothing();
 
     const read = await harness.get<OrgSettingsView>('/settings', { token: adminToken });
 
     expect(read.status, read.text).toBe(200);
-    expect(read.body.attendance.punchWindowBehaviour).toBe('ALLOW_WITH_REASON');
-    expect(read.body.unreadableKeys).toContain(ATTENDANCE_SETTINGS.punchWindowBehaviour.key);
+    expect(read.body.attendance.deviceBindingMode).toBe('WARN');
+    expect(read.body.unreadableKeys).toContain(ATTENDANCE_SETTINGS.deviceBindingMode.key);
     // The good rows beside it survive.
     expect(read.body.attendance.maxWorkMinutes).toBe(540);
   });
 
   it('is repaired by saving a valid value over it', async () => {
-    const saved = await put({ attendance: { punchWindowBehaviour: 'BLOCK' } });
+    const saved = await put({ attendance: { deviceBindingMode: 'ENFORCE' } });
 
     expect(saved.status, saved.text).toBe(200);
-    expect(saved.body.attendance.punchWindowBehaviour).toBe('BLOCK');
+    expect(saved.body.attendance.deviceBindingMode).toBe('ENFORCE');
     expect(saved.body.unreadableKeys).toEqual([]);
   });
 });

@@ -429,7 +429,6 @@ export function sampleTodayStatus(): TodayStatus {
             source: 'WEB',
           },
     withinWindow: minutesNow >= startMinutes && minutesNow <= endMinutes,
-    windowBehaviour: 'ALLOW_WITH_REASON',
     halfDayAllowed: !punchedIn,
     consentAccepted: false,
     photoRetentionMonths: 12,
@@ -437,7 +436,6 @@ export function sampleTodayStatus(): TodayStatus {
     // the server, or the screen gets developed against a shape that does not
     // exist.
     blockedReason: null,
-    reasonRequired: !(minutesNow >= startMinutes && minutesNow <= endMinutes),
   };
 }
 

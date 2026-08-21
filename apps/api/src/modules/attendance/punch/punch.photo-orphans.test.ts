@@ -151,8 +151,9 @@ async function tallyPhotos(employeeId: string): Promise<PhotoTally> {
 
   const referenced = new Set<string>();
   for (const row of referencedRows) {
-    referenced.add(row.photoFileId);
-    referenced.add(row.thumbnailFileId);
+    // Admin entries carry no photograph (21 Aug 2026); nothing to reference.
+    if (row.photoFileId !== null) referenced.add(row.photoFileId);
+    if (row.thumbnailFileId !== null) referenced.add(row.thumbnailFileId);
   }
 
   let objects = 0;

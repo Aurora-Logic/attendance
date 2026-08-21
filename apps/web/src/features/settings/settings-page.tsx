@@ -46,7 +46,7 @@ import {
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DEVICE_BINDING_MODES, PERMISSIONS, PUNCH_WINDOW_BEHAVIOURS } from '@vyuha/shared';
+import { DEVICE_BINDING_MODES, PERMISSIONS } from '@vyuha/shared';
 
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
@@ -58,7 +58,6 @@ import {
   GEOFENCE_BEHAVIOURS,
   GEOFENCE_LABELS,
   MONTH_LABELS,
-  PUNCH_WINDOW_LABELS,
   TIMEZONE_OPTIONS,
   WEEKDAY_LABELS,
   type AttendancePolicy,
@@ -504,20 +503,6 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
               note="Changing a value here alters behaviour without a redeploy."
             />
             <FieldGroup className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              <PolicyChoiceField
-                id="policy-punch-window"
-                label="Punch outside the shift window"
-                value={draft.attendance.punchWindowBehaviour}
-                options={PUNCH_WINDOW_BEHAVIOURS.map((value) => ({
-                  value,
-                  label: PUNCH_WINDOW_LABELS[value],
-                }))}
-                enforcedBy={saved.enforcement.attendance.punchWindowBehaviour}
-                onValueChange={(next) => {
-                  patchAttendance({ punchWindowBehaviour: next });
-                }}
-              />
-
               <PolicyChoiceField
                 id="policy-geofence"
                 label="Punch outside the location radius"

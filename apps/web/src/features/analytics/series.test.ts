@@ -248,7 +248,7 @@ describe('overtimeLeaders and concentration', () => {
 describe('punchSources', () => {
   it('names every source in the contract, including the unused ones', () => {
     const points = punchSources([punch({ source: 'MOBILE' })]);
-    expect(points.map((point) => point.source)).toEqual(['MOBILE', 'WEB', 'OFFLINE_SYNC']);
+    expect(points.map((point) => point.source)).toEqual(['MOBILE', 'WEB', 'OFFLINE_SYNC', 'ADMIN_ENTRY']);
     expect(points.find((point) => point.source === 'WEB')?.punches).toBe(0);
   });
 

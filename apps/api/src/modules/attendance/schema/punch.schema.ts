@@ -18,8 +18,9 @@ import { primaryId } from '../../../platform/db/columns.js';
 import { employees, files, organizations } from '../../../platform/db/schema/index.js';
 
 export const punchTypeEnum = pgEnum('punch_type', ['IN', 'OUT']);
-export const punchSourceEnum = pgEnum('punch_source', ['WEB', 'MOBILE', 'OFFLINE_SYNC']);
+export const punchSourceEnum = pgEnum('punch_source', ['WEB', 'MOBILE', 'OFFLINE_SYNC', 'ADMIN_ENTRY']);
 export const halfDayPartEnum = pgEnum('half_day_part', ['FIRST_HALF', 'SECOND_HALF']);
+export const punchFlagReviewActionEnum = pgEnum('punch_flag_review_action', ['ACCEPT', 'KEEP', 'HALF_DAY', 'NOTE']);
 
 /**
  * REQ-D-12: punches are immutable. Never edited, never deleted; a correction is
@@ -88,7 +89,6 @@ export const punches = pgTable(
      * the REQ-L-03 retention purge marks `files.purged_at` rather than deleting.
      */
     photoFileId: uuid('photo_file_id')
-      .notNull()
       .references(() => files.id, { onDelete: 'restrict' }),
 
     /**
@@ -104,8 +104,12 @@ export const punches = pgTable(
      * exists and the other does not.
      */
     thumbnailFileId: uuid('thumbnail_file_id')
-      .notNull()
       .references(() => files.id, { onDelete: 'restrict' }),
+    // Both photo columns are nullable since 21 Aug 2026: an ADMIN_ENTRY is
+    // recorded from a desk and has no photograph. Every employee-taken punch
+    // still has both (REQ-D-02); the service enforces that before the row.
+    /** The admin who recorded an ADMIN_ENTRY (owner, 21 Aug 2026); null for the employee's own punches. */
+    recordedByUserId: uuid('recorded_by_user_id'),
 
     latitude: doublePrecision('latitude'),
     longitude: doublePrecision('longitude'),
@@ -187,4 +191,32 @@ export const punches = pgTable(
     // org so one client's key space cannot collide with another's.
     uniqueIndex('punches_employee_idempotency_uq').on(t.employeeId, t.idempotencyKey),
   ],
+);
+
+/**
+ * Owner, 21 Aug 2026: what an admin did about a flagged punch, from Approvals.
+ *
+ * A separate table because `punches` is append-only (REQ-D-12): the flag a
+ * punch earned is a fact about the punch, and the admin's acceptance of it is
+ * a later, separate fact. The day engine reads the latest decisive row when it
+ * derives the day's flags, so an accepted flag stays cleared through every
+ * recompute; a NOTE row decides nothing and is kept for the trail.
+ */
+export const punchFlagReviews = pgTable(
+  'punch_flag_reviews',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    punchId: uuid('punch_id')
+      .notNull()
+      .references(() => punches.id, { onDelete: 'restrict' }),
+    action: punchFlagReviewActionEnum('action').notNull(),
+    note: text('note'),
+    /** Null when the approval framework's escalation settled it without a person. */
+    decidedBy: uuid('decided_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('punch_flag_reviews_punch_idx').on(t.orgId, t.punchId, t.createdAt)],
 );

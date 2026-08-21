@@ -1,8 +1,12 @@
+import { FlagPennantIcon } from '@phosphor-icons/react';
+
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { AttendanceStatus } from '@vyuha/shared';
 
-import { FAMILY_BORDER, FAMILY_TEXT, NEEDS_REVIEW, STATUS_TONES, flagLabel, statusClasses } from './status';
+import { FAMILY_TEXT, NEEDS_REVIEW, STATUS_TONES, flagLabel, statusClasses } from './status';
 
 /**
  * The two things that render a status: the pill and the flag row.
@@ -33,25 +37,35 @@ export function AttendanceStatusBadge({
 export function AttendanceFlags({ flags, className }: { flags: string[]; className?: string }) {
   if (flags.length === 0) return null;
 
+  // Owner, 21 Aug 2026: a flag is an icon with its meaning in a tooltip, so a
+  // row of six flags is six marks and not six pills. The pennant is the one
+  // glyph reserved for flags in this product; nothing else wears it. The
+  // trigger is a focusable button, so the tooltip also opens from the
+  // keyboard and on a tap, not only on hover.
   return (
-    <span className={cn('flex flex-wrap items-center gap-1', className)}>
-      {flags.map((flag) => (
-        <Badge
-          key={flag}
-          variant="ghost"
-          // A flag that needs somebody to act reads in the destructive family;
-          // one that merely describes the day stays quiet, so a row of six
-          // flags still shows which one matters.
-          className={cn(
-            'border',
-            NEEDS_REVIEW.has(flag)
-              ? cn(FAMILY_TEXT.destructive, FAMILY_BORDER.destructive)
-              : cn(FAMILY_TEXT.quiet, FAMILY_BORDER.neutral),
-          )}
-        >
-          {flagLabel(flag)}
-        </Badge>
-      ))}
-    </span>
+    <TooltipProvider>
+      <span className={cn('flex flex-wrap items-center gap-0.5', className)}>
+        {flags.map((flag) => (
+          <Tooltip key={flag}>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={flagLabel(flag)}
+                  className={cn(
+                    'size-6 pointer-coarse:size-8',
+                    NEEDS_REVIEW.has(flag) ? FAMILY_TEXT.destructive : FAMILY_TEXT.quiet,
+                  )}
+                />
+              }
+            >
+              <FlagPennantIcon weight={NEEDS_REVIEW.has(flag) ? 'fill' : 'regular'} />
+            </TooltipTrigger>
+            <TooltipContent>{flagLabel(flag)}</TooltipContent>
+          </Tooltip>
+        ))}
+      </span>
+    </TooltipProvider>
   );
 }
