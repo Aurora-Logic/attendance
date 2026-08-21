@@ -115,6 +115,7 @@ const COLUMNS: RecordColumn<AttendanceDay>[] = [
   {
     key: 'flags',
     header: 'Flags',
+    headerIcon: <ACTION_ICONS.flag />,
     cell: (row) => (row.flags.length > 0 ? <AttendanceFlags flags={row.flags} /> : EMPTY_VALUE),
     secondary: true,
   },

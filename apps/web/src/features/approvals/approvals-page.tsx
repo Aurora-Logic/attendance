@@ -303,7 +303,12 @@ export function ApprovalsPage() {
     {
       key: 'type',
       header: 'Type',
-      cell: (row) => <Badge variant="outline">{APPROVAL_TYPE_LABELS[row.type]}</Badge>,
+      cell: (row) => (
+        <Badge variant="outline">
+          {row.type === 'FLAGGED_PUNCH' ? <ACTION_ICONS.flag aria-hidden /> : null}
+          {APPROVAL_TYPE_LABELS[row.type]}
+        </Badge>
+      ),
     },
     {
       key: 'subject',
@@ -480,6 +485,7 @@ export function ApprovalsPage() {
                 <SelectItem value={ALL}>All types</SelectItem>
                 {APPROVAL_TYPES.map((value) => (
                   <SelectItem key={value} value={value}>
+                    {value === 'FLAGGED_PUNCH' ? <ACTION_ICONS.flag aria-hidden /> : null}
                     {APPROVAL_TYPE_LABELS[value]}
                   </SelectItem>
                 ))}

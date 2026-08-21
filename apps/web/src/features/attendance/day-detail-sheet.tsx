@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 
 import { Separator } from '@/components/ui/separator';
 import {
@@ -95,7 +96,10 @@ export function DayDetailSheet({
               {day.flags.length > 0 ? (
                 <>
                   <Separator className="my-4" />
-                  <p className="text-muted-foreground mb-2 text-xs">Flags</p>
+                  <p className="text-muted-foreground mb-2 flex items-center gap-1 text-xs [&_svg]:size-3.5">
+                    <ACTION_ICONS.flag aria-hidden />
+                    Flags
+                  </p>
                   <AttendanceFlags flags={day.flags} />
                 </>
               ) : null}

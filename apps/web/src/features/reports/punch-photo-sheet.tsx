@@ -1,11 +1,11 @@
 import { useState } from 'react';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import {
   ArrowsOutIcon,
   DeviceMobileIcon,
   ImageBrokenIcon,
   MapPinIcon,
-  WarningIcon,
-} from '@phosphor-icons/react';
+  } from '@phosphor-icons/react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -219,7 +219,7 @@ export function PunchPhotoSheet({ punch, onOpenChange }: PunchPhotoSheetProps) {
 
               {punch.flags.length > 0 ? (
                 <Alert>
-                  <WarningIcon />
+                  <ACTION_ICONS.flag />
                   <AlertTitle>Flagged</AlertTitle>
                   <AlertDescription>
                     <span className="flex flex-wrap gap-1">

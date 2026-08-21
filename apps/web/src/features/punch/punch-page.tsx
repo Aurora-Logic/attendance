@@ -43,6 +43,7 @@ import { HALF_DAY_PARTS, type HalfDayPart, type PunchDraft, type PunchResult } f
 import { useCamera } from './use-camera';
 import { POOR_ACCURACY_M, useGeolocation } from './use-geolocation';
 import { useConfetti } from '@/components/shared/confetti';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 
 import { useOnline } from './use-online';
 import { useAcceptConsent, usePunch, useToday } from './use-punch';
@@ -228,7 +229,10 @@ function Confirmation({
           ) : null}
           {result.flags.length > 0 ? (
             <div className="flex flex-col gap-1">
-              <dt className="text-muted-foreground">Flags</dt>
+              <dt className="text-muted-foreground flex items-center gap-1 [&_svg]:size-3.5">
+                <ACTION_ICONS.flag aria-hidden />
+                Flags
+              </dt>
               <dd>
                 <AttendanceFlags flags={result.flags} />
               </dd>

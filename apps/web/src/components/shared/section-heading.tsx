@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 interface SectionHeadingProps {
+  /** A glyph the section's subject already wears elsewhere (the flag, the streak), so the heading agrees with the rows. */
+  icon?: ReactNode;
   title: string;
   /** One line saying what the section is for. Optional: some need no gloss. */
   note?: string;
@@ -25,11 +27,14 @@ interface SectionHeadingProps {
  * said the opposite. 14px is still unmistakably a heading against 12px body
  * text and no longer argues with the h1 above it.
  */
-export function SectionHeading({ title, note, action, className }: SectionHeadingProps) {
+export function SectionHeading({ title, note, action, icon, className }: SectionHeadingProps) {
   return (
     <div className={cn('flex flex-wrap items-start justify-between gap-x-4 gap-y-1', className)}>
       <div className="flex min-w-0 flex-col gap-1">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+          {icon ? <span aria-hidden className="text-muted-foreground [&_svg]:size-4">{icon}</span> : null}
+          {title}
+        </h2>
         {note ? <p className="text-muted-foreground text-xs">{note}</p> : null}
       </div>
       {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}

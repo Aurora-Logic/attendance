@@ -306,7 +306,12 @@ export function ReportFilterBar({
         >
           <SelectTrigger aria-label="Filter by flag" className="pointer-coarse:h-11 w-full sm:w-40">
             <SelectValue>
-              {(current: string) => (current === ALL ? 'All flags' : humaniseEnum(current))}
+              {(current: string) => (
+                <span className="inline-flex items-center gap-1.5 [&_svg]:size-3.5">
+                  <ACTION_ICONS.flag aria-hidden />
+                  {current === ALL ? 'All flags' : humaniseEnum(current)}
+                </span>
+              )}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>

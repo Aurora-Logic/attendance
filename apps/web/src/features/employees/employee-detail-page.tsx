@@ -16,6 +16,7 @@ import { RowActions } from '@/components/shared/row-actions';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
@@ -233,6 +234,7 @@ const DAY_COLUMNS: RecordColumn<AttendanceDay>[] = [
   {
     key: 'flags',
     header: 'Flags',
+    headerIcon: <ACTION_ICONS.flag />,
     cell: (row) => (row.flags.length > 0 ? <AttendanceFlags flags={row.flags} /> : EMPTY_VALUE),
     secondary: true,
   },
@@ -267,6 +269,7 @@ const PUNCH_COLUMNS: RecordColumn<EmployeePunch>[] = [
   {
     key: 'flags',
     header: 'Flags',
+    headerIcon: <ACTION_ICONS.flag />,
     cell: (row) =>
       row.flags.length > 0 ? <AttendanceFlags flags={[...row.flags]} /> : EMPTY_VALUE,
   },
@@ -775,6 +778,7 @@ export function EmployeeDetailPage() {
                 {flags.length > 0 ? (
                   <section className="flex flex-col gap-3">
                     <SectionHeading
+                      icon={<ACTION_ICONS.flag />}
                       title="Flags raised"
                       note="What this month's days were flagged for, commonest first. The ones that need somebody to look are marked out."
                     />

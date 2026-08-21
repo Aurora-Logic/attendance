@@ -27,6 +27,8 @@ import { cn } from '@/lib/utils';
 export interface RecordColumn<T> {
   key: string;
   header: string;
+  /** A glyph the column's subject wears in its cells (the flag), so the header agrees with them. */
+  headerIcon?: ReactNode;
   cell: (row: T) => ReactNode;
   /** Right-align and use tabular numerals (PRD §6.3). */
   numeric?: boolean;
@@ -120,9 +122,15 @@ export function RecordTable<T>({
                           onSortChange({ field, descending: isActive ? !sort.descending : false });
                         }}
                       >
+                        {column.headerIcon ? <span aria-hidden className="[&_svg]:size-3.5">{column.headerIcon}</span> : null}
                         {column.header}
                         {isActive ? sort.descending ? <ArrowDownIcon className="size-3" /> : <ArrowUpIcon className="size-3" /> : <ArrowsDownUpIcon className="size-3 opacity-40" />}
                       </Button>
+                    ) : column.headerIcon ? (
+                      <span className="inline-flex items-center gap-1 [&_svg]:size-3.5">
+                        <span aria-hidden>{column.headerIcon}</span>
+                        {column.header}
+                      </span>
                     ) : (
                       column.header
                     )}
