@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ageingSeries, lapseSeries, movementSeries, salesAnalysisSeries, velocitySeries, type ChartRow } from './report-series';
+import { ageingSeries, genericSeries, lapseSeries, movementSeries, salesAnalysisSeries, shareSeries, velocitySeries, type ChartRow } from './report-series';
 
 /** The builders behind the report charts: thresholds named and proven (vyuha-charts §3, §5). */
 
@@ -76,5 +76,39 @@ describe('lapseSeries', () => {
     expect(series.points).toHaveLength(2);
     expect(series.insight).toContain('₹1,00,000');
     expect(series.insight).toContain('1 of these 2');
+  });
+});
+
+describe('genericSeries', () => {
+  const definition = {
+    defaultSort: '-amount',
+    columns: [
+      { key: 'name', header: 'Name', type: 'text' as const },
+      { key: 'amount', header: 'Amount', type: 'text' as const },
+      { key: 'count', header: 'Count', type: 'number' as const },
+      { key: 'asOf', header: 'As of', type: 'instant' as const },
+    ],
+  };
+
+  it('names the bars from the first text column and sizes them by the sort column first', () => {
+    const series = genericSeries(definition, [row({ name: 'A', amount: '100.00', count: 2, asOf: 'x' }), row({ name: 'B', amount: '50.00', count: 1, asOf: 'x' })]);
+    expect(series?.categoryLabel).toBe('Name');
+    expect(series?.series[0]?.key).toBe('amount');
+    expect(series?.points[0]).toMatchObject({ category: 'A', amount: 100 });
+  });
+
+  it('refuses a chart where nothing is numeric, and where everything is zero', () => {
+    expect(genericSeries({ defaultSort: 'name', columns: [{ key: 'name', header: 'Name', type: 'text' as const }] }, [row({ name: 'A' })])).toBeNull();
+    expect(genericSeries(definition, [row({ name: 'A', amount: '0', count: 0 })])).toBeNull();
+  });
+});
+
+describe('shareSeries', () => {
+  it('shares are of everything shown, not of the top five', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => row({ item: `I${String(i)}`, value: '10' }));
+    const { points, total } = shareSeries(rows, 'item', 'value');
+    expect(total).toBe(100);
+    expect(points).toHaveLength(5);
+    expect(points[0]?.share).toBe(10);
   });
 });

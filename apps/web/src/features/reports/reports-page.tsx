@@ -5,6 +5,7 @@ import {
   CalendarPlusIcon,
   CaretDownIcon,
   ChartBarIcon,
+  TableIcon,
   DownloadSimpleIcon,
   ImageIcon,
   SwapIcon,
@@ -47,7 +48,9 @@ import {
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { usePermission } from '@/lib/session/permissions';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { EMPTY_VALUE, formatDate, humaniseEnum } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -85,7 +88,8 @@ import { useChartIntro } from '@/components/shared/use-chart-motion';
 
 import { ColumnChooser } from './column-chooser';
 import { ReportCatalogue } from './report-catalogue';
-import { ReportChart } from './report-charts';
+import { GenericReportChart, ReportChart } from './report-charts';
+import { chartKindOf } from './report-series';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
 import { periodFor, periodModeOf } from './period';
 import { ScheduleDialog } from './schedule-dialog';
@@ -433,7 +437,33 @@ export function ReportsPage() {
   // had a chance to choose.
   const active = useReportRows(reportKey, rowParams, { enabled: !browsing && definition !== undefined && missingRequired.length === 0 });
 
+  const isMobile = useIsMobile();
   const chartIntro = useChartIntro(active.isSuccess);
+  const chartKind = chartKindOf(reportKey, definition, active.data?.data ?? []);
+
+  // Table | Chart | Both, remembered per report on this device; a phone
+  // starts on the table, a desk sees both (owner's pick, 21 Aug).
+  const [viewModes, setViewModes] = useState<Record<string, string>>(() => {
+    try {
+      const raw = window.localStorage.getItem('vyuha.reports.viewModes');
+      return raw === null ? {} : (JSON.parse(raw) as Record<string, string>);
+    } catch {
+      return {};
+    }
+  });
+  const storedMode = viewModes[reportKey];
+  const viewMode: 'table' | 'chart' | 'both' = storedMode === 'table' || storedMode === 'chart' || storedMode === 'both' ? storedMode : isMobile ? 'table' : 'both';
+  function setViewMode(next: 'table' | 'chart' | 'both') {
+    setViewModes((current) => {
+      const merged = { ...current, [reportKey]: next };
+      try {
+        window.localStorage.setItem('vyuha.reports.viewModes', JSON.stringify(merged));
+      } catch {
+        // A locked-down browser forgets; the toggle still works for the session.
+      }
+      return merged;
+    });
+  }
 
   const savedViews = useSavedViews(reportKey);
   const saveView = useSaveView();
@@ -875,7 +905,32 @@ export function ReportsPage() {
 
         {rows.length > 0 ? (
           <>
-            <ReportChart reportKey={reportKey} rows={rows} animate={chartIntro} />
+            {chartKind !== 'none' ? (
+              <ToggleGroup
+                variant="outline"
+                aria-label="How the report shows"
+                value={[viewMode]}
+                onValueChange={(value: string[]) => {
+                  const next = value[0];
+                  if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
+                }}
+              >
+                <ToggleGroupItem value="table" className="pointer-coarse:h-11">
+                  <TableIcon data-icon="inline-start" />
+                  Table
+                </ToggleGroupItem>
+                <ToggleGroupItem value="chart" className="pointer-coarse:h-11">
+                  <ChartBarIcon data-icon="inline-start" />
+                  Chart
+                </ToggleGroupItem>
+                <ToggleGroupItem value="both" className="pointer-coarse:h-11">
+                  Both
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
+            {viewMode !== 'table' && chartKind === 'bespoke' ? <ReportChart reportKey={reportKey} rows={rows} animate={chartIntro} /> : null}
+            {viewMode !== 'table' && chartKind === 'generic' && definition !== undefined ? <GenericReportChart definition={definition} rows={rows} animate={chartIntro} /> : null}
+            {viewMode === 'chart' ? null : (
             <RecordTable
               columns={tableColumns}
               rows={rows}
@@ -908,7 +963,8 @@ export function ReportsPage() {
                   : undefined
               }
             />
-            <RecordPagination page={page} pageSize={pageSize} total={total} />
+            )}
+            {viewMode === 'chart' ? null : <RecordPagination page={page} pageSize={pageSize} total={total} />}
           </>
         ) : null}
       </div>

@@ -1,4 +1,4 @@
-import type { ReportCellValue, ReportKey } from '@vyuha/shared';
+import type { ReportCellValue, ReportColumnSpec, ReportDefinition, ReportKey } from '@vyuha/shared';
 
 /**
  * Series builders for the report charts: pure functions from a page of
@@ -190,3 +190,70 @@ export function lapseSeries(rows: readonly ChartRow[]): { points: LapsePoint[]; 
 
 /** The keys that draw a chart; everything else is answered by its table. */
 export const CHARTED_REPORTS: readonly ReportKey[] = ['sales-analysis', 'movement-analysis', 'item-velocity', 'stock-ageing', 'customer-lapse'];
+
+// ---------------------------------------------------------------- generic
+
+export interface GenericSeries {
+  readonly categoryLabel: string;
+  readonly series: readonly { key: string; label: string }[];
+  readonly points: readonly Record<string, string | number>[];
+}
+
+function isNumericColumn(column: ReportColumnSpec, rows: readonly ChartRow[]): boolean {
+  if (column.key === 'asOf') return false;
+  const sample = rows.slice(0, 5).map((row) => row.cells[column.key]).filter((v) => v !== null && v !== undefined && v !== '');
+  if (sample.length === 0) return false;
+  return sample.every((v) => typeof v === 'number' || (typeof v === 'string' && Number.isFinite(Number(v))));
+}
+
+/**
+ * Any report as a chart: the first text column names the bars, the sort
+ * column (or the first numeric ones) sizes them, and the rows come in the
+ * order the report itself sorted — the chart never re-ranks what the table
+ * ranked. Returns null where no honest chart exists, and the view toggle
+ * follows that answer rather than drawing nonsense.
+ */
+export function genericSeries(definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>, rows: readonly ChartRow[]): GenericSeries | null {
+  if (rows.length === 0) return null;
+  const category = definition.columns.find((c) => (c.type === 'text' || c.type === 'code') && !isNumericColumn(c, rows) && c.key !== 'asOf');
+  if (category === undefined) return null;
+  const sortKey = definition.defaultSort.startsWith('-') ? definition.defaultSort.slice(1) : definition.defaultSort;
+  const numeric = definition.columns.filter((c) => c.key !== category.key && isNumericColumn(c, rows));
+  const ordered = [...numeric].sort((a, b) => (a.key === sortKey ? -1 : b.key === sortKey ? 1 : 0)).slice(0, 2);
+  if (ordered.length === 0) return null;
+  const points = rows.slice(0, MAX_BARS).map((row) => {
+    const point: Record<string, string | number> = { category: text(row.cells[category.key]) || '—' };
+    for (const column of ordered) point[column.key] = num(row.cells[column.key]);
+    return point;
+  });
+  if (points.every((p) => ordered.every((c) => p[c.key] === 0))) return null;
+  return { categoryLabel: category.header, series: ordered.map((c) => ({ key: c.key, label: c.header })), points };
+}
+
+// ---------------------------------------------------------------- share radial
+
+export interface SharePoint {
+  readonly label: string;
+  readonly value: number;
+  readonly share: number;
+}
+
+/** Top five as a share of everything shown — the whole is this page's rows, and the chart says so. */
+export function shareSeries(rows: readonly ChartRow[], labelKey: string, valueKey: string): { points: SharePoint[]; total: number } {
+  const all = rows.map((row) => ({ label: text(row.cells[labelKey]), value: num(row.cells[valueKey]) })).filter((p) => p.label !== '' && p.value > 0);
+  const total = all.reduce((sum, p) => sum + p.value, 0);
+  const points = [...all]
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5)
+    .map((p) => ({ ...p, share: total > 0 ? Math.round((p.value / total) * 100) : 0 }));
+  return { points, total };
+}
+
+/** Whether a report can draw anything, so the view toggle can tell the truth. */
+export function chartKindOf(reportKey: ReportKey, definition: Pick<ReportDefinition, 'columns' | 'defaultSort'> | undefined, rows: readonly ChartRow[]): 'bespoke' | 'generic' | 'none' {
+  if (BESPOKE_CHART_KEYS.has(reportKey)) return 'bespoke';
+  if (definition !== undefined && genericSeries(definition, rows) !== null) return 'generic';
+  return 'none';
+}
+
+const BESPOKE_CHART_KEYS = new Set<ReportKey>(['sales-analysis', 'movement-analysis', 'item-velocity', 'stock-ageing', 'customer-lapse', 'stock-summary']);
