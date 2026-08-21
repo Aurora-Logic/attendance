@@ -289,6 +289,14 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Trends across the team rather than a single month: attendance, lateness and leave, read as shapes instead of rows.',
   },
   {
+    id: 'screen.reports-dashboard',
+    route: '/reports/dashboard',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.RECEIVABLES_VIEW,
+    title: 'Reports dashboard',
+    body: 'The figures behind the reports — exposure, revenue going quiet, dead stock — each tile a door into the report it came from.',
+  },
+  {
     id: 'screen.reports',
     route: '/reports',
     anchor: ANCHORS.screenHeader,

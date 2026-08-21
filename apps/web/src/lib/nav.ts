@@ -9,6 +9,7 @@ import {
   ClockCounterClockwiseIcon,
   ClockIcon,
   DownloadSimpleIcon,
+  GaugeIcon,
   FileTextIcon,
   FingerprintIcon,
   ClipboardIcon,
@@ -606,6 +607,19 @@ export const MODULES: ModuleDef[] = [
     // sixty reports cannot live in a sidebar, so the sidebar lists the
     // categories, each a filtered view of the one catalogue.
     groups: [
+      {
+        label: 'Overview',
+        items: [
+          {
+            to: '/reports/dashboard',
+            label: 'Dashboard',
+            icon: GaugeIcon,
+            permission: PERMISSIONS.RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AI',
+          },
+        ],
+      },
       {
         label: 'Catalogue',
         items: [

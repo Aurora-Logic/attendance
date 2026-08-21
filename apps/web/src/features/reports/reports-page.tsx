@@ -81,8 +81,11 @@ import {
 } from './api';
 import { useParties } from '@/features/masters/use-parties';
 
+import { useChartIntro } from '@/components/shared/use-chart-motion';
+
 import { ColumnChooser } from './column-chooser';
 import { ReportCatalogue } from './report-catalogue';
+import { ReportChart } from './report-charts';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
 import { periodFor, periodModeOf } from './period';
 import { ScheduleDialog } from './schedule-dialog';
@@ -429,6 +432,8 @@ export function ReportsPage() {
   // for before its definition arrived would fetch a 400 for a party nobody
   // had a chance to choose.
   const active = useReportRows(reportKey, rowParams, { enabled: !browsing && definition !== undefined && missingRequired.length === 0 });
+
+  const chartIntro = useChartIntro(active.isSuccess);
 
   const savedViews = useSavedViews(reportKey);
   const saveView = useSaveView();
@@ -870,6 +875,7 @@ export function ReportsPage() {
 
         {rows.length > 0 ? (
           <>
+            <ReportChart reportKey={reportKey} rows={rows} animate={chartIntro} />
             <RecordTable
               columns={tableColumns}
               rows={rows}
