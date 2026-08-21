@@ -51,7 +51,7 @@ import { DEVICE_BINDING_MODES, PERMISSIONS } from '@vyuha/shared';
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
 import { OfficeLocationPanel } from './office-location-panel';
-import { PolicyChoiceField, PolicyNumberField } from './policy-fields';
+import { PolicyChoiceField, PolicyDurationField, PolicyNumberField, PolicyToggleField } from './policy-fields';
 import {
   DATE_FORMATS,
   DEVICE_BINDING_LABELS,
@@ -538,6 +538,31 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
 
               <FieldSeparator className="md:col-span-2 xl:col-span-3" />
 
+              <PolicyToggleField
+                id="policy-early-arrival"
+                label="Celebrate early arrivals"
+                help="A punch in ahead of shift start by the threshold gets a moment of confetti and counts toward a streak."
+                value={draft.attendance.earlyArrivalEnabled}
+                enforcedBy={saved.enforcement.attendance.earlyArrivalEnabled}
+                onValueChange={(next) => {
+                  patchAttendance({ earlyArrivalEnabled: next });
+                }}
+              />
+
+              <PolicyDurationField
+                id="policy-early-threshold"
+                label="Early means at least"
+                help="Before shift start. The streak resets on a worked day that misses it; days off carry it forward."
+                value={draft.attendance.earlyArrivalThresholdMinutes}
+                enforcedBy={saved.enforcement.attendance.earlyArrivalThresholdMinutes}
+                disabled={!draft.attendance.earlyArrivalEnabled}
+                onValueChange={(next) => {
+                  patchAttendance({ earlyArrivalThresholdMinutes: Math.max(5, next) });
+                }}
+              />
+
+              <FieldSeparator className="md:col-span-2 xl:col-span-3" />
+
               <PolicyNumberField
                 id="policy-max-work"
                 label="Maximum worked time in a day"
@@ -549,34 +574,6 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                 enforcedBy={saved.enforcement.attendance.maxWorkMinutes}
                 onValueChange={(next) => {
                   patchAttendance({ maxWorkMinutes: next });
-                }}
-              />
-
-              <PolicyNumberField
-                id="policy-regularization-window"
-                label="Regularization window"
-                unit="days back"
-                help="How far back an employee may raise a correction."
-                min={1}
-                max={90}
-                value={draft.attendance.regularizationWindowDays}
-                enforcedBy={saved.enforcement.attendance.regularizationWindowDays}
-                onValueChange={(next) => {
-                  patchAttendance({ regularizationWindowDays: next });
-                }}
-              />
-
-              <PolicyNumberField
-                id="policy-regularization-count"
-                label="Regularizations allowed"
-                unit="per month"
-                help="Zero switches regularization off without removing the permission from a role."
-                min={0}
-                max={31}
-                value={draft.attendance.regularizationMaxPerMonth}
-                enforcedBy={saved.enforcement.attendance.regularizationMaxPerMonth}
-                onValueChange={(next) => {
-                  patchAttendance({ regularizationMaxPerMonth: next });
                 }}
               />
 

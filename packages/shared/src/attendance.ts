@@ -347,6 +347,12 @@ export interface AttendanceDaySummary {
   readonly otMinutes?: number;
   readonly lateMinutes: number;
   readonly earlyExitMinutes: number;
+  /** Owner, 21 Aug 2026: minutes before shift start the first IN landed; 0 when not early or absent. */
+  readonly earlyArrivalMinutes: number;
+  /** True when the first IN beat shift start by the configured threshold on a working day. */
+  readonly earlyArrival: boolean;
+  /** Consecutive early working days up to and including this one; non-working days carry it forward. */
+  readonly earlyStreak: number;
   readonly flags: readonly AttendanceFlag[];
   /** REQ-E-08: HR set this status by hand, and it survives recomputation. */
   readonly isManualOverride: boolean;

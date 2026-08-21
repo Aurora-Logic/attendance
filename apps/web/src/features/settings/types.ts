@@ -45,8 +45,8 @@ export const attendancePolicySchema = z.object({
   geofenceBehaviour: z.enum(GEOFENCE_BEHAVIOURS),
   deviceBindingMode: z.enum(DEVICE_BINDING_MODES),
   maxWorkMinutes: z.number().int(),
-  regularizationWindowDays: z.number().int(),
-  regularizationMaxPerMonth: z.number().int(),
+  earlyArrivalEnabled: z.boolean(),
+  earlyArrivalThresholdMinutes: z.number().int(),
   autoEscalationDays: z.number().int(),
 });
 

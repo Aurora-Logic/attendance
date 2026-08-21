@@ -236,7 +236,8 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   // The person's own corrections, where the decision and the approver's reason
   // are read together (REQ-F-05). This pointed at /my-attendance while the
   // regularization slice was being built in parallel and had no screen yet.
-  'regularization.decided': '/regularizations',
+  // The corrections screen is gone (owner, 21 Aug 2026); the decision shows on the person's own day.
+  'regularization.decided': '/my-attendance',
   'approval.overdue': '/approvals',
   'period.locked': '/period-lock',
   'period.unlocked': '/period-lock',

@@ -68,6 +68,8 @@ function day(overrides: Partial<AttendanceDay> = {}): AttendanceDay {
     workedMinutes: 510,
     otMinutes: 0,
     lateMinutes: 0,
+    earlyArrival: false,
+    earlyStreak: 0,
     status: 'PRESENT',
     flags: [],
     ...overrides,

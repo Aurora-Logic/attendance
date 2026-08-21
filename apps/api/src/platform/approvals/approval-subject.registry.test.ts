@@ -56,7 +56,7 @@ const ATTENDANCE_KEYS: readonly PermissionKey[] = [
   PERMISSIONS.LEAVE_APPROVE_TEAM,
   PERMISSIONS.LEAVE_APPROVE_ALL,
   PERMISSIONS.LEAVE_APPLY_SELF,
-  PERMISSIONS.REGULARIZATION_APPROVE,
+  PERMISSIONS.ATTENDANCE_EDIT,
 ];
 
 function handler(
@@ -82,10 +82,10 @@ function withAttendance(registry: ApprovalSubjectRegistry): ApprovalSubjectRegis
     ),
   );
   registry.register(
-    handler('regularization', [PERMISSIONS.REGULARIZATION_APPROVE], [PERMISSIONS.LEAVE_APPROVE_ALL]),
+    handler('regularization', [PERMISSIONS.ATTENDANCE_EDIT], [PERMISSIONS.ATTENDANCE_EDIT]),
   );
   registry.register(
-    handler('on_duty_request', [PERMISSIONS.REGULARIZATION_APPROVE], [PERMISSIONS.LEAVE_APPROVE_ALL]),
+    handler('on_duty_request', [PERMISSIONS.ATTENDANCE_EDIT], [PERMISSIONS.ATTENDANCE_EDIT]),
   );
   return registry;
 }
@@ -131,14 +131,8 @@ describe('ApprovalSubjectRegistry, as the single source of deciding permissions'
       PERMISSIONS.LEAVE_APPROVE_TEAM,
       PERMISSIONS.LEAVE_APPROVE_ALL,
     ]);
-    expect(byType.get('regularization')).toEqual([
-      PERMISSIONS.REGULARIZATION_APPROVE,
-      PERMISSIONS.LEAVE_APPROVE_ALL,
-    ]);
-    expect(byType.get('on_duty_request')).toEqual([
-      PERMISSIONS.REGULARIZATION_APPROVE,
-      PERMISSIONS.LEAVE_APPROVE_ALL,
-    ]);
+    expect(byType.get('regularization')).toEqual([PERMISSIONS.ATTENDANCE_EDIT]);
+    expect(byType.get('on_duty_request')).toEqual([PERMISSIONS.ATTENDANCE_EDIT]);
   });
 
   it('has no entry, and therefore no permission, for a subject nothing registered', () => {
@@ -154,7 +148,8 @@ describe('ApprovalSubjectRegistry, as the single source of deciding permissions'
 
   it('escalates to the keys handlers declare, not to a fixed attendance key', () => {
     const registry = withAttendance(new ApprovalSubjectRegistry(WITH_SALES_DECLARED));
-    expect(registry.orgWidePermissions()).toEqual([PERMISSIONS.LEAVE_APPROVE_ALL]);
+    // Corrections escalate to attendance.edit since 21 Aug 2026, beside leave's own key.
+    expect(registry.orgWidePermissions()).toEqual([PERMISSIONS.LEAVE_APPROVE_ALL, PERMISSIONS.ATTENDANCE_EDIT]);
 
     registry.register(handler('sales_discount', [SALES_DISCOUNT_APPROVE], [SALES_MANAGER_OVERRIDE]));
 
@@ -162,6 +157,7 @@ describe('ApprovalSubjectRegistry, as the single source of deciding permissions'
     // approves leave.
     expect(registry.orgWidePermissions()).toEqual([
       PERMISSIONS.LEAVE_APPROVE_ALL,
+      PERMISSIONS.ATTENDANCE_EDIT,
       SALES_MANAGER_OVERRIDE,
     ]);
   });
@@ -200,7 +196,7 @@ describe('ApprovalSubjectRegistry, as the single source of deciding permissions'
     const registry = new ApprovalSubjectRegistry(WITH_SALES_DECLARED);
     expect(() => {
       registry.register(
-        handler('sales_discount', [PERMISSIONS.REGULARIZATION_APPROVE], [SALES_MANAGER_OVERRIDE]),
+        handler('sales_discount', [PERMISSIONS.LEAVE_APPROVE_TEAM], [SALES_MANAGER_OVERRIDE]),
       );
     }).toThrow(/declares act keys/);
     expect(() => {

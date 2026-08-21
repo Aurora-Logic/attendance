@@ -1,8 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { ClockCounterClockwiseIcon } from '@phosphor-icons/react';
-import { Link } from 'react-router';
 
-import { buttonVariants } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import {
   Sheet,
@@ -19,8 +16,7 @@ import {
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import { cn } from '@/lib/utils';
-import { PERMISSIONS, type RegularizationKind } from '@vyuha/shared';
+import { PERMISSIONS } from '@vyuha/shared';
 
 import { DayPunches } from './day-punches';
 import { formatClock, formatDuration, formatWindow } from './format';
@@ -46,27 +42,6 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/**
- * Whether this day is worth offering a correction for, and which one.
- *
- * REQ-F-01 lists four kinds; the two a screen can infer are the two the day
- * itself records. A day stuck on PENDING is REQ-E-02's "IN exists, OUT
- * missing, and the shift window has closed" — the exact state the decision log
- * calls "Pending until regularized" — so the missing OUT is named. A day
- * flagged `missing_punch` with neither punch is a forgotten day.
- *
- * Null for every other day. A correction offered on a clean PRESENT day would
- * be an invitation to edit attendance that nothing went wrong with, and the
- * form is one nav item away for the cases this cannot see.
- */
-function suggestedKind(day: AttendanceDay): RegularizationKind | null {
-  const missingPunch = day.flags.includes('missing_punch');
-  if (day.status === 'PENDING') return day.firstIn === null ? 'FORGOT_TO_PUNCH' : 'MISSING_OUT';
-  if (!missingPunch) return null;
-  if (day.firstIn === null && day.lastOut === null) return 'FORGOT_TO_PUNCH';
-  return day.lastOut === null ? 'MISSING_OUT' : 'MISSING_IN';
-}
-
 export function DayDetailSheet({
   day,
   onOpenChange,
@@ -79,8 +54,6 @@ export function DayDetailSheet({
   // The sheet serves both My Attendance and the muster, so the row is decided
   // by the viewer's keys rather than by which screen opened it.
   const canSeeOvertime = useCanViewOvertime();
-  const canRaise = usePermission(PERMISSIONS.REGULARIZATION_RAISE);
-  const kind = day === null ? null : suggestedKind(day);
 
   // REQ-M-02. A derived day is the one record in this product that a person
   // can find changed underneath them — an override, a lock, a nightly
@@ -138,14 +111,13 @@ export function DayDetailSheet({
               <DayPunches employeeId={day.employee.id} date={day.date} enabled />
             </div>
 
-            {/* REQ-F-01 and REQ-M-02 share this footer. The correction is
-                offered where the problem is noticed rather than only on a
-                screen somebody has to know to visit, and the trail answers
-                "who did this to my day" about the one record in this product
-                that can change underneath a person -- an override, a lock, a
-                recompute. Pinned to the sheet's bottom edge, which is the one
-                place a thumb reaches without the hand moving. */}
-            {(kind !== null && canRaise) || canReadTrail ? (
+            {/* REQ-M-02. The trail answers "who did this to my day" about the
+                one record in this product that can change underneath a person
+                -- an override, a lock, a recompute, an admin's entry. Pinned to
+                the sheet's bottom edge, which is the one place a thumb reaches
+                without the hand moving. (The correction link that shared this
+                footer went with the corrections module, 21 Aug 2026.) */}
+            {canReadTrail ? (
               <SheetFooter className="shrink-0 flex-row justify-end gap-2 border-t">
                 {canReadTrail ? (
                   <RecordHistoryButton
@@ -153,29 +125,6 @@ export function DayDetailSheet({
                       setHistoryOpen(true);
                     }}
                   />
-                ) : null}
-                {/* A link, not a button that submits: the correction needs a
-                    reason and a time, and the form is where those are given.
-                    It carries the day and the kind so nothing is chosen twice.
-
-                    `buttonVariants` on a real anchor is shadcn's own pattern
-                    for a link that looks like a button (the Calendar in this
-                    codebase does the same). `Button render={<Link/>}` was the
-                    first attempt and Base UI warned about it: it applies
-                    role="button" to the anchor, which announces a navigation
-                    as a button and loses open-in-new-tab in assistive
-                    technology. */}
-                {kind !== null && canRaise ? (
-                  <Link
-                    to={`/regularizations?date=${day.date}&kind=${kind}`}
-                    className={cn(buttonVariants({ variant: 'default' }), 'flex-1')}
-                    onClick={() => {
-                      onOpenChange(false);
-                    }}
-                  >
-                    <ClockCounterClockwiseIcon data-icon="inline-start" />
-                    Correct this day
-                  </Link>
                 ) : null}
               </SheetFooter>
             ) : null}

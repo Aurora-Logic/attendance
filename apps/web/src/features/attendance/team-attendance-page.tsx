@@ -46,7 +46,7 @@ import { formatClock, formatDuration, fromDateParam, toDateParam } from './forma
 import { DateField } from './pickers';
 import { QueryErrorAlert } from './query-error';
 import { SampleDataNotice } from './sample-data-notice';
-import { AttendanceFlags, AttendanceStatusBadge } from './status-badge';
+import { AttendanceFlags, AttendanceStatusBadge, EarlyStreakBadge } from './status-badge';
 import { statusClasses, statusLabel } from './status';
 import type { AttendanceDay } from './types';
 import { useAttendanceDays, useDepartments } from './use-attendance-days';
@@ -116,6 +116,13 @@ const COLUMNS: RecordColumn<AttendanceDay>[] = [
     key: 'flags',
     header: 'Flags',
     cell: (row) => (row.flags.length > 0 ? <AttendanceFlags flags={row.flags} /> : EMPTY_VALUE),
+    secondary: true,
+  },
+  {
+    key: 'streak',
+    header: 'Early streak',
+    cell: (row) => (row.earlyStreak > 0 ? <EarlyStreakBadge streak={row.earlyStreak} /> : EMPTY_VALUE),
+    numeric: true,
     secondary: true,
   },
 ];

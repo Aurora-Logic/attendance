@@ -1,4 +1,4 @@
-import { FlagPennantIcon } from '@phosphor-icons/react';
+import { FlagPennantIcon, SunHorizonIcon } from '@phosphor-icons/react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -67,5 +67,16 @@ export function AttendanceFlags({ flags, className }: { flags: string[]; classNa
         ))}
       </span>
     </TooltipProvider>
+  );
+}
+
+/** Owner, 21 Aug 2026: consecutive early working days, worn on the profile and the team muster. */
+export function EarlyStreakBadge({ streak, className }: { streak: number; className?: string }) {
+  if (streak <= 0) return null;
+  return (
+    <Badge variant="ghost" className={cn('border tabular-nums', FAMILY_TEXT.quiet, className)} aria-label={`Early-arrival streak, ${String(streak)} ${streak === 1 ? 'day' : 'days'}`}>
+      <SunHorizonIcon aria-hidden />
+      {streak} {streak === 1 ? 'day early' : 'days early'}
+    </Badge>
   );
 }

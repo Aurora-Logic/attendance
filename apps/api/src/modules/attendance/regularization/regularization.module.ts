@@ -6,7 +6,6 @@ import {
   OnDutyApprovalHandler,
   RegularizationApprovalHandler,
 } from './regularization-approval.handler.js';
-import { OnDutyController, RegularizationController } from './regularization.controller.js';
 import { RegularizationService } from './regularization.service.js';
 
 /**
@@ -36,7 +35,6 @@ import { RegularizationService } from './regularization.service.js';
  */
 @Module({
   imports: [ApprovalModule],
-  controllers: [RegularizationController, OnDutyController],
   providers: [
     RegularizationService,
     DayEngineService,

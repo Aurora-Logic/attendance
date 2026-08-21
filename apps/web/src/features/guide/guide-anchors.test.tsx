@@ -115,10 +115,10 @@ describe('guided tour length', () => {
    * of somebody taking the tour.
    */
   const EXPECTED: Record<SystemRoleName, { desktop: number; phone: number }> = {
-    Employee: { desktop: 11, phone: 10 },
-    Operations: { desktop: 19, phone: 18 },
-    HR: { desktop: 24, phone: 23 },
-    Admin: { desktop: 46, phone: 45 },
+    Employee: { desktop: 10, phone: 9 },
+    Operations: { desktop: 18, phone: 17 },
+    HR: { desktop: 23, phone: 22 },
+    Admin: { desktop: 45, phone: 44 },
     // The CRM roles hold no attendance keys (D-15: they sit beside Employee),
     // so the tour they get is the shell plus whatever the masters key unlocks.
     Sales: { desktop: 20, phone: 19 },

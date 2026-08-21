@@ -43,7 +43,7 @@ import {
   NEEDS_REVIEW,
   flagLabel,
 } from '@/features/attendance/status';
-import { AttendanceFlags, AttendanceStatusBadge } from '@/features/attendance/status-badge';
+import { AttendanceFlags, AttendanceStatusBadge, EarlyStreakBadge } from '@/features/attendance/status-badge';
 import { employeeActions } from './employee-actions';
 import { EmployeeAccessSection } from './employee-access-section';
 import { EmployeeInviteDialog } from './invite-dialog';
@@ -448,6 +448,11 @@ export function EmployeeDetailPage() {
   });
 
   const days = useMemo(() => daysQuery.data?.data ?? [], [daysQuery.data]);
+  // Owner, 21 Aug 2026: the streak as of the latest computed day in view.
+  const latestStreak = useMemo(() => {
+    const latest = [...days].sort((a, b) => a.date.localeCompare(b.date)).at(-1);
+    return latest?.earlyStreak ?? 0;
+  }, [days]);
   const totals = useMemo(() => summariseRange(days), [days]);
   const workedSeries = useMemo(() => toWorkedSeries(days), [days]);
   const statusSlices = useMemo(() => toStatusSlices(days), [days]);
@@ -543,6 +548,12 @@ export function EmployeeDetailPage() {
         description="One employee's record, and how their attendance reads over a month."
         action={backToRegister}
       />
+      {latestStreak > 0 ? (
+        <div className="flex items-center gap-2">
+          <EarlyStreakBadge streak={latestStreak} />
+          <span className="text-muted-foreground text-xs">Consecutive working days punched in ahead of the shift.</span>
+        </div>
+      ) : null}
 
       {employee.isPending ? (
         <div

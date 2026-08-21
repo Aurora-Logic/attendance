@@ -6,7 +6,6 @@ import {
   ChartBarIcon,
   CheckSquareIcon,
   ClipboardTextIcon,
-  ClockCounterClockwiseIcon,
   ClockIcon,
   DownloadSimpleIcon,
   GaugeIcon,
@@ -147,18 +146,6 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: PERMISSIONS.ATTENDANCE_VIEW_TEAM,
         phase: 1,
         reqs: 'REQ-E-02, J-01',
-      },
-      {
-        to: '/regularizations',
-        label: 'Corrections',
-        shortLabel: 'Fix',
-        icon: ClockCounterClockwiseIcon,
-        // The raise key, not the approve key: this screen is what a person
-        // opens about their own days, and every Employee holds it. The
-        // approver's surface is a band on /approvals.
-        permission: PERMISSIONS.REGULARIZATION_RAISE,
-        phase: 2,
-        reqs: 'REQ-F-01…F-05',
       },
       {
         to: '/team-leave',

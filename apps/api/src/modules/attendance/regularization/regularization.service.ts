@@ -1,53 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   ERROR_CODES,
-  ON_DUTY_MAX_DAYS,
-  PERMISSIONS,
-  pageSlice,
-  paginated,
-  type ApprovalDecision,
   type KnownApprovalSubjectType,
-  type OnDutyInput,
-  type OnDutyQuery,
-  type OnDutyRequest,
-  type Paginated,
   type RecomputeSummary,
-  type RegularizationInput,
-  type RegularizationPolicyView,
-  type RegularizationQuery,
-  type RegularizationRefusal,
-  type RegularizationRequest,
 } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AuditService } from '../../../platform/audit/audit.service.js';
 import { AppError, describeError } from '../../../platform/common/errors.js';
-import { InjectDatabase, type Database } from '../../../platform/db/db.provider.js';
-import { isUniqueViolation } from '../../../platform/db/pg-error.js';
+import type { Database } from '../../../platform/db/db.provider.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { NOTIFICATION_EVENTS } from '../../../platform/notifications/notification-events.js';
 import { NotificationDispatcher } from '../../../platform/notifications/notification.dispatcher.js';
-import { hasAnyPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
-import { ScopeService, type ScopeGrants } from '../../../platform/rbac/scope.service.js';
-import { ApprovalRoutingService } from '../../../platform/approvals/approval-routing.service.js';
 import type {
   ApprovalSubjectDecision,
   ApprovalSubjectSettlement,
 } from '../../../platform/approvals/approval-subject.registry.js';
-import { ApprovalService } from '../../../platform/approvals/approval.service.js';
 import { addDays } from '../day-engine/calendar-date.js';
 import { DayEngineService } from '../day-engine/day-engine.service.js';
-import { onDutyRequests, regularizations } from '../schema/index.js';
-import {
-  earliestRegularizableDate,
-  monthBounds,
-  refusalMessage,
-  refuseRegularization,
-} from './regularization-policy.js';
 import {
   RegularizationRepository,
-  type EmployeeRegularizationContext,
   type OnDutyRow,
   type RegularizationRow,
 } from './regularization.repository.js';
@@ -95,13 +68,6 @@ import {
  * identical code and cannot produce different adjustments.
  */
 
-/** Who may see whose requests. The raise key is also the self key. */
-export const REGULARIZATION_SCOPE_GRANTS: ScopeGrants = {
-  self: PERMISSIONS.REGULARIZATION_RAISE,
-  team: PERMISSIONS.REGULARIZATION_APPROVE,
-};
-
-const APPROVER_KEYS = [PERMISSIONS.REGULARIZATION_APPROVE] as const;
 
 /**
  * REQ-I-01's polymorphic subjects, for the two kinds this slice owns.
@@ -118,275 +84,13 @@ export class RegularizationService {
   private readonly logger = new Logger(RegularizationService.name);
 
   constructor(
-    @InjectDatabase() private readonly db: Database,
-    private readonly scopes: ScopeService,
     private readonly auditContext: AuditContext,
     private readonly audit: AuditService,
     private readonly notifications: NotificationDispatcher,
     private readonly dayEngine: DayEngineService,
-    private readonly approvals: ApprovalService,
-    private readonly routing: ApprovalRoutingService,
   ) {}
 
   // ------------------------------------------------------------ REQ-F-02
-
-  /**
-   * The limits in force, and how much of the monthly one is spent.
-   *
-   * A GET, so the form can render honest bounds — the earliest date the
-   * calendar should offer, and how many raises are left — instead of printing
-   * 7 and 3 from a constant that goes stale the moment an administrator moves
-   * the setting.
-   */
-  async policy(principal: Principal, requestedEmployeeId?: string): Promise<RegularizationPolicyView> {
-    const repository = this.repository(principal);
-    const employeeId = this.resolveEmployee(principal, requestedEmployeeId);
-    const employee = await this.loadEmployee(repository, employeeId);
-
-    const [limits, today] = await Promise.all([
-      repository.readPolicy(),
-      repository.todayFor(employee.timezone),
-    ]);
-    const month = monthBounds(today);
-    const raisedThisMonth = await repository.countRaisedBetween(employeeId, month.from, month.to);
-
-    return {
-      windowDays: limits.windowDays,
-      maxPerMonth: limits.maxPerMonth,
-      earliestDate: earliestRegularizableDate({ today, windowDays: limits.windowDays }),
-      today,
-      raisedThisMonth,
-      remainingThisMonth: Math.max(0, limits.maxPerMonth - raisedThisMonth),
-    };
-  }
-
-  // ------------------------------------------------------------ REQ-F-01
-
-  async raise(principal: Principal, input: RegularizationInput): Promise<RegularizationRequest> {
-    const repository = this.repository(principal);
-    const employeeId = this.resolveEmployee(principal, input.employeeId);
-    const employee = await this.loadEmployee(repository, employeeId);
-
-    const [limits, today] = await Promise.all([
-      repository.readPolicy(),
-      repository.todayFor(employee.timezone),
-    ]);
-    const month = monthBounds(today);
-    const raisedThisMonth = await repository.countRaisedBetween(employeeId, month.from, month.to);
-
-    const attempt = {
-      date: input.date,
-      today,
-      windowDays: limits.windowDays,
-      maxPerMonth: limits.maxPerMonth,
-      raisedThisMonth,
-      dateOfJoining: employee.dateOfJoining,
-    };
-
-    const refusal = refuseRegularization(attempt);
-    if (refusal !== null) throw refusalError(refusal, attempt);
-
-    // Before the write, not after: see the class comment on locked periods.
-    if (await this.dayEngine.forOrg(orgContextOf(principal)).isLocked(employeeId, input.date)) {
-      throw new AppError(ERROR_CODES.PERIOD_LOCKED, refusalMessage('PERIOD_LOCKED', attempt), {
-        details: { reason: 'PERIOD_LOCKED', date: input.date },
-      });
-    }
-
-    if ((await repository.findOpenForDate(employeeId, input.date)) !== null) {
-      throw refusalError('ALREADY_PENDING', attempt);
-    }
-
-    const existingIn = await repository.firstInPunchAt(employeeId, input.date);
-    const times = await repository.composeTimes({
-      date: input.date,
-      timezone: employee.timezone,
-      requestedIn: input.requestedIn,
-      requestedOut: input.requestedOut,
-      existingIn,
-    });
-
-    const ctx = orgContextOf(principal);
-    // The person the correction is *about*, not whoever typed it in. An
-    // employee with no login falls back to the raiser, which is the only user
-    // account there is to name.
-    const requesterUserId =
-      (await repository.findUserIdForEmployee(employeeId)) ?? principal.userId;
-    const route = await this.routeFor(principal.orgId, requesterUserId);
-
-    // One transaction, because a correction and the approval that governs it
-    // are one fact. Raised second and linked back rather than first, because
-    // the approval's subject is the request's id -- and committed together,
-    // because a request whose raise then failed would be a row no inbox can
-    // show and nobody can decide.
-    const { id, approvalRequestId } = await repository.transaction(async (tx, executor) => {
-      const requestId = await this.insertRegularization(tx, {
-        employeeId,
-        date: input.date,
-        kind: input.kind,
-        requestedIn: times.adjustedIn,
-        requestedOut: times.adjustedOut,
-        reason: input.reason,
-        attachmentFileId: input.attachmentFileId,
-        attempt,
-      });
-
-      const approval = await this.approvals.raise(
-        ctx,
-        {
-          type: 'REGULARIZATION',
-          subjectType: REGULARIZATION_SUBJECT_TYPE,
-          subjectId: requestId,
-          subject: regularizationSubjectLine({
-            employeeName: employee.name,
-            date: input.date,
-            kind: input.kind,
-          }),
-          requesterUserId,
-          approverUserIds: route,
-        },
-        executor,
-      );
-
-      const linked = await tx.linkRegularizationApproval(requestId, approval.id);
-      if (!linked) throw AppError.notFound('Regularization', requestId);
-
-      return { id: requestId, approvalRequestId: approval.id };
-    });
-
-    const record = await this.readRegularization(principal, id);
-
-    this.auditContext.record({
-      action: 'regularization.raised',
-      entityType: 'regularization',
-      entityId: id,
-      before: null,
-      after: {
-        employeeId,
-        date: input.date,
-        kind: input.kind,
-        requestedIn: times.adjustedIn?.toISOString() ?? null,
-        requestedOut: times.adjustedOut?.toISOString() ?? null,
-        reason: input.reason,
-        raisedThisMonth: raisedThisMonth + 1,
-        maxPerMonth: limits.maxPerMonth,
-        approvalRequestId,
-      },
-    });
-
-    return record;
-  }
-
-  /**
-   * Who a correction or an on-duty declaration routes to.
-   *
-   * The nearest reporting manager, one step, exactly as `LeaveService.routeFor`
-   * does for a leave type that is not two-step. Handing the framework its whole
-   * `defaultRoute` instead would write the manager, their manager and every
-   * org-wide approver as separate steps, and a missing punch would then need
-   * four approvals -- REQ-F-03 describes one.
-   *
-   * The org-wide tail is the fallback when there is no manager at all: somebody
-   * at the top of the tree, or whose manager has no login. Without it `raise`
-   * refuses, and raising a correction would fail for the people least able to
-   * do anything about it.
-   */
-  private async routeFor(orgId: string, requesterUserId: string): Promise<string[]> {
-    const [chain, orgWide] = await Promise.all([
-      this.routing.managerChain(orgId, requesterUserId),
-      this.routing.orgWideApprovers(orgId),
-    ]);
-    const nearest = chain[0];
-    return nearest === undefined ? orgWide : [nearest];
-  }
-
-  async list(
-    principal: Principal,
-    query: RegularizationQuery,
-  ): Promise<Paginated<RegularizationRequest>> {
-    const { limit, offset } = pageSlice(query);
-    const { rows, total } = await this.repository(principal).listRegularizations({
-      scope: this.scopeFor(principal, regularizations.employeeId),
-      status: query.status,
-      employeeId: query.employeeId,
-      from: query.from,
-      to: query.to,
-      limit,
-      offset,
-    });
-    return paginated(rows.map(toRegularization), query, total);
-  }
-
-  async get(principal: Principal, id: string): Promise<RegularizationRequest> {
-    return this.readRegularization(principal, id);
-  }
-
-  // ------------------------------------------------------------ REQ-F-03
-
-  /**
-   * "On approval, an adjusting record is written and the day is recomputed."
-   *
-   * The status move and the adjustment insert are one transaction, because
-   * `attendance_adjustments` is what the day engine reads: a request marked
-   * approved with no adjustment beside it is a correction the muster will never
-   * show, and a retry cannot tell that state from a fresh one. The recompute
-   * runs *after* the commit, so the engine reads the row that was written
-   * rather than one still inside an open transaction.
-   */
-  async approve(
-    principal: Principal,
-    id: string,
-    reason: string | null,
-  ): Promise<RegularizationRequest> {
-    return this.decideThroughFramework(principal, id, 'APPROVE', reason);
-  }
-
-  /** REQ-F-05: "Rejection requires a reason. The employee is notified with it." */
-  async reject(principal: Principal, id: string, reason: string): Promise<RegularizationRequest> {
-    return this.decideThroughFramework(principal, id, 'REJECT', reason);
-  }
-
-  /**
-   * REQ-F-03 and REQ-F-05, through the framework rather than beside it.
-   *
-   * Not a second decision path. It resolves the approval attached to the
-   * correction and hands it to `ApprovalService.decide`, which is the one place
-   * REQ-I-05, delegation (REQ-I-04) and the step route are enforced; the
-   * framework then calls back into `applyApprovalDecision` below.
-   *
-   * What is still checked here is visibility: an id outside the caller's scope
-   * answers 404 rather than the framework's 403, so the id cannot be probed
-   * for. That is the same answer this endpoint has always given.
-   */
-  private async decideThroughFramework(
-    principal: Principal,
-    id: string,
-    action: ApprovalDecision,
-    reason: string | null,
-  ): Promise<RegularizationRequest> {
-    const repository = this.repository(principal);
-    const request = await repository.findRegularization(
-      id,
-      this.scopeFor(principal, regularizations.employeeId),
-    );
-    if (request === null) throw AppError.notFound('Regularization', id);
-
-    if (request.approvalRequestId === null) {
-      // Only reachable for a request written before this join existed: `raise`
-      // has raised an approval in the same transaction ever since, so a null
-      // here means there is no route, no step and nobody the framework could
-      // name as the approver. Refused rather than decided on the old terms,
-      // because a second way to write the adjustment row is exactly what this
-      // change removed.
-      throw AppError.conflict(
-        'This correction predates the approvals inbox and has no approval attached, so it cannot be decided. Ask the employee to raise it again.',
-        { regularizationId: id },
-      );
-    }
-
-    await this.approvals.decide(principal, request.approvalRequestId, action, reason);
-    return this.readRegularization(principal, id);
-  }
 
   /**
    * What a decision *means* for a correction (REQ-F-03, REQ-F-05).
@@ -531,164 +235,6 @@ export class RegularizationService {
 
   // ------------------------------------------------------------ REQ-F-04
 
-  async raiseOnDuty(principal: Principal, input: OnDutyInput): Promise<OnDutyRequest> {
-    const repository = this.repository(principal);
-    const employeeId = this.resolveEmployee(principal, input.employeeId);
-    const employee = await this.loadEmployee(repository, employeeId);
-
-    const dates = datesBetween(input.fromDate, input.toDate);
-    if (dates.length > ON_DUTY_MAX_DAYS) {
-      throw AppError.validation(
-        `An on-duty request may cover at most ${String(ON_DUTY_MAX_DAYS)} days; this one covers ${String(dates.length)}. Raise it in shorter stretches.`,
-        { fields: [{ path: 'toDate', message: 'range too long', value: input.toDate }] },
-      );
-    }
-
-    if (input.fromDate < employee.dateOfJoining) {
-      throw AppError.validation(
-        `${input.fromDate} is before this employee joined on ${employee.dateOfJoining}.`,
-        { fields: [{ path: 'fromDate', message: 'before the date of joining' }] },
-      );
-    }
-
-    // Unlike a regularization, on duty is raised *ahead* of the days it covers
-    // -- REQ-F-04 is a field-duty declaration, not a correction -- so there is
-    // no backward window and no future-date refusal here.
-    const overlapping = await repository.findOverlappingOnDuty(
-      employeeId,
-      input.fromDate,
-      input.toDate,
-    );
-    if (overlapping !== null) {
-      throw new AppError(
-        ERROR_CODES.CONFLICT,
-        'Another on-duty request already covers part of these dates.',
-        { details: { reason: 'OVERLAPPING_ON_DUTY', onDutyRequestId: overlapping } },
-      );
-    }
-
-    const ctx = orgContextOf(principal);
-    const requesterUserId =
-      (await repository.findUserIdForEmployee(employeeId)) ?? principal.userId;
-    const route = await this.routeFor(principal.orgId, requesterUserId);
-
-    // One transaction, for the reason `raise` gives above.
-    const { id, approvalRequestId } = await repository.transaction(async (tx, executor) => {
-      const requestId = await tx.insertOnDuty({
-        employeeId,
-        fromDate: input.fromDate,
-        toDate: input.toDate,
-        reason: input.reason,
-        siteName: input.siteName,
-      });
-
-      const approval = await this.approvals.raise(
-        ctx,
-        {
-          type: 'ON_DUTY',
-          subjectType: ON_DUTY_SUBJECT_TYPE,
-          subjectId: requestId,
-          subject: onDutySubjectLine({
-            employeeName: employee.name,
-            fromDate: input.fromDate,
-            toDate: input.toDate,
-            days: dates.length,
-            siteName: input.siteName,
-          }),
-          requesterUserId,
-          approverUserIds: route,
-        },
-        executor,
-      );
-
-      const linked = await tx.linkOnDutyApproval(requestId, approval.id);
-      if (!linked) throw AppError.notFound('On-duty request', requestId);
-
-      return { id: requestId, approvalRequestId: approval.id };
-    });
-
-    this.auditContext.record({
-      action: 'on_duty.raised',
-      entityType: 'on_duty_request',
-      entityId: id,
-      before: null,
-      after: {
-        employeeId,
-        fromDate: input.fromDate,
-        toDate: input.toDate,
-        reason: input.reason,
-        siteName: input.siteName,
-        days: dates.length,
-        approvalRequestId,
-      },
-    });
-
-    return this.readOnDuty(principal, id);
-  }
-
-  async listOnDuty(principal: Principal, query: OnDutyQuery): Promise<Paginated<OnDutyRequest>> {
-    const { limit, offset } = pageSlice(query);
-    const { rows, total } = await this.repository(principal).listOnDuty({
-      scope: this.scopeFor(principal, onDutyRequests.employeeId),
-      status: query.status,
-      employeeId: query.employeeId,
-      from: query.from,
-      to: query.to,
-      limit,
-      offset,
-    });
-    return paginated(rows.map(toOnDuty), query, total);
-  }
-
-  async getOnDuty(principal: Principal, id: string): Promise<OnDutyRequest> {
-    return this.readOnDuty(principal, id);
-  }
-
-  /**
-   * REQ-F-04: "On approval, those days become ON_DUTY and count as present."
-   *
-   * There is no adjustment row here. The day engine reads
-   * `on_duty_requests` directly (`hasApprovedOnDuty`, step 4), so approving is
-   * the whole of the write and the recompute is what makes it visible.
-   */
-  async approveOnDuty(
-    principal: Principal,
-    id: string,
-    reason: string | null,
-  ): Promise<OnDutyRequest> {
-    return this.decideOnDutyThroughFramework(principal, id, 'APPROVE', reason);
-  }
-
-  /** REQ-F-05, the on-duty half. */
-  async rejectOnDuty(principal: Principal, id: string, reason: string): Promise<OnDutyRequest> {
-    return this.decideOnDutyThroughFramework(principal, id, 'REJECT', reason);
-  }
-
-  /** See `decideThroughFramework`; this is the same arrangement for REQ-F-04. */
-  private async decideOnDutyThroughFramework(
-    principal: Principal,
-    id: string,
-    action: ApprovalDecision,
-    reason: string | null,
-  ): Promise<OnDutyRequest> {
-    const repository = this.repository(principal);
-    const request = await repository.findOnDuty(
-      id,
-      this.scopeFor(principal, onDutyRequests.employeeId),
-    );
-    if (request === null) throw AppError.notFound('On-duty request', id);
-
-    if (request.approvalRequestId === null) {
-      throw AppError.conflict(
-        'This on-duty request predates the approvals inbox and has no approval attached, so it cannot be decided. Ask the employee to raise it again.',
-        { onDutyRequestId: id },
-      );
-    }
-
-    await this.approvals.decide(principal, request.approvalRequestId, action, reason);
-    return this.readOnDuty(principal, id);
-  }
-
   /**
    * What a decision *means* for an on-duty request (REQ-F-04).
    *
@@ -786,94 +332,6 @@ export class RegularizationService {
 
   // ------------------------------------------------------------ internals
 
-  private repository(principal: Principal): RegularizationRepository {
-    return new RegularizationRepository(this.db, orgContextOf(principal));
-  }
-
-  private scopeFor(principal: Principal, employeeColumn: Parameters<ScopeService['resolve']>[2]) {
-    return this.scopes.resolve(principal, REGULARIZATION_SCOPE_GRANTS, employeeColumn).where;
-  }
-
-  /**
-   * Whose record this call acts on.
-   *
-   * Raising for yourself needs only `regularization.raise`, which every
-   * Employee holds. Naming somebody else is the privileged act and is checked
-   * here rather than at the route, because a guard cannot see which employee
-   * the body asked for.
-   */
-  private resolveEmployee(principal: Principal, requested?: string): string {
-    const own = principal.employeeId;
-    if (requested === undefined || requested === own) {
-      if (own === null) {
-        throw AppError.validation(
-          'This account has no employee record, so it has no attendance to correct. Name an employee.',
-          { fields: [{ path: 'employeeId', message: 'required for this account' }] },
-        );
-      }
-      return own;
-    }
-    if (!hasAnyPermission(principal, APPROVER_KEYS)) {
-      throw AppError.forbidden('You may only raise a request for yourself.');
-    }
-    return requested;
-  }
-
-  private async loadEmployee(
-    repository: RegularizationRepository,
-    employeeId: string,
-  ): Promise<EmployeeRegularizationContext> {
-    const employee = await repository.findEmployee(employeeId);
-    if (employee === null) throw AppError.notFound('Employee', employeeId);
-    return employee;
-  }
-
-  private async readRegularization(
-    principal: Principal,
-    id: string,
-  ): Promise<RegularizationRequest> {
-    const row = await this.repository(principal).findRegularization(
-      id,
-      this.scopeFor(principal, regularizations.employeeId),
-    );
-    // Out of scope and non-existent answer the same, as everywhere else: a 403
-    // would confirm that the id names a real request.
-    if (row === null) throw AppError.notFound('Regularization', id);
-    return toRegularization(row);
-  }
-
-  private async readOnDuty(principal: Principal, id: string): Promise<OnDutyRequest> {
-    const row = await this.repository(principal).findOnDuty(
-      id,
-      this.scopeFor(principal, onDutyRequests.employeeId),
-    );
-    if (row === null) throw AppError.notFound('On-duty request', id);
-    return toOnDuty(row);
-  }
-
-  private async insertRegularization(
-    repository: RegularizationRepository,
-    input: {
-      employeeId: string;
-      date: string;
-      kind: RegularizationInput['kind'];
-      requestedIn: Date | null;
-      requestedOut: Date | null;
-      reason: string;
-      attachmentFileId: string | null;
-      attempt: Parameters<typeof refusalMessage>[1];
-    },
-  ): Promise<string> {
-    try {
-      return await repository.insertRegularization(input);
-    } catch (error: unknown) {
-      // Two submissions racing each other land on the partial unique index
-      // rather than on the read above; migration 0014 exists for exactly this.
-      if (isUniqueViolation(error)) throw refusalError('ALREADY_PENDING', input.attempt, error);
-      throw error;
-    }
-  }
-
   /**
    * REQ-F-03's recompute, and REQ-E-09's lock, in the shape `HolidayService`
    * uses.
@@ -957,66 +415,12 @@ export class RegularizationService {
 
 // ---------------------------------------------------------------- helpers
 
-/**
- * The sentence the inbox renders for a correction (REQ-I-01).
- *
- * Written here because the framework must not join five subject tables to find
- * out what a request is about -- that is four inboxes wearing one URL. Times
- * are deliberately absent: they are instants that need the employee's zone to
- * render, and the detail screen behind the row has both.
- */
-function regularizationSubjectLine(input: {
-  employeeName: string;
-  date: string;
-  kind: RegularizationInput['kind'];
-}): string {
-  return `${input.employeeName}, ${REGULARIZATION_SUBJECT_WORDS[input.kind]} on ${input.date}`;
-}
-
-/** Plain words for the inbox, not the enum. `REGULARIZATION_KIND_LABELS` is the
- * client's copy of the same idea; this one has to read inside a sentence. */
-const REGULARIZATION_SUBJECT_WORDS: Record<RegularizationInput['kind'], string> = {
-  MISSING_IN: 'missing in punch',
-  MISSING_OUT: 'missing out punch',
-  WRONG_TIME: 'wrong punch time',
-  FORGOT_TO_PUNCH: 'forgot to punch',
-};
-
-function onDutySubjectLine(input: {
-  employeeName: string;
-  fromDate: string;
-  toDate: string;
-  days: number;
-  siteName: string | null;
-}): string {
-  const range =
-    input.fromDate === input.toDate
-      ? input.fromDate
-      : `${input.fromDate} to ${input.toDate}, ${String(input.days)} days`;
-  return `${input.employeeName}, on duty ${range}${input.siteName === null ? '' : ` at ${input.siteName}`}`;
-}
-
 function alreadyActionedError(id: string): AppError {
   return new AppError(
     ERROR_CODES.APPROVAL_ALREADY_ACTIONED,
     'Somebody else decided this request a moment ago. Reload to see the outcome.',
     { details: { id } },
   );
-}
-
-function refusalError(
-  refusal: RegularizationRefusal,
-  attempt: Parameters<typeof refusalMessage>[1],
-  cause?: unknown,
-): AppError {
-  // A refusal here is always a statement about the state the request met -- a
-  // date too old, a cap already spent -- rather than about the shape of the
-  // request, which is why none of them is a 400. `HolidayService.elect` makes
-  // the same call for the same reason.
-  return new AppError(ERROR_CODES.CONFLICT, refusalMessage(refusal, attempt), {
-    details: { reason: refusal, date: attempt.date },
-    ...(cause === undefined ? {} : { cause }),
-  });
 }
 
 /** Every calendar date in an inclusive range. */
@@ -1026,46 +430,3 @@ function datesBetween(from: string, to: string): string[] {
   return dates;
 }
 
-function toRegularization(row: RegularizationRow): RegularizationRequest {
-  return {
-    id: row.id,
-    employee: { id: row.employeeId, name: row.employeeName },
-    employeeCode: row.employeeCode,
-    date: row.date,
-    kind: row.kind,
-    requestedIn: row.requestedIn,
-    requestedOut: row.requestedOut,
-    reason: row.reason,
-    attachmentFileId: row.attachmentFileId,
-    status: row.status,
-    approvalRequestId: row.approvalRequestId,
-    raisedAt: row.raisedAt,
-    decidedAt: row.decidedAt,
-    decidedBy:
-      row.decidedById === null
-        ? null
-        : { id: row.decidedById, name: row.decidedByName ?? row.decidedById },
-    decisionReason: row.decisionReason,
-  };
-}
-
-function toOnDuty(row: OnDutyRow): OnDutyRequest {
-  return {
-    id: row.id,
-    employee: { id: row.employeeId, name: row.employeeName },
-    employeeCode: row.employeeCode,
-    fromDate: row.fromDate,
-    toDate: row.toDate,
-    reason: row.reason,
-    siteName: row.siteName,
-    status: row.status,
-    approvalRequestId: row.approvalRequestId,
-    raisedAt: row.raisedAt,
-    decidedAt: row.decidedAt,
-    decidedBy:
-      row.decidedById === null
-        ? null
-        : { id: row.decidedById, name: row.decidedByName ?? row.decidedById },
-    decisionReason: row.decisionReason,
-  };
-}

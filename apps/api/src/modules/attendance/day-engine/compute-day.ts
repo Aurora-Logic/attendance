@@ -135,6 +135,14 @@ export interface DayInput {
   readonly punches: readonly PunchFact[];
   readonly adjustment: AdjustmentFact | null;
   readonly existing: ExistingDayFact | null;
+  /** Owner, 21 Aug 2026: the recognition policy, and the streak as it stood before this day. */
+  readonly earlyArrival: EarlyArrivalInput;
+}
+
+export interface EarlyArrivalInput {
+  readonly enabled: boolean;
+  readonly thresholdMinutes: number;
+  readonly previousStreak: number;
 }
 
 export interface DayResult {
@@ -149,6 +157,10 @@ export interface DayResult {
   readonly otMinutes: number;
   readonly lateMinutes: number;
   readonly earlyExitMinutes: number;
+  /** Owner, 21 Aug 2026: the early-arrival recognition. */
+  readonly earlyArrivalMinutes: number;
+  readonly earlyArrival: boolean;
+  readonly earlyStreak: number;
   readonly flags: readonly AttendanceFlag[];
   readonly leaveRequestId: string | null;
   readonly isManualOverride: boolean;
@@ -270,6 +282,8 @@ interface Timings {
   readonly lateMinutes: number;
   readonly earlyExitMinutes: number;
   readonly otMinutes: number;
+  /** Minutes the first IN beat shift start by; 0 when on time, late, or absent. */
+  readonly earlyArrivalMinutes: number;
 }
 
 /**
@@ -294,8 +308,31 @@ function deriveTimings(input: DayInput, punches: PunchDerived): Timings {
   const beyondScheduledOut =
     lastOut === null ? 0 : Math.max(0, minutesBetween(input.scheduledOut, lastOut));
   const otMinutes = Math.max(0, beyondScheduledOut - input.shift.otAfterMinutes);
+  const earlyArrivalMinutes =
+    firstIn === null ? 0 : Math.max(0, minutesBetween(firstIn, input.scheduledIn));
 
-  return { lateMinutes, earlyExitMinutes, otMinutes };
+  return { lateMinutes, earlyExitMinutes, otMinutes, earlyArrivalMinutes };
+}
+
+/**
+ * Owner, 21 Aug 2026. Early is the first IN beating shift start by the
+ * configured threshold on a day the person worked. The streak counts
+ * consecutive early working days: a worked day that was not early resets it,
+ * and a day nobody was expected to work (off, holiday, leave, on duty)
+ * carries it forward untouched, so a weekend does not cost anyone their run.
+ */
+function deriveEarlyArrival(
+  input: DayInput,
+  status: AttendanceStatus,
+  timings: Timings,
+): { earlyArrival: boolean; earlyStreak: number } {
+  const worked = status === 'PRESENT' || status === 'HALF_DAY' || status === 'PENDING';
+  const restDay = status === 'HOLIDAY' || status === 'WEEKLY_OFF' || status === 'ON_LEAVE' || status === 'ON_DUTY';
+  const earlyArrival =
+    input.earlyArrival.enabled && worked && timings.earlyArrivalMinutes >= input.earlyArrival.thresholdMinutes;
+  if (earlyArrival) return { earlyArrival, earlyStreak: input.earlyArrival.previousStreak + 1 };
+  if (restDay) return { earlyArrival: false, earlyStreak: input.earlyArrival.previousStreak };
+  return { earlyArrival: false, earlyStreak: 0 };
 }
 
 /** Step 10. REQ-E-04: independent of status, and a day may carry several. */
@@ -436,6 +473,8 @@ export function computeDayResult(input: DayInput): DayResult {
     otMinutes: timings.otMinutes,
     lateMinutes: timings.lateMinutes,
     earlyExitMinutes: timings.earlyExitMinutes,
+    earlyArrivalMinutes: timings.earlyArrivalMinutes,
+    ...deriveEarlyArrival(input, status, timings),
     flags,
     leaveRequestId: input.leave?.leaveRequestId ?? null,
     isManualOverride,

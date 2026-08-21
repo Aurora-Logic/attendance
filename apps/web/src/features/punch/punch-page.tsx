@@ -42,6 +42,8 @@ import { QueuePanel } from './queue-panel';
 import { HALF_DAY_PARTS, type HalfDayPart, type PunchDraft, type PunchResult } from './types';
 import { useCamera } from './use-camera';
 import { POOR_ACCURACY_M, useGeolocation } from './use-geolocation';
+import { useConfetti } from '@/components/shared/confetti';
+
 import { useOnline } from './use-online';
 import { useAcceptConsent, usePunch, useToday } from './use-punch';
 import { usePunchQueue } from './use-punch-queue';
@@ -193,6 +195,13 @@ function Confirmation({
                 : 'The stamped photo is stored against this punch.'
               : 'The punch endpoint is not connected yet, so nothing was sent and nothing was saved. This is what the confirmation will look like.'}
           </p>
+          {recorded && result.earlyArrival ? (
+            <p className="text-xs font-medium">
+              {result.earlyStreak > 1
+                ? `Early again - that is ${String(result.earlyStreak)} working days in a row.`
+                : 'In ahead of the shift. A streak starts here.'}
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -296,6 +305,9 @@ export function PunchPage() {
   const location = useGeolocation();
   const online = useOnline();
   const punch = usePunch();
+  // Owner, 21 Aug 2026: an early IN gets a moment of confetti. Fired on the
+  // accepted receipt, never on a replay, and never when motion is reduced.
+  const confetti = useConfetti();
 
   const [halfDay, setHalfDay] = useState<HalfDayPart | null>(null);
   const [reason, setReason] = useState('');
@@ -406,6 +418,7 @@ export function PunchPage() {
       onSuccess: (accepted) => {
         setResult(accepted);
         setRecorded(true);
+        if (accepted.type === 'IN' && accepted.earlyArrival && !accepted.replayed) confetti.fire();
         setPhotoUrl(accepted.photoThumbUrl ?? URL.createObjectURL(photo));
         setReason('');
         setHalfDay(null);
@@ -593,6 +606,7 @@ export function PunchPage() {
 
   return (
     <>
+      {confetti.canvas}
       <PageHeader description="Punch in and out. A live photo is required every time." />
 
       <div className="flex flex-col gap-4">

@@ -1544,8 +1544,9 @@ describe('the leave / approvals join (REQ-G-09, REQ-I-01, REQ-I-05)', () => {
       dateOfJoining: '2020-01-01',
     });
 
+    // Owner, 21 Aug 2026: corrections are decided by attendance.edit now.
     const correctionOnlyRoleId = await harness.createRole('Correction Approver Only', [
-      'regularization.approve',
+      'attendance.edit',
     ]);
     const corrector = await harness.createUser({
       email: scopedEmail('leave-corrector'),
@@ -1632,7 +1633,7 @@ describe('the leave / approvals join (REQ-G-09, REQ-I-01, REQ-I-05)', () => {
     });
 
     const correctionOnlyRoleId = await harness.createRole(`Correction Delegator ${runId}`, [
-      'regularization.approve',
+      'attendance.edit',
     ]);
     const corrector = await harness.createUser({
       email: scopedEmail('leave-delegator'),

@@ -73,26 +73,23 @@ export const ATTENDANCE_SETTINGS = {
     help: 'Whether punching from a new device warns, blocks, or is ignored (REQ-B-08).',
     enforcedBy: 'Punch',
   },
+  // Owner, 21 Aug 2026: early arrival is recognised (confetti at the punch,
+  // a streak on the profile) when the first IN beats shift start by this many
+  // minutes; the toggle switches the whole recognition off.
+  earlyArrivalEnabled: {
+    key: 'attendance.early_arrival_enabled',
+    help: 'Whether an early arrival is celebrated and counted toward a streak.',
+    enforcedBy: 'Day engine',
+  },
+  earlyArrivalThresholdMinutes: {
+    key: 'attendance.early_arrival_threshold_minutes',
+    help: 'How many minutes before shift start counts as early.',
+    enforcedBy: 'Day engine',
+  },
   maxWorkMinutes: {
     key: 'attendance.max_work_minutes',
     help: 'Worked minutes are capped here, so a missing OUT cannot pay a 30-hour day (REQ-E-03).',
     enforcedBy: 'Day engine',
-  },
-  regularizationWindowDays: {
-    key: 'attendance.regularization_window_days',
-    help: 'How many days back a regularization may be raised (REQ-F-02).',
-    // Read on every raise, and again by `GET /regularizations/policy` so the
-    // form bounds its own calendar to the window actually in force. Today
-    // counts as one of the days, so 7 reaches back to six days ago.
-    enforcedBy: 'Regularization',
-  },
-  regularizationMaxPerMonth: {
-    key: 'attendance.regularization_max_per_month',
-    help: 'How many regularizations one employee may raise in a month (REQ-F-02).',
-    // Counted over the calendar month the request is *made* in, not the month
-    // being corrected. Zero switches the feature off without taking the
-    // permission away from four roles.
-    enforcedBy: 'Regularization',
   },
   autoEscalationDays: {
     key: 'attendance.auto_escalation_days',
@@ -131,10 +128,8 @@ export const attendancePolicySchema = z.object({
   // The day engine's own guard is `positive().max(24h)`; 60 minutes is the
   // floor below which every full day would be truncated to nothing.
   maxWorkMinutes: z.number().int().min(60).max(24 * 60),
-  regularizationWindowDays: z.number().int().min(1).max(90),
-  // Zero is a legitimate policy: regularization switched off without removing
-  // the permission from four roles.
-  regularizationMaxPerMonth: z.number().int().min(0).max(31),
+  earlyArrivalEnabled: z.boolean(),
+  earlyArrivalThresholdMinutes: z.number().int().min(5).max(240),
   autoEscalationDays: z.number().int().min(1).max(30),
 });
 
@@ -183,9 +178,9 @@ export const DEFAULT_ATTENDANCE_POLICY: AttendancePolicy = {
   deviceBindingMode: 'WARN',
   // `DEFAULT_MAX_WORK_MINUTES` in the day engine.
   maxWorkMinutes: 16 * 60,
-  // REQ-F-02: 7 days back, 3 a month.
-  regularizationWindowDays: 7,
-  regularizationMaxPerMonth: 3,
+  // Owner, 21 Aug 2026: on, fifteen minutes.
+  earlyArrivalEnabled: true,
+  earlyArrivalThresholdMinutes: 15,
   // REQ-G-09.
   autoEscalationDays: 3,
 };

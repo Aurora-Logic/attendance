@@ -654,7 +654,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'regularizations',
-    requires: [PERMISSIONS.REGULARIZATION_APPROVE, PERMISSIONS.ATTENDANCE_VIEW_ALL],
+    requires: [PERMISSIONS.ATTENDANCE_EDIT, PERMISSIONS.ATTENDANCE_VIEW_ALL],
     title: 'Regularizations',
     columns: columns(
       ['date', 'Date'],
@@ -685,7 +685,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'on-duty',
-    requires: [PERMISSIONS.REGULARIZATION_APPROVE, PERMISSIONS.ATTENDANCE_VIEW_ALL],
+    requires: [PERMISSIONS.ATTENDANCE_EDIT, PERMISSIONS.ATTENDANCE_VIEW_ALL],
     title: 'On-duty requests',
     columns: columns(
       ['fromDate', 'From'],
@@ -735,7 +735,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'approvals-raised',
-    requires: [PERMISSIONS.LEAVE_APPROVE_ALL, PERMISSIONS.REGULARIZATION_APPROVE],
+    requires: [PERMISSIONS.LEAVE_APPROVE_ALL, PERMISSIONS.ATTENDANCE_EDIT],
     title: 'Approvals raised',
     /*
      * No subject line here either, and for a reason the sibling section below
@@ -775,7 +775,7 @@ export const SUBJECT_SECTIONS: readonly SubjectSection[] = [
   },
   {
     key: 'approvals-decided',
-    requires: [PERMISSIONS.LEAVE_APPROVE_ALL, PERMISSIONS.REGULARIZATION_APPROVE],
+    requires: [PERMISSIONS.LEAVE_APPROVE_ALL, PERMISSIONS.ATTENDANCE_EDIT],
     title: 'Approvals decided',
     /*
      * What this person did, never what it was about.

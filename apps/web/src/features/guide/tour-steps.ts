@@ -193,14 +193,6 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Apply, and track where an application has reached. Balances are shown against each type before you commit to a date.',
   },
   {
-    id: 'screen.regularizations',
-    route: '/regularizations',
-    anchor: ANCHORS.screenHeader,
-    permission: PERMISSIONS.REGULARIZATION_RAISE,
-    title: 'Corrections',
-    body: 'Ask for a day to be put right when the punch does not match what happened. Every correction carries a reason and goes to an approver.',
-  },
-  {
     id: 'screen.team-attendance',
     route: '/team-attendance',
     anchor: ANCHORS.screenHeader,

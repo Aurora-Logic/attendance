@@ -2,7 +2,7 @@ import { OPEN_APPROVAL_STATUSES, type ApprovalStatus, type RegularizationKind } 
 import { and, asc, count, desc, eq, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 
 import type { Database } from '../../../platform/db/db.provider.js';
-import { employees, locations, organizations, settings, users } from '../../../platform/db/schema/index.js';
+import { employees, locations, organizations, users } from '../../../platform/db/schema/index.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { employeeNameSql } from '../../../platform/people/employee-name.js';
 import { attendanceAdjustments, onDutyRequests, punches, regularizations } from '../schema/index.js';
@@ -18,17 +18,6 @@ import { attendanceAdjustments, onDutyRequests, punches, regularizations } from 
  * `orgScoped()` is the single helper that does it, so a new query cannot start
  * from an empty WHERE by accident.
  */
-
-/**
- * REQ-F-02's two limits. Spelled as literals rather than imported, because
- * `platform/settings` may not import from `modules/` — the same arrangement
- * `LEAVE_SETTING_KEYS` uses, and `settings.catalogue.test.ts` fails if either
- * side renames a key without the other.
- */
-export const REGULARIZATION_SETTING_KEYS = {
-  windowDays: 'attendance.regularization_window_days',
-  maxPerMonth: 'attendance.regularization_max_per_month',
-} as const;
 
 /**
  * The statuses a request can still be decided from.
@@ -152,42 +141,6 @@ export class RegularizationRepository {
 
   // ------------------------------------------------------------- settings
 
-  private async readNumberSetting(key: string, fallback: number): Promise<number> {
-    const rows = await this.db
-      .select({ value: settings.value })
-      .from(settings)
-      .where(
-        this.orgScoped(
-          eq(settings.orgId, this.ctx.orgId),
-          eq(settings.key, key),
-          isNull(settings.deletedAt),
-        ),
-      )
-      .limit(1);
-
-    const stored = rows[0]?.value;
-    // A row that is not a whole number falls back rather than throwing. The
-    // settings screen is the only place a corrupt row can be repaired, and
-    // refusing every regularization until somebody notices would take the
-    // feature down over a value the schema already refuses to write.
-    if (typeof stored !== 'number' || !Number.isInteger(stored) || stored < 0) return fallback;
-    return stored;
-  }
-
-  /**
-   * REQ-F-02, read from `settings` and never hardcoded.
-   *
-   * The fallbacks are `DEFAULT_ATTENDANCE_POLICY`'s, restated rather than
-   * imported for the boundary reason above. `settings.catalogue.test.ts`
-   * guards the key names; the numbers are the PRD's own defaults (7 and 3).
-   */
-  async readPolicy(): Promise<{ windowDays: number; maxPerMonth: number }> {
-    const [windowDays, maxPerMonth] = await Promise.all([
-      this.readNumberSetting(REGULARIZATION_SETTING_KEYS.windowDays, 7),
-      this.readNumberSetting(REGULARIZATION_SETTING_KEYS.maxPerMonth, 3),
-    ]);
-    return { windowDays, maxPerMonth };
-  }
 
   // ------------------------------------------------------------- employee
 

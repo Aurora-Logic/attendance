@@ -227,6 +227,10 @@ export interface PunchResult {
   photoThumbUrl: string | null;
   /** REQ-D-11: true when the key had been used before and no second punch was made. */
   replayed: boolean;
+  /** Owner, 21 Aug 2026: this IN beat shift start by the configured threshold. */
+  earlyArrival: boolean;
+  /** The streak as the day now stands; shown beside the confirmation. */
+  earlyStreak: number;
 }
 
 /**
@@ -251,7 +255,13 @@ const punchReceiptSchema = z.object({
     serverTime: z.string(),
     flags: z.array(z.string()),
   }),
-  day: z.object({ status: z.enum(ATTENDANCE_STATUSES) }).nullable(),
+  day: z
+    .object({
+      status: z.enum(ATTENDANCE_STATUSES),
+      earlyArrival: z.boolean().default(false),
+      earlyStreak: z.number().default(0),
+    })
+    .nullable(),
   replayed: z.boolean(),
 });
 
@@ -264,6 +274,8 @@ export const punchResultSchema: z.ZodType<PunchResult, unknown> = punchReceiptSc
     flags: receipt.punch.flags,
     photoThumbUrl: null,
     replayed: receipt.replayed,
+    earlyArrival: receipt.day?.earlyArrival ?? false,
+    earlyStreak: receipt.day?.earlyStreak ?? 0,
   }),
 );
 
