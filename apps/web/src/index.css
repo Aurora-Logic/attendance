@@ -400,3 +400,25 @@
 @media print {
   :root { scrollbar-width: none; }
 }
+
+/*
+ * Printing a working screen (a report, the dashboard): the chrome goes,
+ * the content keeps the page. The paper routes have their own rules above;
+ * this covers Ctrl+P anywhere else, which is how a report becomes a PDF
+ * (D-46: browser print, no server renderer).
+ */
+@media print {
+  [data-slot='sidebar'],
+  [data-slot='sidebar-trigger'],
+  header,
+  nav,
+  [data-print='hide'] {
+    display: none !important;
+  }
+  [data-slot='sidebar-inset'] {
+    margin: 0 !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+}

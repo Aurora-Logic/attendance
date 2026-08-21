@@ -5,6 +5,7 @@ import {
   CalendarPlusIcon,
   CaretDownIcon,
   ChartBarIcon,
+  PrinterIcon,
   TableIcon,
   DownloadSimpleIcon,
   ImageIcon,
@@ -36,6 +37,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -764,7 +766,16 @@ export function ReportsPage() {
                     <CalendarPlusIcon data-icon="inline-start" />
                     Schedule this report
                   </DropdownMenuItem>
-                </DropdownMenuContent>
+                                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      window.print();
+                    }}
+                  >
+                    <PrinterIcon />
+                    Print / save as PDF
+                  </DropdownMenuItem>
+</DropdownMenuContent>
               </DropdownMenu>
             </ButtonGroup>
           </>

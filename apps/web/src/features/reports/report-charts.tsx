@@ -1,4 +1,4 @@
-import { Bar, BarChart, CartesianGrid, Line, LineChart, Pie, PieChart, RadialBar, RadialBarChart, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Label, Line, LineChart, Pie, PieChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, XAxis, YAxis } from 'recharts';
 
 import { SectionHeading } from '@/components/shared/section-heading';
 import { CHART_INTRO_MS } from '@/components/shared/use-chart-motion';
@@ -349,6 +349,43 @@ export function CompositionDonut({ rows, labelKey, valueKey, animate }: { rows: 
         <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
         <ChartLegend content={<ChartLegendContent nameKey="name" />} />
       </PieChart>
+    </ChartContainer>
+  );
+}
+
+/**
+ * One rate as one ring (the shadcn radial-text pattern): the arc is the
+ * percentage, the number sits in the middle. For fulfilment, collection
+ * against target — anything that reads "how much of the whole happened".
+ */
+export function RateRadial({ pct, label, animate }: { pct: number; label: string; animate: boolean }) {
+  const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+  const config = { value: { label, color: clamped >= 90 ? 'var(--success)' : clamped >= 60 ? 'var(--info)' : 'var(--warning)' } } satisfies ChartConfig;
+  return (
+    <ChartContainer config={config} className="mx-auto aspect-square max-h-52 w-full">
+      <RadialBarChart data={[{ name: label, value: clamped, fill: 'var(--color-value)' }]} startAngle={90} endAngle={90 - (clamped / 100) * 360} innerRadius={70} outerRadius={88}>
+        <PolarGrid gridType="circle" radialLines={false} stroke="none" className="first:fill-muted last:fill-background" polarRadius={[74, 66]} />
+        <RadialBar dataKey="value" background cornerRadius={8} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+        <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
+          <Label
+            content={({ viewBox }) => {
+              if (viewBox && 'cx' in viewBox && 'cy' in viewBox) {
+                return (
+                  <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+                    <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
+                      {String(clamped)}%
+                    </tspan>
+                    <tspan x={viewBox.cx} y={(viewBox.cy ?? 0) + 22} className="fill-muted-foreground text-xs">
+                      {label}
+                    </tspan>
+                  </text>
+                );
+              }
+              return null;
+            }}
+          />
+        </PolarRadiusAxis>
+      </RadialBarChart>
     </ChartContainer>
   );
 }

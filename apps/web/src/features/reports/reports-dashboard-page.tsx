@@ -12,8 +12,9 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { useReportRows } from './api';
-import { CompositionDonut, GenericReportChart, MonthlyValueChart, ReportChart, ShareRadialChart } from './report-charts';
+import { CompositionDonut, GenericReportChart, MonthlyValueChart, RateRadial, ReportChart, ShareRadialChart } from './report-charts';
 import { inr, lapseSeries } from './report-series';
+import { comparisonRange, deltaOf, periodForGranularity } from './period-compare';
 
 /**
  * The Reports dashboard (14 Area AI): a tile is a report with a figure and
@@ -68,6 +69,13 @@ export function ReportsDashboardPage() {
   const salesByMonth = useReportRows('sales-analysis', { ...page, groupBy: 'month', from: TWELVE_MONTHS_AGO(), to: TODAY() }, { enabled: canView });
   const salesByParty = useReportRows('sales-analysis', { ...page, groupBy: 'party', from: TWELVE_MONTHS_AGO(), to: TODAY() }, { enabled: canView });
   const ageing = useReportRows('stock-ageing', page, { enabled: canView });
+  const fillRate = useReportRows('order-fill-rate', page, { enabled: canView });
+  const pipeline = useReportRows('order-pipeline', page, { enabled: canView });
+  // Revenue this FY against last FY, like-for-like to today (data-analyst §3).
+  const fyRange = periodForGranularity('year', TODAY());
+  const fyPrev = comparisonRange(fyRange, 'lastYear');
+  const fyRevenue = useReportRows('sales-analysis', { ...page, groupBy: 'month', ...fyRange }, { enabled: canView });
+  const fyRevenuePrev = useReportRows('sales-analysis', { ...page, groupBy: 'month', ...fyPrev }, { enabled: canView });
   const movement = useReportRows('movement-analysis', { ...page, from: TWELVE_MONTHS_AGO(), to: TODAY() }, { enabled: canView });
 
   const chartsReady = salesByMonth.isSuccess && movement.isSuccess && lapse.isSuccess;
@@ -88,6 +96,14 @@ export function ReportsDashboardPage() {
   }
 
   const exposure = (credit.data?.data ?? []).reduce((sum, row) => sum + Number(row.cells.exposure ?? 0), 0);
+  const sumValue = (rows: readonly { cells: Readonly<Record<string, unknown>> }[] | undefined) => (rows ?? []).reduce((sum, row) => sum + Number(row.cells.value ?? 0), 0);
+  const fyNow = sumValue(fyRevenue.data?.data);
+  const fyThen = sumValue(fyRevenuePrev.data?.data);
+  const fyDelta = deltaOf(fyNow, fyThen);
+  const fills = fillRate.data?.data ?? [];
+  const orderedTotal = fills.reduce((sum, row) => sum + Number(row.cells.orderedQty ?? 0), 0);
+  const dispatchedTotal = fills.reduce((sum, row) => sum + Number(row.cells.dispatchedQty ?? 0), 0);
+  const orgFillPct = orderedTotal > 0 ? (dispatchedTotal / orderedTotal) * 100 : null;
   const lapseTotals = lapseSeries(lapse.data?.data ?? []);
   const atRisk = lapseTotals.points.reduce((sum, p) => sum + p.revenue, 0);
   const deadValue = (dead.data?.data ?? []).reduce((sum, row) => sum + Number(row.cells.valueLocked ?? 0), 0);
@@ -109,6 +125,16 @@ export function ReportsDashboardPage() {
           </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <StatTile
+              label="Revenue this FY"
+              value={`₹${inr(fyNow)}`}
+              hint={fyDelta.label === 'new' ? 'All of it new against last FY to date' : fyDelta.pct === null ? 'No sales either FY to date' : `${fyDelta.direction === 'down' ? '' : '+'}${String(fyDelta.pct)}% vs last FY to date (₹${inr(fyThen)})`}
+              icon={<ChartBarIcon />}
+              tone={fyDelta.direction === 'down' ? 'bad' : undefined}
+              onOpen={() => {
+                open(`report=sales-analysis&groupBy=month&from=${fyRange.from}&to=${fyRange.to}&compare=lastYear&granularity=year`);
+              }}
+            />
             <StatTile
               label="Receivables exposure"
               value={`₹${inr(exposure)}`}
@@ -258,6 +284,42 @@ export function ReportsDashboardPage() {
               />
               {ageing.isPending ? <Skeleton className="h-56 w-full" /> : null}
               {ageing.isSuccess ? <ReportChart reportKey="stock-ageing" rows={ageing.data.data} animate={intro} /> : null}
+            </section>
+          </Panel>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel>
+            <section className="flex flex-col gap-2">
+              <SectionHeading
+                title="Order fulfilment"
+                note="Dispatched against ordered across every confirmed order."
+                action={
+                  <Button variant="ghost" size="sm" onClick={() => { open('report=order-fill-rate'); }}>
+                    Open report
+                    <ArrowRightIcon data-icon="inline-end" />
+                  </Button>
+                }
+              />
+              {fillRate.isPending ? <Skeleton className="h-52 w-full" /> : null}
+              {fillRate.isSuccess && orgFillPct !== null ? <RateRadial pct={orgFillPct} label="Fulfilment" animate={intro} /> : null}
+              {fillRate.isSuccess && orgFillPct === null ? <p className="text-muted-foreground text-sm">No confirmed orders yet, so there is nothing to fulfil.</p> : null}
+            </section>
+          </Panel>
+          <Panel>
+            <section className="flex flex-col gap-2">
+              <SectionHeading
+                title="Open order pipeline"
+                note="Where quantity is waiting, oldest first."
+                action={
+                  <Button variant="ghost" size="sm" onClick={() => { open('report=order-pipeline'); }}>
+                    Open report
+                    <ArrowRightIcon data-icon="inline-end" />
+                  </Button>
+                }
+              />
+              {pipeline.isPending ? <Skeleton className="h-52 w-full" /> : null}
+              {pipeline.isSuccess ? <GenericReportChart reportKey="order-pipeline" definition={{ columns: [{ key: 'number', header: 'Order', type: 'code' }, { key: 'ageDays', header: 'Age (days)', type: 'number' }], defaultSort: '-ageDays' }} rows={pipeline.data.data} animate={intro} /> : null}
             </section>
           </Panel>
         </div>
