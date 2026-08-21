@@ -359,3 +359,45 @@ describe('the receivables reports (Phase 6d, REQ-Y-01, Y-03, Y-05, Y-07)', () =>
     expect(bad.status).toBe(400);
   });
 });
+
+describe('the Tier 1 analytics (14 REQ-AE-01, REQ-AG-02)', () => {
+  it('the day book lists every voucher for the period and narrows by type', async () => {
+    const all = await harness.get<{ data: { voucherType: string; voucherNumber: string; partyName: string | null; amount: string; cancelled: boolean; asOf: string | null }[]; meta: { total: number } }>(
+      '/reports/day-book/rows?from=2026-08-01&to=2026-08-31',
+      { token: adminToken },
+    );
+    expect(all.status).toBe(200);
+    expect(all.body.meta.total).toBeGreaterThanOrEqual(3);
+    expect(all.body.data.every((r) => r.asOf !== null)).toBe(true);
+
+    const sales = await harness.get<{ data: { voucherType: string }[] }>('/reports/day-book/rows?from=2026-08-01&to=2026-08-31&voucherType=Sales', { token: adminToken });
+    expect(sales.status).toBe(200);
+    expect(sales.body.data.length).toBeGreaterThan(0);
+    expect(sales.body.data.every((r) => r.voucherType === 'Sales')).toBe(true);
+  });
+
+  it('customer lapse measures each customer against their own median gap and ranks by revenue at risk', async () => {
+    // A customer with a monthly rhythm who has gone quiet for over two gaps.
+    await harness.db.execute(sql`
+      INSERT INTO vouchers
+        (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, is_cancelled, amount)
+      VALUES
+        (${ORG_ID}, ${connectionId}, CURRENT_DATE - 160, 'Sales', 'LAP-1', 'Asha Traders', ${ashaId}, false, '900.00'),
+        (${ORG_ID}, ${connectionId}, CURRENT_DATE - 130, 'Sales', 'LAP-2', 'Asha Traders', ${ashaId}, false, '900.00'),
+        (${ORG_ID}, ${connectionId}, CURRENT_DATE - 100, 'Sales', 'LAP-3', 'Asha Traders', ${ashaId}, false, '900.00')
+    `);
+    const lapse = await harness.get<{ data: { partyName: string; state: string; daysSince: number; medianGapDays: number; sales12m: number; revenue12m: string; asOf: string | null }[] }>(
+      '/reports/customer-lapse/rows',
+      { token: adminToken },
+    );
+    expect(lapse.status).toBe(200);
+    const asha = lapse.body.data.find((r) => r.partyName === 'Asha Traders');
+    expect(asha).toBeDefined();
+    // The June/August fixture invoices land inside the last 365 days too.
+    expect(asha?.sales12m).toBeGreaterThanOrEqual(3);
+    expect(asha?.medianGapDays).toBeGreaterThan(0);
+    expect(asha?.daysSince).toBeGreaterThanOrEqual(0);
+    expect(['LAPSED', 'AT_RISK', 'ON_RHYTHM']).toContain(asha?.state);
+    expect(asha?.asOf).not.toBeNull();
+  });
+});

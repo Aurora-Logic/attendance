@@ -13,9 +13,11 @@ import {
   attendanceRegisterCell,
   headcountCell,
   creditCycleCell,
+  customerLapseCell,
   customerStatementCell,
   lowStockCell,
   pendingDispatchCell,
+  dayBookCell,
   salesAnalysisCell,
   voucherReconciliationCell,
   leaveAvailedCell,
@@ -376,6 +378,33 @@ export const customerStatementRowSchema = z.object({
 });
 export type CustomerStatementRow = z.infer<typeof customerStatementRowSchema>;
 
+export const dayBookRowSchema = z.object({
+  voucherId: z.string(),
+  date: z.string(),
+  voucherType: z.string(),
+  voucherNumber: z.string(),
+  partyName: z.string().nullable(),
+  amount: z.string(),
+  narration: z.string().nullable(),
+  cancelled: z.boolean(),
+  asOf: z.string().nullable(),
+});
+export type DayBookRow = z.infer<typeof dayBookRowSchema>;
+
+export const customerLapseRowSchema = z.object({
+  partyId: z.string(),
+  partyName: z.string(),
+  state: z.enum(['LAPSED', 'AT_RISK', 'ON_RHYTHM']),
+  lastSaleDate: z.string(),
+  daysSince: z.number(),
+  medianGapDays: z.number(),
+  expectedBy: z.string(),
+  sales12m: z.number(),
+  revenue12m: z.string(),
+  asOf: z.string().nullable(),
+});
+export type CustomerLapseRow = z.infer<typeof customerLapseRowSchema>;
+
 export const creditCycleRowSchema = z.object({
   partyId: z.string(),
   partyName: z.string(),
@@ -606,6 +635,22 @@ const PENDING_DISPATCH_SHAPE: RowViewShape<PendingDispatchRow> = {
   status: (row) => row.fulfilment.toUpperCase(),
 };
 
+const DAY_BOOK_SHAPE: RowViewShape<DayBookRow> = {
+  schema: dayBookRowSchema,
+  cell: dayBookCell,
+  id: (row) => row.voucherId,
+  primary: (row) => `${row.voucherType}${row.voucherNumber ? ` ${row.voucherNumber}` : ''}`,
+  status: (row) => (row.cancelled ? 'CANCELLED' : null),
+};
+
+const CUSTOMER_LAPSE_SHAPE: RowViewShape<CustomerLapseRow> = {
+  schema: customerLapseRowSchema,
+  cell: customerLapseCell,
+  id: (row) => row.partyId,
+  primary: (row) => row.partyName,
+  status: (row) => (row.state === 'ON_RHYTHM' ? null : row.state),
+};
+
 const LOW_STOCK_SHAPE: RowViewShape<LowStockRow> = {
   schema: lowStockRowSchema,
   cell: lowStockCell,
@@ -681,6 +726,10 @@ export function toRowViews(reportKey: ReportKey, rows: readonly unknown[]): Repo
       return build(PENDING_DISPATCH_SHAPE, reportKey, rows);
     case 'low-stock':
       return build(LOW_STOCK_SHAPE, reportKey, rows);
+    case 'day-book':
+      return build(DAY_BOOK_SHAPE, reportKey, rows);
+    case 'customer-lapse':
+      return build(CUSTOMER_LAPSE_SHAPE, reportKey, rows);
   }
 }
 

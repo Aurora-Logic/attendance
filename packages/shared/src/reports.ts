@@ -45,12 +45,15 @@ export const REPORT_KEYS = [
   'sales-analysis',
   'pending-dispatch',
   'low-stock',
+  // 14 Tier 1: the projection mirrors and the first analysis (REQ-AE-01, REQ-AG-02).
+  'day-book',
+  'customer-lapse',
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
 
 /** The keys the Tally module's source claims; everything else is attendance's. */
-export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'sales-analysis', 'low-stock'] as const satisfies readonly ReportKey[];
+export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'sales-analysis', 'low-stock', 'day-book', 'customer-lapse'] as const satisfies readonly ReportKey[];
 /** The sales module's reports (12 REQ-AA-30). */
 export const SALES_REPORT_KEYS = ['pending-dispatch'] as const satisfies readonly ReportKey[];
 
@@ -142,6 +145,8 @@ export const REPORT_FILTER_NAMES = [
   'partyId',
   /** Phase 6d: REQ-Y-05's dimension — by party, item, item group or month. */
   'groupBy',
+  /** 14 REQ-AE-01: the day book narrows to one voucher type, typed as Tally names it. */
+  'voucherType',
 ] as const;
 
 export type ReportFilterName = (typeof REPORT_FILTER_NAMES)[number];
@@ -520,6 +525,41 @@ const LOW_STOCK_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
+/**
+ * 14 REQ-AE-01: every voucher for a period — the workhorse mirror. Vyuha
+ * computes nothing; it lists what Tally already said, filterable by type
+ * and party, each row stamped with the sync it is as of (REQ-AD-06).
+ */
+const DAY_BOOK_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'date', header: 'Date', type: 'date', sortField: 'date', width: 12 },
+  { key: 'voucherType', header: 'Type', type: 'text', sortField: 'voucherType', width: 16 },
+  { key: 'voucherNumber', header: 'Number', type: 'code', width: 12 },
+  { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'amount', header: 'Amount', type: 'text', sortField: 'amount', width: 16 },
+  { key: 'narration', header: 'Narration', type: 'text', secondary: true, width: 36 },
+  { key: 'cancelled', header: 'State', type: 'status', secondary: true, width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/**
+ * 14 REQ-AG-02: customers who bought regularly and then stopped. The
+ * expected gap is each customer's own median gap between sales vouchers
+ * (D-36 in `14`): a monthly buyer and an annual buyer lapse at different
+ * speeds. Lapsed past twice the median, at risk past once; ranked by the
+ * last twelve months' revenue — what the silence is costing.
+ */
+const CUSTOMER_LAPSE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'state', header: 'State', type: 'status', width: 10 },
+  { key: 'lastSaleDate', header: 'Last sale', type: 'date', sortField: 'lastSaleDate', width: 12 },
+  { key: 'daysSince', header: 'Days since', type: 'number', sortField: 'daysSince', width: 10 },
+  { key: 'medianGapDays', header: 'Usual gap', type: 'number', width: 10 },
+  { key: 'expectedBy', header: 'Expected by', type: 'date', secondary: true, width: 12 },
+  { key: 'sales12m', header: 'Sales (12m)', type: 'number', secondary: true, width: 10 },
+  { key: 'revenue12m', header: 'Revenue (12m)', type: 'text', sortField: 'revenue12m', width: 16 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   'attendance-register': {
     key: 'attendance-register',
@@ -694,6 +734,22 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: '-shortfall',
     filters: [],
   },
+  'day-book': {
+    key: 'day-book',
+    label: 'Day book',
+    description: 'Every voucher for the period, from the Tally projection — filter by type or party; Vyuha computes nothing (14 REQ-AE-01).',
+    columns: DAY_BOOK_COLUMNS,
+    defaultSort: '-date',
+    filters: ['period', 'voucherType', 'partyId'],
+  },
+  'customer-lapse': {
+    key: 'customer-lapse',
+    label: 'Customer lapse',
+    description: 'Customers who bought regularly and then stopped — measured against each customer’s own usual gap, ranked by the revenue at risk (14 REQ-AG-02).',
+    columns: CUSTOMER_LAPSE_COLUMNS,
+    defaultSort: '-revenue12m',
+    filters: [],
+  },
 };
 
 /**
@@ -776,6 +832,7 @@ export const reportFilterSchema = z.object({
   punchType: z.enum(PUNCH_TYPES).optional(),
   partyId: z.uuid().optional(),
   groupBy: z.enum(SALES_ANALYSIS_DIMENSIONS).optional(),
+  voucherType: z.string().trim().min(1).max(60).optional(),
 });
 
 export type ReportFilters = z.infer<typeof reportFilterSchema>;
@@ -2010,4 +2067,80 @@ export function isScheduleDue(
   // skipping the day silently.
   const due = schedule.hour * 60 + schedule.minute;
   return local.hour * 60 + local.minute >= due;
+}
+
+/** 14 REQ-AE-01: one voucher, as Tally said it. */
+export interface DayBookSource {
+  readonly voucherId: string;
+  readonly date: string;
+  readonly voucherType: string;
+  readonly voucherNumber: string;
+  readonly partyName: string | null;
+  readonly amount: string;
+  readonly narration: string | null;
+  readonly cancelled: boolean;
+  readonly asOf: string | null;
+}
+
+export function dayBookCell(row: DayBookSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'date':
+      return row.date;
+    case 'voucherType':
+      return row.voucherType;
+    case 'voucherNumber':
+      return row.voucherNumber;
+    case 'partyName':
+      return row.partyName;
+    case 'amount':
+      return row.amount;
+    case 'narration':
+      return row.narration;
+    case 'cancelled':
+      return row.cancelled ? 'CANCELLED' : 'POSTED';
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
+}
+
+/** 14 REQ-AG-02: one customer measured against their own buying rhythm. */
+export interface CustomerLapseSource {
+  readonly partyId: string;
+  readonly partyName: string;
+  /** 'LAPSED' past twice the median gap, 'AT_RISK' past once, else 'ON_RHYTHM'. */
+  readonly state: 'LAPSED' | 'AT_RISK' | 'ON_RHYTHM';
+  readonly lastSaleDate: string;
+  readonly daysSince: number;
+  readonly medianGapDays: number;
+  readonly expectedBy: string;
+  readonly sales12m: number;
+  readonly revenue12m: string;
+  readonly asOf: string | null;
+}
+
+export function customerLapseCell(row: CustomerLapseSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName':
+      return row.partyName;
+    case 'state':
+      return row.state;
+    case 'lastSaleDate':
+      return row.lastSaleDate;
+    case 'daysSince':
+      return row.daysSince;
+    case 'medianGapDays':
+      return row.medianGapDays;
+    case 'expectedBy':
+      return row.expectedBy;
+    case 'sales12m':
+      return row.sales12m;
+    case 'revenue12m':
+      return row.revenue12m;
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
 }

@@ -3,11 +3,14 @@ import {
   PERMISSIONS,
   TALLY_REPORTS,
   creditCycleCell,
+  customerLapseCell,
   customerStatementCell,
   lowStockCell,
+  dayBookCell,
   salesAnalysisCell,
   voucherReconciliationCell,
   type CreditCycleSource,
+  type CustomerLapseSource,
   type CustomerStatementSource,
   type LowStockSource,
   type ReportCellValue,
@@ -16,6 +19,7 @@ import {
   type ReportFilters,
   type ReportKey,
   type SalesAnalysisDimension,
+  type DayBookSource,
   type SalesAnalysisSource,
   type VoucherReconciliationSource,
 } from '@vyuha/shared';
@@ -62,7 +66,7 @@ const classifiedCase = sql`voucher_type = ANY(${sql.raw(`ARRAY['${[...DEBIT_TYPE
 
 interface TallyReportPage extends ReportSourcePage {
   readonly key: ReportKey;
-  readonly rows: readonly (VoucherReconciliationSource | CustomerStatementSource | CreditCycleSource | SalesAnalysisSource | LowStockSource)[];
+  readonly rows: readonly (VoucherReconciliationSource | CustomerStatementSource | CreditCycleSource | SalesAnalysisSource | LowStockSource | DayBookSource | CustomerLapseSource)[];
 }
 
 @Injectable()
@@ -103,6 +107,7 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
       ...(filters.to === undefined ? {} : { to: filters.to }),
       ...(filters.partyId === undefined ? {} : { partyId: filters.partyId }),
       ...(key === 'sales-analysis' ? { groupBy: filters.groupBy ?? 'party' } : {}),
+      ...(key === 'day-book' && filters.voucherType !== undefined ? { voucherType: filters.voucherType } : {}),
     };
   }
 
@@ -143,6 +148,10 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
         `);
       case 'low-stock':
         return this.scalar(sql`SELECT count(*)::int AS value FROM (${this.lowStockQuery(principal.orgId)}) t`);
+      case 'day-book':
+        return this.scalar(sql`SELECT count(*)::int AS value FROM vouchers WHERE ${this.dayBookWhere(principal.orgId, usable)}`);
+      case 'customer-lapse':
+        return this.scalar(sql`SELECT count(*)::int AS value FROM (${this.customerLapseQuery(principal.orgId)}) t`);
       default:
         throw new Error(`TallyReportSource does not serve "${key}".`);
     }
@@ -170,6 +179,10 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
         return this.wrap(key, total, await this.salesRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
       case 'low-stock':
         return this.wrap(key, total, await this.lowStockRows(principal.orgId, filters.sort, limit, offset));
+      case 'day-book':
+        return this.wrap(key, total, await this.dayBookRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
+      case 'customer-lapse':
+        return this.wrap(key, total, await this.customerLapseRows(principal.orgId, filters.sort, limit, offset, asOf));
       default:
         throw new Error(`TallyReportSource does not serve "${key}".`);
     }
@@ -196,6 +209,10 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
           return salesAnalysisCell(row as SalesAnalysisSource, column.key);
         case 'low-stock':
           return lowStockCell(row as LowStockSource, column.key);
+        case 'day-book':
+          return dayBookCell(row as DayBookSource, column.key);
+        case 'customer-lapse':
+          return customerLapseCell(row as CustomerLapseSource, column.key);
         default:
           return null;
       }
@@ -482,6 +499,109 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   }
 
   // ---------------------------------------------------------------- shared
+
+  private dayBookWhere(orgId: string, filters: ReportFilters): SQL {
+    return sql`org_id = ${orgId}
+      ${this.periodClause(filters, 'voucher_date')}
+      ${filters.partyId === undefined ? sql`` : sql`AND party_id = ${filters.partyId}`}
+      ${filters.voucherType === undefined ? sql`` : sql`AND voucher_type ILIKE ${filters.voucherType}`}`;
+  }
+
+  private async dayBookRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<DayBookSource[]> {
+    const order =
+      sort === 'date' ? sql`voucher_date ASC, created_at ASC`
+      : sort === 'voucherType' ? sql`voucher_type ASC, voucher_date DESC`
+      : sort === '-voucherType' ? sql`voucher_type DESC, voucher_date DESC`
+      : sort === 'partyName' ? sql`party_name ASC NULLS LAST, voucher_date DESC`
+      : sort === '-partyName' ? sql`party_name DESC NULLS LAST, voucher_date DESC`
+      : sort === 'amount' ? sql`amount ASC`
+      : sort === '-amount' ? sql`amount DESC`
+      : sql`voucher_date DESC, created_at DESC`;
+    const rows = await this.db.execute<{ id: string; voucher_date: string; voucher_type: string; voucher_number: string; party_name: string | null; amount: string; narration: string | null; is_cancelled: boolean }>(sql`
+      SELECT id, voucher_date, voucher_type, voucher_number, party_name, amount::text AS amount, narration, is_cancelled
+        FROM vouchers
+       WHERE ${this.dayBookWhere(orgId, filters)}
+       ORDER BY ${order}
+       LIMIT ${limit} OFFSET ${offset}
+    `);
+    return rows.rows.map((r) => ({
+      voucherId: r.id,
+      date: r.voucher_date,
+      voucherType: r.voucher_type,
+      voucherNumber: r.voucher_number,
+      partyName: r.party_name,
+      amount: r.amount,
+      narration: r.narration,
+      cancelled: r.is_cancelled,
+      asOf,
+    }));
+  }
+
+  /**
+   * 14 REQ-AG-02 / its D-36 default: a customer's expected gap is their own
+   * median gap between Sales vouchers; lapsed past twice that, at risk past
+   * once. Three sales minimum — two gaps — or a "median" is one interval
+   * dressed up as a rhythm. Revenue over the last 365 days ranks the rows:
+   * what the silence is costing, not merely how long it has lasted.
+   */
+  private customerLapseQuery(orgId: string): SQL {
+    return sql`
+      WITH sales AS (
+        SELECT party_id, party_name, voucher_date, amount
+          FROM vouchers
+         WHERE org_id = ${orgId} AND voucher_type = 'Sales' AND NOT is_cancelled AND party_id IS NOT NULL
+      ),
+      gaps AS (
+        SELECT party_id, voucher_date - lag(voucher_date) OVER (PARTITION BY party_id ORDER BY voucher_date) AS gap
+          FROM sales
+      ),
+      rhythm AS (
+        SELECT party_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY gap)::int AS median_gap, count(*)::int AS gap_count
+          FROM gaps WHERE gap IS NOT NULL GROUP BY party_id HAVING count(*) >= 2
+      ),
+      latest AS (
+        SELECT party_id, max(party_name) AS party_name, max(voucher_date) AS last_sale,
+               count(*) FILTER (WHERE voucher_date >= CURRENT_DATE - 365)::int AS sales_12m,
+               COALESCE(sum(amount) FILTER (WHERE voucher_date >= CURRENT_DATE - 365), 0) AS revenue_12m
+          FROM sales GROUP BY party_id
+      )
+      SELECT l.party_id, l.party_name, l.last_sale, r.median_gap,
+             (CURRENT_DATE - l.last_sale)::int AS days_since,
+             (l.last_sale + r.median_gap)::date AS expected_by,
+             l.sales_12m, l.revenue_12m::text AS revenue_12m,
+             CASE WHEN CURRENT_DATE - l.last_sale > 2 * r.median_gap THEN 'LAPSED'
+                  WHEN CURRENT_DATE - l.last_sale > r.median_gap THEN 'AT_RISK'
+                  ELSE 'ON_RHYTHM' END AS state
+        FROM latest l JOIN rhythm r ON r.party_id = l.party_id
+    `;
+  }
+
+  private async customerLapseRows(orgId: string, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<CustomerLapseSource[]> {
+    const order =
+      sort === 'partyName' ? sql`party_name ASC`
+      : sort === '-partyName' ? sql`party_name DESC`
+      : sort === 'lastSaleDate' ? sql`last_sale ASC`
+      : sort === '-lastSaleDate' ? sql`last_sale DESC`
+      : sort === 'daysSince' ? sql`days_since ASC`
+      : sort === '-daysSince' ? sql`days_since DESC`
+      : sort === 'revenue12m' ? sql`revenue_12m::numeric ASC`
+      : sql`CASE state WHEN 'LAPSED' THEN 0 WHEN 'AT_RISK' THEN 1 ELSE 2 END ASC, revenue_12m::numeric DESC`;
+    const rows = await this.db.execute<{ party_id: string; party_name: string; last_sale: string; median_gap: number; days_since: number; expected_by: string; sales_12m: number; revenue_12m: string; state: CustomerLapseSource['state'] }>(sql`
+      SELECT * FROM (${this.customerLapseQuery(orgId)}) t ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}
+    `);
+    return rows.rows.map((r) => ({
+      partyId: r.party_id,
+      partyName: r.party_name,
+      state: r.state,
+      lastSaleDate: r.last_sale,
+      daysSince: Number(r.days_since),
+      medianGapDays: Number(r.median_gap),
+      expectedBy: r.expected_by,
+      sales12m: Number(r.sales_12m),
+      revenue12m: r.revenue_12m,
+      asOf,
+    }));
+  }
 
   private periodClause(filters: ReportFilters, column: string): SQL {
     const col = sql.raw(column);

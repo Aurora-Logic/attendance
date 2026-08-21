@@ -257,6 +257,7 @@ export function ReportsPage() {
     punchType: searchParams.get('punchType'),
     partyId: searchParams.get('partyId'),
     groupBy: searchParams.get('groupBy'),
+    voucherType: searchParams.get('voucherType'),
   };
 
   const sort = searchParams.get('sort') ?? definition?.defaultSort ?? '';
@@ -294,7 +295,7 @@ export function ReportsPage() {
         if (patch.period.to) params.set('to', toDateParam(patch.period.to));
         else params.delete('to');
       }
-      for (const key of ['departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy'] as const) {
+      for (const key of ['departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType'] as const) {
         if (!(key in patch)) continue;
         const value = patch[key];
         if (value === null || value === undefined) params.delete(key);
@@ -305,7 +306,7 @@ export function ReportsPage() {
 
   function clearFilters() {
     patchParams((params) => {
-      for (const key of ['from', 'to', 'departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy'] as const) {
+      for (const key of ['from', 'to', 'departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType'] as const) {
         params.delete(key);
       }
     });
@@ -406,6 +407,7 @@ export function ReportsPage() {
     ...(filters.punchType ? { punchType: filters.punchType as ReportFilters['punchType'] } : {}),
     ...(filters.partyId ? { partyId: filters.partyId } : {}),
     ...(filters.groupBy ? { groupBy: filters.groupBy as ReportFilters['groupBy'] } : {}),
+    ...(filters.voucherType ? { voucherType: filters.voucherType } : {}),
   };
 
   // A report that has no answer without a filter is not asked until it has
@@ -440,6 +442,7 @@ export function ReportsPage() {
     ...(filters.punchType ? { punchType: filters.punchType as ReportFilters['punchType'] } : {}),
     ...(filters.partyId ? { partyId: filters.partyId } : {}),
     ...(filters.groupBy ? { groupBy: filters.groupBy as ReportFilters['groupBy'] } : {}),
+    ...(filters.voucherType ? { voucherType: filters.voucherType } : {}),
   };
 
   function startExport(format: ExportFormat) {
@@ -559,7 +562,8 @@ export function ReportsPage() {
     filters.flags !== null ||
     filters.punchType !== null ||
     filters.partyId !== null ||
-    filters.groupBy !== null;
+    filters.groupBy !== null ||
+    filters.voucherType !== null;
 
   /*
    * REQ-J-05: the same filters without the period.

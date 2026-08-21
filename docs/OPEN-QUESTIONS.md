@@ -324,3 +324,21 @@ The cleaner shape, if picking is a separate job, is a `sales.fulfil` key
 held by Warehouse, Sales and Sales manager, with Pack, Dispatch and the
 queue behind it and `create` no longer implying them — a one-line seam
 change per route, plus a matrix row.
+
+## P14-1 — Doc 14's open decisions reuse numbers 11 already assigned (docs 11, 14)
+
+`14-analytics-and-reports.md` §12 numbers its open decisions D-34…D-39,
+but `11-decisions-phase-6-8.md` — the stated authority — already assigned
+D-34 (fulfilment wording) through D-45 (the printed page). Two different
+decisions both named "D-35" will eventually be cited into a wrong build.
+Recommended default, in use now: read doc 14's six as **D14-1…D14-6** in
+that order (batches, cost, lapse thresholds, margin visibility, push vs
+pull, usage retention); renumber them in doc 14 at the next edit. Code
+and commits cite the D14-x names.
+
+## P14-2 — REQ-AG-02's thresholds (doc 14 §12 D14-3)
+
+Customer lapse shipped with the doc's recommended default: expected gap =
+the customer's own median gap between Sales vouchers, at-risk past one
+gap, lapsed past two, three sales minimum. Not yet configurable; say the
+word if the multiplier or the minimum should be a setting.

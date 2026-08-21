@@ -4,6 +4,7 @@ import { BooksIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
+import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Button } from '@/components/ui/button';
 import {
@@ -63,6 +64,8 @@ export interface ReportFilterState {
   readonly partyId: string | null;
   /** Phase 6d: REQ-Y-05's dimension. */
   readonly groupBy: string | null;
+  /** 14 REQ-AE-01: the day book's voucher-type narrowing. */
+  readonly voucherType: string | null;
 }
 
 interface Option {
@@ -160,6 +163,20 @@ export function ReportFilterBar({
             value={parties.find((option) => option.id === value.partyId) ?? null}
             onValueChange={(next) => {
               onChange({ partyId: next?.id ?? null });
+            }}
+          />
+        </div>
+      ) : null}
+
+      {shows('voucherType') ? (
+        <div className="w-full sm:w-44">
+          <SearchField
+            id="report-voucher-type"
+            label="Filter by voucher type"
+            placeholder="Voucher type"
+            value={value.voucherType ?? ''}
+            onValueChange={(next) => {
+              onChange({ voucherType: next.trim() === '' ? null : next });
             }}
           />
         </div>
