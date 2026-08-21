@@ -19,6 +19,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { DocumentEditor } from '@/features/documents/document-editor';
 import { PaperField, type PaperEditing, type PaperLine, type PaperModel } from '@/features/documents/paper';
 import { useDesignDraft } from '@/features/documents/use-design-draft';
+import { useDraftBackup } from '@/features/documents/use-draft-backup';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
 import { useStockItems } from '@/features/masters/use-stock-items';
@@ -112,6 +113,16 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
     setDraft(next);
     setBase(next);
   };
+  // Crash insurance for a new document: the unsaved draft mirrors into
+  // sessionStorage and comes back if the tab reloads mid-typing.
+  const backup = useDraftBackup('purchase-order', draft, record === null);
+
+  const [backupOffered, setBackupOffered] = useState(false);
+  if (!backupOffered && backup.restored !== null && record === null && JSON.stringify(backup.restored) !== JSON.stringify(draft)) {
+    setBackupOffered(true);
+    setDraft(backup.restored);
+  }
+
   const [dialog, setDialog] = useState<'receive' | 'short-close' | null>(null);
   const [allocating, setAllocating] = useState<Grn | null>(null);
   const [item, setItem] = useState<{ id: string; name: string } | null>(null);
@@ -311,7 +322,8 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
       {
         onSuccess: (saved) => {
           toast.add({ type: 'success', title: isNew ? `${saved.number} drafted` : `${saved.number} saved`, description: `${saved.vendorName} · ${formatMoney(saved.grandTotal)}` });
-          if (isNew) void navigate(`/purchase/orders/${saved.id}`, { replace: true });
+          backup.clear();
+        if (isNew) void navigate(`/purchase/orders/${saved.id}`, { replace: true });
           else adopt(purchaseOrderToDraft(saved));
         },
       },

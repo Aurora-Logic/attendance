@@ -19,6 +19,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useCompanyOptions } from '@/features/crm/use-crm';
 import { DocumentEditor } from '@/features/documents/document-editor';
 import { useDesignDraft } from '@/features/documents/use-design-draft';
+import { useDraftBackup } from '@/features/documents/use-draft-backup';
 import { PaperField, type PaperEditing, type PaperLine, type PaperModel } from '@/features/documents/paper';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
@@ -112,6 +113,16 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
     setDraft(next);
     setBase(next);
   };
+  // Crash insurance for a new document: the unsaved draft mirrors into
+  // sessionStorage and comes back if the tab reloads mid-typing.
+  const backup = useDraftBackup('estimate', draft, record === null);
+
+  const [backupOffered, setBackupOffered] = useState(false);
+  if (!backupOffered && backup.restored !== null && record === null && JSON.stringify(backup.restored) !== JSON.stringify(draft)) {
+    setBackupOffered(true);
+    setDraft(backup.restored);
+  }
+
   const [confirmDelete, setConfirmDelete] = useState(false);
   const save = useSaveEstimate();
   const setStatus = useSetEstimateStatus();
@@ -312,6 +323,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
     save.mutate(effectiveDraft, {
       onSuccess: (saved) => {
         toast.add({ type: 'success', title: isNew ? `${saved.number} raised` : `${saved.number} saved`, description: `${saved.customerName} · ${formatMoney(saved.grandTotal)}` });
+        backup.clear();
         if (isNew) void navigate(`/sales/estimates/${saved.id}`, { replace: true });
         else adopt(estimateToDraft(saved));
       },

@@ -19,6 +19,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { DocumentEditor } from '@/features/documents/document-editor';
 import { PaperField, type PaperEditing, type PaperLine, type PaperModel } from '@/features/documents/paper';
 import { useDesignDraft } from '@/features/documents/use-design-draft';
+import { useDraftBackup } from '@/features/documents/use-draft-backup';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
 import { useStockItems } from '@/features/masters/use-stock-items';
@@ -114,6 +115,16 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
     setDraft(next);
     setBase(next);
   };
+  // Crash insurance for a new document: the unsaved draft mirrors into
+  // sessionStorage and comes back if the tab reloads mid-typing.
+  const backup = useDraftBackup('sales-order', draft, record === null);
+
+  const [backupOffered, setBackupOffered] = useState(false);
+  if (!backupOffered && backup.restored !== null && record === null && JSON.stringify(backup.restored) !== JSON.stringify(draft)) {
+    setBackupOffered(true);
+    setDraft(backup.restored);
+  }
+
   const [altering, setAltering] = useState(false);
   const [dialog, setDialog] = useState<'pack' | 'invoice' | 'dispatch' | 'short-close' | 'credit-override' | null>(null);
   const save = useSaveSalesOrder();
@@ -313,6 +324,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
     save.mutate(effective, {
       onSuccess: (saved) => {
         toast.add({ type: 'success', title: isNew ? `${saved.number} raised` : `${saved.number} saved`, description: `${saved.customerName} · ${formatMoney(saved.grandTotal)}` });
+        backup.clear();
         if (isNew) void navigate(`/sales/orders/${saved.id}`, { replace: true });
         else adopt(estimateToDraft(saved));
       },
