@@ -47,6 +47,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { usePermission } from '@/lib/session/permissions';
@@ -361,10 +362,9 @@ export function ReportsPage() {
     });
   }
 
-  function toggleSort(field: string) {
-    const descending = sort === field;
+  function setSort(next: string) {
     patchParams((params) => {
-      params.set('sort', descending ? `-${field}` : field);
+      params.set('sort', next);
     });
   }
 
@@ -773,37 +773,43 @@ export function ReportsPage() {
         </p>
 
         {/* Sort is on the toolbar rather than on the header cells: at 360px the
-            table becomes stacked rows with no header to click. */}
-        {definition !== undefined ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-muted-foreground text-xs">Sort</span>
-            {definition.columns
-              .filter((column) => column.sortField !== undefined)
-              .map((column) => {
-                const field = column.sortField ?? '';
-                const isActive = sort === field || sort === `-${field}`;
-                const descending = sort === `-${field}`;
-                return (
-                  <Button
-                    key={field}
-                    variant={isActive ? 'secondary' : 'ghost'}
-                    size="sm"
-                    className="gap-1"
-                    onClick={() => {
-                      toggleSort(field);
-                    }}
-                  >
-                    {column.header}
-                    {isActive ? (
-                      descending ? (
-                        <ArrowDownIcon className="size-3" />
-                      ) : (
-                        <ArrowUpIcon className="size-3" />
-                      )
-                    ) : null}
-                  </Button>
-                );
-              })}
+            table becomes stacked rows with no header to click. One Select and
+            one direction button, not a loose row of text buttons. */}
+        {definition !== undefined && definition.columns.some((column) => column.sortField !== undefined) ? (
+          <div className="flex items-center gap-1.5">
+            <Select
+              value={sort.startsWith('-') ? sort.slice(1) : sort}
+              onValueChange={(value: string | null) => {
+                if (value !== null) setSort(sort === `-${value}` ? `-${value}` : value);
+              }}
+            >
+              <SelectTrigger size="sm" className="pointer-coarse:min-h-11 w-44" aria-label="Sort by">
+                <SelectValue>
+                  {(value: string) => `Sort: ${definition.columns.find((column) => column.sortField === value)?.header ?? 'Default'}`}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {definition.columns
+                  .filter((column) => column.sortField !== undefined)
+                  .map((column) => (
+                    <SelectItem key={column.sortField} value={column.sortField ?? ''}>
+                      {column.header}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              className="pointer-coarse:size-11"
+              aria-label={sort.startsWith('-') ? 'Sorted descending; switch to ascending' : 'Sorted ascending; switch to descending'}
+              onClick={() => {
+                const field = sort.startsWith('-') ? sort.slice(1) : sort;
+                if (field) setSort(sort.startsWith('-') ? field : `-${field}`);
+              }}
+            >
+              {sort.startsWith('-') ? <ArrowDownIcon /> : <ArrowUpIcon />}
+            </Button>
           </div>
         ) : null}
 
