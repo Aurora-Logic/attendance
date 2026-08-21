@@ -422,3 +422,7 @@
     padding: 0 !important;
   }
 }
+
+/* A strip that scrolls by design (tab lists) hides the bar itself; the fade of content is the affordance. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

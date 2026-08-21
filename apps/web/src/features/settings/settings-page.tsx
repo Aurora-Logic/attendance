@@ -366,7 +366,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
             horizontal scroll on the whole screen, a long way from its cause.
             A scrolling tab strip is the standard mobile answer; wrapping to two
             rows would push the content down on every phone. */}
-        <TabsList className="max-w-full overflow-x-auto">
+        <TabsList className="no-scrollbar max-w-full overflow-x-auto">
           <TabsTrigger value="organisation" className="px-3">
             <BuildingsIcon data-icon="inline-start" />
             Organisation

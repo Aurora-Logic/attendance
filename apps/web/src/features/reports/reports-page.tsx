@@ -5,6 +5,7 @@ import {
   CalendarPlusIcon,
   CaretDownIcon,
   ChartBarIcon,
+  FunnelIcon,
   PrinterIcon,
   TableIcon,
   DownloadSimpleIcon,
@@ -22,6 +23,7 @@ import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
 import {
@@ -48,6 +50,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
@@ -217,6 +220,7 @@ function ReportSwitcher({
 export function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [chooserOpen, setChooserOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [periodOpen, setPeriodOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [selectedPunch, setSelectedPunch] = useState<PunchAuditRow | null>(null);
@@ -789,8 +793,133 @@ export function ReportsPage() {
           </p>
         ) : null}
 
-        {/* Toolbar (PRD §6.2). Wraps at 360px rather than scrolling sideways. */}
-        <div className="flex flex-wrap items-start justify-between gap-2">
+        {/* Toolbar (PRD §6.2). On a phone the filters live in a bottom sheet
+            (REQ-AD-15, thumb-reach): one Filters button instead of a wall of
+            full-width controls before any data. */}
+        <div className="md:hidden">
+          <div className="flex items-center gap-2">
+            <Button
+              variant={isFiltered ? 'default' : 'outline'}
+              size="sm"
+              className="pointer-coarse:min-h-11"
+              onClick={() => {
+                setMobileFiltersOpen(true);
+              }}
+            >
+              <FunnelIcon data-icon="inline-start" />
+              Filters
+              {isFiltered ? <Badge variant="secondary" className="ml-1">on</Badge> : null}
+            </Button>
+            {chartKind !== 'none' ? (
+              <ToggleGroup
+                variant="outline"
+                aria-label="How the report shows"
+                className="ml-auto"
+                value={[viewMode]}
+                onValueChange={(value: string[]) => {
+                  const next = value[0];
+                  if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
+                }}
+              >
+                <ToggleGroupItem value="table" aria-label="Table view" className="pointer-coarse:min-h-11">
+                  <TableIcon />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="chart" aria-label="Chart view" className="pointer-coarse:min-h-11">
+                  <ChartBarIcon />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="both" aria-label="Both views" className="pointer-coarse:min-h-11">
+                  Both
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
+          </div>
+          <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+            <SheetContent side="bottom" className="max-h-[88vh] gap-0 p-0">
+              <SheetHeader className="border-b">
+                <SheetTitle>Filters</SheetTitle>
+                <SheetDescription>{definition?.label ?? 'This report'} — period, filters, sort and columns.</SheetDescription>
+              </SheetHeader>
+              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                <ReportFilterBar
+                  available={definition?.filters ?? []}
+                  periodMode={periodMode}
+                  value={filters}
+                  onChange={setFilters}
+                  departments={departments.data ?? []}
+                  locations={locations.data ?? []}
+                  parties={partyOptions}
+                  partiesLoading={parties.isPending}
+                  periodOpen={periodOpen}
+                  onPeriodOpenChange={setPeriodOpen}
+                  onClear={clearFilters}
+                  isFiltered={isFiltered}
+                />
+                {hasPeriod ? (
+                  <div className="flex flex-col gap-2">
+                    <Select
+                      value={compare}
+                      onValueChange={(value: string | null) => {
+                        if (value === null) return;
+                        patchParams((params) => {
+                          if (value === 'previous' || value === 'lastYear') params.set('compare', value);
+                          else params.delete('compare');
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="pointer-coarse:min-h-11 w-full" aria-label="Compare against">
+                        <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="off">No comparison</SelectItem>
+                        <SelectItem value="previous">vs previous period</SelectItem>
+                        <SelectItem value="lastYear">vs same period last FY</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+                {definition !== undefined && definition.columns.some((column) => column.sortField !== undefined) ? (
+                  <div className="flex items-center gap-1.5">
+                    <Select
+                      value={sort.startsWith('-') ? sort.slice(1) : sort}
+                      onValueChange={(value: string | null) => {
+                        if (value !== null) setSort(sort === `-${value}` ? `-${value}` : value);
+                      }}
+                    >
+                      <SelectTrigger className="pointer-coarse:min-h-11 flex-1" aria-label="Sort by">
+                        <SelectValue>
+                          {(value: string) => `Sort: ${definition.columns.find((column) => column.sortField === value)?.header ?? 'Default'}`}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {definition.columns
+                          .filter((column) => column.sortField !== undefined)
+                          .map((column) => (
+                            <SelectItem key={column.sortField} value={column.sortField ?? ''}>
+                              {column.header}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      className="pointer-coarse:size-11"
+                      aria-label={sort.startsWith('-') ? 'Sorted descending; switch to ascending' : 'Sorted ascending; switch to descending'}
+                      onClick={() => {
+                        const field = sort.startsWith('-') ? sort.slice(1) : sort;
+                        if (field) setSort(sort.startsWith('-') ? field : `-${field}`);
+                      }}
+                    >
+                      {sort.startsWith('-') ? <ArrowDownIcon /> : <ArrowUpIcon />}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </SheetContent>
+          </Sheet>
+        </div>
+
+        <div className="hidden flex-wrap items-start justify-between gap-2 md:flex">
           <ReportFilterBar
             available={definition?.filters ?? []}
             periodMode={periodMode}
@@ -806,7 +935,10 @@ export function ReportsPage() {
             isFiltered={isFiltered}
           />
 
-          <div className="flex flex-wrap items-center gap-2">
+          </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+
             <SavedViews
               views={savedViews.data ?? []}
               isLoading={savedViews.isPending}
@@ -838,7 +970,6 @@ export function ReportsPage() {
               }}
             />
           </div>
-        </div>
 
         {/* What this report is showing, in words, so a shared link explains
             itself and matches the block at the top of the exported file. */}
@@ -850,7 +981,7 @@ export function ReportsPage() {
             table becomes stacked rows with no header to click. One Select and
             one direction button, not a loose row of text buttons. */}
         {definition !== undefined && (definition.columns.some((column) => column.sortField !== undefined) || hasPeriod) ? (
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="hidden flex-wrap items-center gap-1.5 md:flex">
             {hasPeriod ? (
               <>
                 <Select
@@ -901,42 +1032,6 @@ export function ReportsPage() {
                 {compare !== 'off' && compareRange !== null ? <span className="text-muted-foreground text-xs tabular-nums">against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}{currentRange !== null ? ', to date' : ''}</span> : null}
               </>
             ) : null}
-            {/* Desktop sorts by clicking the column headers; this control is the phone's, where stacked rows have no headers. */}
-            <div className="flex items-center gap-1.5 md:hidden">
-            <Select
-              value={sort.startsWith('-') ? sort.slice(1) : sort}
-              onValueChange={(value: string | null) => {
-                if (value !== null) setSort(sort === `-${value}` ? `-${value}` : value);
-              }}
-            >
-              <SelectTrigger size="sm" className="pointer-coarse:min-h-11 w-44" aria-label="Sort by">
-                <SelectValue>
-                  {(value: string) => `Sort: ${definition.columns.find((column) => column.sortField === value)?.header ?? 'Default'}`}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {definition.columns
-                  .filter((column) => column.sortField !== undefined)
-                  .map((column) => (
-                    <SelectItem key={column.sortField} value={column.sortField ?? ''}>
-                      {column.header}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              className="pointer-coarse:size-11"
-              aria-label={sort.startsWith('-') ? 'Sorted descending; switch to ascending' : 'Sorted ascending; switch to descending'}
-              onClick={() => {
-                const field = sort.startsWith('-') ? sort.slice(1) : sort;
-                if (field) setSort(sort.startsWith('-') ? field : `-${field}`);
-              }}
-            >
-              {sort.startsWith('-') ? <ArrowDownIcon /> : <ArrowUpIcon />}
-            </Button>
-            </div>
           </div>
         ) : null}
 
@@ -1042,6 +1137,7 @@ export function ReportsPage() {
               <ToggleGroup
                 variant="outline"
                 aria-label="How the report shows"
+                className="max-md:hidden"
                 value={[viewMode]}
                 onValueChange={(value: string[]) => {
                   const next = value[0];
