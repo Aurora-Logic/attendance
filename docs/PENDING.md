@@ -34,3 +34,20 @@ Notes:
 - "2,033 existing tests" in the brief: the suite is now 461 web + 1830 api + 41 shared ≈ 2,332; all green as of the last push.
 - The brief's "only attendance exists; others are placeholders" predates
   phase 6–8: CRM, Sales, Purchase, Masters and Reports are live modules.
+
+---
+
+# Pending — Attendance changes (21 Aug 2026, second brief)
+
+| ID | Item | Description | Decision (owner, 21 Aug) | Status |
+|----|------|-------------|--------------------------|--------|
+| A-01 | Remove Corrections | Delete the `/regularizations` screen, routes, nav item, permission keys `regularization.raise`/`.approve`, the two settings keys, tour steps and the day-sheet link; retire the raise endpoints | On-duty requests go with it. Open correction requests stay decidable in Approvals until cleared (read-only server handler) | Not started |
+| A-02 | Admin-recorded attendance | `ADMIN_ENTRY` punch source with actor, target, required reason, timestamp; recorded from Approvals; labelled "Recorded by admin" on the day record; audited; never replaces the employee's own punch | Counts in the day computation. Gated on `attendance.edit`. Admin may record for anyone including themselves | Not started |
+| A-03 | Late / out-of-window flags | Auto-flag, land in Approvals; admin actions Accept / Keep flagged / Mark half day / Add note, each audited; flag icon with tooltip; distinct icon | Always accept and flag; the punch-window behaviour setting (block / allow with reason) is retired | Not started |
+| A-04 | Early arrival | Confetti on the punch screen when IN is earlier than shift start by the threshold; streak per employee on profile and Team attendance; resets on a non-early working day; threshold + toggle in Settings | Hand-rolled confetti, no dependency. Default threshold 15 minutes | Not started |
+| A-05 | Geofence | Server-side check already exists; tighten | Only the GPS-accuracy tolerance survives. Field-staff exemption, "no fix → allow with reason" and "centre not set → allow and flag" are removed: an office with no coordinates cannot punch until they are set. Radius stays per office, editable, default 100 m | Not started |
+| A-06 | Time pickers | Clock fields already use the shadcn TimeField; the typed duration fields (break, grace, logout window, half/full-day thresholds) become a picker | Hours + minutes in 5-minute steps, same picker surface | Not started |
+| A-07 | Sidebar header | Active module's name under the organisation name | — | Not started |
+| A-08 | REQ IDs in copy | No screen is named Products; REQ-E-03 / REQ-C-02 render in the Shift editor. Strip every REQ ID from rendered copy product-wide | Confirmed: the Shift editor | Not started |
+| A-09 | Credential endpoint privilege escalation | `POST /employees/:id/access/credentials` (found by the P-18 security review) lets `employee.manage` reset any same-org account, including an Admin's, and attach any role | Fix now: gate on `roles.manage`, validate the role, refuse a target holding permissions the caller lacks | Not started |
+

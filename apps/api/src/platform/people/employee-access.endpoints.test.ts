@@ -4,6 +4,7 @@ import {
   type EmployeeAccess,
   type RoleSummary,
 } from '@vyuha/shared';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
@@ -194,6 +195,58 @@ describe('POST /employees/:id/access/roles', () => {
       body: { roleId: adminRoleId, reason: 'HR should not be able to mint an administrator' },
     });
     expect(refused.status).toBe(403);
+  });
+});
+
+describe('POST /employees/:id/access/credentials', () => {
+  it('refuses a caller without roles.manage, even one who can edit the employee', async () => {
+    const refused = await harness.post<ErrorBody>(`/employees/${staffEmployeeId}/access/credentials`, {
+      token: hrToken,
+      body: { email: scopedEmail('access-staff-hijack'), password: 'Attacker-123' },
+    });
+    expect(refused.status, refused.text).toBe(403);
+  });
+
+  it('refuses to reset an account that holds permissions the caller does not', async () => {
+    // roles.manage alone, so the endpoint admits the caller; the administrator
+    // they aim at holds far more, and that is what must refuse.
+    const narrowRoleId = await harness.createRole('Access clerk', [PERMISSIONS.ROLES_MANAGE, PERMISSIONS.EMPLOYEE_VIEW]);
+    const clerk = await harness.createUser({ email: scopedEmail('access-clerk'), roleIds: [narrowRoleId] });
+    const clerkToken = (await harness.login(clerk.email, clerk.password)).token;
+    const refused = await harness.post<ErrorBody>(`/employees/${adminEmployeeId}/access/credentials`, {
+      token: clerkToken,
+      body: { email: scopedEmail('access-admin-hijack'), password: 'Attacker-123' },
+    });
+    expect(refused.status, refused.text).toBe(403);
+    // The clerk held roles.manage only for this probe; the last-holder test
+    // below counts holders, so the membership goes before it runs.
+    await harness.db.execute(
+      sql`DELETE FROM user_roles WHERE user_id = (SELECT id FROM users WHERE email = ${clerk.email})`,
+    );
+  });
+
+  it('404s a role id from outside this organisation on the new-account path', async () => {
+    const refused = await harness.post<ErrorBody>(`/employees/${unlinkedEmployeeId}/access/credentials`, {
+      token: adminToken,
+      body: {
+        email: scopedEmail('access-nologin'),
+        password: 'Welcome-123',
+        roleId: '019ffb00-0000-7000-8000-00000000beef',
+      },
+    });
+    expect(refused.status, refused.text).toBe(404);
+  });
+
+  it('lets an administrator reset an ordinary account, and the new password works', async () => {
+    const freshEmail = scopedEmail('access-staff-reset');
+    const reset = await harness.post<EmployeeAccess>(`/employees/${staffEmployeeId}/access/credentials`, {
+      token: adminToken,
+      body: { email: freshEmail, password: 'Fresh-start-123', reason: 'Forgot it after the holiday' },
+    });
+    expect(reset.status, reset.text).toBe(200);
+    const signedIn = await harness.login(freshEmail, 'Fresh-start-123');
+    expect(signedIn.status, JSON.stringify(signedIn)).toBe(200);
+    expect(signedIn.token).not.toBe('');
   });
 });
 
