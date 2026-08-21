@@ -97,6 +97,12 @@ describe('genericSeries', () => {
     expect(series?.points[0]).toMatchObject({ category: 'A', amount: 100 });
   });
 
+  it('carries the category column key and each row id, which is what a chart drill filters by', () => {
+    const series = genericSeries(definition, [{ id: 'party-1', cells: { name: 'A', amount: '100.00', count: 2 } }]);
+    expect(series?.categoryKey).toBe('name');
+    expect(series?.points[0]).toMatchObject({ __rowId: 'party-1' });
+  });
+
   it('refuses a chart where nothing is numeric, and where everything is zero', () => {
     expect(genericSeries({ defaultSort: 'name', columns: [{ key: 'name', header: 'Name', type: 'text' as const }] }, [row({ name: 'A' })])).toBeNull();
     expect(genericSeries(definition, [row({ name: 'A', amount: '0', count: 0 })])).toBeNull();

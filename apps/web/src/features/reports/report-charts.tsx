@@ -256,10 +256,17 @@ const GENERIC_FILLS = ['var(--primary)', 'var(--info)'] as const;
  * sort sizes them, in the table's order. The honest fallback behind the
  * Table | Chart | Both toggle — a report genericSeries refuses stays a table.
  */
-export function GenericReportChart({ reportKey, definition, rows, animate, compare }: { reportKey: ReportKey; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string } }) {
+/** What a clicked segment hands back for the drill (data-analyst skill §5). */
+export interface ChartDrill {
+  readonly categoryKey: string;
+  readonly category: string;
+  readonly rowId: string | null;
+}
+
+export function GenericReportChart({ reportKey, definition, rows, animate, compare, onDrill }: { reportKey: ReportKey; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void }) {
   const spec = resolveChartForm(reportKey, definition, rows);
   if (spec === null) return null;
-  if (spec.form !== 'hbar') return <FormChart spec={spec} definition={definition} rows={rows} animate={animate} compare={compare} />;
+  if (spec.form !== 'hbar') return <FormChart spec={spec} definition={definition} rows={rows} animate={animate} compare={compare} onDrill={onDrill} />;
   const series = genericSeries(definition, rows);
   if (series === null) return null;
   const first = series.series[0];
@@ -287,7 +294,25 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
           {series.series.length > 1 || withPrev ? <ChartLegend content={<ChartLegendContent />} /> : null}
           {withPrev ? <Bar dataKey="compare" fill="var(--color-compare)" radius={[0, 4, 4, 0]} maxBarSize={18} fillOpacity={0.55} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} /> : null}
           {series.series.map((s) => (
-            <Bar key={s.key} dataKey={s.key} fill={`var(--color-${s.key})`} radius={[0, 4, 4, 0]} maxBarSize={22} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+            <Bar
+              key={s.key}
+              dataKey={s.key}
+              fill={`var(--color-${s.key})`}
+              radius={[0, 4, 4, 0]}
+              maxBarSize={22}
+              isAnimationActive={animate}
+              animationDuration={CHART_INTRO_MS}
+              className={onDrill === undefined ? undefined : 'cursor-pointer'}
+              onClick={(entry: { payload?: Record<string, unknown> }) => {
+                const payload = entry.payload ?? {};
+                if (typeof payload.category !== 'string' || payload.category === '') return;
+                onDrill?.({
+                  categoryKey: series.categoryKey,
+                  category: payload.category,
+                  rowId: typeof payload.__rowId === 'string' && payload.__rowId !== '' ? payload.__rowId : null,
+                });
+              }}
+            />
           ))}
         </BarChart>
       </ChartContainer>
@@ -296,7 +321,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
 }
 
 /** The non-bar generic forms: a line through time, or a donut of composition. */
-function FormChart({ spec, definition, rows, animate, compare }: { spec: NonNullable<ReturnType<typeof resolveChartForm>>; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string } }) {
+function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec: NonNullable<ReturnType<typeof resolveChartForm>>; definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string }; onDrill?: (drill: ChartDrill) => void }) {
   const points = formSeries(spec, rows);
   if (points.length === 0) return null;
   const headers = new Map(definition.columns.map((c) => [c.key, c.header]));
@@ -340,7 +365,21 @@ function FormChart({ spec, definition, rows, animate, compare }: { spec: NonNull
       <ChartContainer config={config} className="mx-auto aspect-square max-h-64 w-full">
         <PieChart>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
-          <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            innerRadius={56}
+            strokeWidth={2}
+            isAnimationActive={animate}
+            animationDuration={CHART_INTRO_MS}
+            className={onDrill === undefined ? undefined : 'cursor-pointer'}
+            onClick={(entry: { name?: unknown }) => {
+              // 'Other' is a fold, not a value the filter can hold.
+              if (typeof entry.name !== 'string' || entry.name === '' || entry.name === 'Other') return;
+              onDrill?.({ categoryKey: spec.category, category: entry.name, rowId: null });
+            }}
+          />
           <ChartLegend content={<ChartLegendContent nameKey="name" />} />
         </PieChart>
       </ChartContainer>

@@ -14,6 +14,8 @@ import type { ReportCellValue, ReportColumnSpec, ReportDefinition, ReportKey } f
  */
 
 export interface ChartRow {
+  /** Present on rows from the report shell; a drill uses it as the row's own id. */
+  readonly id?: string;
   readonly cells: Readonly<Record<string, ReportCellValue>>;
 }
 
@@ -195,6 +197,8 @@ export const CHARTED_REPORTS: readonly ReportKey[] = ['sales-analysis', 'movemen
 
 export interface GenericSeries {
   readonly categoryLabel: string;
+  /** The column the categories came from — what a drill can filter by. */
+  readonly categoryKey: string;
   readonly series: readonly { key: string; label: string }[];
   readonly points: readonly Record<string, string | number>[];
 }
@@ -222,12 +226,14 @@ export function genericSeries(definition: Pick<ReportDefinition, 'columns' | 'de
   const ordered = [...numeric].sort((a, b) => (a.key === sortKey ? -1 : b.key === sortKey ? 1 : 0)).slice(0, 2);
   if (ordered.length === 0) return null;
   const points = rows.slice(0, MAX_BARS).map((row) => {
-    const point: Record<string, string | number> = { category: text(row.cells[category.key]) || '—' };
+    // __rowId rides along unplotted so a drill on a party-grain bar can carry
+    // the id its filter needs, not just the display name.
+    const point: Record<string, string | number> = { category: text(row.cells[category.key]) || '—', __rowId: row.id ?? '' };
     for (const column of ordered) point[column.key] = num(row.cells[column.key]);
     return point;
   });
   if (points.every((p) => ordered.every((c) => p[c.key] === 0))) return null;
-  return { categoryLabel: category.header, series: ordered.map((c) => ({ key: c.key, label: c.header })), points };
+  return { categoryLabel: category.header, categoryKey: category.key, series: ordered.map((c) => ({ key: c.key, label: c.header })), points };
 }
 
 // ---------------------------------------------------------------- share radial

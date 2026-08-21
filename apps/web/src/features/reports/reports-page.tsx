@@ -94,7 +94,7 @@ import { useChartIntro } from '@/components/shared/use-chart-motion';
 
 import { ColumnChooser } from './column-chooser';
 import { ReportCatalogue } from './report-catalogue';
-import { GenericReportChart, ReportChart } from './report-charts';
+import { GenericReportChart, ReportChart, type ChartDrill } from './report-charts';
 import { chartKindOf, primaryNumericColumn } from './report-series';
 import { comparisonRange, deltaOf, periodForGranularity, type CompareMode, type Granularity } from './period-compare';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
@@ -305,6 +305,23 @@ export function ReportsPage() {
       if (!keepPage) next.delete('page');
       return next;
     });
+  }
+
+  /**
+   * A chart segment drills to its own rows: the clicked value becomes the
+   * matching filter and the view lands on the table (data-analyst skill §5).
+   * A segment whose report has no filter for its category does nothing —
+   * a drill that cannot narrow honestly should not pretend to.
+   */
+  function drillToSegment(drill: ChartDrill) {
+    if (definition === undefined) return;
+    const can = (name: string) => (definition.filters as readonly string[]).includes(name);
+    if (drill.categoryKey === 'voucherType' && can('voucherType')) setFilters({ voucherType: drill.category });
+    else if (drill.categoryKey === 'ledgerName' && can('ledgerName')) setFilters({ ledgerName: drill.category });
+    else if ((drill.categoryKey === 'item' || drill.categoryKey === 'itemName') && can('itemName')) setFilters({ itemName: drill.category });
+    else if (drill.categoryKey === 'partyName' && can('partyId') && drill.rowId !== null) setFilters({ partyId: drill.rowId });
+    else return;
+    setViewMode('table');
   }
 
   function setFilters(patch: Partial<ReportFilterState>) {
@@ -1182,7 +1199,7 @@ export function ReportsPage() {
             ) : null}
             {viewMode !== 'table' && chartKind === 'bespoke' ? <ReportChart reportKey={reportKey} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} /> : null}
             {viewMode !== 'table' && chartKind === 'generic' && definition !== undefined ? (
-              <GenericReportChart reportKey={reportKey} definition={definition} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} />
+              <GenericReportChart reportKey={reportKey} definition={definition} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} onDrill={drillToSegment} />
             ) : null}
             {viewMode !== 'table' && chartSource.isSuccess && total > 200 ? <p className="text-muted-foreground text-xs">The chart reads the top 200 rows by the current sort; the table has all {String(total)}.</p> : null}
             {viewMode === 'chart' ? null : (
