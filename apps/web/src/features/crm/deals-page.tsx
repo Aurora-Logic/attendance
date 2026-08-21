@@ -3,6 +3,7 @@ import { BuildingsIcon, CalendarBlankIcon, CircleDashedIcon, CircleHalfIcon, Cir
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { KanbanBoard } from '@/components/shared/kanban-board';
+import { SavedViews } from '@/components/shared/saved-views';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -16,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { useTaskViewStore, type TaskViewMode } from '@/features/tasks/task-view-store';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
@@ -106,6 +108,16 @@ function ListSkeleton() {
   );
 }
 
+/** What a saved view keeps: the filter and view keys, never the transients (page, the open sheet). */
+function dealViewQuery(params: URLSearchParams): string {
+  const kept = new URLSearchParams();
+  for (const key of ['q', 'status', 'pipeline', 'stage', 'owner', 'company', 'view']) {
+    const value = params.get(key);
+    if (value !== null && value !== '') kept.set(key, value);
+  }
+  return kept.toString();
+}
+
 function isStatus(value: string | null): value is DealStatusFilter {
   return DEAL_STATUSES.some((s) => s === value);
 }
@@ -136,6 +148,8 @@ export function DealsPage() {
   const openId = params.id ?? null;
   const creating = searchParams.get('new') === '1';
   const companyParam = searchParams.get('company') ?? '';
+  const ownerParam = searchParams.get('owner') ?? '';
+  const stageParam = searchParams.get('stage') ?? '';
 
   const [draft, setDraft] = useState(q);
   const [syncedQ, setSyncedQ] = useState(q);
@@ -176,7 +190,10 @@ export function DealsPage() {
     ...(status === 'open' ? {} : { status }),
     ...(pipeline === null ? {} : { pipelineId: pipeline.id }),
     ...(companyParam ? { companyId: companyParam } : {}),
+    ...(ownerParam ? { ownerId: ownerParam } : {}),
+    ...(stageParam && view === 'list' ? { stageId: stageParam } : {}),
   };
+  const owners = useManagerOptions();
 
   const list = useDeals({ ...filters, page }, { enabled: canView && view === 'list' });
   const board = useDealBoard(filters, { enabled: canView && view === 'board' && pipeline !== null });
@@ -229,7 +246,7 @@ export function DealsPage() {
   const meta = list.data?.meta ?? null;
   const query = view === 'list' ? list : board;
   const nothing = view === 'list' ? list.isSuccess && rows.length === 0 : board.isSuccess && board.data.lanes.every((l) => l.deals.length === 0);
-  const filtered = Boolean(q) || status !== 'open' || Boolean(companyParam);
+  const filtered = Boolean(q) || status !== 'open' || Boolean(companyParam) || Boolean(ownerParam) || Boolean(stageParam);
 
   return (
     <>
@@ -288,7 +305,54 @@ export function DealsPage() {
             </ToggleGroup>
           ) : null}
 
+          {view === 'list' && pipeline !== null && pipeline.stages.length > 0 ? (
+            <Select
+              value={stageParam === '' ? 'all' : stageParam}
+              onValueChange={(value: string | null) => {
+                setParam('stage', value === null || value === 'all' ? null : value);
+              }}
+            >
+              <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Stage">
+                <SelectValue>{(value: string) => (value === 'all' ? 'Any stage' : (pipeline.stages.find((st) => st.id === value)?.name ?? 'Stage'))}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any stage</SelectItem>
+                {pipeline.stages.map((st) => (
+                  <SelectItem key={st.id} value={st.id}>
+                    {st.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+
+          <Select
+            value={ownerParam === '' ? 'all' : ownerParam}
+            onValueChange={(value: string | null) => {
+              setParam('owner', value === null || value === 'all' ? null : value);
+            }}
+          >
+            <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Owner">
+              <SelectValue>{(value: string) => (value === 'all' ? 'Any owner' : ((owners.data ?? []).find((o) => o.id === value)?.name ?? 'Owner'))}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any owner</SelectItem>
+              {(owners.data ?? []).map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <div className="ml-auto flex items-center gap-2">
+            <SavedViews
+              storageKey="vyuha.views.deals"
+              current={dealViewQuery(searchParams)}
+              onApply={(next) => {
+                void navigate(`/crm/deals${next ? `?${next}` : ''}`, { replace: true });
+              }}
+            />
             {canConfigure && pipeline !== null ? (
               <Button
                 variant="ghost"

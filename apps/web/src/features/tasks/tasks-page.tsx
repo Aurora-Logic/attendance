@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { SavedViews } from '@/components/shared/saved-views';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Badge } from '@/components/ui/badge';
@@ -17,11 +18,12 @@ import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { EMPTY_VALUE } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, TASK_DUE_FILTERS, TASK_PRIORITY_LABELS, type TaskDueFilter } from '@vyuha/shared';
+import { PERMISSIONS, TASK_DUE_FILTERS, TASK_PRIORITIES, TASK_PRIORITY_LABELS, type TaskDueFilter, type TaskPriority } from '@vyuha/shared';
 
 import { BoardColumnsSheet } from './board-columns-sheet';
 import { DueDate } from './due-date';
@@ -85,6 +87,16 @@ function ListSkeleton() {
   );
 }
 
+/** What a saved view keeps: the filter and view keys, never the transients (page, the open sheet, a preset subject). */
+function viewQuery(params: URLSearchParams): string {
+  const kept = new URLSearchParams();
+  for (const key of ['q', 'all', 'due', 'priority', 'assignee', 'closed', 'view']) {
+    const value = params.get(key);
+    if (value !== null && value !== '') kept.set(key, value);
+  }
+  return kept.toString();
+}
+
 function isDueFilter(value: string | null): value is TaskDueFilter {
   return TASK_DUE_FILTERS.some((f) => f === value);
 }
@@ -109,6 +121,9 @@ export function TasksPage() {
   const dueParam = searchParams.get('due');
   const due: TaskDueFilter = isDueFilter(dueParam) ? dueParam : 'open';
   const includeClosed = searchParams.get('closed') === '1';
+  const priorityParam = searchParams.get('priority');
+  const priority = TASK_PRIORITIES.find((value) => value === priorityParam);
+  const assigneeParam = searchParams.get('assignee') ?? '';
   const viewParam = searchParams.get('view');
   const view: TaskViewMode = viewParam === 'board' || viewParam === 'list' ? viewParam : defaultView;
   const openId = params.id ?? null;
@@ -150,9 +165,12 @@ export function TasksPage() {
     ...(q ? { q } : {}),
     ...(mine ? { mine: true } : {}),
     ...(due === 'open' ? {} : { due }),
+    ...(priority === undefined ? {} : { priority }),
+    ...(assigneeParam === '' || mine ? {} : { assigneeId: assigneeParam }),
     ...(includeClosed ? { includeClosed: true } : {}),
     ...(subjectType && subjectId ? { subjectType, subjectId } : {}),
   };
+  const owners = useManagerOptions();
 
   const list = useTasks({ ...filters, page }, { enabled: canView && view === 'list' });
   const board = useTaskBoard(filters, { enabled: canView && view === 'board' });
@@ -206,7 +224,7 @@ export function TasksPage() {
   const meta = list.data?.meta ?? null;
   const query = view === 'list' ? list : board;
   const nothing = view === 'list' ? list.isSuccess && rows.length === 0 : board.isSuccess && board.data.lanes.every((l) => l.tasks.length === 0);
-  const filtered = Boolean(q) || due !== 'open' || !mine || includeClosed;
+  const filtered = Boolean(q) || due !== 'open' || !mine || includeClosed || priority !== undefined || assigneeParam !== '';
 
   return (
     <>
@@ -256,6 +274,46 @@ export function TasksPage() {
             </SelectContent>
           </Select>
 
+          <Select
+            value={priority ?? 'all'}
+            onValueChange={(value: string | null) => {
+              setParam('priority', value === null || value === 'all' ? null : value);
+            }}
+          >
+            <SelectTrigger className="pointer-coarse:min-h-11 w-32" aria-label="Priority">
+              <SelectValue>{(value: string) => (value === 'all' ? 'Any priority' : TASK_PRIORITY_LABELS[value as TaskPriority])}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any priority</SelectItem>
+              {TASK_PRIORITIES.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {TASK_PRIORITY_LABELS[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {mine ? null : (
+            <Select
+              value={assigneeParam === '' ? 'all' : assigneeParam}
+              onValueChange={(value: string | null) => {
+                setParam('assignee', value === null || value === 'all' ? null : value);
+              }}
+            >
+              <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Assignee">
+                <SelectValue>{(value: string) => (value === 'all' ? 'Any assignee' : ((owners.data ?? []).find((o) => o.id === value)?.name ?? 'Assignee'))}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any assignee</SelectItem>
+                {(owners.data ?? []).map((o) => (
+                  <SelectItem key={o.id} value={o.id}>
+                    {o.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
           <Label htmlFor="tasks-closed" className="flex items-center gap-2 text-sm font-normal">
             <Switch
               id="tasks-closed"
@@ -268,6 +326,13 @@ export function TasksPage() {
           </Label>
 
           <div className="ml-auto flex items-center gap-2">
+            <SavedViews
+              storageKey="vyuha.views.tasks"
+              current={viewQuery(searchParams)}
+              onApply={(next) => {
+                void navigate(`/tasks${next ? `?${next}` : ''}`, { replace: true });
+              }}
+            />
             {canConfigure ? (
               <Button
                 variant="ghost"
