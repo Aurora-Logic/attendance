@@ -71,6 +71,17 @@ export const REPORT_KEYS = [
   'order-fill-rate',
   'new-vs-repeat',
   'requirement-ageing',
+  // Owner, 22 Aug 2026: the second analytics set, each named by the decision it changes.
+  'flag-review-log',
+  'approvals-turnaround',
+  'early-arrival-leaderboard',
+  'on-time-rate',
+  'aov-trend',
+  'partial-shipments',
+  'vendor-lead-time',
+  'stock-out-frequency',
+  'margin-proxy',
+  'sales-heatmap',
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
@@ -100,6 +111,23 @@ export const ANALYTICS_REPORT_KEYS = [
   'order-fill-rate',
   'new-vs-repeat',
   'requirement-ageing',
+  'aov-trend',
+  'partial-shipments',
+  'vendor-lead-time',
+  'stock-out-frequency',
+  'margin-proxy',
+  'sales-heatmap',
+] as const satisfies readonly ReportKey[];
+/**
+ * Owner, 22 Aug 2026: attendance's own analytics - reviews, approvals, early
+ * arrivals, punctuality - served by the attendance module's analytics source
+ * and gated on the org-wide attendance key rather than on receivables.
+ */
+export const ATTENDANCE_ANALYTICS_REPORT_KEYS = [
+  'flag-review-log',
+  'approvals-turnaround',
+  'early-arrival-leaderboard',
+  'on-time-rate',
 ] as const satisfies readonly ReportKey[];
 /** The sales module's reports (12 REQ-AA-30). */
 export const SALES_REPORT_KEYS = ['pending-dispatch'] as const satisfies readonly ReportKey[];
@@ -146,7 +174,7 @@ export interface ReportColumnSpec {
   readonly width?: number;
 }
 
-export const REPORT_CATEGORIES = ['Attendance', 'Leave', 'Books', 'Receivables', 'Customers', 'Inventory', 'Vendors', 'Fulfilment', 'Exceptions'] as const;
+export const REPORT_CATEGORIES = ['Attendance', 'Leave', 'Approvals', 'Books', 'Receivables', 'Customers', 'Inventory', 'Vendors', 'Fulfilment', 'Exceptions'] as const;
 export type ReportCategory = (typeof REPORT_CATEGORIES)[number];
 
 export interface ReportDefinition {
@@ -842,6 +870,88 @@ const REQUIREMENT_AGEING_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'ageDays', header: 'Waiting (days)', type: 'number', sortField: 'ageDays', width: 12 },
 ];
 
+// ------------------------------------------ the second analytics set (22 Aug 2026)
+
+const FLAG_REVIEW_LOG_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'reviewedAt', header: 'Reviewed', type: 'instant', sortField: 'reviewedAt', width: 20 },
+  { key: 'adminName', header: 'By', type: 'text', sortField: 'adminName', width: 22 },
+  { key: 'action', header: 'Action', type: 'text', width: 14 },
+  { key: 'employeeName', header: 'Employee', type: 'text', sortField: 'employeeName', width: 24 },
+  { key: 'attendanceDate', header: 'Day', type: 'date', width: 12 },
+  { key: 'punchType', header: 'Punch', type: 'text', width: 8 },
+  { key: 'note', header: 'Note', type: 'text', secondary: true, width: 40 },
+];
+
+const APPROVALS_TURNAROUND_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'type', header: 'Request type', type: 'text', sortField: 'type', width: 20 },
+  { key: 'decided', header: 'Decided', type: 'number', sortField: 'decided', width: 10 },
+  { key: 'medianHours', header: 'Median hours', type: 'number', sortField: 'medianHours', width: 12 },
+  { key: 'p90Hours', header: 'p90 hours', type: 'number', width: 12 },
+  { key: 'pending', header: 'Pending', type: 'number', width: 10 },
+  { key: 'oldestPendingHours', header: 'Oldest pending (h)', type: 'number', sortField: 'oldestPendingHours', width: 14 },
+];
+
+const EARLY_LEADERBOARD_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'employeeName', header: 'Employee', type: 'text', sortField: 'employeeName', width: 24 },
+  { key: 'department', header: 'Department', type: 'text', secondary: true, width: 18 },
+  { key: 'currentStreak', header: 'Streak', type: 'number', sortField: 'currentStreak', width: 10 },
+  { key: 'earlyDays', header: 'Early days', type: 'number', sortField: 'earlyDays', width: 10 },
+  { key: 'avgEarlyMinutes', header: 'Avg minutes early', type: 'number', width: 14 },
+];
+
+const ON_TIME_RATE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'department', header: 'Department', type: 'text', sortField: 'department', width: 24 },
+  { key: 'workedDays', header: 'Worked days', type: 'number', sortField: 'workedDays', width: 12 },
+  { key: 'lateDays', header: 'Late days', type: 'number', width: 10 },
+  { key: 'onTimePct', header: 'On time', type: 'text', sortField: 'onTimePct', width: 10 },
+];
+
+const AOV_TREND_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'invoices', header: 'Invoices', type: 'number', width: 10 },
+  { key: 'revenue', header: 'Revenue', type: 'text', width: 16 },
+  { key: 'aov', header: 'Average order value', type: 'text', sortField: 'aov', width: 16 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+const PARTIAL_SHIPMENTS_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'ordersDispatched', header: 'Orders dispatched', type: 'number', width: 12 },
+  { key: 'partialOrders', header: 'Partial', type: 'number', width: 10 },
+  { key: 'partialPct', header: 'Partial share', type: 'text', sortField: 'partialPct', width: 12 },
+];
+
+const VENDOR_LEAD_TIME_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Vendor', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'ordersReceived', header: 'POs received', type: 'number', width: 12 },
+  { key: 'medianDays', header: 'Median days', type: 'number', sortField: 'medianDays', width: 12 },
+  { key: 'p90Days', header: 'p90 days', type: 'number', width: 10 },
+  { key: 'promisedDays', header: 'Promised', type: 'number', width: 10 },
+];
+
+const STOCK_OUT_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'shortages', header: 'Shortages', type: 'number', sortField: 'shortages', width: 10 },
+  { key: 'quantity', header: 'Quantity short', type: 'text', width: 14 },
+];
+
+const MARGIN_PROXY_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'quantity', header: 'Quantity', type: 'text', width: 12 },
+  { key: 'revenue', header: 'Revenue', type: 'text', sortField: 'revenue', width: 16 },
+  { key: 'cost', header: 'Cost (held)', type: 'text', width: 16 },
+  { key: 'margin', header: 'Margin proxy', type: 'text', sortField: 'margin', width: 16 },
+  { key: 'marginPct', header: 'Margin %', type: 'text', sortField: 'marginPct', width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+const SALES_HEATMAP_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'value', header: 'Value', type: 'text', sortField: 'value', width: 16 },
+];
+
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   'attendance-register': {
     key: 'attendance-register',
@@ -1234,6 +1344,96 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: '-ageDays',
     filters: [],
   },
+  'flag-review-log': {
+    key: 'flag-review-log',
+    category: 'Approvals',
+    label: 'Flag review log',
+    description: 'Every action an admin took on a flagged punch — accepted, kept, half day, note — with who, whom and why. Decides whether reviews are even-handed.',
+    columns: FLAG_REVIEW_LOG_COLUMNS,
+    defaultSort: '-reviewedAt',
+    filters: ['period', 'employeeId'],
+  },
+  'approvals-turnaround': {
+    key: 'approvals-turnaround',
+    category: 'Approvals',
+    label: 'Approvals turnaround',
+    description: 'Per request type: how many were decided in the period, the median and p90 hours to a decision, and the oldest still pending. Decides who is sitting on requests.',
+    columns: APPROVALS_TURNAROUND_COLUMNS,
+    defaultSort: '-oldestPendingHours',
+    filters: ['period'],
+  },
+  'early-arrival-leaderboard': {
+    key: 'early-arrival-leaderboard',
+    category: 'Attendance',
+    label: 'Early-arrival leaderboard',
+    description: 'Who keeps beating the shift: the current streak, early days in the period and how early on average. Decides who to recognise.',
+    columns: EARLY_LEADERBOARD_COLUMNS,
+    defaultSort: '-currentStreak',
+    filters: ['period', 'departmentId'],
+  },
+  'on-time-rate': {
+    key: 'on-time-rate',
+    category: 'Attendance',
+    label: 'On-time rate by department',
+    description: 'Worked days that were not late, as a share, per department. Decides where lateness clusters.',
+    columns: ON_TIME_RATE_COLUMNS,
+    defaultSort: 'onTimePct',
+    filters: ['period'],
+  },
+  'aov-trend': {
+    key: 'aov-trend',
+    category: 'Customers',
+    label: 'Average order value',
+    description: 'Revenue per sales invoice, month by month, from the projection. Decides whether pricing or basket size is drifting; compare against last FY.',
+    columns: AOV_TREND_COLUMNS,
+    defaultSort: 'month',
+    filters: ['period'],
+  },
+  'partial-shipments': {
+    key: 'partial-shipments',
+    category: 'Fulfilment',
+    label: 'Partial shipments by customer',
+    description: 'Confirmed orders that needed two or more dispatches, or a short-close, as a share of the orders dispatched at all. Decides whose orders keep going out in pieces.',
+    columns: PARTIAL_SHIPMENTS_COLUMNS,
+    defaultSort: '-partialPct',
+    filters: ['period', 'partyId'],
+  },
+  'vendor-lead-time': {
+    key: 'vendor-lead-time',
+    category: 'Vendors',
+    label: 'Vendor lead time',
+    description: 'Days from the purchase order’s date to its first receipt, median and p90 per vendor, beside the lead time the vendor promised. Decides which promises to stop believing.',
+    columns: VENDOR_LEAD_TIME_COLUMNS,
+    defaultSort: '-medianDays',
+    filters: ['period', 'partyId'],
+  },
+  'stock-out-frequency': {
+    key: 'stock-out-frequency',
+    category: 'Inventory',
+    label: 'Stock-out frequency',
+    description: 'Requirements raised from a shortage, per item per month. Decides which items keep running dry.',
+    columns: STOCK_OUT_COLUMNS,
+    defaultSort: '-shortages',
+    filters: ['period', 'itemName'],
+  },
+  'margin-proxy': {
+    key: 'margin-proxy',
+    category: 'Customers',
+    label: 'Gross margin proxy',
+    description: 'Per item: revenue against the cost held in the projection, and the margin that leaves. A proxy — the held cost is a weighted average, not the lot’s own. Decides what to stop discounting.',
+    columns: MARGIN_PROXY_COLUMNS,
+    defaultSort: '-margin',
+    filters: ['period', 'itemName'],
+  },
+  'sales-heatmap': {
+    key: 'sales-heatmap',
+    category: 'Customers',
+    label: 'Sales heatmap',
+    description: 'Every customer against every month of the period, shaded by value. Decides who went quiet when, at a glance.',
+    columns: SALES_HEATMAP_COLUMNS,
+    defaultSort: 'partyName',
+    filters: ['period'],
+  },
   'stock-ageing': {
     key: 'stock-ageing',
     category: 'Inventory',
@@ -1256,8 +1456,13 @@ export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.filte
   (key) =>
     !(TALLY_REPORT_KEYS as readonly string[]).includes(key) &&
     !(SALES_REPORT_KEYS as readonly string[]).includes(key) &&
-    !(ANALYTICS_REPORT_KEYS as readonly string[]).includes(key),
+    !(ANALYTICS_REPORT_KEYS as readonly string[]).includes(key) &&
+    !(ATTENDANCE_ANALYTICS_REPORT_KEYS as readonly string[]).includes(key),
 ).map((key) => REPORT_DEFINITIONS[key]);
+
+export const ATTENDANCE_ANALYTICS_REPORTS: readonly ReportDefinition[] = ATTENDANCE_ANALYTICS_REPORT_KEYS.map(
+  (key) => REPORT_DEFINITIONS[key],
+);
 
 export const SALES_REPORTS: readonly ReportDefinition[] = SALES_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
 
@@ -1271,7 +1476,7 @@ export const ANALYTICS_REPORTS: readonly ReportDefinition[] = ANALYTICS_REPORT_K
 );
 
 /** Every module's reports. Grows by concatenation as modules add groups. */
-export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...ANALYTICS_REPORTS];
+export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...ANALYTICS_REPORTS];
 
 /** The columns a report shows before anyone touches the F12 chooser. */
 export function defaultVisibleColumns(reportKey: ReportKey): string[] {
@@ -1532,6 +1737,15 @@ const ROW_JOIN_KEYS: Partial<Record<ReportKey, { fields: readonly string[]; mode
   'customer-concentration': { fields: ['partyId'], mode: 'first' },
   'order-fill-rate': { fields: ['partyId'], mode: 'first' },
   'new-vs-repeat': { fields: ['month'], mode: 'first' },
+  'approvals-turnaround': { fields: ['type'], mode: 'first' },
+  'early-arrival-leaderboard': { fields: ['employeeId'], mode: 'first' },
+  'on-time-rate': { fields: ['departmentId'], mode: 'first' },
+  'aov-trend': { fields: ['month'], mode: 'first' },
+  'partial-shipments': { fields: ['partyId'], mode: 'first' },
+  'vendor-lead-time': { fields: ['partyId'], mode: 'first' },
+  'stock-out-frequency': { fields: ['stockItemId', 'month'], mode: 'join' },
+  'margin-proxy': { fields: ['stockItemId'], mode: 'first' },
+  'sales-heatmap': { fields: ['partyId', 'month'], mode: 'join' },
 };
 
 function joinKeyPart(value: unknown): string | null {

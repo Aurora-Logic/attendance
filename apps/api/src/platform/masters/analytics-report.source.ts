@@ -68,7 +68,11 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
   }
 
   visibleDefinitions(principal: Principal): readonly ReportDefinition[] {
-    return hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW) ? ANALYTICS_REPORTS : [];
+    if (!hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW)) return [];
+    // D-46: the margin proxy has its own eyes.
+    return hasPermission(principal, PERMISSIONS.REPORTS_MARGIN_VIEW)
+      ? ANALYTICS_REPORTS
+      : ANALYTICS_REPORTS.filter((report) => report.key !== 'margin-proxy');
   }
 
   assertFiltersUsable(key: ReportKey, filters: ReportFilters): ReportFilters {
@@ -91,7 +95,7 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
   }
 
   async count(principal: Principal, key: ReportKey, filters: ReportFilters): Promise<number> {
-    this.requireHolder(principal);
+    this.requireHolder(principal, key);
     const usable = this.assertFiltersUsable(key, filters);
     // The ledger extract's opening row rides above the lines, like the statement's.
     if (key === 'ledger-extract') return (await this.scalar(sql`SELECT count(*)::int AS value FROM (${this.body(key, principal.orgId, usable)}) t`)) + 1;
@@ -119,7 +123,7 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
     limit: number,
     offset: number,
   ): Promise<ReportSourcePage> {
-    this.requireHolder(principal);
+    this.requireHolder(principal, key);
     const usable = this.assertFiltersUsable(key, filters);
     const total = await this.count(principal, key, usable);
     const asOf = await this.asOf(principal.orgId);
@@ -486,6 +490,90 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
           SELECT l.id FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
            WHERE ${this.ledgerLines(orgId, f)} ${this.periodClause(f, 'v.voucher_date')}
         `;
+      case 'aov-trend':
+        return sql`
+          SELECT to_char(v.voucher_date, 'YYYY-MM') AS month,
+                 count(*)::int AS invoices,
+                 round(sum(v.amount), 2)::text AS revenue,
+                 round(sum(v.amount) / NULLIF(count(*), 0), 2)::text AS aov
+            FROM vouchers v
+           WHERE v.org_id = ${orgId} AND v.voucher_type = 'Sales' AND NOT v.is_cancelled ${this.periodClause(f, 'v.voucher_date')}
+           GROUP BY 1
+        `;
+      case 'partial-shipments':
+        // An order dispatched in pieces: two or more dispatches, or a balance
+        // short-closed after at least one went out.
+        return sql`
+          WITH dispatched AS (
+            SELECT d.id, d.party_id, d.customer_name, count(x.id)::int AS dispatches, d.short_closed_at
+              FROM sales_documents d JOIN dispatches x ON x.document_id = d.id
+             WHERE d.org_id = ${orgId} AND d.doc_type = 'SALES_ORDER' AND d.deleted_at IS NULL ${this.periodClause(f, 'd.date')} ${f.partyId === undefined ? sql`` : sql` AND d.party_id = ${f.partyId}`}
+             GROUP BY d.id, d.party_id, d.customer_name, d.short_closed_at
+          )
+          SELECT COALESCE(party_id::text, customer_name) AS id, party_id AS "partyId", customer_name AS "partyName",
+                 count(*)::int AS "ordersDispatched",
+                 count(*) FILTER (WHERE dispatches >= 2 OR short_closed_at IS NOT NULL)::int AS "partialOrders",
+                 round(count(*) FILTER (WHERE dispatches >= 2 OR short_closed_at IS NOT NULL) * 100.0 / count(*), 1)::text AS "partialPct"
+            FROM dispatched
+           GROUP BY party_id, customer_name
+        `;
+      case 'vendor-lead-time':
+        // The order carries no confirmation instant, so the clock starts at
+        // the order's own date and stops at its first receipt.
+        return sql`
+          WITH firsts AS (
+            SELECT po.id, po.party_id, po.vendor_name, (min(g.received_at)::date - po.date)::int AS days
+              FROM purchase_orders po JOIN grns g ON g.purchase_order_id = po.id
+             WHERE po.org_id = ${orgId} AND po.deleted_at IS NULL ${this.periodClause(f, 'po.date')} ${f.partyId === undefined ? sql`` : sql` AND po.party_id = ${f.partyId}`}
+             GROUP BY po.id, po.party_id, po.vendor_name, po.date
+          ),
+          promised AS (
+            SELECT party_id, round(avg(lead_time_days))::int AS days FROM item_vendors
+             WHERE org_id = ${orgId} AND deleted_at IS NULL AND lead_time_days IS NOT NULL GROUP BY party_id
+          )
+          SELECT COALESCE(fs.party_id::text, fs.vendor_name) AS id, fs.party_id AS "partyId", fs.vendor_name AS "partyName",
+                 count(*)::int AS "ordersReceived",
+                 percentile_cont(0.5) WITHIN GROUP (ORDER BY fs.days)::int AS "medianDays",
+                 percentile_cont(0.9) WITHIN GROUP (ORDER BY fs.days)::int AS "p90Days",
+                 (SELECT days FROM promised p WHERE p.party_id = fs.party_id) AS "promisedDays"
+            FROM firsts fs
+           GROUP BY fs.party_id, fs.vendor_name
+        `;
+      case 'stock-out-frequency':
+        return sql`
+          SELECT r.stock_item_id::text || ':' || to_char(r.created_at, 'YYYY-MM') AS id,
+                 r.stock_item_id AS "stockItemId", s.name AS item, to_char(r.created_at, 'YYYY-MM') AS month,
+                 count(*)::int AS shortages, sum(r.quantity)::text AS quantity
+            FROM procurement_requirements r JOIN stock_items s ON s.id = r.stock_item_id
+           WHERE r.org_id = ${orgId} AND r.source = 'shortage' AND r.deleted_at IS NULL ${this.periodClause(f, 'r.created_at::date')} ${this.itemClause(f, 's.name')}
+           GROUP BY r.stock_item_id, s.name, to_char(r.created_at, 'YYYY-MM')
+        `;
+      case 'margin-proxy':
+        // D-46: the held cost is a weighted average, so this is a proxy and
+        // says so in the catalogue; the report is gated on reports.margin.view.
+        return sql`
+          SELECT COALESCE(s.id::text, l.stock_item_name) AS "stockItemId", COALESCE(s.name, l.stock_item_name) AS item,
+                 sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric)::text AS quantity,
+                 round(sum(l.amount), 2)::text AS revenue,
+                 round(sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric * COALESCE(s.cost_price, 0)), 2)::text AS cost,
+                 round(sum(l.amount) - sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric * COALESCE(s.cost_price, 0)), 2)::text AS margin,
+                 CASE WHEN sum(l.amount) > 0
+                      THEN round((sum(l.amount) - sum(COALESCE(NULLIF(substring(l.billed_qty from '^[0-9]+(?:\\.[0-9]+)?'), ''), '0')::numeric * COALESCE(s.cost_price, 0))) * 100.0 / sum(l.amount), 1)::text
+                      ELSE '0' END AS "marginPct"
+            FROM voucher_lines l JOIN vouchers v ON v.id = l.voucher_id
+            LEFT JOIN stock_items s ON s.id = l.stock_item_id OR (l.stock_item_id IS NULL AND s.org_id = ${orgId} AND s.name = l.stock_item_name)
+           WHERE ${this.salesLines(orgId, f)} ${this.itemClause(f, 'COALESCE(s.name, l.stock_item_name)')}
+           GROUP BY COALESCE(s.id::text, l.stock_item_name), COALESCE(s.name, l.stock_item_name)
+        `;
+      case 'sales-heatmap':
+        return sql`
+          SELECT COALESCE(v.party_id::text, v.party_name) || ':' || to_char(v.voucher_date, 'YYYY-MM') AS id,
+                 v.party_id AS "partyId", v.party_name AS "partyName", to_char(v.voucher_date, 'YYYY-MM') AS month,
+                 round(sum(v.amount), 2)::text AS value
+            FROM vouchers v
+           WHERE v.org_id = ${orgId} AND v.voucher_type = 'Sales' AND NOT v.is_cancelled ${this.periodClause(f, 'v.voucher_date')} ${this.partyClause(f)}
+           GROUP BY v.party_id, v.party_name, 4
+        `;
       default:
         throw new Error(`AnalyticsReportSource does not serve "${key}".`);
     }
@@ -569,15 +657,24 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
     return Number(rows.rows[0]?.value ?? 0);
   }
 
-  private requireHolder(principal: Principal): void {
+  private requireHolder(principal: Principal, key?: ReportKey): void {
     if (!hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW)) {
       throw AppError.forbidden('This report needs receivables.view.');
+    }
+    if (key === 'margin-proxy' && !hasPermission(principal, PERMISSIONS.REPORTS_MARGIN_VIEW)) {
+      throw AppError.forbidden('The margin proxy needs reports.margin.view.');
     }
   }
 }
 
 /** Sortable fields per report, whitelisted into fragments. */
 const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
+  'aov-trend': { month: 'month', aov: 'aov::numeric' },
+  'partial-shipments': { partyName: '"partyName"', partialPct: '"partialPct"::numeric' },
+  'vendor-lead-time': { partyName: '"partyName"', medianDays: '"medianDays"' },
+  'stock-out-frequency': { item: 'item', month: 'month', shortages: 'shortages' },
+  'margin-proxy': { item: 'item', revenue: 'revenue::numeric', margin: 'margin::numeric', marginPct: '"marginPct"::numeric' },
+  'sales-heatmap': { partyName: '"partyName"', month: 'month', value: 'value::numeric' },
   'customer-concentration': { partyName: '"partyName"', revenue: 'revenue::numeric' },
   'order-pipeline': { number: '"number"', customerName: '"customerName"', orderDate: '"orderDate"', ageDays: '"ageDays"', value: 'value::numeric' },
   'dispatch-performance': { customerName: '"customerName"', dispatchedOn: '"dispatchedOn"', leadDays: '"leadDays"' },
@@ -601,6 +698,12 @@ const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
 };
 
 const DEFAULT_ORDER: Partial<Record<ReportKey, string>> = {
+  'aov-trend': 'month ASC',
+  'partial-shipments': '"partialPct"::numeric DESC, "partyName" ASC',
+  'vendor-lead-time': '"medianDays" DESC NULLS LAST, "partyName" ASC',
+  'stock-out-frequency': 'shortages DESC, item ASC',
+  'margin-proxy': 'margin::numeric DESC',
+  'sales-heatmap': '"partyName" ASC, month ASC',
   'customer-concentration': 'revenue::numeric DESC',
   'order-pipeline': '"ageDays" DESC',
   'dispatch-performance': '"leadDays" DESC NULLS LAST',

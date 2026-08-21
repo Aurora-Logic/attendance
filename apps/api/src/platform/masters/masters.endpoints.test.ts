@@ -1,4 +1,4 @@
-import { SYSTEM_ROLES, type ExportDownload, type ExportJobSummary, type Paginated, type PartyView } from '@vyuha/shared';
+import { PERMISSIONS, SYSTEM_ROLES, type ExportDownload, type ExportJobSummary, type Paginated, type PartyView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -558,5 +558,51 @@ describe('comparison flows into the exported file (data-analyst §3)', () => {
     // August 4150.50 against June 1000: the file states the base and the delta.
     expect(asha).toContain('1000');
     expect(asha).toContain('+3150.5 (315.1%)');
+  });
+});
+
+describe('the second analytics set (owner, 22 Aug 2026)', () => {
+  it('serves each new report with its declared columns', async () => {
+    for (const key of ['aov-trend', 'partial-shipments', 'vendor-lead-time', 'stock-out-frequency', 'sales-heatmap'] as const) {
+      const page = await harness.get<{ data: Record<string, unknown>[]; meta: { total: number } }>(
+        `/reports/${key}/rows?from=2026-06-01&to=2026-08-31`,
+        { token: adminToken },
+      );
+      expect(page.status, `${key}: ${page.text}`).toBe(200);
+      expect(Array.isArray(page.body.data)).toBe(true);
+    }
+  });
+
+  it('average order value reads the fixture invoices month by month', async () => {
+    const page = await harness.get<{ data: { month: string; invoices: number; aov: string }[] }>(
+      '/reports/aov-trend/rows?from=2026-06-01&to=2026-08-31',
+      { token: adminToken },
+    );
+    expect(page.status, page.text).toBe(200);
+    const august = page.body.data.find((row) => row.month === '2026-08');
+    expect(august).toBeDefined();
+    expect(august?.invoices).toBeGreaterThanOrEqual(1);
+    expect(Number(august?.aov)).toBeGreaterThan(0);
+  });
+
+  it('the margin proxy is for margin eyes only, and says cost against price', async () => {
+    const margin = await harness.get<{ data: { item: string; revenue: string; cost: string; margin: string }[] }>(
+      '/reports/margin-proxy/rows?from=2026-08-01&to=2026-08-31',
+      { token: adminToken },
+    );
+    expect(margin.status, margin.text).toBe(200);
+    const cable = margin.body.data.find((row) => row.item === 'Cat6 Cable Box');
+    expect(cable).toBeDefined();
+    expect(Number(cable?.revenue)).toBeGreaterThan(0);
+    expect(Number(cable?.margin)).toBe(Number(cable?.revenue) - Number(cable?.cost));
+
+    const narrowRoleId = await harness.createRole('Receivables only', [PERMISSIONS.RECEIVABLES_VIEW, PERMISSIONS.REPORT_VIEW]);
+    const viewer = await harness.createUser({ email: scopedEmail('masters-no-margin'), roleIds: [narrowRoleId] });
+    const viewerToken = (await harness.login(viewer.email, viewer.password)).token;
+    const refused = await harness.get<{ error: { code: string } }>('/reports/margin-proxy/rows', { token: viewerToken });
+    expect(refused.status).toBe(403);
+    const catalogue = await harness.get<{ data: { key: string }[] }>('/reports', { token: viewerToken });
+    expect(catalogue.body.data.some((report) => report.key === 'margin-proxy')).toBe(false);
+    expect(catalogue.body.data.some((report) => report.key === 'aov-trend')).toBe(true);
   });
 });

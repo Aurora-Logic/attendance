@@ -1,18 +1,19 @@
 import ExcelJS from 'exceljs';
 
 import {
+  ATTENDANCE_ANALYTICS_REPORTS,
   ATTENDANCE_REPORTS,
-  MAX_EXPORT_RANGE_DAYS,
-  PERMISSIONS,
-  SYSTEM_ROLES,
-  uuidv7,
   type AttendanceDaySummary,
   type ExportDownload,
   type ExportJobSummary,
+  MAX_EXPORT_RANGE_DAYS,
+  PERMISSIONS,
   type Paginated,
   type PunchRecord,
   type ReportDefinition,
+  SYSTEM_ROLES,
   type SavedView,
+  uuidv7,
 } from '@vyuha/shared';
 import type { Job } from 'bullmq';
 import { eq, inArray, sql } from 'drizzle-orm';
@@ -337,7 +338,10 @@ describe('the report catalogue', () => {
     // HR holds every attendance family, and sees that whole list in its
     // declared order — not the Tally group, which needs receivables.view.
     const forHr = await harness.get<{ data: ReportDefinition[] }>('/reports', { token: hrToken });
-    expect(forHr.body.data.map((report) => report.key)).toEqual(ATTENDANCE_REPORTS.map((report) => report.key));
+    // HR holds attendance.view.all, so the attendance analytics (22 Aug 2026) join the list.
+    expect([...forHr.body.data.map((report) => report.key)].sort()).toEqual(
+      [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS].map((report) => report.key).sort(),
+    );
 
     const anonymous = await harness.get('/reports');
     expect(anonymous.status).toBe(401);
