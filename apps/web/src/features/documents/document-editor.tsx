@@ -183,7 +183,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
                 <PaintBrushIcon data-icon="inline-start" />
                 Design
               </Button>
-              {actions}
+              {isMobile ? null : actions}
             </div>
             {/* On a phone the bar stays one row: Preview beside an overflow that
                 opens as a bottom sheet (thumb-reach: a menu of rows arrives from
@@ -209,7 +209,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
           {extras ? <div className="mx-auto mt-6 max-w-[210mm]">{extras}</div> : null}
         </div>
 
-        {actions !== undefined && actions !== null ? (
+        {isMobile && actions !== undefined && actions !== null ? (
           <div className="bg-background/95 supports-[backdrop-filter]:bg-background/80 flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden">
             {actions}
           </div>
