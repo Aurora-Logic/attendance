@@ -93,8 +93,10 @@ export interface ModuleDef {
  * approvals inbox serve every module and neither belongs inside one of them.
  */
 export const NAV_GROUPS: NavGroup[] = [
+  // Regrouped at the owner's ask (21 Aug): what is mine, what is my team's,
+  // and the people themselves — instead of one eight-item "Work".
   {
-    label: 'Work',
+    label: 'Me',
     items: [
       { to: '/', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
       {
@@ -123,6 +125,11 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 2,
         reqs: 'REQ-G-03, G-06',
       },
+    ],
+  },
+  {
+    label: 'Team',
+    items: [
       {
         to: '/approvals',
         label: 'Approvals',
@@ -169,7 +176,7 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'Records',
+    label: 'People',
     items: [
       {
         to: '/employees',
@@ -179,11 +186,6 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 1,
         reqs: 'REQ-A-03, A-06',
       },
-    ],
-  },
-  {
-    label: 'Reports',
-    items: [
       {
         to: '/analytics',
         label: 'Analytics',
@@ -199,7 +201,6 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
 ];
-
 
 /**
  * The destinations REQ-O-02 pulls out of every module sidebar.
