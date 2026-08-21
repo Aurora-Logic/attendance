@@ -274,7 +274,7 @@ export function primaryNumericColumn(definition: Pick<ReportDefinition, 'columns
 
 // ---------------------------------------------------------------- chart forms
 
-export type GenericChartForm = 'hbar' | 'line' | 'donut';
+export type GenericChartForm = 'hbar' | 'line' | 'donut' | 'scatter';
 
 export interface ChartFormSpec {
   readonly form: GenericChartForm;
@@ -300,6 +300,10 @@ export const REPORT_FORM_OVERRIDES: Partial<Record<ReportKey, ChartFormSpec>> = 
   'dispatch-performance': { form: 'hbar', category: 'number', series: ['leadDays'] },
   'order-fill-rate': { form: 'hbar', category: 'partyName', series: ['fillPct'] },
   'new-vs-repeat': { form: 'line', category: 'month', series: ['newRevenue', 'repeatRevenue'] },
+  // The matrix's two-variable form (data-analyst §2): how often a customer
+  // buys an item against how much that lane is worth — the outliers are the
+  // consolidation candidates and the quiet big-ticket lanes.
+  'customer-item-matrix': { form: 'scatter', category: 'partyName', series: ['invoices', 'value'] },
 };
 
 const TIME_CATEGORY = /^\d{4}-\d{2}(?:-\d{2})?$/u;
@@ -327,6 +331,21 @@ export interface FormPoint extends Record<string, string | number> {
  * plus Other; bars keep the report's own order, top rows only.
  */
 export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): FormPoint[] {
+  if (spec.form === 'scatter') {
+    // One dot per row; the first series is x, the second y. The item rides
+    // along so the tooltip and the drill can name what the dot is.
+    const [xKey = 'x', yKey = 'y'] = spec.series;
+    return rows.map((row) => {
+      const item = text(row.cells.item);
+      const point: Record<string, string | number> = {
+        category: item === '' ? text(row.cells[spec.category]) || '—' : `${text(row.cells[spec.category]) || '—'} · ${item}`,
+        __item: item,
+        [xKey]: num(row.cells[xKey]),
+        [yKey]: num(row.cells[yKey]),
+      };
+      return point as FormPoint;
+    });
+  }
   if (spec.form === 'hbar') {
     return rows.slice(0, MAX_BARS).map((row) => {
       const point: Record<string, string | number> = { category: text(row.cells[spec.category]) || '—' };

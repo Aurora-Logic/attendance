@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ageingSeries, genericSeries, lapseSeries, movementSeries, salesAnalysisSeries, shareSeries, velocitySeries, type ChartRow } from './report-series';
+import { ageingSeries, formSeries, genericSeries, lapseSeries, movementSeries, salesAnalysisSeries, shareSeries, velocitySeries, type ChartRow } from './report-series';
 
 /** The builders behind the report charts: thresholds named and proven (vyuha-charts §3, §5). */
 
@@ -116,5 +116,16 @@ describe('shareSeries', () => {
     expect(total).toBe(100);
     expect(points).toHaveLength(5);
     expect(points[0]?.share).toBe(10);
+  });
+});
+
+describe('formSeries scatter', () => {
+  it('draws one dot per row, names it party and item, and carries the item for the drill', () => {
+    const points = formSeries({ form: 'scatter', category: 'partyName', series: ['invoices', 'value'] }, [
+      { cells: { partyName: 'Asha Traders', item: 'Cat6 Cable', invoices: 7, value: '4150.50' } },
+    ]);
+    expect(points).toEqual([
+      { category: 'Asha Traders · Cat6 Cable', __item: 'Cat6 Cable', invoices: 7, value: 4150.5 },
+    ]);
   });
 });

@@ -1,4 +1,4 @@
-import { Bar, BarChart, CartesianGrid, Label, Line, LineChart, Pie, PieChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Label, Line, LineChart, Pie, PieChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, Scatter, ScatterChart, XAxis, YAxis } from 'recharts';
 
 import { SectionHeading } from '@/components/shared/section-heading';
 import { CHART_INTRO_MS } from '@/components/shared/use-chart-motion';
@@ -349,6 +349,36 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
               <Line key={key} dataKey={key} stroke={`var(--color-${key})`} strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
             ))}
           </LineChart>
+        </ChartContainer>
+      </Frame>
+    );
+  }
+
+  if (spec.form === 'scatter') {
+    const [xKey = 'x', yKey = 'y'] = spec.series;
+    const config = { [yKey]: { label: headers.get(yKey) ?? yKey, color: 'var(--primary)' } } as ChartConfig;
+    return (
+      <Frame title={`${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`} insight={null}>
+        <ChartContainer config={config} className="h-64 w-full">
+          <ScatterChart margin={{ left: 0, right: 24, top: 8 }}>
+            <CartesianGrid />
+            <XAxis type="number" dataKey={xKey} name={headers.get(xKey) ?? xKey} tickLine={false} axisLine={false} />
+            <YAxis type="number" dataKey={yKey} name={headers.get(yKey) ?? yKey} tickLine={false} axisLine={false} width={64} />
+            <ChartTooltip cursor={{ strokeDasharray: '4 4' }} content={<ChartTooltipContent labelKey="category" nameKey="category" />} />
+            <Scatter
+              data={points}
+              fill="var(--primary)"
+              fillOpacity={0.7}
+              isAnimationActive={animate}
+              animationDuration={CHART_INTRO_MS}
+              className={onDrill === undefined ? undefined : 'cursor-pointer'}
+              onClick={(entry: { payload?: Record<string, unknown> }) => {
+                const item = entry.payload?.__item;
+                if (typeof item !== 'string' || item === '') return;
+                onDrill?.({ categoryKey: 'item', category: item, rowId: null });
+              }}
+            />
+          </ScatterChart>
         </ChartContainer>
       </Frame>
     );
