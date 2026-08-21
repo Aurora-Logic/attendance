@@ -63,16 +63,16 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-02 | Attendance status glyphs | One glyph per status (`ATTENDANCE_STATUS_ICONS`) on the pill and the calendar legend, hence the muster and every day list | Done |
 | B-03 | Punch source glyphs | Phone, browser, offline sync, admin entry (`PUNCH_SOURCE_ICONS`) on day-sheet punch rows and the profile punch list; the source chart keeps its colours | Done |
 | B-04 | Document-type glyphs | Estimate, order, invoice, dispatch, PO, GRN (`DOCUMENT_ICONS`) on the six list pages; Go To reads the same table | Done |
-| B-05 | Flag review log | Who accepted / kept / half-dayed what, per admin per week | API + catalogue done; web shapes/charts next |
-| B-06 | Approvals turnaround | Median and p90 time-to-decision by request type; oldest pending | API + catalogue done; web shapes/charts next |
-| B-07 | Early-arrival leaderboard | Current streaks and early minutes by employee and department | API + catalogue done; web shapes/charts next |
-| B-08 | On-time rate by department | Radial grid | API + catalogue done; web shapes/charts next |
-| B-09 | AOV trend | Average order value by month, FY comparison | API + catalogue done; web shapes/charts next |
-| B-10 | Partial shipments by customer | Orders needing two dispatches or a short-close ÷ orders dispatched | API + catalogue done; web shapes/charts next |
-| B-11 | Vendor lead time | PO confirm to GRN, median and p90, against promised days | API + catalogue done; web shapes/charts next |
-| B-12 | Stock-out frequency | Requirements raised from shortage per item per month | API + catalogue done; web shapes/charts next |
-| B-13 | Gross margin proxy | Realised rate minus held cost, by item and customer, behind `reports.margin.view` | API + catalogue done; web shapes/charts next |
-| B-14 | Sales heatmap | Customer × month grid, the matrix's dense-grid form | API + catalogue done; web shapes/charts next |
-| B-15 | Attendance block on the Reports dashboard | On-time radial, open flags, oldest pending approval, top streaks | Not started |
+| B-05 | Flag review log | Who accepted / kept / half-dayed what, per admin per week | Done |
+| B-06 | Approvals turnaround | Median and p90 time-to-decision by request type; oldest pending | Done |
+| B-07 | Early-arrival leaderboard | Current streaks and early minutes by employee and department | Done |
+| B-08 | On-time rate by department | Radial grid | Done |
+| B-09 | AOV trend | Average order value by month, FY comparison | Done |
+| B-10 | Partial shipments by customer | Orders needing two dispatches or a short-close ÷ orders dispatched | Done |
+| B-11 | Vendor lead time | PO confirm to GRN, median and p90, against promised days | Done |
+| B-12 | Stock-out frequency | Requirements raised from shortage per item per month | Done |
+| B-13 | Gross margin proxy | Realised rate minus held cost, by item and customer, behind `reports.margin.view` | Done |
+| B-14 | Sales heatmap | Customer × month grid, the matrix's dense-grid form | Done |
+| B-15 | Attendance block on the Reports dashboard | On-time radial, open flags, oldest pending approval, top streaks | Done — shown to dashboard viewers who also hold attendance.view.all (the dashboard itself stays a receivables surface) |
 | B-16 | Screen audit | Every route through emil-design-eng and thumb-reach; findings fixed | Not started |
 

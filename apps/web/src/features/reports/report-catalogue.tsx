@@ -22,6 +22,7 @@ import { REPORT_CATEGORIES, type ReportCategory, type ReportDefinition } from '@
 
 const CATEGORY_BLURBS: Record<ReportCategory, string> = {
   Attendance: 'Registers, musters and the exceptions of the working day.',
+  Approvals: 'Who decided what, how fast, and what is still waiting.',
   Leave: 'Balances, ledgers and what was availed.',
   Books: 'Mirrors of the Tally projection — Vyuha computes nothing here.',
   Receivables: 'Who owes what, against what limit.',

@@ -2,21 +2,26 @@ import { Bar, BarChart, CartesianGrid, Label, Line, LineChart, Pie, PieChart, Po
 
 import { SectionHeading } from '@/components/shared/section-heading';
 import { CHART_INTRO_MS } from '@/components/shared/use-chart-motion';
+import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { humaniseEnum } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import type { ReportDefinition, ReportKey } from '@vyuha/shared';
 
 import {
+  type ChartRow,
   ageingSeries,
   formSeries,
   genericSeries,
-  resolveChartForm,
+  heatmapGrid,
+  heatmapStep,
   lapseSeries,
   movementSeries,
+  resolveChartForm,
   salesAnalysisSeries,
   shareSeries,
   velocitySeries,
-  type ChartRow,
 } from './report-series';
 
 /**
@@ -250,6 +255,8 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
 }
 
 const GENERIC_FILLS = ['var(--primary)', 'var(--info)'] as const;
+/** The heatmap's six shades: nothing, then the theme's sequential ramp light to dark. */
+const HEAT_STEPS = ['bg-muted', 'bg-[var(--chart-1)]', 'bg-[var(--chart-2)]', 'bg-[var(--chart-3)]', 'bg-[var(--chart-4)]', 'bg-[var(--chart-5)]'] as const;
 
 /**
  * Any report, drawn: the first text column names the bars, the report's own
@@ -380,6 +387,77 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             />
           </ScatterChart>
         </ChartContainer>
+      </Frame>
+    );
+  }
+
+  if (spec.form === 'radials') {
+    const [rateKey = 'rate'] = spec.series;
+    return (
+      <Frame title={`${headers.get(rateKey) ?? 'Rate'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`} insight={null}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {points.map((point) => (
+            <Button
+              key={String(point.category)}
+              variant="ghost"
+              className={cn('h-auto min-w-0 flex-col items-stretch p-0 text-left', onDrill === undefined ? 'cursor-default' : 'cursor-pointer')}
+              aria-label={`${String(point.category)}: ${String(point[rateKey] ?? 0)}%`}
+              onClick={() => {
+                onDrill?.({ categoryKey: spec.category, category: String(point.category), rowId: typeof point.__rowId === 'string' && point.__rowId !== '' ? point.__rowId : null });
+              }}
+            >
+              <RateRadial pct={Number(point[rateKey] ?? 0)} label={String(point.category)} animate={animate} />
+            </Button>
+          ))}
+        </div>
+      </Frame>
+    );
+  }
+
+  if (spec.form === 'heatmap') {
+    const [valueKey = 'value'] = spec.series;
+    const grid = heatmapGrid(points, valueKey);
+    if (grid.months.length === 0 || grid.rows.length === 0) return null;
+    return (
+      <Frame title={`${headers.get(valueKey) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()} and month`} insight={null}>
+        <div className="overflow-x-auto">
+          <Table className="w-auto min-w-full border-separate border-spacing-0.5 text-xs">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="text-muted-foreground sticky left-0 bg-background h-7 pr-2 text-left font-normal">
+                  {humaniseEnum(headers.get(spec.category) ?? spec.category)}
+                </TableHead>
+                {grid.months.map((month) => (
+                  <TableHead key={month} className="text-muted-foreground h-7 min-w-12 text-center font-normal tabular-nums">
+                    {month.slice(5)}/{month.slice(2, 4)}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {grid.rows.map((row) => (
+                <TableRow key={row.category} className="hover:bg-transparent">
+                  <TableHead scope="row" className="sticky left-0 bg-background h-7 max-w-40 truncate pr-2 text-left font-normal">
+                    {row.category}
+                  </TableHead>
+                  {row.cells.map((value, index) => (
+                    <TableCell key={grid.months[index]} className="h-7 p-0">
+                      <Button
+                        variant="ghost"
+                        aria-label={`${row.category}, ${grid.months[index] ?? ''}: ${value === null ? 'nothing' : value.toLocaleString('en-IN')}`}
+                        title={value === null ? '' : value.toLocaleString('en-IN')}
+                        className={cn('block h-7 w-full min-w-12 rounded-none p-0', HEAT_STEPS[heatmapStep(value, grid.max)], onDrill === undefined ? 'cursor-default' : 'cursor-pointer')}
+                        onClick={() => {
+                          onDrill?.({ categoryKey: spec.category, category: row.category, rowId: row.rowId === '' ? null : row.rowId.split(':')[0] ?? null });
+                        }}
+                      />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </Frame>
     );
   }

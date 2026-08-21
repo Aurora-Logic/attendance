@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ageingSeries, formSeries, genericSeries, lapseSeries, movementSeries, salesAnalysisSeries, shareSeries, velocitySeries, type ChartRow } from './report-series';
+import { ageingSeries, formSeries, genericSeries, heatmapGrid, heatmapStep, lapseSeries, movementSeries, salesAnalysisSeries, shareSeries, velocitySeries, type ChartRow } from './report-series';
 
 /** The builders behind the report charts: thresholds named and proven (vyuha-charts §3, §5). */
 
@@ -127,5 +127,37 @@ describe('formSeries scatter', () => {
     expect(points).toEqual([
       { category: 'Asha Traders · Cat6 Cable', __item: 'Cat6 Cable', invoices: 7, value: 4150.5 },
     ]);
+  });
+});
+
+describe('heatmap grid', () => {
+  it('lays customers down and months across, sorted, and finds the maximum', () => {
+    const points = formSeries({ form: 'heatmap', category: 'partyName', series: ['value'] }, [
+      { id: 'p1:2026-08', cells: { partyName: 'Asha', month: '2026-08', value: '400' } },
+      { id: 'p1:2026-07', cells: { partyName: 'Asha', month: '2026-07', value: '100' } },
+      { id: 'p2:2026-08', cells: { partyName: 'Bala', month: '2026-08', value: '50' } },
+    ]);
+    const grid = heatmapGrid(points, 'value');
+    expect(grid.months).toEqual(['2026-07', '2026-08']);
+    expect(grid.rows.map((row) => row.category)).toEqual(['Asha', 'Bala']);
+    expect(grid.rows[0]?.cells).toEqual([100, 400]);
+    expect(grid.rows[1]?.cells).toEqual([null, 50]);
+    expect(grid.max).toBe(400);
+  });
+
+  it('shades by share of the maximum, nothing for an empty cell', () => {
+    expect(heatmapStep(null, 400)).toBe(0);
+    expect(heatmapStep(400, 400)).toBe(5);
+    expect(heatmapStep(50, 400)).toBe(1);
+    expect(heatmapStep(0, 0)).toBe(0);
+  });
+});
+
+describe('formSeries radials', () => {
+  it('takes five rates at most, in the table\'s order', () => {
+    const rows = Array.from({ length: 7 }, (_, index) => ({ id: `d${String(index)}`, cells: { department: `Dept ${String(index)}`, onTimePct: String(90 - index) } }));
+    const points = formSeries({ form: 'radials', category: 'department', series: ['onTimePct'] }, rows);
+    expect(points).toHaveLength(5);
+    expect(points[0]).toMatchObject({ category: 'Dept 0', onTimePct: 90, __rowId: 'd0' });
   });
 });

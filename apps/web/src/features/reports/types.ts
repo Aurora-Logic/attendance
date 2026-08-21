@@ -708,6 +708,17 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   'order-fill-rate': analyticsShape('partyId', 'partyName'),
   'new-vs-repeat': analyticsShape('month', 'month'),
   'requirement-ageing': analyticsShape('id', 'item', 'source'),
+  // Owner, 22 Aug 2026: the second analytics set.
+  'flag-review-log': analyticsShape('id', 'employeeName', 'action'),
+  'approvals-turnaround': analyticsShape('id', 'type'),
+  'early-arrival-leaderboard': analyticsShape('employeeId', 'employeeName'),
+  'on-time-rate': analyticsShape('id', 'department'),
+  'aov-trend': analyticsShape('month', 'month'),
+  'partial-shipments': analyticsShape('id', 'partyName'),
+  'vendor-lead-time': analyticsShape('id', 'partyName'),
+  'stock-out-frequency': analyticsShape('id', 'item'),
+  'margin-proxy': analyticsShape('stockItemId', 'item'),
+  'sales-heatmap': analyticsShape('id', 'partyName'),
 };
 
 function build<T>(

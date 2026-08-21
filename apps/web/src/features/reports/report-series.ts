@@ -274,7 +274,7 @@ export function primaryNumericColumn(definition: Pick<ReportDefinition, 'columns
 
 // ---------------------------------------------------------------- chart forms
 
-export type GenericChartForm = 'hbar' | 'line' | 'donut' | 'scatter';
+export type GenericChartForm = 'hbar' | 'line' | 'donut' | 'scatter' | 'heatmap' | 'radials';
 
 export interface ChartFormSpec {
   readonly form: GenericChartForm;
@@ -304,6 +304,18 @@ export const REPORT_FORM_OVERRIDES: Partial<Record<ReportKey, ChartFormSpec>> = 
   // buys an item against how much that lane is worth — the outliers are the
   // consolidation candidates and the quiet big-ticket lanes.
   'customer-item-matrix': { form: 'scatter', category: 'partyName', series: ['invoices', 'value'] },
+  // Owner, 22 Aug 2026: the second analytics set, forms from the matrix.
+  'approvals-turnaround': { form: 'hbar', category: 'type', series: ['medianHours', 'p90Hours'] },
+  'early-arrival-leaderboard': { form: 'hbar', category: 'employeeName', series: ['currentStreak'] },
+  // Several rates side by side: a grid of radials, five at most, the table has the rest.
+  'on-time-rate': { form: 'radials', category: 'department', series: ['onTimePct'] },
+  'aov-trend': { form: 'line', category: 'month', series: ['aov'] },
+  'partial-shipments': { form: 'hbar', category: 'partyName', series: ['partialPct'] },
+  'vendor-lead-time': { form: 'hbar', category: 'partyName', series: ['medianDays', 'promisedDays'] },
+  'stock-out-frequency': { form: 'hbar', category: 'item', series: ['shortages'] },
+  'margin-proxy': { form: 'hbar', category: 'item', series: ['margin'] },
+  // The dense grid: customer down the side, month across, value in the cell.
+  'sales-heatmap': { form: 'heatmap', category: 'partyName', series: ['value'] },
 };
 
 const TIME_CATEGORY = /^\d{4}-\d{2}(?:-\d{2})?$/u;
@@ -331,6 +343,32 @@ export interface FormPoint extends Record<string, string | number> {
  * plus Other; bars keep the report's own order, top rows only.
  */
 export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): FormPoint[] {
+  if (spec.form === 'heatmap') {
+    // One point per row: the category, the month, and the value; the chart
+    // lays them out as a grid. Rows carry their id for the drill.
+    const [valueKey = 'value'] = spec.series;
+    return rows.map((row) => {
+      const point: Record<string, string | number> = {
+        category: text(row.cells[spec.category]) || '—',
+        month: text(row.cells.month),
+        __rowId: row.id ?? '',
+        [valueKey]: num(row.cells[valueKey]),
+      };
+      return point as FormPoint;
+    });
+  }
+  if (spec.form === 'radials') {
+    // Five rates at most, in the table's own order; the table has the rest.
+    const [rateKey = 'rate'] = spec.series;
+    return rows.slice(0, 5).map((row) => {
+      const point: Record<string, string | number> = {
+        category: text(row.cells[spec.category]) || '—',
+        __rowId: row.id ?? '',
+        [rateKey]: num(row.cells[rateKey]),
+      };
+      return point as FormPoint;
+    });
+  }
   if (spec.form === 'scatter') {
     // One dot per row; the first series is x, the second y. The item rides
     // along so the tooltip and the drill can name what the dot is.
@@ -384,4 +422,46 @@ export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): Form
   const points: FormPoint[] = top.map((p) => ({ category: p.category, value: p.value }));
   if (rest > 0) points.push({ category: 'Other', value: rest });
   return points;
+}
+
+/**
+ * The heatmap's grid: categories down, months across, each cell the value or
+ * null where the pair never met. Months come out sorted so August follows
+ * July whatever order the rows arrived in; categories keep the report's
+ * order (its sort is the ranking the reader asked for).
+ */
+export function heatmapGrid(points: readonly FormPoint[], valueKey: string): {
+  readonly months: readonly string[];
+  readonly rows: readonly { readonly category: string; readonly rowId: string; readonly cells: readonly (number | null)[] }[];
+  readonly max: number;
+} {
+  const months = [...new Set(points.map((point) => String(point.month)).filter((month) => month !== ''))].sort();
+  const byCategory = new Map<string, { rowId: string; values: Map<string, number> }>();
+  for (const point of points) {
+    const category = String(point.category);
+    const entry = byCategory.get(category) ?? { rowId: String(point.__rowId ?? ''), values: new Map<string, number>() };
+    entry.values.set(String(point.month), (entry.values.get(String(point.month)) ?? 0) + Number(point[valueKey] ?? 0));
+    byCategory.set(category, entry);
+  }
+  let max = 0;
+  const rows = [...byCategory.entries()].map(([category, entry]) => {
+    const cells = months.map((month) => {
+      const value = entry.values.get(month);
+      if (value !== undefined && value > max) max = value;
+      return value ?? null;
+    });
+    return { category, rowId: entry.rowId, cells };
+  });
+  return { months, rows, max };
+}
+
+/** Which of the five ramp steps a cell takes: quantiles of the grid's own maximum, never the palette cycled. */
+export function heatmapStep(value: number | null, max: number): 0 | 1 | 2 | 3 | 4 | 5 {
+  if (value === null || value <= 0 || max <= 0) return 0;
+  const share = value / max;
+  if (share > 0.8) return 5;
+  if (share > 0.6) return 4;
+  if (share > 0.4) return 3;
+  if (share > 0.2) return 2;
+  return 1;
 }
