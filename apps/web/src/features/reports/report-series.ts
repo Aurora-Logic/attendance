@@ -257,3 +257,11 @@ export function chartKindOf(reportKey: ReportKey, definition: Pick<ReportDefinit
 }
 
 const BESPOKE_CHART_KEYS = new Set<ReportKey>(['sales-analysis', 'movement-analysis', 'item-velocity', 'stock-ageing', 'customer-lapse', 'stock-summary']);
+
+/** The column a comparison deltas: the sort column when numeric, else the first numeric one. */
+export function primaryNumericColumn(definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>, rows: readonly ChartRow[]): { key: string; header: string } | null {
+  const sortKey = definition.defaultSort.startsWith('-') ? definition.defaultSort.slice(1) : definition.defaultSort;
+  const numeric = definition.columns.filter((c) => isNumericColumn(c, rows));
+  const chosen = numeric.find((c) => c.key === sortKey) ?? numeric[0];
+  return chosen === undefined ? null : { key: chosen.key, header: chosen.header };
+}

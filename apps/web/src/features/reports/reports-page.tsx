@@ -90,7 +90,8 @@ import { useChartIntro } from '@/components/shared/use-chart-motion';
 import { ColumnChooser } from './column-chooser';
 import { ReportCatalogue } from './report-catalogue';
 import { GenericReportChart, ReportChart } from './report-charts';
-import { chartKindOf } from './report-series';
+import { chartKindOf, primaryNumericColumn } from './report-series';
+import { comparisonRange, deltaOf, periodForGranularity, type CompareMode, type Granularity } from './period-compare';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
 import { periodFor, periodModeOf } from './period';
 import { ScheduleDialog } from './schedule-dialog';
@@ -438,8 +439,31 @@ export function ReportsPage() {
   const active = useReportRows(reportKey, rowParams, { enabled: !browsing && definition !== undefined && missingRequired.length === 0 });
 
   const isMobile = useIsMobile();
-  const chartIntro = useChartIntro(active.isSuccess);
-  const chartKind = chartKindOf(reportKey, definition, active.data?.data ?? []);
+  // ------------------------------------------------- comparison (P-04)
+  const hasPeriod = definition?.filters.includes('period') ?? false;
+  const granularityParam = searchParams.get('granularity');
+  const granularity: Granularity | null = granularityParam === 'month' || granularityParam === 'quarter' || granularityParam === 'year' ? granularityParam : null;
+  const compareParam = searchParams.get('compare');
+  const compare: CompareMode = compareParam === 'previous' || compareParam === 'lastYear' ? compareParam : 'off';
+  const currentRange = rowParams.from !== undefined && rowParams.to !== undefined ? { from: rowParams.from, to: rowParams.to } : null;
+  const compareRange = compare !== 'off' && currentRange !== null ? comparisonRange(currentRange, compare) : null;
+  const comparison = useReportRows(
+    reportKey,
+    { ...rowParams, page: 1, pageSize: 200, ...(compareRange ?? {}) },
+    { enabled: !browsing && hasPeriod && compareRange !== null && definition !== undefined && missingRequired.length === 0 },
+  );
+
+  // The chart reads the full filtered set (to the 200-row cap), never the table's page (P-06).
+  const chartSource = useReportRows(
+    reportKey,
+    { ...rowParams, page: 1, pageSize: 200 },
+    { enabled: !browsing && definition !== undefined && missingRequired.length === 0 },
+  );
+  const chartRows = chartSource.data?.data ?? [];
+  const chartIntro = useChartIntro(chartSource.isSuccess);
+  const chartKind = chartKindOf(reportKey, definition, chartRows);
+  const primaryColumn = definition === undefined ? null : primaryNumericColumn(definition, active.data?.data ?? []);
+  const prevById = new Map((comparison.data?.data ?? []).map((row) => [row.id, row]));
 
   // Table | Chart | Both, remembered per report on this device; a phone
   // starts on the table, a desk sees both (owner's pick, 21 Aug).
@@ -558,6 +582,44 @@ export function ReportsPage() {
     secondary: column.secondary === true,
     cell: (row) => renderCell(row.cells[column.key] ?? null, column.type),
   }));
+
+  // Comparison deltas ride beside the primary numeric column: previous value,
+  // the change, and the change as a share — 'new' when the base was zero,
+  // never a percentage of nothing (data-analyst skill §3).
+  if (compare !== 'off' && primaryColumn !== null && comparison.isSuccess) {
+    const columnKey = primaryColumn.key;
+    const readNumber = (row: ReportRowView | undefined): number => {
+      const value = row?.cells[columnKey];
+      return typeof value === 'number' ? value : typeof value === 'string' ? Number(value) || 0 : 0;
+    };
+    tableColumns.push(
+      {
+        key: 'compare-previous',
+        header: compare === 'lastYear' ? `${primaryColumn.header} (last FY)` : `${primaryColumn.header} (previous)`,
+        numeric: true,
+        secondary: true,
+        cell: (row) => {
+          const prev = prevById.get(row.id);
+          return prev === undefined ? EMPTY_VALUE : renderCell(prev.cells[columnKey] ?? null, 'text');
+        },
+      },
+      {
+        key: 'compare-delta',
+        header: 'Change',
+        numeric: true,
+        cell: (row) => {
+          const delta = deltaOf(readNumber(row), readNumber(prevById.get(row.id)));
+          if (delta.label === 'none') return EMPTY_VALUE;
+          return (
+            <span className={cn('inline-flex items-center gap-0.5 tabular-nums', delta.direction === 'up' ? 'text-success' : delta.direction === 'down' ? 'text-destructive' : 'text-muted-foreground')}>
+              {delta.direction === 'up' ? <ArrowUpIcon className="size-3" /> : delta.direction === 'down' ? <ArrowDownIcon className="size-3" /> : null}
+              {delta.label === 'new' ? 'new' : `${delta.absolute > 0 ? '+' : ''}${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(delta.absolute)}${delta.pct === null ? '' : ` (${String(delta.pct)}%)`}`}
+            </span>
+          );
+        },
+      },
+    );
+  }
 
   // The photo is chrome, not a column: it has no cell in the exported file and
   // must never be one, so it is added to the table rather than to the report's
@@ -775,8 +837,58 @@ export function ReportsPage() {
         {/* Sort is on the toolbar rather than on the header cells: at 360px the
             table becomes stacked rows with no header to click. One Select and
             one direction button, not a loose row of text buttons. */}
-        {definition !== undefined && definition.columns.some((column) => column.sortField !== undefined) ? (
-          <div className="flex items-center gap-1.5">
+        {definition !== undefined && (definition.columns.some((column) => column.sortField !== undefined) || hasPeriod) ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {hasPeriod ? (
+              <>
+                <Select
+                  value={granularity ?? 'custom'}
+                  onValueChange={(value: string | null) => {
+                    if (value === null) return;
+                    patchParams((params) => {
+                      if (value === 'month' || value === 'quarter' || value === 'year') {
+                        const range = periodForGranularity(value, new Date().toLocaleDateString('en-CA'));
+                        params.set('granularity', value);
+                        params.set('from', range.from);
+                        params.set('to', range.to);
+                      } else {
+                        params.delete('granularity');
+                      }
+                    });
+                  }}
+                >
+                  <SelectTrigger size="sm" className="pointer-coarse:min-h-11 w-36" aria-label="Period granularity">
+                    <SelectValue>{(value: string) => (value === 'month' ? 'This month' : value === 'quarter' ? 'This quarter' : value === 'year' ? 'This FY' : 'Custom period')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="custom">Custom period</SelectItem>
+                    <SelectItem value="month">This month</SelectItem>
+                    <SelectItem value="quarter">This quarter</SelectItem>
+                    <SelectItem value="year">This FY (Apr–Mar)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={compare}
+                  onValueChange={(value: string | null) => {
+                    if (value === null) return;
+                    patchParams((params) => {
+                      if (value === 'previous' || value === 'lastYear') params.set('compare', value);
+                      else params.delete('compare');
+                    });
+                  }}
+                >
+                  <SelectTrigger size="sm" className="pointer-coarse:min-h-11 w-44" aria-label="Compare against">
+                    <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="off">No comparison</SelectItem>
+                    <SelectItem value="previous">vs previous period</SelectItem>
+                    <SelectItem value="lastYear">vs same period last FY</SelectItem>
+                  </SelectContent>
+                </Select>
+                {compare !== 'off' && compareRange !== null ? <span className="text-muted-foreground text-xs tabular-nums">against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}{currentRange !== null ? ', to date' : ''}</span> : null}
+              </>
+            ) : null}
             <Select
               value={sort.startsWith('-') ? sort.slice(1) : sort}
               onValueChange={(value: string | null) => {
@@ -934,8 +1046,11 @@ export function ReportsPage() {
                 </ToggleGroupItem>
               </ToggleGroup>
             ) : null}
-            {viewMode !== 'table' && chartKind === 'bespoke' ? <ReportChart reportKey={reportKey} rows={rows} animate={chartIntro} /> : null}
-            {viewMode !== 'table' && chartKind === 'generic' && definition !== undefined ? <GenericReportChart definition={definition} rows={rows} animate={chartIntro} /> : null}
+            {viewMode !== 'table' && chartKind === 'bespoke' ? <ReportChart reportKey={reportKey} rows={chartRows} animate={chartIntro} /> : null}
+            {viewMode !== 'table' && chartKind === 'generic' && definition !== undefined ? (
+              <GenericReportChart definition={definition} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} />
+            ) : null}
+            {viewMode !== 'table' && chartSource.isSuccess && total > 200 ? <p className="text-muted-foreground text-xs">The chart reads the top 200 rows by the current sort; the table has all {String(total)}.</p> : null}
             {viewMode === 'chart' ? null : (
             <RecordTable
               columns={tableColumns}

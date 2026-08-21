@@ -239,19 +239,33 @@ const GENERIC_FILLS = ['var(--primary)', 'var(--info)'] as const;
  * sort sizes them, in the table's order. The honest fallback behind the
  * Table | Chart | Both toggle — a report genericSeries refuses stays a table.
  */
-export function GenericReportChart({ definition, rows, animate }: { definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean }) {
+export function GenericReportChart({ definition, rows, animate, compare }: { definition: Pick<ReportDefinition, 'columns' | 'defaultSort'>; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string } }) {
   const series = genericSeries(definition, rows);
   if (series === null) return null;
-  const config = Object.fromEntries(series.series.map((s, index) => [s.key, { label: s.label, color: GENERIC_FILLS[index % GENERIC_FILLS.length] }])) as ChartConfig;
+  const first = series.series[0];
+  // The comparison series joins by category and renders muted beside the
+  // current one — current solid, past quiet (data-analyst skill §3).
+  const prevByCategory = new Map<string, number>();
+  if (compare !== undefined && first !== undefined) {
+    const prev = genericSeries(definition, compare.rows);
+    for (const point of prev?.points ?? []) prevByCategory.set(String(point.category), Number(point[first.key] ?? 0));
+  }
+  const withPrev = compare !== undefined && first !== undefined;
+  const data = series.points.map((point) => (withPrev ? { ...point, compare: prevByCategory.get(String(point.category)) ?? 0 } : point));
+  const config = Object.fromEntries([
+    ...series.series.map((s, index) => [s.key, { label: s.label, color: GENERIC_FILLS[index % GENERIC_FILLS.length] }]),
+    ...(withPrev ? [['compare', { label: compare.label, color: 'var(--muted-foreground)' }]] : []),
+  ]) as ChartConfig;
   return (
     <Frame title={`Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`} insight={null}>
       <ChartContainer config={config} className="h-56 w-full">
-        <BarChart data={[...series.points]} margin={AXIS_MARGIN}>
+        <BarChart data={data} margin={AXIS_MARGIN}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="category" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
           <YAxis tickLine={false} axisLine={false} width={56} />
           <ChartTooltip content={<ChartTooltipContent />} />
-          {series.series.length > 1 ? <ChartLegend content={<ChartLegendContent />} /> : null}
+          {series.series.length > 1 || withPrev ? <ChartLegend content={<ChartLegendContent />} /> : null}
+          {withPrev ? <Bar dataKey="compare" fill="var(--color-compare)" radius={[4, 4, 0, 0]} maxBarSize={28} fillOpacity={0.55} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} /> : null}
           {series.series.map((s) => (
             <Bar key={s.key} dataKey={s.key} fill={`var(--color-${s.key})`} radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
           ))}
