@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { GearIcon, HandshakeIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
+import { BuildingsIcon, CalendarBlankIcon, CircleDashedIcon, CircleHalfIcon, CircleIcon, CurrencyInrIcon, GearIcon, HandshakeIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon, SealCheckIcon, UserCircleIcon, XCircleIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { KanbanBoard } from '@/components/shared/kanban-board';
@@ -37,6 +37,32 @@ import { useDeal, useDealBoard, useDeals, useMoveDeal, usePipelines, type DealFi
  */
 
 const STATUS_LABELS: Record<DealStatusFilter, string> = { open: 'Open', won: 'Won', lost: 'Lost', all: 'All' };
+
+/**
+ * A hue per open stage, cycled by position — stages are user-named, so the
+ * colour says "which column" at a glance rather than anything semantic. Won
+ * is always green, lost always rose. Full literal classes, for Tailwind.
+ */
+const STAGE_HUES = [
+  { top: 'border-t-sky-500', edge: 'border-l-sky-500', text: 'text-sky-600 dark:text-sky-400' },
+  { top: 'border-t-violet-500', edge: 'border-l-violet-500', text: 'text-violet-600 dark:text-violet-400' },
+  { top: 'border-t-amber-500', edge: 'border-l-amber-500', text: 'text-amber-600 dark:text-amber-400' },
+  { top: 'border-t-teal-500', edge: 'border-l-teal-500', text: 'text-teal-600 dark:text-teal-400' },
+  { top: 'border-t-pink-500', edge: 'border-l-pink-500', text: 'text-pink-600 dark:text-pink-400' },
+  { top: 'border-t-indigo-500', edge: 'border-l-indigo-500', text: 'text-indigo-600 dark:text-indigo-400' },
+] as const;
+const WON_HUE = { top: 'border-t-emerald-500', edge: 'border-l-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' } as const;
+const LOST_HUE = { top: 'border-t-rose-500', edge: 'border-l-rose-500', text: 'text-rose-600 dark:text-rose-400' } as const;
+type StageHue = (typeof STAGE_HUES)[number] | typeof WON_HUE | typeof LOST_HUE;
+
+/** Won a seal, lost a cross; an open stage a circle filling with its probability. */
+function stageIcon(stage: { isWon: boolean; isLost: boolean; probability: number }, className: string) {
+  if (stage.isWon) return <SealCheckIcon className={className} />;
+  if (stage.isLost) return <XCircleIcon className={className} />;
+  if (stage.probability >= 75) return <CircleIcon weight="fill" className={className} />;
+  if (stage.probability >= 40) return <CircleHalfIcon weight="fill" className={className} />;
+  return <CircleDashedIcon className={className} />;
+}
 
 /** en-IN grouping (last three, then twos) for a figure that is read, never computed on. */
 function formatValue(value: string | null): string {
@@ -85,6 +111,8 @@ function isStatus(value: string | null): value is DealStatusFilter {
 }
 
 export function DealsPage() {
+  // Overdue is "before today" in the org's working sense: the local calendar date.
+  const todayParam = new Date().toLocaleDateString('en-CA');
   const canViewSelf = usePermission(PERMISSIONS.CRM_DEAL_VIEW_SELF);
   const canViewAll = usePermission(PERMISSIONS.CRM_DEAL_VIEW_ALL);
   const canView = canViewSelf || canViewAll;
@@ -353,36 +381,67 @@ export function DealsPage() {
         {view === 'board' && board.data !== undefined && !nothing ? (
           <KanbanBoard
             ariaLabel="Deal pipeline"
-            lanes={board.data.lanes.map(({ stage, deals, total, valueTotal }) => ({
-              id: stage.id,
-              label: stage.name,
-              title: (
-                <>
-                  {stage.name}
-                  <span className="text-muted-foreground text-xs font-normal">{stage.isWon ? 'won' : stage.isLost ? 'lost' : `${String(stage.probability)}%`}</span>
-                </>
-              ),
-              meta: (
-                <span className="flex items-baseline gap-2">
-                  <span>{total}</span>
-                  <span className="text-muted-foreground">{formatValue(valueTotal)}</span>
-                </span>
-              ),
-              items: deals,
-              total,
-              muted: stage.isWon || stage.isLost,
-            }))}
+            lanes={board.data.lanes.map(({ stage, deals, total, valueTotal }, index) => {
+              const hue: StageHue = stage.isWon ? WON_HUE : stage.isLost ? LOST_HUE : (STAGE_HUES[index % STAGE_HUES.length] ?? STAGE_HUES[0]);
+              return {
+                id: stage.id,
+                label: stage.name,
+                accent: hue.top,
+                title: (
+                  <>
+                    {stageIcon(stage, cn('shrink-0', hue.text))}
+                    {stage.name}
+                    <span className="text-muted-foreground text-xs font-normal">{stage.isWon ? 'won' : stage.isLost ? 'lost' : `${String(stage.probability)}%`}</span>
+                  </>
+                ),
+                meta: (
+                  <span className="flex items-baseline gap-2">
+                    <span>{total}</span>
+                    <span className="text-muted-foreground">{formatValue(valueTotal)}</span>
+                  </span>
+                ),
+                items: deals,
+                total,
+                muted: stage.isWon || stage.isLost,
+              };
+            })}
             itemKey={(deal) => deal.id}
             itemLaneId={(deal) => deal.stageId}
             itemLabel={(deal) => deal.name}
+            itemAccent={(deal) => {
+              if (deal.status === 'won') return WON_HUE.edge;
+              if (deal.status === 'lost') return LOST_HUE.edge;
+              const index = board.data?.lanes.findIndex((lane) => lane.stage.id === deal.stageId) ?? -1;
+              return index < 0 ? undefined : (STAGE_HUES[index % STAGE_HUES.length] ?? STAGE_HUES[0]).edge;
+            }}
             renderItem={(deal) => (
               <>
                 <span className={cn('font-medium', deal.status === 'lost' && 'text-muted-foreground line-through')}>{deal.name}</span>
-                <span className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-normal">
-                  {deal.companyName === null ? null : <span>{deal.companyName}</span>}
-                  {deal.value === null ? null : <span className="tabular-nums">{formatValue(deal.value)}</span>}
-                  {deal.expectedCloseDate === null ? null : <span className="tabular-nums">{formatDate(deal.expectedCloseDate)}</span>}
-                  {deal.ownerName === null ? null : <span>{deal.ownerName}</span>}
+                <span className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-normal">
+                  {deal.companyName === null ? null : (
+                    <span className="flex min-w-0 items-center gap-1">
+                      <BuildingsIcon className="shrink-0" />
+                      <span className="truncate">{deal.companyName}</span>
+                    </span>
+                  )}
+                  {deal.value === null ? null : (
+                    <span className="flex items-center gap-0.5 tabular-nums">
+                      <CurrencyInrIcon className="shrink-0" />
+                      {formatValue(deal.value)}
+                    </span>
+                  )}
+                  {deal.expectedCloseDate === null ? null : (
+                    <span className={cn('flex items-center gap-1 tabular-nums', deal.status === 'open' && deal.expectedCloseDate < todayParam && 'text-amber-600 dark:text-amber-400')}>
+                      <CalendarBlankIcon className="shrink-0" />
+                      {formatDate(deal.expectedCloseDate)}
+                    </span>
+                  )}
+                  {deal.ownerName === null ? null : (
+                    <span className="flex min-w-0 items-center gap-1">
+                      <UserCircleIcon className="shrink-0" />
+                      <span className="truncate">{deal.ownerName}</span>
+                    </span>
+                  )}
                 </span>
               </>
             )}

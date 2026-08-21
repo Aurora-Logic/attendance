@@ -27,6 +27,8 @@ export interface KanbanLane<T> {
   /** Beyond `items` when the lane was capped. */
   readonly total: number;
   readonly muted?: boolean;
+  /** Border classes colouring the lane's top edge ("border-t-sky-500"). */
+  readonly accent?: string;
 }
 
 interface KanbanBoardProps<T> {
@@ -37,6 +39,8 @@ interface KanbanBoardProps<T> {
   renderItem: (item: T) => ReactNode;
   onOpen: (item: T) => void;
   onMove: (item: T, laneId: string) => void;
+  /** Border classes colouring a card's left edge, per item; the lane's hue on its cards. */
+  itemAccent?: (item: T) => string | undefined;
   moving: boolean;
   ariaLabel: string;
   /** Where the list rendering lives, for the "and N more" line. */
@@ -51,6 +55,7 @@ export function KanbanBoard<T>({
   renderItem,
   onOpen,
   onMove,
+  itemAccent,
   moving,
   ariaLabel,
   overflowHint = 'see the list',
@@ -68,6 +73,8 @@ export function KanbanBoard<T>({
             aria-label={`${lane.label}, ${String(lane.total)} item${lane.total === 1 ? '' : 's'}`}
             className={cn(
               'flex w-72 shrink-0 flex-col border',
+              lane.accent !== undefined && 'border-t-2',
+              lane.accent,
               lane.muted && 'bg-muted/30',
               over === lane.id && dragging !== null && itemLaneId(dragging) !== lane.id && 'bg-accent/40',
             )}
@@ -108,7 +115,7 @@ export function KanbanBoard<T>({
                     setDragging(null);
                     setOver(null);
                   }}
-                  className={cn('bg-background border', dragging !== null && itemKey(dragging) === itemKey(item) && 'opacity-50')}
+                  className={cn('bg-background border', itemAccent?.(item) !== undefined && 'border-l-2', itemAccent?.(item), dragging !== null && itemKey(dragging) === itemKey(item) && 'opacity-50')}
                 >
                   <Button
                     type="button"
