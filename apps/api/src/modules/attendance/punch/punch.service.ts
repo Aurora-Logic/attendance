@@ -362,6 +362,15 @@ export class PunchService {
 
     let shifts: ShiftForDate[] = [];
     let shiftError: PunchContext['blockedReason'] = null;
+    // The screen is told up front rather than after the photo is taken.
+    const geofenceBlocker: PunchContext['blockedReason'] =
+      employee.geofenceLat === null || employee.geofenceLng === null
+        ? {
+            code: ERROR_CODES.PUNCH_GEOFENCE_NOT_CONFIGURED,
+            message:
+              'Your office has no coordinates set, so punches there cannot be checked yet. An administrator sets the office location in Settings.',
+          }
+        : null;
     try {
       shifts = await this.candidatesFor(repository, ctx, employee, now);
     } catch (error: unknown) {
@@ -418,8 +427,8 @@ export class PunchService {
         employeeCode: employee.employeeCode,
         isFieldStaff: employee.isFieldStaff,
       },
-      canPunch: blocked === null && shiftError === null,
-      nextPunchType: blocked === null && shiftError === null ? nextPunchType : null,
+      canPunch: blocked === null && shiftError === null && geofenceBlocker === null,
+      nextPunchType: blocked === null && shiftError === null && geofenceBlocker === null ? nextPunchType : null,
       shift:
         chosen === null || label === null || nextWindow === null
           ? null
@@ -453,9 +462,11 @@ export class PunchService {
       reasonRequired: !insideWindow && settings.windowBehaviour === 'ALLOW_WITH_REASON',
       photoRequired: true,
       geofence: {
-        enforced: employee.geofenceLat !== null && employee.geofenceLng !== null,
+        enforced: true,
         radiusM: employee.geofenceRadiusM,
-        exempt: employee.isFieldStaff,
+        // No exemption survives (owner, 21 Aug 2026); the field stays so
+        // older clients keep parsing the context.
+        exempt: false,
       },
       ipAllowlist: {
         enforced: allowlistConfigured,
@@ -465,7 +476,7 @@ export class PunchService {
       day,
       consentAccepted,
       photoRetentionMonths: settings.photoRetentionMonths,
-      blockedReason: blocked ?? shiftError,
+      blockedReason: blocked ?? shiftError ?? geofenceBlocker,
     };
   }
 
@@ -889,7 +900,7 @@ export class PunchService {
 
     // -- location (REQ-D-08, REQ-D-08a)
     let distanceFromGeofenceM: number | null = null;
-    let outsideGeofence = false;
+    const outsideGeofence = false;
 
     if (facts.isMockLocation) {
       // Before every other location question: a reading the device itself
@@ -921,18 +932,24 @@ export class PunchService {
             accuracyM: facts.gpsAccuracyM ?? null,
           };
 
+    // Owner, 21 Aug 2026 (docs/05-decisions.md): the geofence is enforced on
+    // the server with one exception only - a fix that is outside by less
+    // than its own accuracy. No field-staff exemption, no punch without a
+    // position, and no punch at an office whose coordinates are not set.
     const verdict = evaluateGeofence(centre, reading);
     switch (verdict.kind) {
       case 'not_configured':
-        // OPEN-QUESTIONS item 1. Same reasoning as the allowlist above.
-        flags.add('geofence_disabled');
-        if (reading === null) flags.add('no_location');
-        break;
+        await this.auditRejection(principal, employee, 'geofence_not_configured', {});
+        throw new AppError(
+          ERROR_CODES.PUNCH_GEOFENCE_NOT_CONFIGURED,
+          'Your office has no coordinates set, so a punch there cannot be checked. Ask an administrator to set the office location in Settings.',
+        );
       case 'no_reading':
-        // REQ-D-08a: allowed with a mandatory typed reason, never silently.
-        flags.add('no_location');
-        reasonRequired = true;
-        break;
+        await this.auditRejection(principal, employee, 'no_location', {});
+        throw new AppError(
+          ERROR_CODES.PUNCH_LOCATION_REQUIRED,
+          'A location is required to punch. Allow location access on this device and try again.',
+        );
       case 'inside':
         distanceFromGeofenceM = verdict.distanceM;
         break;
@@ -941,15 +958,6 @@ export class PunchService {
         flags.add('low_gps_accuracy');
         break;
       case 'outside':
-        distanceFromGeofenceM = verdict.distanceM;
-        if (employee.isFieldStaff) {
-          // REQ-D-08: "Employees flagged as field staff are exempt." Recorded
-          // as genuinely outside, because it was -- the exemption is about who
-          // may punch there, not about pretending they were at the office.
-          flags.add('field_staff_exempt');
-          outsideGeofence = true;
-          break;
-        }
         await this.auditRejection(principal, employee, 'outside_geofence', {
           distanceM: Math.round(verdict.distanceM),
           radiusM: employee.geofenceRadiusM,
@@ -966,8 +974,6 @@ export class PunchService {
           },
         );
     }
-
-    if (employee.isFieldStaff && verdict.kind !== 'outside') flags.add('field_staff_exempt');
 
     // -- device (REQ-B-08, WARN by 05-decisions)
     const fingerprint = facts.deviceFingerprint ?? null;

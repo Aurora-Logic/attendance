@@ -9,7 +9,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { locations } from '../../../platform/db/schema/index.js';
-import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import { ApiHarness, FIXTURE_OFFICE, scopedEmail } from '../../../test-support/api-harness.js';
 import { punches, shiftAssignments, shifts } from '../schema/index.js';
 
 /**
@@ -126,6 +126,9 @@ async function drain(
         type: entry.type,
         clientTime: entry.clientTime.toISOString(),
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
         reason: 'Queued on the shop floor with no signal.',
       })),
     }),
@@ -178,7 +181,14 @@ beforeAll(async () => {
 
   const locationRows = await harness.db
     .insert(locations)
-    .values({ orgId: ORG_ID, code: `OFD-${runId}`, name: 'Offline Day Site (test only)', timezone })
+    .values({
+      orgId: ORG_ID,
+      code: `OFD-${runId}`,
+      name: 'Offline Day Site (test only)',
+      timezone,
+      geofenceLat: FIXTURE_OFFICE.latitude,
+      geofenceLng: FIXTURE_OFFICE.longitude,
+    })
     .returning({ id: locations.id });
   const locationId = locationRows[0]?.id;
   if (locationId === undefined) throw new Error('location fixture insert returned no row');

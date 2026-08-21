@@ -15,7 +15,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import { ApiHarness, FIXTURE_OFFICE, scopedEmail } from '../../../test-support/api-harness.js';
 import { consentAcceptances, employees, files } from '../../../platform/db/schema/index.js';
 import { localDateIn } from '../day-engine/calendar-date.js';
 import { attendanceDays, punches, shiftAssignments, shifts } from '../schema/index.js';
@@ -134,6 +134,11 @@ function punchIn(
       clientTime: new Date().toISOString(),
       source: 'MOBILE',
       consentAccepted: true,
+      // At the fixture office, with a tight fix: the geofence is enforced on
+      // every punch, so a punch with no position is refused.
+      latitude: FIXTURE_OFFICE.latitude,
+      longitude: FIXTURE_OFFICE.longitude,
+      gpsAccuracyM: 8,
       ...overrides,
     },
   });
@@ -319,6 +324,9 @@ describe('access control', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
       },
     });
     expect(result.status).toBe(400);
@@ -336,6 +344,9 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
       },
     });
 
@@ -354,9 +365,9 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
     expect(result.body.punch.employee.id).toBe(employeeAId);
     // Two objects per punch, and they are different objects (REQ-D-03a).
     expect(result.body.punch.photo.thumbnailFileId).not.toBe(result.body.punch.photo.fileId);
-    // No geofence centre and no fix: flagged as unchecked, never as passed.
-    expect(result.body.punch.flags).toContain('geofence_disabled');
-    expect(result.body.punch.flags).toContain('no_location');
+    // Taken at the fixture office with a tight fix: inside, and nothing flagged about it.
+    expect(result.body.punch.flags).not.toContain('outside_geofence');
+    expect(result.body.punch.flags).not.toContain('low_gps_accuracy');
 
     // The receipt's day is the engine's inline run, not a cached view.
     expect(result.body.day).not.toBeNull();
@@ -476,6 +487,9 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
       },
     });
     expect(refused.status).toBe(422);
@@ -489,6 +503,9 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
         reason: 'Leaving early for a medical appointment.',
       },
     });
@@ -509,6 +526,9 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
         reason: 'Trying to punch out before ever punching in.',
       },
     });
@@ -525,6 +545,9 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
         isHalfDay: true,
         halfDayPart: 'FIRST_HALF',
       },
@@ -542,6 +565,9 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
         isHalfDay: true,
         halfDayPart: 'SECOND_HALF',
       },
@@ -567,6 +593,9 @@ describe('POST /punches/sync (REQ-D-10)', () => {
           {
             idempotencyKey: `pt-sync-stale-${runId}`,
             photoIndex: 0,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(72 * 3600 * 1000),
             consentAccepted: true,
@@ -575,6 +604,9 @@ describe('POST /punches/sync (REQ-D-10)', () => {
           {
             idempotencyKey: `pt-sync-fresh-${runId}`,
             photoIndex: 1,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(7 * 60 * 1000),
             consentAccepted: true,
@@ -615,6 +647,9 @@ describe('POST /punches/sync (REQ-D-10)', () => {
           {
             idempotencyKey: `pt-sync-stale-${runId}`,
             photoIndex: 0,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(72 * 3600 * 1000),
             consentAccepted: true,
@@ -623,6 +658,9 @@ describe('POST /punches/sync (REQ-D-10)', () => {
           {
             idempotencyKey: `pt-sync-fresh-${runId}`,
             photoIndex: 1,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(7 * 60 * 1000),
             consentAccepted: true,
@@ -709,6 +747,9 @@ describe('consent gate (REQ-M-03)', () => {
           {
             idempotencyKey: `pt-consent-sync-no-${runId}`,
             photoIndex: 0,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(5 * 60 * 1000),
           },
@@ -731,6 +772,9 @@ describe('consent gate (REQ-M-03)', () => {
           {
             idempotencyKey: `pt-consent-sync-yes-${runId}`,
             photoIndex: 0,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(5 * 60 * 1000),
             consentAccepted: true,
@@ -859,10 +903,10 @@ describe('reads and scope', () => {
     expect(context.body.nextPunchType).toBe('OUT');
     expect(context.body.lastPunch?.type).toBe('IN');
     expect(context.body.day).not.toBeNull();
-    // Neither premises control is configured yet (OPEN-QUESTIONS 1 and 3),
-    // and the screen is told so rather than shown a control that silently
-    // does not exist.
-    expect(context.body.geofence.enforced).toBe(false);
+    // The geofence is always enforced; the allowlist is not configured yet
+    // (OPEN-QUESTIONS 3) and the screen is told so.
+    expect(context.body.geofence.enforced).toBe(true);
+    expect(context.body.geofence.exempt).toBe(false);
     expect(context.body.ipAllowlist.enforced).toBe(false);
   });
 
@@ -906,5 +950,71 @@ describe('fixture hygiene', () => {
       .from(employees)
       .where(and(eq(employees.orgId, ORG_ID), eq(employees.employeeCode, `PT-A-${runId}`)));
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe('the geofence is enforced on the server (owner, 21 Aug 2026)', () => {
+  beforeAll(async () => {
+    // B was left punched in by the half-day test, and ordering is checked
+    // before location: close the day so each probe below is judged on where
+    // it stands, not on what came before.
+    const closed = await punchIn(tokenB, `pt-geo-close-${runId}`, {
+      type: 'OUT',
+      reason: 'Closing the day before the geofence probes',
+    });
+    expect(closed.status, JSON.stringify(closed.body)).toBe(201);
+  });
+
+  it('refuses a punch from outside the radius, and leaves no punch behind', async () => {
+    const before = await countPunches(employeeBId);
+    const result = await punchIn(tokenB, `pt-geo-out-${runId}`, {
+      // About 1.1 km north of the fixture office, with a tight fix.
+      latitude: FIXTURE_OFFICE.latitude + 0.01,
+      longitude: FIXTURE_OFFICE.longitude,
+      gpsAccuracyM: 5,
+    });
+    expect(result.status, JSON.stringify(result.body)).toBe(422);
+    expect(result.body.error.code).toBe('PUNCH_OUTSIDE_GEOFENCE');
+    expect(result.body.error.message).toMatch(/outside the 100 m punch area/u);
+    expect(await countPunches(employeeBId)).toBe(before);
+  });
+
+  it('refuses a punch that carries no position at all', async () => {
+    const result = await punchIn(tokenB, `pt-geo-none-${runId}`, {
+      latitude: undefined,
+      longitude: undefined,
+      gpsAccuracyM: undefined,
+    });
+    expect(result.status, JSON.stringify(result.body)).toBe(422);
+    expect(result.body.error.code).toBe('PUNCH_LOCATION_REQUIRED');
+  });
+
+  it('refuses every punch at an office whose coordinates are not set, and says so in the context', async () => {
+    await harness.db.execute(
+      sql`UPDATE locations SET geofence_lat = NULL, geofence_lng = NULL WHERE org_id = ${ORG_ID}`,
+    );
+    try {
+      const context = await harness.get<PunchContext>('/me/today', { token: tokenB });
+      expect(context.body.canPunch).toBe(false);
+      expect(context.body.blockedReason?.code).toBe('PUNCH_GEOFENCE_NOT_CONFIGURED');
+      const result = await punchIn(tokenB, `pt-geo-unset-${runId}`);
+      expect(result.status, JSON.stringify(result.body)).toBe(422);
+      expect(result.body.error.code).toBe('PUNCH_GEOFENCE_NOT_CONFIGURED');
+    } finally {
+      await harness.db.execute(
+        sql`UPDATE locations SET geofence_lat = ${FIXTURE_OFFICE.latitude}, geofence_lng = ${FIXTURE_OFFICE.longitude} WHERE org_id = ${ORG_ID}`,
+      );
+    }
+  });
+
+  it('tolerates a fix that is outside by less than its own accuracy, flagged', async () => {
+    const result = await punchIn(tokenB, `pt-geo-weak-${runId}`, {
+      // About 110 m away with a 60 m accuracy: 110 - 60 < 100, so inside the doubt.
+      latitude: FIXTURE_OFFICE.latitude + 0.001,
+      longitude: FIXTURE_OFFICE.longitude,
+      gpsAccuracyM: 60,
+    });
+    expect(result.status, JSON.stringify(result.body)).toBe(201);
+    expect(result.body.punch.flags).toContain('low_gps_accuracy');
   });
 });

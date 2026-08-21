@@ -327,9 +327,10 @@ export function PunchPage() {
     location.state === 'unavailable' ||
     location.state === 'timed-out';
 
-  // REQ-D-06 and REQ-D-08a are the two places a typed reason is mandatory.
-  const reasonRequired =
-    (outsideWindow && today?.windowBehaviour === 'ALLOW_WITH_REASON') || locationMissing;
+  // REQ-D-06 is the one place a typed reason is mandatory. A missing
+  // location no longer has a reason path: the server refuses the punch
+  // (owner, 21 Aug 2026), so the button waits for a fix instead.
+  const reasonRequired = outsideWindow && today?.windowBehaviour === 'ALLOW_WITH_REASON';
   const reasonOk = !reasonRequired || reason.trim().length >= MIN_REASON_LENGTH;
   // Red only once something insufficient has been typed. An untouched field
   // painted red reads as a broken form (the leave form states the same rule);
@@ -353,6 +354,7 @@ export function PunchPage() {
     camera.state === 'ready' &&
     camera.hasFrame &&
     !blockedByWindow &&
+    location.state === 'ready' &&
     reasonOk &&
     consentOk &&
     !punch.isPending;
@@ -691,13 +693,13 @@ export function PunchPage() {
                           }`
                         : null}
                       {location.state === 'denied'
-                        ? 'Location is blocked. The punch is still allowed, with a reason, and is flagged for approval.'
+                        ? 'Location is blocked. A punch needs your position, so allow location access for this site and retry.'
                         : null}
                       {location.state === 'unavailable'
-                        ? 'This device cannot report a location. The punch is still allowed, with a reason.'
+                        ? 'This device cannot report a location, and a punch needs one. Punch from a phone or a device with location.'
                         : null}
                       {location.state === 'timed-out'
-                        ? 'Locating timed out. The punch is still allowed, with a reason.'
+                        ? 'Locating timed out. A punch needs your position; retry once you have a clearer view of the sky.'
                         : null}
                     </p>
                     {locationMissing || location.state === 'timed-out' ? (

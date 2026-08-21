@@ -9,7 +9,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { env } from '../../../platform/common/env.js';
-import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import { ApiHarness, FIXTURE_OFFICE, scopedEmail } from '../../../test-support/api-harness.js';
 import { localDateIn } from '../day-engine/calendar-date.js';
 import { shiftAssignments, shifts } from '../schema/index.js';
 import { PUNCH_ORDERING_LOCK_NAMESPACE } from './punch.repository.js';
@@ -99,6 +99,9 @@ function preparePunch(token: string, key: string): () => Promise<Attempt> {
       clientTime: new Date().toISOString(),
       source: 'MOBILE',
       consentAccepted: true,
+      latitude: FIXTURE_OFFICE.latitude,
+      longitude: FIXTURE_OFFICE.longitude,
+      gpsAccuracyM: 8,
     }),
   );
 
