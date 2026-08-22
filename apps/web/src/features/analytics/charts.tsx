@@ -1,4 +1,5 @@
-import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
+import { compactCount, compactIndian, endpointLabel, stackTotal, valueCaps } from '@/components/shared/chart-labels';
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis, LabelList } from 'recharts';
 
 import {
   ChartContainer,
@@ -271,7 +272,9 @@ export function AttendanceRateChart({ points, animate }: ChartProps<RatePoint>) 
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...endpointLabel('rate', points)} />
+        </Line>
       </LineChart>
     </ChartContainer>
   );
@@ -304,7 +307,9 @@ export function WeekdayAbsenceChart({ points, animate }: ChartProps<WeekdayPoint
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('rate', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -342,7 +347,9 @@ export function LateSpreadChart({ points, animate }: ChartProps<LateBucket>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('days', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -384,7 +391,9 @@ export function RepeatLateChart({ points, animate }: ChartProps<PersonPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('value', compactIndian)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -438,7 +447,9 @@ export function OvertimeChart({ points, animate }: ChartProps<PersonPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('value', compactIndian)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -527,7 +538,9 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...stackTotal([row], ['MOBILE', 'WEB', 'OFFLINE_SYNC', 'ADMIN_ENTRY'])} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -595,7 +608,9 @@ export function FlagVolumeChart({ points, animate }: ChartProps<FlagPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('punches', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -655,7 +670,9 @@ export function HeadcountChart({ points, animate }: ChartProps<DepartmentPoint>)
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...stackTotal([...points], ['permanent', 'fixedTerm'])} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );

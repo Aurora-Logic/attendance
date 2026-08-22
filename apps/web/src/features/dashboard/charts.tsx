@@ -1,4 +1,5 @@
-import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
+import { compactCount, endpointLabel, stackTotal, valueCaps } from '@/components/shared/chart-labels';
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis, LabelList } from 'recharts';
 
 import {
   ChartContainer,
@@ -212,7 +213,9 @@ export function AttendanceTrendChart({ points, animate }: ChartProps<TrendPoint>
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...stackTotal([...points], ['work', 'leave', 'absent', 'other'])} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -257,7 +260,9 @@ export function LateArrivalsChart({ points, animate }: ChartProps<LatePoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...endpointLabel('late', points)} />
+        </Line>
       </LineChart>
     </ChartContainer>
   );
@@ -313,7 +318,9 @@ export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('workedMinutes', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );

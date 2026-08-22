@@ -1,3 +1,4 @@
+import { compactCount, endpointLabel, valueCaps } from '@/components/shared/chart-labels';
 import { useMemo, type ReactNode } from 'react';
 import {
   Bar,
@@ -195,7 +196,9 @@ export function WorkedHoursChart({ points, delayMs = 0 }: { points: WorkedPoint[
           // visible, and weakening every bar to match a typing limitation
           // would be the wrong way round.
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...endpointLabel('scheduled', points)} />
+        </Line>
       </ComposedChart>
     </ChartContainer>
   );
@@ -357,7 +360,9 @@ export function LateMinutesChart({ points, delayMs = 0 }: { points: LatePoint[];
           animationBegin={beginMs}
           animationDuration={durationMs}
           animationEasing={CHART_EASING}
-        />
+        >
+          <LabelList {...valueCaps('lateMinutes', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );

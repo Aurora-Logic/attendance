@@ -1,4 +1,5 @@
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { compactCount, stackTotal, valueCaps } from '@/components/shared/chart-labels';
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis, LabelList } from 'recharts';
 
 import {
   ChartContainer,
@@ -258,7 +259,9 @@ export function StatusBandsChart({ points, animate }: ChartProps<BandPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...stackTotal([...points], ['work', 'leave', 'absent', 'other'])} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -307,7 +310,9 @@ export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('workedMinutes', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -359,7 +364,9 @@ export function TimekeepingChart({ points, animate }: ChartProps<TimekeepingPoin
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('lateMinutes', compactCount)} />
+        </Bar>
         <Bar
           dataKey="earlyExitMinutes"
           fill="var(--color-earlyExitMinutes)"
@@ -367,7 +374,9 @@ export function TimekeepingChart({ points, animate }: ChartProps<TimekeepingPoin
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('earlyExitMinutes', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );

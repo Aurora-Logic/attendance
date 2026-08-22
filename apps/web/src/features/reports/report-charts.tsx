@@ -1,4 +1,5 @@
-import { Bar, BarChart, CartesianGrid, Label, Line, LineChart, Pie, PieChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, Scatter, ScatterChart, XAxis, YAxis } from 'recharts';
+import { compactCount, compactIndian, stackTotal, valueCaps } from '@/components/shared/chart-labels';
+import { Bar, BarChart, CartesianGrid, Label, Line, LineChart, Pie, PieChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, Scatter, ScatterChart, XAxis, YAxis, LabelList } from 'recharts';
 
 import { SectionHeading } from '@/components/shared/section-heading';
 import { CHART_INTRO_MS } from '@/components/shared/use-chart-motion';
@@ -71,6 +72,23 @@ function Frame({ title, insight, children }: { title: string; insight: string | 
   );
 }
 
+/**
+ * A slice's value, outside the ring on a leader line.
+ *
+ * Not inside the wedge: the slices are coloured fills across the whole ramp,
+ * and one ink is illegible on some of them -- the same reason stacked segments
+ * carry no inline label. Outside, on the surface, it wears text tokens and is
+ * readable on every slice. Slices under 4% are left to the legend and the
+ * tooltip, because their labels would collide with their neighbours' and a
+ * collided label is worse than an absent one.
+ */
+const PIE_LABEL = {
+  fill: 'var(--muted-foreground)',
+  fontSize: 11,
+  className: 'hidden tabular-nums sm:block',
+  formatter: (value: unknown) => (typeof value === 'number' ? compactCount(value) : ''),
+} as const;
+
 export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: ReportKey; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string } }) {
   if (rows.length === 0) return null;
   const motion = { isAnimationActive: animate, animationDuration: CHART_INTRO_MS } as const;
@@ -102,8 +120,12 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
                 <YAxis tickLine={false} axisLine={false} width={64} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 {compare !== undefined ? <ChartLegend content={<ChartLegendContent />} /> : null}
-                <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} maxBarSize={44} {...motion} />
-                {compare !== undefined ? <Bar dataKey="compare" fill="var(--color-compare)" fillOpacity={0.55} radius={[4, 4, 0, 0]} maxBarSize={44} {...motion} /> : null}
+                <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} maxBarSize={44} {...motion} >
+                  <LabelList {...valueCaps('value', compactIndian)} />
+                </Bar>
+                {compare !== undefined ? <Bar dataKey="compare" fill="var(--color-compare)" fillOpacity={0.55} radius={[4, 4, 0, 0]} maxBarSize={44} {...motion} >
+          <LabelList {...valueCaps('compare', compactCount)} />
+        </Bar> : null}
               </BarChart>
             </ChartContainer>
           </Frame>
@@ -123,8 +145,12 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               <YAxis tickLine={false} axisLine={false} width={56} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
-              <Bar dataKey="inward" fill="var(--color-inward)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} />
-              <Bar dataKey="outward" fill="var(--color-outward)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} />
+              <Bar dataKey="inward" fill="var(--color-inward)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} >
+                <LabelList {...valueCaps('inward', compactCount)} />
+              </Bar>
+              <Bar dataKey="outward" fill="var(--color-outward)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} >
+                <LabelList {...valueCaps('outward', compactCount)} />
+              </Bar>
             </BarChart>
           </ChartContainer>
         </Frame>
@@ -142,8 +168,12 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               <YAxis tickLine={false} axisLine={false} width={48} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
-              <Bar dataKey="monthly12" fill="var(--color-monthly12)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} />
-              <Bar dataKey="monthly3" fill="var(--color-monthly3)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} />
+              <Bar dataKey="monthly12" fill="var(--color-monthly12)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} >
+                <LabelList {...valueCaps('monthly12', compactCount)} />
+              </Bar>
+              <Bar dataKey="monthly3" fill="var(--color-monthly3)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} >
+                <LabelList {...valueCaps('monthly3', compactCount)} />
+              </Bar>
             </BarChart>
           </ChartContainer>
         </Frame>
@@ -164,7 +194,9 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               <Bar dataKey="bucket0" stackId="age" fill="var(--color-bucket0)" {...motion} />
               <Bar dataKey="bucket31" stackId="age" fill="var(--color-bucket31)" {...motion} />
               <Bar dataKey="bucket61" stackId="age" fill="var(--color-bucket61)" {...motion} />
-              <Bar dataKey="bucket90" stackId="age" fill="var(--color-bucket90)" radius={[4, 4, 0, 0]} {...motion} />
+              <Bar dataKey="bucket90" stackId="age" fill="var(--color-bucket90)" radius={[4, 4, 0, 0]} {...motion} >
+                <LabelList {...stackTotal([...points], ['bucket0', 'bucket31', 'bucket61', 'bucket90'])} />
+              </Bar>
             </BarChart>
           </ChartContainer>
         </Frame>
@@ -191,7 +223,9 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
               <Bar dataKey="lapsedRevenue" stackId="risk" fill="var(--color-lapsedRevenue)" {...motion} />
-              <Bar dataKey="atRiskRevenue" stackId="risk" fill="var(--color-atRiskRevenue)" radius={[4, 4, 0, 0]} {...motion} />
+              <Bar dataKey="atRiskRevenue" stackId="risk" fill="var(--color-atRiskRevenue)" radius={[4, 4, 0, 0]} {...motion} >
+                <LabelList {...stackTotal(data, ['lapsedRevenue', 'atRiskRevenue'])} />
+              </Bar>
             </BarChart>
           </ChartContainer>
         </Frame>
@@ -219,7 +253,9 @@ export function MonthlyValueChart({ points, animate }: { points: readonly { labe
         <XAxis dataKey="label" tickLine={false} axisLine={false} />
         <YAxis tickLine={false} axisLine={false} width={64} />
         <ChartTooltip content={<ChartTooltipContent />} />
-        <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+        <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} >
+          <LabelList {...valueCaps('value', compactIndian)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -299,7 +335,9 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
           <YAxis type="category" dataKey="category" tickLine={false} axisLine={false} width={120} tickFormatter={truncate} interval={0} />
           <ChartTooltip content={<ChartTooltipContent />} />
           {series.series.length > 1 || withPrev ? <ChartLegend content={<ChartLegendContent />} /> : null}
-          {withPrev ? <Bar dataKey="compare" fill="var(--color-compare)" radius={[0, 4, 4, 0]} maxBarSize={18} fillOpacity={0.55} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} /> : null}
+          {withPrev ? <Bar dataKey="compare" fill="var(--color-compare)" radius={[0, 4, 4, 0]} maxBarSize={18} fillOpacity={0.55} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} >
+          <LabelList {...valueCaps('compare', compactCount)} />
+        </Bar> : null}
           {series.series.map((s) => (
             <Bar
               key={s.key}
@@ -479,6 +517,8 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             nameKey="name"
             innerRadius={56}
             strokeWidth={2}
+            label={PIE_LABEL}
+            labelLine={{ stroke: 'var(--border)' }}
             isAnimationActive={animate}
             animationDuration={CHART_INTRO_MS}
             className={onDrill === undefined ? undefined : 'cursor-pointer'}
@@ -508,7 +548,7 @@ export function CompositionDonut({ rows, labelKey, valueKey, animate }: { rows: 
     <ChartContainer config={config} className="mx-auto aspect-square max-h-64 w-full">
       <PieChart>
         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
-        <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+        <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} label={PIE_LABEL} labelLine={{ stroke: 'var(--border)' }} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
         <ChartLegend content={<ChartLegendContent nameKey="name" />} />
       </PieChart>
     </ChartContainer>

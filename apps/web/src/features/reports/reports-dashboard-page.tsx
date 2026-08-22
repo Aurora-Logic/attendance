@@ -81,7 +81,6 @@ export function ReportsDashboardPage() {
   const lapse = useReportRows('customer-lapse', page, { enabled: canView });
   const dead = useReportRows('dead-stock', page, { enabled: canView });
   const lowStock = useReportRows('low-stock', { page: 1, pageSize: 1 }, { enabled: canView });
-  const stale = useReportRows('stale-projections', { page: 1, pageSize: 1 }, { enabled: canView });
   const salesByMonth = useReportRows('sales-analysis', { ...page, groupBy: 'month', from: TWELVE_MONTHS_AGO(), to: TODAY() }, { enabled: canView });
   const salesByParty = useReportRows('sales-analysis', { ...page, groupBy: 'party', from: TWELVE_MONTHS_AGO(), to: TODAY() }, { enabled: canView });
   const ageing = useReportRows('stock-ageing', page, { enabled: canView });
@@ -197,16 +196,6 @@ export function ReportsDashboardPage() {
               icon={<PackageIcon />}
               onOpen={() => {
                 open('report=low-stock');
-              }}
-            />
-            <StatTile
-              label="Stale projections"
-              value={String(stale.data?.meta.total ?? 0)}
-              hint="Companies whose last pull is over a day old"
-              icon={<HourglassMediumIcon />}
-              tone={(stale.data?.meta.total ?? 0) > 0 ? 'bad' : undefined}
-              onOpen={() => {
-                open('report=stale-projections');
               }}
             />
           </div>
