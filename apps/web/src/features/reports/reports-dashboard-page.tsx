@@ -374,8 +374,10 @@ export function ReportsDashboardPage() {
         </Panel>
 
         {canViewAttendance ? (
-          <Panel>
-            <section className="flex flex-col gap-3">
+          // No Panel here: the tiles are the boxes, and a bordered wrapper
+          // around bordered tiles is the box-in-box the constitution bans.
+          // The KPI row at the top stands the same way.
+          <section className="flex flex-col gap-3">
             <SectionHeading
               icon={<SunHorizonIcon />}
               title="Attendance, last 30 days"
@@ -450,8 +452,7 @@ export function ReportsDashboardPage() {
                 </div>
               );
             })()}
-            </section>
-          </Panel>
+          </section>
         ) : null}
       </div>
     </>
