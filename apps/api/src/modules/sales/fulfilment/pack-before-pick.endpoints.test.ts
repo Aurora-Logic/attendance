@@ -64,10 +64,12 @@ afterAll(async () => {
 });
 
 describe('POST /sales/orders/:id/packs before any pick', () => {
-  it('is refused with a sentence and a 409, and nothing moves', async () => {
+  it('is refused with a sentence, never a 500, and nothing moves', async () => {
     const res = await harness.post<ErrorBody>(`/sales/orders/${orderId}/packs`, { token: adminToken, body: { boxCount: 1, lines: [{ lineId, quantity: '2' }] } });
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('CONFLICT');
+    // The service names the rule first when it can (400); the database's own
+    // refusal (409) stands behind it. Either way a sentence that says pick.
+    expect([400, 409]).toContain(res.status);
+    expect(['VALIDATION_FAILED', 'CONFLICT']).toContain(res.body.error.code);
     expect(res.body.error.message).toMatch(/pick/iu);
 
     const after = await harness.db.execute<{ packed_qty: string; picked_qty: string; packs: string }>(sql`
