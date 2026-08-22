@@ -6,8 +6,7 @@ import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { PageHeader } from '@/components/shared/page-header';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
-import { duplicateWarning } from '@/components/shared/duplicate-flag';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
+import { type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { RowActions, type RowAction } from '@/components/shared/row-actions';
 import { SearchField } from '@/components/shared/search-field';
@@ -26,8 +25,8 @@ import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { CheckboxRow } from '@/features/leave/control-row';
-import { useParties } from '@/features/masters/use-parties';
-import { useStockItems } from '@/features/masters/use-stock-items';
+import { ItemPicker } from '@/features/masters/item-picker';
+import { PartyPicker } from '@/features/masters/party-picker';
 import { EMPTY_VALUE, formatDate } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
@@ -479,13 +478,11 @@ const QTY = /^\d{1,12}(\.\d{1,3})?$/u;
 
 function NewRequirementBody({ onClose }: { onClose: () => void }) {
   const canSeeMasters = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
-  const items = useStockItems({ page: 1 }, { enabled: canSeeMasters });
   const create = useCreateRequirement();
   const [stockItem, setStockItem] = useState<PickerOption | null>(null);
   const [quantity, setQuantity] = useState('1');
   const [neededBy, setNeededBy] = useState<string | null>(null);
 
-  const itemOptions: PickerOption[] = (items.data?.data ?? []).map((i) => ({ id: i.id, label: i.name, hint: i.unit, ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}) }));
   const valid = stockItem !== null && QTY.test(quantity.trim());
   const copy = actionErrorCopy(create.error, 'Raising the requirement');
 
@@ -520,18 +517,17 @@ function NewRequirementBody({ onClose }: { onClose: () => void }) {
           ) : null}
           <Field>
             <FieldLabel htmlFor="requirement-item">Stock item</FieldLabel>
-            <RecordPicker
+            <ItemPicker
               id="requirement-item"
               label="Stock item"
               placeholder="Choose the item"
               searchPlaceholder="Search stock items"
               emptyMessage="No item matches. It must exist in Tally first."
               icon={<PackageIcon className="text-muted-foreground" />}
-              options={itemOptions}
-              loading={items.isPending}
+              enabled={canSeeMasters}
               disabled={!canSeeMasters}
               value={stockItem}
-              onValueChange={setStockItem}
+              onValueChange={(next) => { setStockItem(next ? { id: next.id, label: next.name } : null); }}
             />
             {!canSeeMasters ? <FieldDescription>Choosing an item needs masters.tally.view.</FieldDescription> : null}
           </Field>
@@ -601,12 +597,10 @@ function RaisePurchaseOrderDialog({
 
 function RaisePurchaseOrderBody({ requirements, onRaised, onClose }: { requirements: readonly Requirement[]; onRaised: (id: string) => void; onClose: () => void }) {
   const canSeeMasters = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
-  const parties = useParties({ page: 1 }, { enabled: canSeeMasters });
   const create = useCreatePurchaseOrderFromRequirements();
   const [vendor, setVendor] = useState<PickerOption | null>(null);
   const [expectedDate, setExpectedDate] = useState<string | null>(null);
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const items = new Set(requirements.map((r) => r.stockItemId)).size;
   const copy = actionErrorCopy(create.error, 'Raising the purchase order');
 
@@ -656,18 +650,15 @@ function RaisePurchaseOrderBody({ requirements, onRaised, onClose }: { requireme
           </ul>
           <Field>
             <FieldLabel htmlFor="raise-po-vendor">Vendor</FieldLabel>
-            <RecordPicker
+            <PartyPicker
               id="raise-po-vendor"
               label="Vendor"
               placeholder="Choose the party"
-              searchPlaceholder="Search parties"
-              emptyMessage="No party matches. A vendor must be a party in Tally first."
               icon={<BooksIcon className="text-muted-foreground" />}
-              options={partyOptions}
-              loading={parties.isPending}
+              enabled={canSeeMasters}
               disabled={!canSeeMasters}
-              value={vendor}
-              onValueChange={setVendor}
+              partyId={vendor?.id ?? null}
+              onValueChange={(next) => { setVendor(next ? { id: next.id, label: next.name } : null); }}
             />
             {!canSeeMasters ? <FieldDescription>Choosing a vendor needs masters.tally.view.</FieldDescription> : null}
           </Field>

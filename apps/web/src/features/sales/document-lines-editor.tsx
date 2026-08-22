@@ -1,15 +1,17 @@
 import { PlusIcon, TrashIcon } from '@phosphor-icons/react';
 
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
+import { type PickerOption } from '@/components/shared/record-picker';
+import { ItemPicker } from '@/features/masters/item-picker';
+import { type StockItem } from '@/features/masters/use-stock-items';
 import { Button } from '@/components/ui/button';
 import { FieldDescription } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import { ResolvedRateHint } from '@/features/pricing/resolved-rate-hint';
 
 import { ItemHistoryAffordance } from './item-history-popover';
-import { formatMoney } from './money';
 import { newLine, previewLine, type LineDraft } from './types';
 
 /**
@@ -20,6 +22,11 @@ import { newLine, previewLine, type LineDraft } from './types';
  * while typing, the server's figures once saved.
  */
 
+/**
+ * Retained for the few callers that still map an item to a picker row of their
+ * own; the line editor now reads the whole catalogue through {@link ItemPicker}
+ * and no longer takes a preloaded page.
+ */
 export interface StockItemOption extends PickerOption {
   readonly unit: string;
   readonly salePrice: string | null;
@@ -37,8 +44,6 @@ interface DocumentLinesEditorProps {
   lines: LineDraft[];
   onLinesChange: (next: LineDraft[]) => void;
   editable: boolean;
-  itemOptions: readonly StockItemOption[];
-  itemsLoading: boolean;
   /** Whether the item picker is offered at all (masters.tally.view). */
   canPickItems: boolean;
   partyId: string | null;
@@ -54,8 +59,6 @@ export function DocumentLinesEditor({
   lines,
   onLinesChange,
   editable,
-  itemOptions,
-  itemsLoading,
   canPickItems,
   partyId,
   companyId,
@@ -68,7 +71,6 @@ export function DocumentLinesEditor({
   const previewNet = preview.reduce((sum, p) => sum + (p?.amount ?? 0), 0);
   const previewTax = preview.reduce((sum, p) => sum + (p?.tax ?? 0), 0);
   const record = saved;
-  const pick = (options: readonly PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
 
   function updateLine(key: string, patch: Partial<LineDraft>) {
     onLinesChange(lines.map((line) => (line.key === key ? { ...line, ...patch } : line)));
@@ -84,11 +86,10 @@ export function DocumentLinesEditor({
   function removeLine(key: string) {
     onLinesChange(lines.length === 1 ? [newLine()] : lines.filter((l) => l.key !== key));
   }
-  function chooseItem(key: string, option: PickerOption | null) {
-    const item = itemOptions.find((i) => i.id === option?.id);
+  function chooseItem(key: string, item: StockItem | null) {
     updateLine(key, {
       stockItemId: item?.id ?? null,
-      description: item?.label ?? '',
+      description: item?.name ?? '',
       unit: item?.unit ?? '',
       // 15 REQ-AN-13: the rate is left blank on purpose. The server resolves it
       // from the price lists at the document's date, and falls back to this very
@@ -119,18 +120,16 @@ export function DocumentLinesEditor({
               <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
                 <div className="flex flex-col gap-1">
                   {canPickItems ? (
-                  <RecordPicker
+                  <ItemPicker
                     id={`line-item-${line.key}`}
                     label={`Line ${String(index + 1)} item`}
                     placeholder="Stock item, or type a description below"
                     searchPlaceholder="Search stock items"
                     emptyMessage="No item matches. Leave it and type a description."
-                    options={itemOptions}
-                    loading={itemsLoading}
                     clearable
                     clearLabel="No stock item"
                     disabled={!editable}
-                    value={pick(itemOptions, line.stockItemId)}
+                    value={line.stockItemId === null ? null : { id: line.stockItemId, label: line.description }}
                     onValueChange={(next) => {
                       chooseItem(line.key, next);
                     }}

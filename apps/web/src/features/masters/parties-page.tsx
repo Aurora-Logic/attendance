@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { EMPTY_VALUE, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -64,7 +64,7 @@ const COLUMNS: RecordColumn<Party>[] = [
     key: 'credit',
     header: 'Credit limit',
     // Tally's figure verbatim; this application never does arithmetic on it.
-    cell: (row) => row.creditLimit ?? EMPTY_VALUE,
+    cell: (row) => formatMoney(row.creditLimit),
     numeric: true,
   },
   {
@@ -142,7 +142,7 @@ export function PartiesPage() {
 
   const query = useParties(
     { page, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}) },
-    { enabled: canView },
+    { enabled: canView, prefetchNext: true },
   );
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
