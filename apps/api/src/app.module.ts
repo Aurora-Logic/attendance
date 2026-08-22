@@ -20,6 +20,7 @@ import { DbModule } from './platform/db/db.module.js';
 import { ExportModule } from './platform/export/export.module.js';
 import { FileModule } from './platform/files/file.module.js';
 import { HealthModule } from './platform/health/health.module.js';
+import { HelpModule } from './platform/help/help.module.js';
 import { IntegrationModule } from './platform/integration/integration.module.js';
 import { JobsModule } from './platform/jobs/jobs.module.js';
 import { MailModule } from './platform/mail/mail.module.js';
@@ -87,6 +88,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     DocumentsModule,
     IntegrationModule,
     HealthModule,
+    HelpModule,
     // The first `modules/` entry. Everything above it is the shared kernel;
     // CRM and ERP will sit beside this one and import nothing from it.
     AttendanceModule,

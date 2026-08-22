@@ -7,6 +7,7 @@ export * from './crm.js';
 export * from './enums.js';
 export * from './errors.js';
 export * from './go-to.js';
+export * from './help.js';
 export * from './holidays.js';
 export * from './ids.js';
 export * from './leave.js';

@@ -116,3 +116,32 @@ Accepted as they stand: dialogs at 200ms in / 150ms out on the strong ease-out w
 | Theme change cut from light to dark in one frame (transitions deliberately disabled for the swap) | The swap runs inside `document.startViewTransition` after first paint, 200ms crossfade; reduced motion, the first application and browsers without the API take the cut | No abrupt brightness jump (Apple); the per-element transition lock stays so nothing animates twice |
 
 Still on the table from the same proposal: bottom-sheet drag-to-dismiss with momentum, morphing Save/Saving/Saved buttons, and removing the two committed `dist-probe-*` build directories.
+
+---
+
+# Pending — Support answers (22 Aug 2026)
+
+Owner, 22 Aug 2026: "add a chatbot in header for support ... it's complex
+software". Built as an answer panel rather than a chatbot, and on `Ctrl+F1`
+rather than in the header. The reasoning is recorded in `OPEN-QUESTIONS.md`
+P-HELP-1; the short version is that a corpus written as finished answers needs
+nothing to summarise it at read time, which removes the model and with it the
+first outbound call this API would ever make, the injection surface through
+Tally-authored `last_error`, and a class of employee free text with none of
+the consent machinery `0012`/`0013` exist to provide.
+
+| ID | Item | Description | Status |
+|----|------|-------------|--------|
+| H-01 | Card contract | `packages/shared/src/help.ts` — shape only, no content, because anything the web app imports is world-readable from the unauthenticated static bundle | Done |
+| H-02 | Corpus | `apps/api/src/platform/help/help.cards.ts` — 47 answer cards across punch, attendance, leave, approvals, reports, people, documents, Tally and account. Written against the running app, not the PRD, which several shipped behaviours now contradict | Done |
+| H-03 | Endpoint | `GET /help/cards`, `@Authenticated()` with per-card permission filtering in the service — the `GoToController` precedent, since no key means "may ask a question". Whole set in one response; the client ranks locally | Done |
+| H-04 | Ranking | `apps/web/src/features/help/rank.ts` — aliases, stopwords, phrase and term tiers, route as a tiebreaker only. Anything under the confidence floor is returned as a near miss, never printed as the answer | Done |
+| H-05 | Panel | The `Ctrl+F1` dialog gains a question box above the shortcut reference; typing replaces the reference, and an answer that has a tour step ends in **Show me**, which arms the guide exactly as an Updates row does | Done |
+| H-06 | Anti-rot test | `help.cards.test.ts` reads the web app's guide registry and `nav.ts` and fails when a card points at a step or route that no longer exists — the A-01 failure mode, and the one `changelog.test.ts` cannot see | Done |
+| H-07 | Unanswered questions | On a miss the panel says so and offers near misses. Recording the miss would give the usage signal `07-launch-plan.md` §0a says is absent, but it stores employee free text, so it needs an explicit "send to your administrator" action plus a table and a notification | Not started — see P-HELP-1 |
+| H-08 | Error-code hook | Cards carry the error codes they explain, so a failed punch or blocked leave can offer the answer at the point of failure. The data is in place; nothing consumes it yet | Not started |
+
+Verified: shared 41, api 1811 (107 files), web 505 (39 files) — all green;
+typecheck and lint clean in all three; production build of both apps clean.
+The corpus is absent from the built web bundle (`grep` over `apps/web/dist`
+finds no card id and no answer text, while the panel's own copy is present).
