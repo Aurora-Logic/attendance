@@ -32,6 +32,8 @@ export interface KpiTileProps {
   note?: string;
   /** Where the figure comes from. A tile with one is a link. */
   onOpen?: () => void;
+  /** The glyph the figure's subject wears elsewhere (the flag). */
+  icon?: ReactNode;
 }
 
 export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4; className?: string }) {
@@ -50,7 +52,7 @@ export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly Kpi
   );
 }
 
-export function KpiTile({ label, value, current, previous, format, lowerIsBetter = false, note, onOpen }: KpiTileProps) {
+export function KpiTile({ label, value, current, previous, format, lowerIsBetter = false, note, onOpen, icon }: KpiTileProps) {
   const delta = current !== undefined && previous !== undefined && previous !== null ? deltaOf(current, previous) : null;
   const good = delta === null ? null : delta.direction === 'flat' ? null : (delta.direction === 'up') !== lowerIsBetter;
   return (
@@ -73,7 +75,14 @@ export function KpiTile({ label, value, current, previous, format, lowerIsBetter
             },
           })}
     >
-      <dt className="text-muted-foreground truncate text-xs leading-tight">{label}</dt>
+      <dt className="text-muted-foreground truncate text-xs leading-tight">
+        {icon === undefined ? null : (
+          <span aria-hidden className="mr-1 inline-flex align-[-2px] [&_svg]:size-3">
+            {icon}
+          </span>
+        )}
+        {label}
+      </dt>
       <dd className="truncate text-xl leading-tight font-semibold tabular-nums">{value}</dd>
       {delta !== null ? (
         <dd

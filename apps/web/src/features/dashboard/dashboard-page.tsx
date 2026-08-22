@@ -74,7 +74,7 @@ import { useChartIntro } from './use-chart-motion';
  *
  * Measured rather than eyeballed: with the old proportions the page dropped
  * 35px when the figures arrived, which on a screen somebody opens ten times a
- * day is a flinch every time. The cell metrics below match FigureStrip's.
+ * day is a flinch every time.
  */
 
 /** The one-line "how today went" row, at the height it will be. */

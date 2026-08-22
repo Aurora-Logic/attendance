@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ChartBarIcon, InfoIcon, LockKeyIcon } from '@phosphor-icons/react';
 import { subDays } from 'date-fns';
 
@@ -27,6 +27,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { ChartCard } from '@/components/shared/chart-card';
+import { KpiGrid } from '@/components/shared/kpi-grid';
 import { ChartSkeleton } from '@/features/attendance/charts';
 import { dateRange } from '@/features/attendance/chart-series';
 import { formatDuration, toDateParam } from '@/features/attendance/format';
@@ -106,37 +107,6 @@ const ALL = 'ALL';
 
 function isRangeDays(value: string | undefined): value is `${RangeDays}` {
   return value === '30' || value === '60' || value === '90';
-}
-
-/**
- * The one strip pattern this product uses for a row of figures: a bordered
- * band divided by rules. Not a row of cards — CLAUDE.md §3 rule 3 puts content
- * on the page surface, and a grid of cards each holding a figure is the
- * box-in-box this product does not do.
- */
-/** Label, value, and optionally the glyph the figure's subject wears elsewhere (the flag). */
-function FigureStrip({ entries }: { entries: readonly (readonly [string, string] | readonly [string, string, ReactNode])[] }) {
-  return (
-    <dl className="divide-border grid grid-cols-2 divide-x divide-y border sm:grid-cols-4 sm:divide-y-0">
-      {entries.map(([label, value, icon], index) => (
-        <div
-          key={label}
-          className={cn(
-            'flex flex-col gap-0.5 px-3 py-2',
-            entries.length % 2 === 1 && index === entries.length - 1
-              ? 'col-span-2 sm:col-span-1'
-              : null,
-          )}
-        >
-          <dt className="text-muted-foreground text-[0.6875rem]">
-            {icon ? <span aria-hidden className="mr-1 inline-flex align-[-2px] [&_svg]:size-3">{icon}</span> : null}
-            {label}
-          </dt>
-          <dd className="text-base font-medium tabular-nums">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
 }
 
 /** The strip's own shape, so the page does not jump when the figures land. */
@@ -364,15 +334,16 @@ export function AnalyticsPage() {
 
           {period.isSuccess && periodComplete ? (
             <>
-              <FigureStrip
-                entries={[
-                  ['People', String(totals.people)],
-                  ['Days recorded', String(totals.rows)],
-                  [
-                    'Attendance rate',
-                    totals.attendanceRate === null ? '—' : `${String(totals.attendanceRate)}%`,
-                  ],
-                  ['Flagged days', String(totals.flaggedDays), <ACTION_ICONS.flag key="flag" />],
+              <KpiGrid
+                columns={4}
+                tiles={[
+                  { label: 'People', value: String(totals.people) },
+                  { label: 'Days recorded', value: String(totals.rows) },
+                  {
+                    label: 'Attendance rate',
+                    value: totals.attendanceRate === null ? '—' : `${String(totals.attendanceRate)}%`,
+                  },
+                  { label: 'Flagged days', value: String(totals.flaggedDays), icon: <ACTION_ICONS.flag /> },
                 ]}
               />
 
