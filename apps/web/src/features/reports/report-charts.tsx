@@ -33,10 +33,16 @@ import {
  * The chart above a report's table, for the five reports whose question a
  * picture answers faster than rows (report-series.ts names each question).
  * Presentational only: the series and its insight arrive computed. Colour
- * policy follows the dashboard's reasoning — semantic tokens where a colour
- * carries meaning (lapsed red, at-risk amber), the theme's --chart ramp
- * where the job is a sequential age scale, and the primary hue where one
- * series needs no identity at all.
+ * policy follows the dashboard's reasoning — semantic tokens only where a
+ * colour carries meaning (lapsed red, at-risk amber, the fulfilment gauge's
+ * good/fair/poor bands), and the theme's --chart ramp everywhere else,
+ * whether the job is a sequential age scale or a series that needs no
+ * identity at all.
+ *
+ * The ramp is five shades of the workspace's own accent, so these charts
+ * belong to the appearance the way the rest of the product does. --primary is
+ * the button hue and --info is a fixed blue; both were being drawn into
+ * charts that meant neither.
  *
  * Bar geometry is square and narrow across every chart in the product. The
  * theme sets --radius to 0 and the shell is rounded-none throughout, so a
@@ -45,21 +51,21 @@ import {
  * width cap rather than letting recharts fill the band.
  */
 
-const VALUE_CONFIG = { value: { label: 'Value', color: 'var(--primary)' } } satisfies ChartConfig;
+const VALUE_CONFIG = { value: { label: 'Value', color: 'var(--chart-1)' } } satisfies ChartConfig;
 const MOVEMENT_CONFIG = {
-  inward: { label: 'Inward', color: 'var(--info)' },
-  outward: { label: 'Outward', color: 'var(--success)' },
+  inward: { label: 'Inward', color: 'var(--chart-1)' },
+  outward: { label: 'Outward', color: 'var(--chart-2)' },
 } satisfies ChartConfig;
 const VELOCITY_CONFIG = {
-  monthly12: { label: 'Per month, 12m', color: 'var(--primary)' },
-  monthly3: { label: 'Per month, last 3m', color: 'var(--info)' },
+  monthly12: { label: 'Per month, 12m', color: 'var(--chart-1)' },
+  monthly3: { label: 'Per month, last 3m', color: 'var(--chart-2)' },
 } satisfies ChartConfig;
 /** One hue, light to dark: the ageing buckets are a magnitude of age, not identities. */
 const AGEING_CONFIG = {
-  bucket0: { label: '0–30 days', color: 'var(--chart-2)' },
-  bucket31: { label: '31–60 days', color: 'var(--chart-3)' },
-  bucket61: { label: '61–90 days', color: 'var(--chart-4)' },
-  bucket90: { label: 'Over 90 days', color: 'var(--chart-5)' },
+  bucket0: { label: '0–30 days', color: 'var(--chart-1)' },
+  bucket31: { label: '31–60 days', color: 'var(--chart-2)' },
+  bucket61: { label: '61–90 days', color: 'var(--chart-3)' },
+  bucket90: { label: 'Over 90 days', color: 'var(--chart-4)' },
 } satisfies ChartConfig;
 const LAPSE_CONFIG = {
   lapsedRevenue: { label: 'Lapsed', color: 'var(--destructive)' },
@@ -98,8 +104,9 @@ function truncateTight(label: string): string {
   return label.length > 12 ? `${label.slice(0, 11)}…` : label;
 }
 
-function truncate(label: string): string {
-  return label.length > 14 ? `${label.slice(0, 13)}…` : label;
+/** A whole-number share, as it is written on a ring. */
+function sharePercent(value: unknown): string {
+  return typeof value === 'number' ? `${String(value)}%` : '';
 }
 
 function Frame({ title, insight, children }: { title: string; insight: string | null; children: React.ReactNode }) {
@@ -204,9 +211,12 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Frame title="Where the value sits" insight={insight}>
             <ChartContainer config={config} className="h-72 w-full overflow-hidden">
-              <BarChart data={data} margin={AXIS_MARGIN}>
+              {/* Angled, like the item charts below: a party name is as long as
+                  an item name, and `interval={0}` with eight of them straight
+                  across a 360px axis renders one smear. */}
+              <BarChart data={data} margin={AXIS_MARGIN_ANGLED}>
                 <CartesianGrid vertical={false} />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
                 <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={formatMoneyShort} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 {compare !== undefined ? <ChartLegend content={<ChartLegendContent />} /> : null}
@@ -308,9 +318,9 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       return (
         <Frame title="Revenue going quiet" insight={insight}>
           <ChartContainer config={LAPSE_CONFIG} className="h-72 w-full overflow-hidden">
-            <BarChart data={data} margin={AXIS_MARGIN}>
+            <BarChart data={data} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
-              <XAxis dataKey="customer" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
+              <XAxis dataKey="customer" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
               <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={formatMoneyShort} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
@@ -374,7 +384,11 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
       <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
         <RadialBarChart data={data} innerRadius={28} outerRadius={104}>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
-          <RadialBar dataKey="value" background isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+          <RadialBar dataKey="value" background isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
+            {/* The legend names the rings; the share itself was readable only
+                by hovering. */}
+            <LabelList dataKey="value" position="insideStart" className="fill-background" fontSize={10} formatter={sharePercent} />
+          </RadialBar>
           <ChartLegend content={<ChartLegendContent nameKey="name" />} />
         </RadialBarChart>
       </ChartContainer>
@@ -382,7 +396,7 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
   );
 }
 
-const GENERIC_FILLS = ['var(--primary)', 'var(--info)'] as const;
+const GENERIC_FILLS = ['var(--chart-1)', 'var(--chart-2)'] as const;
 /** The heatmap's six shades: nothing, then the theme's sequential ramp light to dark. */
 const HEAT_STEPS = ['bg-muted', 'bg-[var(--chart-1)]', 'bg-[var(--chart-2)]', 'bg-[var(--chart-3)]', 'bg-[var(--chart-4)]', 'bg-[var(--chart-5)]'] as const;
 
@@ -533,7 +547,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
 
   if (spec.form === 'scatter') {
     const [xKey = 'x', yKey = 'y'] = spec.series;
-    const config = { [yKey]: { label: headers.get(yKey) ?? yKey, color: 'var(--primary)' } } as ChartConfig;
+    const config = { [yKey]: { label: headers.get(yKey) ?? yKey, color: 'var(--chart-1)' } } as ChartConfig;
     return (
       <Frame title={`${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`} insight={null}>
         <ChartContainer config={config} className="h-80 w-full overflow-hidden">
@@ -544,7 +558,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             <ChartTooltip cursor={{ strokeDasharray: '4 4' }} content={<ChartTooltipContent labelKey="category" nameKey="category" />} />
             <Scatter
               data={points}
-              fill="var(--primary)"
+              fill="var(--chart-1)"
               fillOpacity={0.7}
               isAnimationActive={animate}
               animationDuration={CHART_INTRO_MS}

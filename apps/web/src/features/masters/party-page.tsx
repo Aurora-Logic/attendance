@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, formatMoneyShort } from '@/lib/format';
 import type { PartyAnalytics, PartyItemRow, PartyRole } from '@vyuha/shared';
 
 import { RankingChart, RateRadial, TrendChart } from './lifecycle-charts';
@@ -315,7 +315,7 @@ function CustomerCharts({ a, compareLabel, ready, fulfilment }: { a: PartyAnalyt
         )}
         <RateRadial title="Fulfilment" note="Dispatched as a share of ordered, in the period." pct={fulfilment.value} previousPct={fulfilment.previous} label="fulfilled" ready={ready} />
       </div>
-      {items.length > 0 ? <RankingChart title="What it buys" note="By order value in the period." points={items} valueLabel="Value" format={formatMoney} ready={ready} /> : null}
+      {items.length > 0 ? <RankingChart title="What it buys" note="By order value in the period." points={items} valueLabel="Value" format={formatMoney} markFormat={formatMoneyShort} ready={ready} /> : null}
     </>
   );
 }
@@ -332,7 +332,7 @@ function VendorCharts({ a, compareLabel, ready }: { a: PartyAnalytics; compareLa
           <SectionHeading title="Purchased and received, by month" note="Not enough months with movement in this period to read a trend." />
         </section>
       )}
-      {items.length > 0 ? <RankingChart title="What it supplies" note="By purchase value in the period." points={items} valueLabel="Value" format={formatMoney} ready={ready} /> : null}
+      {items.length > 0 ? <RankingChart title="What it supplies" note="By purchase value in the period." points={items} valueLabel="Value" format={formatMoney} markFormat={formatMoneyShort} ready={ready} /> : null}
     </div>
   );
 }

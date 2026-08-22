@@ -403,7 +403,7 @@ export function RepeatLateChart({ points, animate }: ChartProps<PersonPoint>) {
 }
 
 const OVERTIME_CONFIG = {
-  value: { label: 'Overtime', color: 'var(--info)' },
+  value: { label: 'Overtime', color: 'var(--chart-1)' },
 } satisfies ChartConfig;
 
 /** Who carries the overtime. Minutes only — REQ-E-05, no rate and no money. */
@@ -460,11 +460,16 @@ export function OvertimeChart({ points, animate }: ChartProps<PersonPoint>) {
 
 // --------------------------------------------------------------- punch quality
 
+/* Where a punch came from is a category, not a verdict -- an offline sync is
+   not a warning and a web punch is not a lesser one. It was drawn in status
+   tokens, and two of the four were the same muted grey, so "Web" and
+   "Recorded by admin" shared a legend swatch and could not be told apart in
+   the bar at all. Four shades of the accent, in the order they stack. */
 const SOURCE_CONFIG = {
-  MOBILE: { label: 'Mobile', color: 'var(--info)' },
-  WEB: { label: 'Web', color: 'var(--muted-foreground)' },
-  OFFLINE_SYNC: { label: 'Offline sync', color: 'var(--warning)' },
-  ADMIN_ENTRY: { label: 'Recorded by admin', color: 'var(--muted-foreground)' },
+  MOBILE: { label: 'Mobile', color: 'var(--chart-1)' },
+  WEB: { label: 'Web', color: 'var(--chart-2)' },
+  OFFLINE_SYNC: { label: 'Offline sync', color: 'var(--chart-3)' },
+  ADMIN_ENTRY: { label: 'Recorded by admin', color: 'var(--chart-4)' },
 } satisfies ChartConfig;
 
 /** The order the mix is stacked in, so the legend agrees with the bar. */
@@ -621,9 +626,12 @@ export function FlagVolumeChart({ points, animate }: ChartProps<FlagPoint>) {
 
 // ------------------------------------------------------------------ headcount
 
+/* Employment type is a category, not a status: fixed-term is a contract, not
+   a warning. Two shades apart in the ramp rather than adjacent, so the stack
+   still separates. */
 const HEADCOUNT_CONFIG = {
-  permanent: { label: 'Permanent', color: 'var(--info)' },
-  fixedTerm: { label: 'Fixed-term', color: 'var(--warning)' },
+  permanent: { label: 'Permanent', color: 'var(--chart-1)' },
+  fixedTerm: { label: 'Fixed-term', color: 'var(--chart-3)' },
 } satisfies ChartConfig;
 
 const HEADCOUNT_ORDER = ['permanent', 'fixedTerm'];

@@ -74,20 +74,27 @@ export function TrendChart({
   );
 }
 
-export function RankingChart({ title, note, points, valueLabel, format, ready }: { title: string; note?: string; points: readonly RankPoint[]; valueLabel: string; format: (value: number) => string; ready: boolean }) {
+/**
+ * `markFormat` exists because a tooltip and a bar cap do not have the same
+ * room. `formatMoney` writes "₹9,33,103.00", which is wider than the gutter the
+ * value label sits in whatever the gutter is, so the caller hands the short
+ * form for the mark and keeps the exact figure for the tooltip.
+ */
+export function RankingChart({ title, note, points, valueLabel, format, markFormat, ready }: { title: string; note?: string; points: readonly RankPoint[]; valueLabel: string; format: (value: number) => string; markFormat?: (value: number) => string; ready: boolean }) {
   const animate = useChartIntro(ready);
   const config = { value: { label: valueLabel, color: 'var(--chart-1)' } } satisfies ChartConfig;
+  const onMark = markFormat ?? format;
   // One row per bar: the chart is as tall as its list, no taller. The measured value reaches CSS as a custom property.
   const height = Math.max(120, points.length * 30 + 16);
   return (
     <Frame title={title} note={note}>
       <ChartContainer config={config} className="h-[var(--rank-h)] w-full" style={{ '--rank-h': `${String(height)}px` } as CSSProperties}>
-        <BarChart accessibilityLayer data={[...points]} layout="vertical" margin={{ top: 0, right: 56, bottom: 0, left: 0 }}>
+        <BarChart accessibilityLayer data={[...points]} layout="vertical" margin={{ top: 0, right: 72, bottom: 0, left: 0 }}>
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={120} tick={{ fontSize: 11 }} tickFormatter={(value: string) => (value.length > 18 ? `${value.slice(0, 17)}…` : value)} />
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel formatter={(value) => format(Number(value))} />} />
           <Bar dataKey="value" fill="var(--color-value)" maxBarSize={12} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
-            <LabelList dataKey="value" position="right" className="fill-muted-foreground tabular-nums" fontSize={11} formatter={(label: ReactNode) => format(Number(label))} />
+            <LabelList dataKey="value" position="right" className="fill-muted-foreground tabular-nums" fontSize={11} formatter={(label: ReactNode) => onMark(Number(label))} />
           </Bar>
         </BarChart>
       </ChartContainer>

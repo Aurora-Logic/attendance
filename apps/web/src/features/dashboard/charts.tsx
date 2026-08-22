@@ -59,12 +59,15 @@ const LATE_CONFIG = {
   late: { label: 'Arrived late', color: 'var(--warning)' },
 } satisfies ChartConfig;
 
+/* Hours worked is a quantity, not a state. It wore --success because it sits
+   beside the status bands where green means "at work", but a measurement is
+   not a verdict and a green bar in a crimson workspace belongs to neither. */
 const HOURS_CONFIG = {
-  workedMinutes: { label: 'Worked', color: 'var(--success)' },
+  workedMinutes: { label: 'Worked', color: 'var(--chart-1)' },
 } satisfies ChartConfig;
 
 const TEAM_HOURS_CONFIG = {
-  workedMinutes: { label: 'Worked, everyone', color: 'var(--success)' },
+  workedMinutes: { label: 'Worked, everyone', color: 'var(--chart-1)' },
 } satisfies ChartConfig;
 
 /** Five dates is what fits at 360px without the labels touching. */
