@@ -117,7 +117,7 @@ export function PortalLinksPage() {
       <PageHeader description={`One read-only link per customer, ${String(PORTAL_KEY_DAYS)} days, showing them their own orders, dispatches, invoices and statement. The link is the credential — there is no customer sign-in — so it is shown once and withdrawable the moment it should stop working.`} />
 
       {canManage ? (
-        <div className="flex flex-col gap-3 border p-4 sm:flex-row sm:items-end">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <RecordPicker
             id="portal-party"
             label="Customer"
