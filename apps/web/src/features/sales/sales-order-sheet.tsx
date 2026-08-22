@@ -7,6 +7,8 @@ import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { StatusBadge } from '@/components/shared/status-badge';
+import { statusTone } from '@/components/shared/status-tone';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -59,7 +61,7 @@ import { usePackRecords, useShortCloseOrder } from './use-fulfilment';
 export function SyncStateBadge({ record }: { record: Pick<Estimate, 'syncState' | 'remoteVoucherNumber'> }) {
   const label = SYNC_STATE_LABELS[record.syncState];
   return (
-    <Badge variant={record.syncState === 'PUSHED' ? 'default' : record.syncState === 'FAILED' ? 'destructive' : 'outline'}>
+    <Badge variant={statusTone(record.syncState)}>
       {record.syncState === 'PUSHED' && record.remoteVoucherNumber ? `${label} · #${record.remoteVoucherNumber}` : label}
     </Badge>
   );
@@ -244,7 +246,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
       <SheetHeader className="shrink-0 border-b">
         <SheetTitle className="flex flex-wrap items-center gap-2">
           {isNew ? 'New sales order' : `Sales order ${initial.number ?? ''}`}
-          {isNew ? null : <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[draft.status]}</Badge>}
+          {isNew ? null : <StatusBadge state={draft.status} label={SALES_DOCUMENT_STATUS_LABELS[draft.status]} />}
           {record === null ? null : <SyncStateBadge record={record} />}
           {record?.fulfilment && confirmed ? <FulfilmentBadge state={record.fulfilment} /> : null}
         </SheetTitle>
@@ -630,7 +632,7 @@ export function FulfilmentSections({
                         {req.neededBy ? ` · needed by ${formatDate(req.neededBy)}` : ''}
                       </span>
                     </span>
-                    <Badge variant={req.state === 'ordered' ? 'default' : 'outline'}>{WAITING_ON_STATE_LABELS[req.state]}</Badge>
+                    <StatusBadge state={req.state} label={WAITING_ON_STATE_LABELS[req.state]} />
                   </div>
                   {req.purchaseOrders.length === 0 ? (
                     <p className="text-muted-foreground text-xs">No purchase order yet.</p>

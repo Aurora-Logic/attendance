@@ -438,3 +438,138 @@ export function creditHeadroom(rows: readonly ReportRowView[], keep = 6): Series
           : `${String(breached.length)} of ${String(all.length)} customers are over their credit limit.`,
   };
 }
+
+// ------------------------------------------------------- 13. seasonality
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+/**
+ * The trading year folded onto itself: every January together, every February
+ * together, whatever year they fell in.
+ *
+ * A twelve-month bar chart shows what happened. This shows whether the same
+ * thing happens every year -- the question behind "is March always quiet".
+ */
+export function seasonality(rows: readonly ReportRowView[]): Series<Point> {
+  const totals = new Array<number>(12).fill(0);
+  let matched = 0;
+  for (const row of rows) {
+    const key = text(row, 'label');
+    const month = /^\d{4}-(\d{2})$/u.exec(key);
+    if (month === null) continue;
+    const index = Number(month[1]) - 1;
+    if (index < 0 || index > 11) continue;
+    totals[index] = (totals[index] ?? 0) + num(row, 'value');
+    matched += 1;
+  }
+
+  const points = MONTH_NAMES.map((label, index) => ({ label, value: totals[index] ?? 0 }));
+  const busiest = points.reduce((most, p) => (p.value > most.value ? p : most), points[0] ?? { label: '', value: 0 });
+  const quietest = points
+    .filter((p) => p.value > 0)
+    .reduce<Point | null>((least, p) => (least === null || p.value < least.value ? p : least), null);
+
+  return {
+    points,
+    insight:
+      matched === 0
+        ? null
+        : quietest === null || busiest.value === 0
+          ? 'Nothing invoiced in this period.'
+          : `${busiest.label} is the strongest month of the year here; ${quietest.label} the weakest.`,
+  };
+}
+
+// ---------------------------------------------------------- 14. invoice mix
+
+export interface MixPoint {
+  readonly label: string;
+  /** How many invoices that customer took. */
+  readonly invoices: number;
+  /** What they were worth in total. */
+  readonly value: number;
+}
+
+/**
+ * Every customer as one dot: how often they buy against how much they spend.
+ *
+ * The four corners are four different customers -- frequent and large, rare
+ * and large, frequent and small, rare and small -- and each wants a different
+ * conversation. A ranked bar chart cannot show that; two axes can.
+ */
+export function invoiceMix(rows: readonly ReportRowView[]): Series<MixPoint> {
+  const points = rows
+    .map((row) => ({
+      label: text(row, 'label'),
+      invoices: num(row, 'vouchers'),
+      value: num(row, 'value'),
+    }))
+    .filter((p) => p.label !== '' && p.invoices > 0);
+
+  if (points.length === 0) return { points, insight: null };
+
+  const averageBill = points.reduce((sum, p) => sum + p.value, 0) / points.reduce((sum, p) => sum + p.invoices, 0);
+  const best = points.reduce((most, p) => (p.value / p.invoices > most.value / most.invoices ? p : most), points[0] as MixPoint);
+
+  return {
+    points,
+    insight: `${best.label} writes the largest bills, at about ${String(Math.round((best.value / best.invoices) / averageBill * 10) / 10)} times the average.`,
+  };
+}
+
+// ------------------------------------------------- 15. revenue and basket
+
+export interface BasketPoint {
+  readonly label: string;
+  readonly revenue: number;
+  readonly aov: number;
+}
+export interface BasketSeries extends Series<BasketPoint> {
+  readonly totals: { readonly revenue: number; readonly aov: number };
+}
+
+/**
+ * Revenue and average invoice on one set of months, so the chart can switch
+ * between them without refetching.
+ *
+ * They belong together because they move apart: revenue up while the average
+ * falls is more customers buying less each, which is a different week from
+ * revenue up on a steady average.
+ */
+export function revenueAndBasket(rows: readonly ReportRowView[]): BasketSeries {
+  const points = rows
+    .map((row) => ({
+      label: text(row, 'month'),
+      revenue: num(row, 'revenue'),
+      aov: num(row, 'aov'),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const revenue = sum(points.map((p) => p.revenue));
+  const invoices = points.length;
+  const totals = {
+    revenue,
+    // The average of the averages would weight a quiet month the same as a
+    // busy one; this is the period's own average bill.
+    aov: invoices === 0 ? 0 : Math.round((revenue / invoices) * 100) / 100,
+  };
+
+  if (points.length < MONTHS_FOR_A_TREND) {
+    return { points, totals, insight: 'Not enough months here to read the basket.' };
+  }
+  const first = points[0];
+  const last = points.at(-1);
+  const revenueUp = last !== undefined && first !== undefined && last.revenue >= first.revenue;
+  const basketUp = last !== undefined && first !== undefined && last.aov >= first.aov;
+
+  return {
+    points,
+    totals,
+    insight:
+      revenueUp === basketUp
+        ? `Revenue and the average bill are moving the same way, both ${revenueUp ? 'up' : 'down'} across the period.`
+        : revenueUp
+          ? 'Revenue is up while the average bill is down: more customers, buying less each.'
+          : 'Revenue is down while the average bill holds: fewer customers, spending the same.',
+  };
+}

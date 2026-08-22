@@ -37,6 +37,12 @@ import {
  * carries meaning (lapsed red, at-risk amber), the theme's --chart ramp
  * where the job is a sequential age scale, and the primary hue where one
  * series needs no identity at all.
+ *
+ * Bar geometry is square and narrow across every chart in the product. The
+ * theme sets --radius to 0 and the shell is rounded-none throughout, so a
+ * rounded bar cap was the one curve left on the page; and a bar wide enough to
+ * read as a slab stops reading as a measurement, so each series carries a
+ * width cap rather than letting recharts fill the band.
  */
 
 const VALUE_CONFIG = { value: { label: 'Value', color: 'var(--primary)' } } satisfies ChartConfig;
@@ -204,11 +210,11 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
                 <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={formatMoneyShort} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 {compare !== undefined ? <ChartLegend content={<ChartLegendContent />} /> : null}
-                <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} maxBarSize={44} {...motion} >
+                <Bar dataKey="value" fill="var(--color-value)" maxBarSize={16} {...motion} >
                   <LabelList {...valueCaps('value', formatMoneyShort)} />
                 </Bar>
                 {compare !== undefined ? (
-                  <Bar dataKey="compare" fill="var(--color-compare)" fillOpacity={0.55} radius={[4, 4, 0, 0]} maxBarSize={44} {...motion}>
+                  <Bar dataKey="compare" fill="var(--color-compare)" fillOpacity={0.55} maxBarSize={16} {...motion}>
                     <LabelList {...valueCaps('compare', formatMoneyShort)} />
                   </Bar>
                 ) : null}
@@ -231,10 +237,10 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               <YAxis tickLine={false} axisLine={false} width={56} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
-              <Bar dataKey="inward" fill="var(--color-inward)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} >
+              <Bar dataKey="inward" fill="var(--color-inward)" maxBarSize={16} {...motion} >
                 <LabelList {...valueCaps('inward', compactCount)} />
               </Bar>
-              <Bar dataKey="outward" fill="var(--color-outward)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} >
+              <Bar dataKey="outward" fill="var(--color-outward)" maxBarSize={16} {...motion} >
                 <LabelList {...valueCaps('outward', compactCount)} />
               </Bar>
             </BarChart>
@@ -254,10 +260,10 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               <YAxis tickLine={false} axisLine={false} width={48} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
-              <Bar dataKey="monthly12" fill="var(--color-monthly12)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} >
+              <Bar dataKey="monthly12" fill="var(--color-monthly12)" maxBarSize={16} {...motion} >
                 <LabelList {...valueCaps('monthly12', compactCount)} />
               </Bar>
-              <Bar dataKey="monthly3" fill="var(--color-monthly3)" radius={[4, 4, 0, 0]} maxBarSize={28} {...motion} >
+              <Bar dataKey="monthly3" fill="var(--color-monthly3)" maxBarSize={16} {...motion} >
                 <LabelList {...valueCaps('monthly3', compactCount)} />
               </Bar>
             </BarChart>
@@ -277,10 +283,10 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               <YAxis tickLine={false} axisLine={false} width={48} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
-              <Bar dataKey="bucket0" stackId="age" fill="var(--color-bucket0)" {...motion} />
-              <Bar dataKey="bucket31" stackId="age" fill="var(--color-bucket31)" {...motion} />
-              <Bar dataKey="bucket61" stackId="age" fill="var(--color-bucket61)" {...motion} />
-              <Bar dataKey="bucket90" stackId="age" fill="var(--color-bucket90)" radius={[4, 4, 0, 0]} {...motion} >
+              <Bar dataKey="bucket0" stackId="age" fill="var(--color-bucket0)" maxBarSize={16} {...motion} />
+              <Bar dataKey="bucket31" stackId="age" fill="var(--color-bucket31)" maxBarSize={16} {...motion} />
+              <Bar dataKey="bucket61" stackId="age" fill="var(--color-bucket61)" maxBarSize={16} {...motion} />
+              <Bar dataKey="bucket90" stackId="age" fill="var(--color-bucket90)" maxBarSize={16} {...motion} >
                 <LabelList {...stackTotal([...points], ['bucket0', 'bucket31', 'bucket61', 'bucket90'])} />
               </Bar>
             </BarChart>
@@ -308,8 +314,8 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={formatMoneyShort} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
-              <Bar dataKey="lapsedRevenue" stackId="risk" fill="var(--color-lapsedRevenue)" {...motion} />
-              <Bar dataKey="atRiskRevenue" stackId="risk" fill="var(--color-atRiskRevenue)" radius={[4, 4, 0, 0]} {...motion} >
+              <Bar dataKey="lapsedRevenue" stackId="risk" fill="var(--color-lapsedRevenue)" maxBarSize={16} {...motion} />
+              <Bar dataKey="atRiskRevenue" stackId="risk" fill="var(--color-atRiskRevenue)" maxBarSize={16} {...motion} >
                 <LabelList {...stackTotal(data, ['lapsedRevenue', 'atRiskRevenue'], formatMoneyShort)} />
               </Bar>
             </BarChart>
@@ -339,7 +345,7 @@ export function MonthlyValueChart({ points, animate }: { points: readonly { labe
         <XAxis dataKey="label" tickLine={false} axisLine={false} />
         <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={formatMoneyShort} />
         <ChartTooltip content={<ChartTooltipContent />} />
-        <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} >
+        <Bar dataKey="value" fill="var(--color-value)" maxBarSize={16} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} >
           <LabelList {...valueCaps('value', formatMoneyShort)} />
         </Bar>
       </BarChart>
@@ -426,7 +432,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
           <ChartTooltip content={<ChartTooltipContent />} />
           {series.series.length > 1 || withPrev ? <ChartLegend content={<ChartLegendContent />} /> : null}
           {withPrev ? (
-            <Bar dataKey="compare" fill="var(--color-compare)" radius={[0, 4, 4, 0]} maxBarSize={18} fillOpacity={0.55} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
+            <Bar dataKey="compare" fill="var(--color-compare)" maxBarSize={12} fillOpacity={0.55} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
               <LabelList {...valueTips('compare')} />
             </Bar>
           ) : null}
@@ -435,8 +441,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
               key={s.key}
               dataKey={s.key}
               fill={`var(--color-${s.key})`}
-              radius={[0, 4, 4, 0]}
-              maxBarSize={22}
+              maxBarSize={12}
               isAnimationActive={animate}
               animationDuration={CHART_INTRO_MS}
               className={onDrill === undefined ? undefined : 'cursor-pointer'}
@@ -694,7 +699,7 @@ export function RateRadial({ pct, label, animate }: { pct: number; label: string
     <ChartContainer config={config} className="mx-auto aspect-square max-h-52 w-full">
       <RadialBarChart data={[{ name: label, value: clamped, fill: 'var(--color-value)' }]} startAngle={90} endAngle={90 - (clamped / 100) * 360} innerRadius={70} outerRadius={88}>
         <PolarGrid gridType="circle" radialLines={false} stroke="none" className="first:fill-muted last:fill-background" polarRadius={[74, 66]} />
-        <RadialBar dataKey="value" background cornerRadius={8} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+        <RadialBar dataKey="value" background isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
         <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
           <Label
             content={({ viewBox }) => {

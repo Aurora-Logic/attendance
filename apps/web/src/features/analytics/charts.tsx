@@ -306,7 +306,7 @@ export function WeekdayAbsenceChart({ points, animate }: ChartProps<WeekdayPoint
         <Bar
           dataKey="rate"
           fill="var(--color-rate)"
-          maxBarSize={32}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -346,7 +346,7 @@ export function LateSpreadChart({ points, animate }: ChartProps<LateBucket>) {
         <Bar
           dataKey="days"
           fill="var(--color-days)"
-          maxBarSize={40}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -390,7 +390,7 @@ export function RepeatLateChart({ points, animate }: ChartProps<PersonPoint>) {
         <Bar
           dataKey="value"
           fill="var(--color-value)"
-          maxBarSize={16}
+          maxBarSize={12}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -446,7 +446,7 @@ export function OvertimeChart({ points, animate }: ChartProps<PersonPoint>) {
         <Bar
           dataKey="value"
           fill="var(--color-value)"
-          maxBarSize={16}
+          maxBarSize={12}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -510,7 +510,7 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           dataKey="MOBILE"
           stackId="source"
           fill="var(--color-MOBILE)"
-          maxBarSize={36}
+          maxBarSize={24}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -519,7 +519,7 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           dataKey="WEB"
           stackId="source"
           fill="var(--color-WEB)"
-          maxBarSize={36}
+          maxBarSize={24}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -528,7 +528,7 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           dataKey="OFFLINE_SYNC"
           stackId="source"
           fill="var(--color-OFFLINE_SYNC)"
-          maxBarSize={36}
+          maxBarSize={24}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -537,7 +537,7 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           dataKey="ADMIN_ENTRY"
           stackId="source"
           fill="var(--color-ADMIN_ENTRY)"
-          maxBarSize={36}
+          maxBarSize={24}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -607,7 +607,7 @@ export function FlagVolumeChart({ points, animate }: ChartProps<FlagPoint>) {
         />
         <Bar
           dataKey="punches"
-          maxBarSize={16}
+          maxBarSize={12}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -660,7 +660,7 @@ export function HeadcountChart({ points, animate }: ChartProps<DepartmentPoint>)
           dataKey="permanent"
           stackId="head"
           fill="var(--color-permanent)"
-          maxBarSize={16}
+          maxBarSize={12}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -669,7 +669,7 @@ export function HeadcountChart({ points, animate }: ChartProps<DepartmentPoint>)
           dataKey="fixedTerm"
           stackId="head"
           fill="var(--color-fixedTerm)"
-          maxBarSize={16}
+          maxBarSize={12}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"

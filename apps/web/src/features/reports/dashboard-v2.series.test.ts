@@ -6,11 +6,14 @@ import {
   concentration,
   creditHeadroom,
   fillRate,
+  invoiceMix,
   monthlyInvoiced,
   newVsRepeat,
   paymentSlippage,
   pendingByAge,
+  revenueAndBasket,
   revenueAtRisk,
+  seasonality,
   stockAgeing,
   topCustomers,
 } from './dashboard-v2.series';
@@ -312,5 +315,96 @@ describe('creditHeadroom', () => {
       row({ partyName: 'None', creditLimit: null, exposure: '500', overLimit: 'false' }),
     ]);
     expect(series.points[0]?.value).toBe(0);
+  });
+});
+
+describe('seasonality', () => {
+  it('folds the years together, one bucket per calendar month', () => {
+    const series = seasonality([
+      row({ label: '2025-03', value: '100' }),
+      row({ label: '2026-03', value: '50' }),
+      row({ label: '2026-07', value: '400' }),
+    ]);
+    expect(series.points).toHaveLength(12);
+    expect(series.points[2]).toEqual({ label: 'Mar', value: 150 });
+    expect(series.points[6]).toEqual({ label: 'Jul', value: 400 });
+    expect(series.insight).toBe('Jul is the strongest month of the year here; Mar the weakest.');
+  });
+
+  it('still returns twelve axes when a month is missing, so the shape holds', () => {
+    const series = seasonality([row({ label: '2026-01', value: '10' })]);
+    expect(series.points).toHaveLength(12);
+    expect(series.points[5]).toEqual({ label: 'Jun', value: 0 });
+  });
+
+  it('ignores a label that is not a month key', () => {
+    expect(seasonality([row({ label: 'Godavari Electricals', value: '900' })]).insight).toBeNull();
+  });
+});
+
+describe('invoiceMix', () => {
+  it('places each customer by how often they buy against what they spend', () => {
+    const series = invoiceMix([
+      row({ label: 'Frequent', vouchers: 10, value: '1000' }),
+      row({ label: 'Rare but big', vouchers: 1, value: '900' }),
+    ]);
+    expect(series.points).toEqual([
+      { label: 'Frequent', invoices: 10, value: 1000 },
+      { label: 'Rare but big', invoices: 1, value: 900 },
+    ]);
+    expect(series.insight).toContain('Rare but big writes the largest bills');
+  });
+
+  it('drops a customer with no invoices rather than dividing by zero', () => {
+    const series = invoiceMix([
+      row({ label: 'None', vouchers: 0, value: '0' }),
+      row({ label: 'Real', vouchers: 2, value: '200' }),
+    ]);
+    expect(series.points.map((p) => p.label)).toEqual(['Real']);
+  });
+
+  it('has no insight with nothing to place', () => {
+    expect(invoiceMix([]).insight).toBeNull();
+  });
+});
+
+describe('revenueAndBasket', () => {
+  const rows = [
+    row({ month: '2026-03', revenue: '300', aov: '30' }),
+    row({ month: '2026-01', revenue: '100', aov: '50' }),
+    row({ month: '2026-02', revenue: '200', aov: '40' }),
+  ];
+
+  it('orders by month and totals the period', () => {
+    const series = revenueAndBasket(rows);
+    expect(series.points.map((p) => p.label)).toEqual(['2026-01', '2026-02', '2026-03']);
+    expect(series.totals.revenue).toBe(600);
+    // The period's own average bill, not the mean of three monthly averages.
+    expect(series.totals.aov).toBe(200);
+  });
+
+  it('names the case where the two measures disagree', () => {
+    expect(revenueAndBasket(rows).insight).toBe(
+      'Revenue is up while the average bill is down: more customers, buying less each.',
+    );
+  });
+
+  it('says so when they move together', () => {
+    const together = [
+      row({ month: '2026-01', revenue: '100', aov: '10' }),
+      row({ month: '2026-02', revenue: '200', aov: '20' }),
+      row({ month: '2026-03', revenue: '300', aov: '30' }),
+    ];
+    expect(revenueAndBasket(together).insight).toContain('moving the same way, both up');
+  });
+
+  it('refuses a reading from two months', () => {
+    expect(revenueAndBasket(rows.slice(0, 2)).insight).toBe(
+      'Not enough months here to read the basket.',
+    );
+  });
+
+  it('does not divide by zero on an empty period', () => {
+    expect(revenueAndBasket([]).totals).toEqual({ revenue: 0, aov: 0 });
   });
 });

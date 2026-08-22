@@ -5,8 +5,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -358,8 +358,8 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
         title={isNew ? 'New purchase order' : `Purchase order ${record.number}`}
         badges={
           <>
-            <Badge variant="outline">{PURCHASE_ORDER_STATUS_LABELS[draft.status]}</Badge>
-            {confirmed ? <Badge variant={record.fulfilment === 'received' ? 'default' : 'outline'}>{PO_FULFILMENT_LABELS[record.fulfilment]}</Badge> : null}
+            <StatusBadge state={draft.status} label={PURCHASE_ORDER_STATUS_LABELS[draft.status]} />
+            {confirmed ? <StatusBadge state={record.fulfilment} label={PO_FULFILMENT_LABELS[record.fulfilment]} /> : null}
             {record === null ? null : <SyncStateBadge record={record} />}
           </>
         }
