@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router';
 import { PageHeader } from '@/components/shared/page-header';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { RecordPagination } from '@/components/shared/record-pagination';
+import { PersonChip } from '@/components/shared/person';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
 import { Badge } from '@/components/ui/badge';
@@ -151,7 +152,14 @@ function RecycleBinBody({ allowed }: { allowed: readonly SoftDeletableEntity[] }
     {
       key: 'deletedBy',
       header: 'Deleted by',
-      cell: (row) => row.deletedBy?.name ?? 'Not recorded',
+      cell: (row) =>
+        row.deletedBy ? (
+          <PersonChip name={row.deletedBy.name} />
+        ) : (
+          // Not the em dash PersonChip would give a null: the row was deleted by
+          // somebody, the trail just predates the column.
+          <span className="text-muted-foreground">Not recorded</span>
+        ),
       secondary: true,
     },
     {

@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { RecordHistorySheet } from '@/features/audit/record-history-sheet';
 import { PageHeader } from '@/components/shared/page-header';
+import { PersonChip } from '@/components/shared/person';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -133,7 +134,7 @@ const HISTORY_COLUMNS: RecordColumn<LeaveRequest>[] = [
   {
     key: 'decidedBy',
     header: 'Decided by',
-    cell: (row) => row.decidedBy?.name ?? '—',
+    cell: (row) => <PersonChip name={row.decidedBy?.name} />,
     secondary: true,
   },
   {

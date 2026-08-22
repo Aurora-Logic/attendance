@@ -11,6 +11,7 @@ import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
+import { PersonChip } from '@/components/shared/person';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -97,7 +98,7 @@ const COLUMNS: RecordColumn<LeaveCalendarEntry>[] = [
   {
     key: 'employee',
     header: 'Employee',
-    cell: (row) => <span className="font-medium">{row.employee.name}</span>,
+    cell: (row) => <PersonChip name={row.employee.name} className="font-medium" />,
   },
   {
     key: 'date',
