@@ -165,7 +165,7 @@ function InvoiceForm({ order, onClose }: { order: Estimate; onClose: () => void 
                       aria-label={`Line ${String(line.lineNo)} invoiced quantity`}
                       aria-invalid={problem !== null || undefined}
                       inputMode="decimal"
-                      className="pointer-coarse:h-11 tabular-nums"
+                      className="tabular-nums"
                       placeholder="Qty"
                       disabled={!invoiceable}
                       value={quantities[line.id] ?? ''}

@@ -360,7 +360,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
           <>
             {record !== null && transitions.length > 0 && !dirty ? (
               <Select value={record.status} onValueChange={(value: string | null) => { if (value !== null && isEstimateStatus(value) && value !== record.status) move(value); }}>
-                <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Status" disabled={busy}>
+                <SelectTrigger className="w-40" aria-label="Status" disabled={busy}>
                   <SelectValue>{(value: string) => (isEstimateStatus(value) ? SALES_DOCUMENT_STATUS_LABELS[value] : value)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>

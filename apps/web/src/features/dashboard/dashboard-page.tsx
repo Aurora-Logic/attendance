@@ -486,7 +486,7 @@ export function DashboardPage() {
                           // CLAUDE.md 3.1 as written and the route sweep,
                           // which measures the element. Same idiom the muster
                           // toolbar uses for its select.
-                          className={cn('pointer-coarse:h-11 px-2.5', PRESS)}
+                          className={cn(' px-2.5', PRESS)}
                         >
                           {String(option)}d
                         </ToggleGroupItem>

@@ -407,7 +407,6 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                 <FieldLabel htmlFor="org-name">Name</FieldLabel>
                 <Input
                   id="org-name"
-                  className="pointer-coarse:h-11"
                   value={draft.organisation.name}
                   onChange={(event) => {
                     patchOrganisation({ name: event.target.value });
@@ -420,7 +419,6 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                 <FieldLabel htmlFor="org-legal-name">Legal name</FieldLabel>
                 <Input
                   id="org-legal-name"
-                  className="pointer-coarse:h-11"
                   value={draft.organisation.legalName ?? ''}
                   onChange={(event) => {
                     const next = event.target.value.trim();

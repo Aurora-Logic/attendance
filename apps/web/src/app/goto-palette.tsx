@@ -209,7 +209,6 @@ export function GoToPalette() {
                   <CommandItem
                     key={item.to}
                     value={`screen:${item.to}`}
-                    className="pointer-coarse:min-h-11"
                     onSelect={() => {
                       go(item.to);
                     }}
@@ -226,7 +225,6 @@ export function GoToPalette() {
                   <CommandItem
                     key={`${record.type}:${record.id}`}
                     value={`record:${record.type}:${record.id}`}
-                    className="pointer-coarse:min-h-11"
                     onSelect={() => {
                       go(route);
                     }}

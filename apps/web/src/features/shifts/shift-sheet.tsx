@@ -207,7 +207,6 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift | 'new'; onClose: () 
             <FieldLabel htmlFor="shift-name">Name</FieldLabel>
             <Input
               id="shift-name"
-              className="pointer-coarse:h-11"
               value={draft.name}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));
@@ -222,7 +221,6 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift | 'new'; onClose: () 
             <FieldLabel htmlFor="shift-code">Code</FieldLabel>
             <Input
               id="shift-code"
-              className="pointer-coarse:h-11"
               value={draft.code}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, code: event.target.value }));

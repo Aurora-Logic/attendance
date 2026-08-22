@@ -161,7 +161,7 @@ export function DispatchesPage() {
               setParam('mode', value);
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-44" aria-label="Mode">
+            <SelectTrigger className="w-44" aria-label="Mode">
               <SelectValue>{(value: string) => (value === ALL ? 'Any mode' : DISPATCH_MODE_LABELS[value as DispatchMode])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -179,7 +179,7 @@ export function DispatchesPage() {
               setParam('sync', value);
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-44" aria-label="Tally state">
+            <SelectTrigger className="w-44" aria-label="Tally state">
               <SelectValue>{(value: string) => (value === ALL ? 'Any Tally state' : SYNC_STATE_LABELS[value as DocumentSyncState])}</SelectValue>
             </SelectTrigger>
             <SelectContent>

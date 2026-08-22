@@ -219,7 +219,6 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
               <Input
                 id="estimate-customer"
                 autoComplete="organization"
-                className="pointer-coarse:h-11"
                 placeholder="Customer name as printed"
                 disabled={!editable}
                 value={customerName}
@@ -364,7 +363,7 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
               if (parsed) move(parsed);
             }}
           >
-            <SelectTrigger aria-label="Change status" className="pointer-coarse:h-11 w-40" disabled={setStatus.isPending}>
+            <SelectTrigger aria-label="Change status" className="w-40" disabled={setStatus.isPending}>
               <SelectValue placeholder="Mark as…">{() => 'Mark as…'}</SelectValue>
             </SelectTrigger>
             <SelectContent>

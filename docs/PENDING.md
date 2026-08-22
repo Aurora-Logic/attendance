@@ -82,6 +82,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-18 | Raise the bar, round one | Sliding tab pill, tooltip delay with instant follow-on from one root provider, theme cross-fade through a view transition | Done |
 | B-19 | One button height on a phone | Buttons and toggles join the 44px coarse-pointer floor; the invisible-target scheme and 17 per-screen overrides removed; a source-scan test keeps them out | Done |
 | B-20 | Documents on a phone | Estimate, sales order, purchase order and invoice draw as a stacked form below the tablet breakpoint; the paper is one tap away under Preview; the toolbar is one row | Done |
+| B-21 | Bulk on a phone | Pressables drawn at desktop size again with invisible 44px targets (B-19 overshot); 190 per-screen coarse-pointer heights stripped from fields, selects and toggles; the scan test covers every control; form and preview fixes from the owner's screenshots | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -172,3 +173,18 @@ The paper is the editor on a desk (REQ-W-01). On a phone the shell zoomed the A4
 | Fit effect ignored the preview toggle, so the paper would have mounted at 100% after a flip | `preview` in the effect's dependencies | The paper re-measures when it appears |
 
 Three jsdom tests prove the form: a read-only document renders without a single input and shows party, line facts, totals, the filled detail box and the notes; every editing section reaches the hook the page wired (place of supply, line quantity and rate, remove, add, notes, a detail box behind More details); the consignee section follows the design flag. Browser gate not run (owner instruction).
+
+### B-21 (owner's screenshots: "all the buttons are bulky in mobile ... dropdowns and all"), 22 Aug 2026
+
+B-19 made every pressable control one height on a phone by drawing it at 44px. Consistent, and bulky: a 12px label in a 44px box is the slab the original scheme was written to avoid. The owner said so, and the screenshots agree. Visual size and target size are separate (thumb-reach); the correction keeps the consistency and drops the bulk.
+
+| Before | After | Why |
+| --- | --- | --- |
+| Button, Toggle and Select trigger raised to a visible 44px by the floor | Drawn at their desktop height (32 / 28 / 24px; select 32 / 28) with an invisible `::after` target to 44px; excluded from the floor again, Select for the first time | The thing you press is 44px; the thing you see keeps its proportions |
+| 190 per-screen `pointer-coarse:h-11` / `min-h-11` on Inputs, SelectTriggers, ToggleGroupItems, menu rows, tab triggers and a tile's `py-4` | Stripped from 73 files; the floor or the primitive owns it | The same class of bug as the 17 button overrides, five times the size; the scan test now reads every control for any coarse-pointer growth class |
+| Date on the phone form: the DateField's own box inside a second bordered box | The slot draws its own box; the wrapper only aligns | Box in box (CLAUDE.md §3.3) |
+| Lines 1 and 2 separated by a hairline, reading as one long column | Each line is a tinted block (`bg-muted/40`) with a Line n badge, gap between blocks | Two things should look like two things |
+| Consignee: five fields always open under the buyer | A Same as buyer (Bill to) switch, on by default; switching it off opens the fields, switching it back clears them | The consignee is the buyer until someone says otherwise |
+| Preview on a phone: the paper sat against the left edge with a fifth of the screen empty beside it | Centred by a flex parent (auto margins on a zoomed box resolve in its own scaled space); fit steps every 2-5% at the small end | Fit to screen and in the centre, as asked |
+
+Inputs and textareas stay at the 44px floor: a field you type into is drawn at its target. Tests: the scan test rewritten for every control (two tests), the form's consignee tests rewritten around the switch (five tests in the file). Browser gate not run (owner instruction).

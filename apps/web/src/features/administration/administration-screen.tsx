@@ -80,7 +80,7 @@ export function AdministrationScreen() {
                   <li key={item.to}>
                     <NavLink
                       to={item.to}
-                      className="hover:bg-accent active:bg-muted focus-visible:ring-ring flex items-center gap-3 px-1 py-3 outline-none focus-visible:ring-2 pointer-coarse:py-4"
+                      className="hover:bg-accent active:bg-muted focus-visible:ring-ring flex items-center gap-3 px-1 py-3 outline-none focus-visible:ring-2"
                     >
                       <item.icon className="text-muted-foreground size-5 shrink-0" />
                       <span className="min-w-0 flex-1 text-sm font-medium">{item.label}</span>

@@ -395,7 +395,6 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
               <Input
                 id="order-customer-email"
                 inputMode="email"
-                className="pointer-coarse:h-11"
                 aria-invalid={emailProblem !== null || undefined}
                 disabled={!isDraft}
                 placeholder={isNew ? 'From the party master when blank' : undefined}
@@ -409,7 +408,6 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
               <Input
                 id="order-customer-whatsapp"
                 inputMode="tel"
-                className="pointer-coarse:h-11"
                 aria-invalid={whatsappProblem !== null || undefined}
                 disabled={!isDraft}
                 placeholder={isNew ? 'From the party master when blank' : undefined}

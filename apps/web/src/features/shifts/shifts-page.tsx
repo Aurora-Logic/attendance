@@ -702,7 +702,7 @@ function RosterTab() {
         >
           <SelectTrigger
             aria-label="Filter by department"
-            className="pointer-coarse:h-11 w-full sm:w-44"
+            className="w-full sm:w-44"
           >
             <SelectValue>
               {(value: string) =>

@@ -51,12 +51,15 @@
  * min-height rather than height, so it raises a small control to the floor
  * without shrinking a large one.
  *
- * Tab triggers are the one deliberate exception (see TabsList). Buttons and
- * toggles used to be excluded too, growing an invisible pseudo-element to
- * 44px while the box stayed at its desktop size; that left a phone toolbar
- * showing a 44px search field beside 28px buttons, and screens that minded
- * the mismatch bolted their own min-height onto their own buttons, so no two
- * screens agreed. One floor, one height.
+ * Four controls are excluded because they grow a 44px target of their own:
+ * the Button, the Toggle (and the toggle-group item built on it), the Select
+ * trigger, and the tab trigger. Each is drawn at its desktop height on a
+ * phone and extends an invisible pseudo-element to the floor, so the thing
+ * you press is 44px while the thing you see keeps its proportions. Raising
+ * their boxes instead was tried (B-19): every pressable control at 44px read
+ * as bulky across the whole product, and the owner said so. What made
+ * buttons differ from screen to screen was never the primitive but screens
+ * bolting their own heights on; those are gone and a test keeps them gone.
  *
  * Note what :where() does and does not buy here. It keeps specificity at zero,
  * but these rules are unlayered, and unlayered beats every Tailwind layer
@@ -69,10 +72,11 @@
  */
 @media (pointer: coarse) {
   :where(
-    /* Only the tab trigger is excluded: the strip it sits in is drawn at one
-       height on every device and the trigger carries its own tap target. */
-    button:not([role='tab']),
-    [role='button'],
+    /* The four that carry their own expansion (above) stay out. Everything
+       else that is a <button> -- a calendar day, a sidebar row, a menu item
+       rendered as one -- keeps the floor. */
+    button:not([data-slot='button'], [data-slot='toggle'], [data-slot='toggle-group-item'], [data-slot='select-trigger'], [role='tab']),
+    [role='button']:not([data-slot='button']),
     [role='menuitem'],
     [role='menuitemradio'],
     [role='option'],

@@ -212,7 +212,7 @@ function RecycleBinBody({ allowed }: { allowed: readonly SoftDeletableEntity[] }
           >
             <SelectTrigger
               aria-label="Filter by kind"
-              className="pointer-coarse:h-11 w-full sm:w-52"
+              className="w-full sm:w-52"
             >
               {/* A render function, not `placeholder`. Base UI's Value shows the
                   raw value when it is given neither, so the trigger read "all"

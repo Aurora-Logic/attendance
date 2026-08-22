@@ -302,7 +302,7 @@ export function TeamLeavePage() {
           >
             <SelectTrigger
               aria-label="Filter by department"
-              className="pointer-coarse:h-11 w-full sm:w-56"
+              className="w-full sm:w-56"
             >
               <SelectValue>
                 {(value: string) =>

@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 /**
- * A screen does not decide how tall a button is on a phone.
+ * A screen does not decide how tall a control is on a phone.
  *
- * The Button primitive draws every size at its desktop height and the coarse-
- * pointer floor in index.css raises it to 44px, the same floor every field,
- * select and menu row stands on. Before this test, seventeen call sites had
- * added `pointer-coarse:min-h-11` or `size-11` to their own buttons because
- * the primitive did not, and the result was a phone on which the dispatch
- * dialog's buttons were 44px, the leave page's 28px and the shell's 32px.
- * Fixing the primitive removed the overrides; this keeps them from coming
- * back one screen at a time, which is how they arrived.
+ * Buttons, toggles and select triggers are drawn at their desktop height and
+ * grow an invisible 44px target through a pseudo-element; fields and rows
+ * are raised by the coarse-pointer floor in index.css. Either way the
+ * primitive owns it. Before this test, seventeen call sites had put
+ * `pointer-coarse:min-h-11` on their own buttons and a hundred and sixty
+ * more had put `pointer-coarse:h-11` on their own inputs, selects and
+ * toggle items, so the dispatch dialog's controls were one height and the
+ * leave page's another. The overrides are gone; this keeps them from
+ * coming back one screen at a time, which is how they arrived.
  *
  * Sources are read through Vite's glob so the test needs no Node typings in
  * the browser-typed app config.
@@ -34,18 +35,21 @@ const ALLOWED = new Set([
   '/src/features/documents/design-rail.tsx',
 ]);
 
-const HEIGHT_OVERRIDE = /(^|\s)(h-\d+|min-h-\S+|size-\d+|pointer-coarse:(h|min-h|size|after)[:-]\S*)(?=\s|$)/;
-const BUTTON_TAG = /<Button\b[^>]*?>/gs;
+/** Any explicit height on a Button; any coarse-pointer growth on any of the listed controls. */
+const BUTTON_HEIGHT = /(^|\s)(h-\d+|min-h-\S+|size-\d+)(?=\s|$)/;
+const COARSE_OVERRIDE = /(^|\s)pointer-coarse:(h|min-h|size|py|after)[:-]\S*(?=\s|$)/;
+const CONTROL_TAG = /<(Button|SelectTrigger|Toggle|ToggleGroupItem|TabsTrigger|Input|Textarea|InputGroup|CommandItem|DropdownMenuItem)\b[^>]*?>/gs;
 const CLASS_NAME = /className="([^"]*)"/;
 
 describe('Button height is owned by the primitive', () => {
-  it('no screen sets a height, size or coarse-pointer growth on a Button', () => {
+  it('no screen sets a height on a Button, or coarse-pointer growth on any control', () => {
     const offenders: string[] = [];
     for (const [file, source] of Object.entries(SOURCES)) {
       if (ALLOWED.has(file)) continue;
-      for (const tag of source.match(BUTTON_TAG) ?? []) {
+      for (const tag of source.match(CONTROL_TAG) ?? []) {
         const classes = CLASS_NAME.exec(tag)?.[1];
-        if (classes && HEIGHT_OVERRIDE.test(classes)) {
+        const isButton = tag.startsWith('<Button');
+        if (classes && (COARSE_OVERRIDE.test(classes) || (isButton && BUTTON_HEIGHT.test(classes)))) {
           const line = source.slice(0, source.indexOf(tag)).split('\n').length;
           offenders.push(`${file}:${line} ${classes}`);
         }

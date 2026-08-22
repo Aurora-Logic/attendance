@@ -91,12 +91,24 @@ describe('DocumentForm', () => {
     expect(editing.updateDetails).toHaveBeenCalledWith({ buyersOrderNo: 'PO-78' });
   });
 
-  it('shows consignee fields only when the design prints a consignee', () => {
+  it('keeps the consignee folded behind Same as buyer, and clears it when switched back', () => {
     const editing = editingStub();
-    const { rerender } = render(<DocumentForm model={model} design={{ ...DEFAULT_DOCUMENT_DESIGN, showShipTo: false }} editing={editing} />);
-    expect(screen.queryByText('Consignee (Ship to)')).toBeNull();
-    rerender(<DocumentForm model={model} design={{ ...DEFAULT_DOCUMENT_DESIGN, showShipTo: true }} editing={editing} />);
+    render(<DocumentForm model={model} design={DEFAULT_DOCUMENT_DESIGN} editing={editing} />);
+    const toggle = screen.getByRole('switch', { name: 'Same as buyer (Bill to)' });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(screen.queryByLabelText('GSTIN/UIN')).toBeNull();
+
+    fireEvent.click(toggle);
     fireEvent.change(screen.getByLabelText('GSTIN/UIN'), { target: { value: '29abc' } });
     expect(editing.updateShipTo).toHaveBeenCalledWith({ gstin: '29ABC' });
+
+    fireEvent.click(toggle);
+    expect(editing.updateShipTo).toHaveBeenLastCalledWith(null);
+    expect(screen.queryByLabelText('GSTIN/UIN')).toBeNull();
+  });
+
+  it('has no consignee section at all when the design does not print one', () => {
+    render(<DocumentForm model={model} design={{ ...DEFAULT_DOCUMENT_DESIGN, showShipTo: false }} editing={editingStub()} />);
+    expect(screen.queryByRole('switch', { name: 'Same as buyer (Bill to)' })).toBeNull();
   });
 });

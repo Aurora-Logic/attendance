@@ -476,7 +476,7 @@ export function ApprovalsPage() {
               setParam('type', next);
             }}
           >
-            <SelectTrigger aria-label="Filter by request type" className="w-full pointer-coarse:h-11 sm:w-48">
+            <SelectTrigger aria-label="Filter by request type" className="w-full sm:w-48">
               <SelectValue>
                 {(value: string) => (isApprovalType(value) ? APPROVAL_TYPE_LABELS[value] : 'All types')}
               </SelectValue>
@@ -500,7 +500,7 @@ export function ApprovalsPage() {
               setParam('status', next);
             }}
           >
-            <SelectTrigger aria-label="Filter by status" className="w-full pointer-coarse:h-11 sm:w-44">
+            <SelectTrigger aria-label="Filter by status" className="w-full sm:w-44">
               <SelectValue>
                 {(value: string) =>
                   isApprovalStatus(value) ? APPROVAL_STATUS_LABELS[value] : 'All statuses'

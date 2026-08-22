@@ -155,7 +155,6 @@ function ContactSheetBody({
               id="contact-name"
               autoFocus
               autoComplete="off"
-              className="pointer-coarse:h-11"
               value={draft.name}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));
@@ -171,7 +170,6 @@ function ContactSheetBody({
                 type="tel"
                 inputMode="tel"
                 autoComplete="off"
-                className="pointer-coarse:h-11"
                 value={draft.phone}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, phone: event.target.value }));
@@ -185,7 +183,6 @@ function ContactSheetBody({
                 type="email"
                 inputMode="email"
                 autoComplete="off"
-                className="pointer-coarse:h-11"
                 value={draft.email}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, email: event.target.value }));
@@ -229,7 +226,6 @@ function ContactSheetBody({
             <Input
               id="contact-designation"
               autoComplete="off"
-              className="pointer-coarse:h-11"
               placeholder="Purchase head, Director, Accounts"
               value={draft.designation}
               onChange={(event) => {
@@ -288,7 +284,6 @@ function ContactSheetBody({
             <Input
               id="contact-source"
               autoComplete="off"
-              className="pointer-coarse:h-11"
               placeholder="Referral, website, an exhibition"
               value={draft.source}
               onChange={(event) => {

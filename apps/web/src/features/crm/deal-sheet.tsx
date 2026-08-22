@@ -195,7 +195,6 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
               id="deal-name"
               autoFocus
               autoComplete="off"
-              className="pointer-coarse:h-11"
               value={draft.name}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));
@@ -213,7 +212,7 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
                     if (next) setDraft((current) => ({ ...current, pipelineId: next, stageId: null }));
                   }}
                 >
-                  <SelectTrigger id="deal-pipeline" aria-label="Pipeline" className="pointer-coarse:h-11 w-full">
+                  <SelectTrigger id="deal-pipeline" aria-label="Pipeline" className="w-full">
                     <SelectValue>{(value: string) => pipelineList.find((p) => p.id === value)?.name ?? 'Choose'}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -234,7 +233,7 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
                   if (next) setDraft((current) => ({ ...current, stageId: next }));
                 }}
               >
-                <SelectTrigger id="deal-stage" aria-label="Stage" className="pointer-coarse:h-11 w-full">
+                <SelectTrigger id="deal-stage" aria-label="Stage" className="w-full">
                   <SelectValue>{(value: string) => stages.find((s) => s.id === value)?.name ?? 'Choose'}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -261,7 +260,7 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
                 id="deal-value"
                 inputMode="decimal"
                 autoComplete="off"
-                className="pointer-coarse:h-11 tabular-nums"
+                className="tabular-nums"
                 placeholder="0.00"
                 aria-invalid={valueBad}
                 value={draft.value}

@@ -303,7 +303,6 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
                 type="email"
                 inputMode="email"
                 autoComplete="off"
-                className="pointer-coarse:h-11"
                 disabled={!editable}
                 value={draft.vendorEmail}
                 onChange={(e) => {
@@ -319,7 +318,7 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
                 type="tel"
                 inputMode="tel"
                 autoComplete="off"
-                className="pointer-coarse:h-11 tabular-nums"
+                className="tabular-nums"
                 placeholder="+91 98765 43210"
                 disabled={!editable}
                 value={draft.vendorWhatsapp}

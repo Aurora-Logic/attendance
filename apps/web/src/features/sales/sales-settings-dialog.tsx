@@ -113,7 +113,7 @@ function SalesSettingsForm({ saved, save, onClose }: { saved: SalesSettings; sav
             <Input
               id="sales-discount-pct"
               inputMode="decimal"
-              className="pointer-coarse:h-11 tabular-nums"
+              className="tabular-nums"
               placeholder="None"
               aria-invalid={pctOk ? undefined : true}
               value={pct}

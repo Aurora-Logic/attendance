@@ -537,7 +537,7 @@ export function MyLeavePage() {
 
         <div className="flex flex-wrap items-center gap-2">
           <Select value={status ?? ALL_STATUSES} onValueChange={setStatus}>
-            <SelectTrigger aria-label="Filter history by status" className="w-full pointer-coarse:h-11 sm:w-44">
+            <SelectTrigger aria-label="Filter history by status" className="w-full sm:w-44">
               <SelectValue>
                 {(value: string) =>
                   isApprovalStatus(value) ? LEAVE_STATUS_LABELS[value] : 'All statuses'

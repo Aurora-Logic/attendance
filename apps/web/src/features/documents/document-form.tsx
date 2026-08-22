@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import { CaretDownIcon, PlusIcon, XIcon } from '@phosphor-icons/react';
 
 import { SectionHeading } from '@/components/shared/section-heading';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { formatMoney } from '@/features/sales/money';
 import { trimZeros as trimQty } from '@/features/sales/types';
@@ -51,6 +54,9 @@ export function DocumentForm({ model, design, editing }: DocumentFormProps) {
   const eInvoiceKeys = [...E_INVOICE_KEYS].filter((key) => editable || hasText(details[key]));
   const showDetails = (design.showDetailsGrid && detailKeys.length > 0) || (design.showEInvoice && eInvoiceKeys.length > 0);
   const showShipTo = design.showShipTo && (editable || (shipTo !== null && hasText(shipTo.name)));
+  // The consignee is the buyer until someone says otherwise; the fields stay
+  // folded behind the switch so a phone form is not five empty boxes long.
+  const [sameAsBuyer, setSameAsBuyer] = useState(!(shipTo !== null && (hasText(shipTo.name) || hasText(shipTo.address))));
   const stateLine = [model.buyer.stateName || gstStateName(model.buyer.stateCode), model.buyer.stateCode ? `Code ${model.buyer.stateCode}` : ''].filter((p) => p !== '').join(', ');
 
   return (
@@ -89,12 +95,12 @@ export function DocumentForm({ model, design, editing }: DocumentFormProps) {
           </Field>
           <Field>
             <FieldLabel>Dated</FieldLabel>
-            {editable ? <div className="border-input flex min-h-11 items-center border px-3">{editing.date}</div> : <span className="text-sm tabular-nums">{formatDate(model.date)}</span>}
+            {editable ? <div className="flex min-h-11 items-center">{editing.date}</div> : <span className="text-sm tabular-nums">{formatDate(model.date)}</span>}
           </Field>
           {secondDate !== undefined ? (
             <Field className="col-span-2">
               <FieldLabel>{secondDate}</FieldLabel>
-              {editable && editing.validUntil !== undefined ? <div className="border-input flex min-h-11 items-center border px-3">{editing.validUntil}</div> : <span className="text-sm tabular-nums">{model.validUntil ? formatDate(model.validUntil) : '—'}</span>}
+              {editable && editing.validUntil !== undefined ? <div className="flex min-h-11 items-center">{editing.validUntil}</div> : <span className="text-sm tabular-nums">{model.validUntil ? formatDate(model.validUntil) : '—'}</span>}
             </Field>
           ) : null}
         </div>
@@ -104,8 +110,21 @@ export function DocumentForm({ model, design, editing }: DocumentFormProps) {
         <>
           <Separator />
           <section className="flex flex-col gap-3">
-            <SectionHeading title="Consignee (Ship to)" note={editable ? 'Same as buyer when blank.' : undefined} />
+            <SectionHeading title="Consignee (Ship to)" />
             {editable ? (
+              <Field orientation="horizontal" className="justify-between">
+                <FieldLabel htmlFor="document-form-ship-toggle">Same as buyer (Bill to)</FieldLabel>
+                <Switch
+                  id="document-form-ship-toggle"
+                  checked={sameAsBuyer}
+                  onCheckedChange={(checked) => {
+                    setSameAsBuyer(checked);
+                    if (checked) editing.updateShipTo(null);
+                  }}
+                />
+              </Field>
+            ) : null}
+            {editable && !sameAsBuyer ? (
               <FieldGroup className="gap-3">
                 <Field>
                   <FieldLabel htmlFor="document-form-ship-name">Name</FieldLabel>
@@ -130,13 +149,14 @@ export function DocumentForm({ model, design, editing }: DocumentFormProps) {
                   <Input id="document-form-ship-state" value={shipTo?.stateName ?? ''} onChange={(event) => { editing.updateShipTo({ stateName: event.target.value }); }} />
                 </Field>
               </FieldGroup>
-            ) : (
+            ) : null}
+            {!editable ? (
               <div className="flex flex-col gap-0.5 text-sm">
                 <span className="font-semibold">{shipTo?.name}</span>
                 {hasText(shipTo?.address) ? <span className="text-muted-foreground whitespace-pre-line text-xs">{shipTo?.address}</span> : null}
                 {hasText(shipTo?.gstin) ? <span className="text-muted-foreground text-xs">GSTIN/UIN {shipTo?.gstin}</span> : null}
               </div>
-            )}
+            ) : null}
           </section>
         </>
       ) : null}
@@ -145,9 +165,9 @@ export function DocumentForm({ model, design, editing }: DocumentFormProps) {
 
       <section className="flex flex-col gap-3">
         <SectionHeading title="Lines" note={`${String(model.lines.length)} ${model.lines.length === 1 ? 'line' : 'lines'}`} />
-        <ol className="divide-border flex flex-col divide-y border-y">
+        <ol className={cn('flex flex-col', editable ? 'gap-3' : 'divide-border divide-y border-y')}>
           {model.lines.map((line, index) => (
-            <li key={line.key} className="flex flex-col gap-3 py-3">
+            <li key={line.key} className={cn('flex flex-col gap-3', editable ? 'bg-muted/40 p-3' : 'py-3')}>
               {editable ? editableLine(line, index, editing, design) : readLine(line, index, design)}
             </li>
           ))}
@@ -242,7 +262,7 @@ function editableLine(line: PaperLine, index: number, editing: PaperEditing, des
   return (
     <>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground text-xs font-medium tabular-nums">Line {n}</span>
+        <Badge variant="secondary" className="tabular-nums">Line {n}</Badge>
         <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove line ${n}`} onClick={() => { editing.removeLine(line.key); }}>
           <XIcon />
         </Button>

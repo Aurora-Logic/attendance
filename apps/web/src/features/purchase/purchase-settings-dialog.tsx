@@ -117,7 +117,7 @@ function PurchaseSettingsForm({ saved, save, onClose }: { saved: PurchaseSetting
             <Input
               id="purchase-threshold"
               inputMode="decimal"
-              className="pointer-coarse:h-11 tabular-nums"
+              className="tabular-nums"
               placeholder="None"
               aria-invalid={thresholdOk ? undefined : true}
               value={threshold}
@@ -132,7 +132,7 @@ function PurchaseSettingsForm({ saved, save, onClose }: { saved: PurchaseSetting
             <Input
               id="purchase-invoice-hours"
               inputMode="numeric"
-              className="pointer-coarse:h-11 tabular-nums"
+              className="tabular-nums"
               aria-invalid={hoursOk ? undefined : true}
               value={hours}
               onChange={(event) => {

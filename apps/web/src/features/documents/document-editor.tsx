@@ -33,14 +33,26 @@ import { useFooterLogoUrls, useSaveDocumentSettings } from './use-document-setti
 /** 210mm at CSS pixels. */
 const A4_WIDTH_PX = 794;
 
-/** Zoom steps the fit chooses from — classes, not a computed transform, so nothing is styled inline. */
+/**
+ * Zoom steps the fit chooses from — classes, not a computed transform, so
+ * nothing is styled inline. Steps are close together at the small end,
+ * where a phone lives: between 0.4 and 0.5 one coarse step left a fifth of
+ * the screen empty beside the paper.
+ */
 const ZOOMS = [
   { value: 0.4, className: '[zoom:0.4]' },
+  { value: 0.42, className: '[zoom:0.42]' },
   { value: 0.45, className: '[zoom:0.45]' },
+  { value: 0.48, className: '[zoom:0.48]' },
+  { value: 0.5, className: '[zoom:0.5]' },
   { value: 0.55, className: '[zoom:0.55]' },
+  { value: 0.6, className: '[zoom:0.6]' },
   { value: 0.65, className: '[zoom:0.65]' },
+  { value: 0.7, className: '[zoom:0.7]' },
   { value: 0.75, className: '[zoom:0.75]' },
+  { value: 0.8, className: '[zoom:0.8]' },
   { value: 0.85, className: '[zoom:0.85]' },
+  { value: 0.9, className: '[zoom:0.9]' },
   { value: 1, className: '[zoom:1]' },
 ] as const;
 
@@ -222,8 +234,13 @@ export function DocumentEditor(props: DocumentEditorProps) {
           {formOnPhone ? (
             <DocumentForm model={model} design={design} editing={editing} />
           ) : (
-            <div ref={paperRef} className={cn('mx-auto w-fit max-w-full', zoom.className)}>
-              <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
+            // Centred by the flex parent rather than by auto margins: a zoomed
+            // box resolves its auto margins in its own scaled space and sat
+            // against the left edge on a phone.
+            <div className="flex justify-center">
+              <div ref={paperRef} className={cn('w-fit', zoom.className)}>
+                <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
+              </div>
             </div>
           )}
           {extras ? <div className="mx-auto mt-6 max-w-[210mm]">{extras}</div> : null}

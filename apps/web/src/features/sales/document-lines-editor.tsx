@@ -129,7 +129,6 @@ export function DocumentLinesEditor({
                   ) : null}
                   <Input
                   aria-label={`Line ${String(index + 1)} description`}
-                  className="pointer-coarse:h-11"
                   placeholder="Description"
                   disabled={!editable}
                   value={line.description}
@@ -139,13 +138,13 @@ export function DocumentLinesEditor({
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <Input aria-label={`Line ${String(index + 1)} quantity`} inputMode="decimal" className="pointer-coarse:h-11 tabular-nums" placeholder="Qty" disabled={!editable} value={line.quantity} onChange={(e) => { updateLine(line.key, { quantity: e.target.value }); }} />
-                  <Input aria-label={`Line ${String(index + 1)} rate`} inputMode="decimal" className="pointer-coarse:h-11 tabular-nums" placeholder="Rate" disabled={!editable} value={line.rate} onChange={(e) => { updateLine(line.key, { rate: e.target.value }); }} />
-                  <Input aria-label={`Line ${String(index + 1)} discount percent`} inputMode="decimal" className="pointer-coarse:h-11 tabular-nums" placeholder="Disc %" disabled={!editable} value={line.discountPct} onChange={(e) => { updateLine(line.key, { discountPct: e.target.value }); }} />
+                  <Input aria-label={`Line ${String(index + 1)} quantity`} inputMode="decimal" className="tabular-nums" placeholder="Qty" disabled={!editable} value={line.quantity} onChange={(e) => { updateLine(line.key, { quantity: e.target.value }); }} />
+                  <Input aria-label={`Line ${String(index + 1)} rate`} inputMode="decimal" className="tabular-nums" placeholder="Rate" disabled={!editable} value={line.rate} onChange={(e) => { updateLine(line.key, { rate: e.target.value }); }} />
+                  <Input aria-label={`Line ${String(index + 1)} discount percent`} inputMode="decimal" className="tabular-nums" placeholder="Disc %" disabled={!editable} value={line.discountPct} onChange={(e) => { updateLine(line.key, { discountPct: e.target.value }); }} />
                   <Input
                   aria-label={`Line ${String(index + 1)} tax percent`}
                   inputMode="decimal"
-                  className="pointer-coarse:h-11 tabular-nums"
+                  className="tabular-nums"
                   placeholder="Tax %"
                   disabled={!editable}
                   value={line.taxPct}

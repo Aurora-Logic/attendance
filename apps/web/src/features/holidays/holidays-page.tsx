@@ -425,7 +425,7 @@ export function HolidaysPage() {
             <SelectTrigger
               id="holiday-calendar"
               aria-label="Holiday calendar"
-              className="pointer-coarse:h-11 w-full sm:w-56"
+              className="w-full sm:w-56"
             >
               <SelectValue>
                 {(value: string | null) =>

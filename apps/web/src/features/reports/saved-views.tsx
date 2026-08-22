@@ -204,7 +204,6 @@ export function SavedViews({
                 value={name}
                 maxLength={SAVED_VIEW_NAME_MAX}
                 placeholder="Late arrivals, this month"
-                className="pointer-coarse:h-11"
                 onChange={(event) => {
                   setName(event.target.value);
                 }}

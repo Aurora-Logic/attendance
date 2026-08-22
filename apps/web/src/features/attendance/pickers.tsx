@@ -432,7 +432,7 @@ export function MonthField({
             onValueChange(new Date(value.getFullYear(), Number(next), 1));
           }}
         >
-          <SelectTrigger aria-label="Month" className="pointer-coarse:h-11 w-full sm:w-36">
+          <SelectTrigger aria-label="Month" className="w-full sm:w-36">
             {/* The value is the 0-based month index; bare SelectValue would
                 render it raw - "7" for August. */}
             <SelectValue>
@@ -457,7 +457,7 @@ export function MonthField({
             onValueChange(new Date(Number(next), value.getMonth(), 1));
           }}
         >
-          <SelectTrigger aria-label="Year" className="pointer-coarse:h-11 w-full sm:w-28">
+          <SelectTrigger aria-label="Year" className="w-full sm:w-28">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -546,7 +546,7 @@ export function TimeField({
             if (next !== null) onValueChange(`${next}:${minute}`);
           }}
         >
-          <SelectTrigger aria-label={`${label} hour`} className="pointer-coarse:h-11 flex-1">
+          <SelectTrigger aria-label={`${label} hour`} className="flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -570,7 +570,7 @@ export function TimeField({
             if (next !== null) onValueChange(`${hour}:${next}`);
           }}
         >
-          <SelectTrigger aria-label={`${label} minute`} className="pointer-coarse:h-11 flex-1">
+          <SelectTrigger aria-label={`${label} minute`} className="flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -659,7 +659,7 @@ export function DurationField({
             if (next !== null) onValueChange(Number(next) * 60 + Number(minutes));
           }}
         >
-          <SelectTrigger aria-label={`${label} hours`} className="pointer-coarse:h-11 flex-1">
+          <SelectTrigger aria-label={`${label} hours`} className="flex-1">
             <SelectValue>{(selected: string) => `${selected} h`}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -678,7 +678,7 @@ export function DurationField({
             if (next !== null) onValueChange(Number(hours) * 60 + Number(next));
           }}
         >
-          <SelectTrigger aria-label={`${label} minutes`} className="pointer-coarse:h-11 flex-1">
+          <SelectTrigger aria-label={`${label} minutes`} className="flex-1">
             <SelectValue>{(selected: string) => `${selected} m`}</SelectValue>
           </SelectTrigger>
           <SelectContent>

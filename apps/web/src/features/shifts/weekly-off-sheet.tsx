@@ -158,7 +158,6 @@ function WeeklyOffSheetBody({
             <FieldLabel htmlFor="weekly-off-name">Name</FieldLabel>
             <Input
               id="weekly-off-name"
-              className="pointer-coarse:h-11"
               value={name}
               onChange={(event) => {
                 setName(event.target.value);

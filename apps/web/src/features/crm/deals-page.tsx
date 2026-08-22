@@ -275,7 +275,7 @@ export function DealsPage() {
                 setParam('pipeline', value);
               }}
             >
-              <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Pipeline">
+              <SelectTrigger className="w-40" aria-label="Pipeline">
                 <SelectValue>{(value: string) => pipelineList.find((p) => p.id === value)?.name ?? 'Pipeline'}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -299,7 +299,7 @@ export function DealsPage() {
               }}
             >
               {DEAL_STATUSES.map((s) => (
-                <ToggleGroupItem key={s} value={s} className="pointer-coarse:h-11">
+                <ToggleGroupItem key={s} value={s}>
                   {STATUS_LABELS[s]}
                 </ToggleGroupItem>
               ))}
@@ -313,7 +313,7 @@ export function DealsPage() {
                 setParam('stage', value === null || value === 'all' ? null : value);
               }}
             >
-              <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Stage">
+              <SelectTrigger className="w-40" aria-label="Stage">
                 <SelectValue>{(value: string) => (value === 'all' ? 'Any stage' : (pipeline.stages.find((st) => st.id === value)?.name ?? 'Stage'))}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -333,7 +333,7 @@ export function DealsPage() {
               setParam('owner', value === null || value === 'all' ? null : value);
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Owner">
+            <SelectTrigger className="w-40" aria-label="Owner">
               <SelectValue>{(value: string) => (value === 'all' ? 'Any owner' : ((owners.data ?? []).find((o) => o.id === value)?.name ?? 'Owner'))}</SelectValue>
             </SelectTrigger>
             <SelectContent>

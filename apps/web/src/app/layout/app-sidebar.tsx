@@ -55,7 +55,7 @@ function ModuleSwitcher({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <SidebarMenuButton className="pointer-coarse:min-h-11" aria-label="Switch module">
+              <SidebarMenuButton aria-label="Switch module">
                 <current.icon />
                 <span className="font-medium">{current.label}</span>
                 <CaretUpDownIcon className="ml-auto size-4 opacity-60" />
@@ -66,7 +66,6 @@ function ModuleSwitcher({
             {visible.map((module) => (
               <DropdownMenuItem
                 key={module.id}
-                className="pointer-coarse:min-h-11"
                 onClick={() => void navigate(module.home)}
               >
                 <module.icon />

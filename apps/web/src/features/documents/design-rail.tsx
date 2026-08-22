@@ -121,7 +121,7 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
                 className="flex-wrap gap-2"
               >
                 {DOCUMENT_ACCENTS.map((accent) => (
-                  <ToggleGroupItem key={accent} value={accent} aria-label={DOCUMENT_ACCENT_LABELS[accent]} className="pointer-coarse:size-11 size-9 p-0 data-pressed:ring-2 data-pressed:ring-ring">
+                  <ToggleGroupItem key={accent} value={accent} aria-label={DOCUMENT_ACCENT_LABELS[accent]} className="size-9 p-0 data-pressed:ring-2 data-pressed:ring-ring">
                     <span className={cn('size-5 rounded-full', ACCENT_SWATCH[accent])} />
                   </ToggleGroupItem>
                 ))}
@@ -132,7 +132,7 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               <Field>
                 <FieldLabel htmlFor="design-logo">Logo</FieldLabel>
                 <Select value={design.logoPlacement} onValueChange={(value: string | null) => { if (value === 'left' || value === 'right' || value === 'none') setDesign({ logoPlacement: value }); }}>
-                  <SelectTrigger id="design-logo" className="pointer-coarse:min-h-11 w-full" aria-label="Logo placement">
+                  <SelectTrigger id="design-logo" className="w-full" aria-label="Logo placement">
                     <SelectValue>{(value: string) => (value === 'left' ? 'Left' : value === 'right' ? 'Right' : 'Hidden')}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -153,9 +153,9 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
                     if (next === 'sm' || next === 'md' || next === 'lg') setDesign({ fontScale: next });
                   }}
                 >
-                  <ToggleGroupItem value="sm" aria-label="Small" className="pointer-coarse:min-h-11 flex-1">S</ToggleGroupItem>
-                  <ToggleGroupItem value="md" aria-label="Medium" className="pointer-coarse:min-h-11 flex-1">M</ToggleGroupItem>
-                  <ToggleGroupItem value="lg" aria-label="Large" className="pointer-coarse:min-h-11 flex-1">L</ToggleGroupItem>
+                  <ToggleGroupItem value="sm" aria-label="Small" className="flex-1">S</ToggleGroupItem>
+                  <ToggleGroupItem value="md" aria-label="Medium" className="flex-1">M</ToggleGroupItem>
+                  <ToggleGroupItem value="lg" aria-label="Large" className="flex-1">L</ToggleGroupItem>
                 </ToggleGroup>
               </Field>
             </div>
@@ -163,7 +163,7 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
             <Field>
               <FieldLabel htmlFor="design-font">Typeface</FieldLabel>
               <Select value={design.fontFamily} onValueChange={(value: string | null) => { if (value !== null && (DOCUMENT_FONTS as readonly string[]).includes(value)) setDesign({ fontFamily: value as DocumentFont }); }}>
-                <SelectTrigger id="design-font" className="pointer-coarse:min-h-11 w-full" aria-label="Typeface">
+                <SelectTrigger id="design-font" className="w-full" aria-label="Typeface">
                   <SelectValue>{(value: string) => DOCUMENT_FONT_LABELS[value as DocumentFont].label}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>

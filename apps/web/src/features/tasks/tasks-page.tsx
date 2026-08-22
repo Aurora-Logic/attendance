@@ -253,8 +253,8 @@ export function TasksPage() {
               if (next === 'mine' || next === 'all') setParam('all', next === 'all' ? '1' : null);
             }}
           >
-            <ToggleGroupItem value="mine" className="pointer-coarse:h-11">Mine</ToggleGroupItem>
-            <ToggleGroupItem value="all" className="pointer-coarse:h-11">Everyone</ToggleGroupItem>
+            <ToggleGroupItem value="mine">Mine</ToggleGroupItem>
+            <ToggleGroupItem value="all">Everyone</ToggleGroupItem>
           </ToggleGroup>
 
           <Select
@@ -263,7 +263,7 @@ export function TasksPage() {
               setParam('due', value === null || value === 'open' ? null : value);
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-36" aria-label="Due">
+            <SelectTrigger className="w-36" aria-label="Due">
               <SelectValue>{(value: TaskDueFilter) => DUE_LABELS[value]}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -281,7 +281,7 @@ export function TasksPage() {
               setParam('priority', value === null || value === 'all' ? null : value);
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-32" aria-label="Priority">
+            <SelectTrigger className="w-32" aria-label="Priority">
               <SelectValue>{(value: string) => (value === 'all' ? 'Any priority' : TASK_PRIORITY_LABELS[value as TaskPriority])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -301,7 +301,7 @@ export function TasksPage() {
                 setParam('assignee', value === null || value === 'all' ? null : value);
               }}
             >
-              <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Assignee">
+              <SelectTrigger className="w-40" aria-label="Assignee">
                 <SelectValue>{(value: string) => (value === 'all' ? 'Any assignee' : ((owners.data ?? []).find((o) => o.id === value)?.name ?? 'Assignee'))}</SelectValue>
               </SelectTrigger>
               <SelectContent>

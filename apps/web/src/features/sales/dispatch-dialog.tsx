@@ -223,7 +223,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
                       aria-label={`Line ${String(line.lineNo)} dispatched quantity`}
                       aria-invalid={problem !== null || undefined}
                       inputMode="decimal"
-                      className="pointer-coarse:h-11 max-w-[7rem] tabular-nums"
+                      className="max-w-[7rem] tabular-nums"
                       placeholder="Qty"
                       disabled={!dispatchable}
                       value={quantities[line.id] ?? ''}
@@ -247,7 +247,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
                     if (next) setMode(next);
                   }}
                 >
-                  <SelectTrigger id="dispatch-mode" className="pointer-coarse:min-h-11 w-full" aria-label="Mode" disabled={!dispatchable}>
+                  <SelectTrigger id="dispatch-mode" className="w-full" aria-label="Mode" disabled={!dispatchable}>
                     <SelectValue>{(value: string) => DISPATCH_MODE_LABELS[value as DispatchMode]}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -402,7 +402,6 @@ function TextField({
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Input
         id={id}
-        className="pointer-coarse:h-11"
         aria-invalid={error !== null || undefined}
         inputMode={inputMode}
         placeholder={placeholder}

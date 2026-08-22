@@ -91,11 +91,11 @@ export function ReportCatalogue({ reports, loading }: { reports: readonly Report
               );
             }}
           >
-            <ToggleGroupItem value="all" className="pointer-coarse:h-11">
+            <ToggleGroupItem value="all">
               All
             </ToggleGroupItem>
             {categories.map((c) => (
-              <ToggleGroupItem key={c} value={c} className="pointer-coarse:h-11">
+              <ToggleGroupItem key={c} value={c}>
                 {c}
               </ToggleGroupItem>
             ))}

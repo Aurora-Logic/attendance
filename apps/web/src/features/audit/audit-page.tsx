@@ -207,7 +207,7 @@ function AuditLogBody() {
               >
                 <SelectTrigger
                   aria-label="Filter by action"
-                  className="pointer-coarse:h-11 min-w-0 flex-1 sm:w-56 sm:flex-none"
+                  className="min-w-0 flex-1 sm:w-56 sm:flex-none"
                 >
                   <SelectValue>
                     {(value: string) => (value === ALL ? 'All actions' : humaniseAction(value))}
@@ -238,7 +238,7 @@ function AuditLogBody() {
               >
                 <SelectTrigger
                   aria-label="Filter by entity"
-                  className="pointer-coarse:h-11 min-w-0 flex-1 sm:w-44 sm:flex-none"
+                  className="min-w-0 flex-1 sm:w-44 sm:flex-none"
                 >
                   <SelectValue>
                     {(value: string) => (value === ALL ? 'All entities' : value)}

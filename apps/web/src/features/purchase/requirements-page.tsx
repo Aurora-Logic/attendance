@@ -273,7 +273,7 @@ export function RequirementsPage() {
               setParam('state', value === null || value === 'open' ? null : value === ALL ? 'all' : value);
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="State">
+            <SelectTrigger className="w-40" aria-label="State">
               <SelectValue>{(value: string) => (value === ALL ? 'Any state' : STATE_LABELS[value as RequirementState])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -539,7 +539,7 @@ function NewRequirementBody({ onClose }: { onClose: () => void }) {
             <Input
               id="requirement-quantity"
               inputMode="decimal"
-              className="pointer-coarse:h-11 tabular-nums"
+              className="tabular-nums"
               value={quantity}
               onChange={(event) => {
                 setQuantity(event.target.value);

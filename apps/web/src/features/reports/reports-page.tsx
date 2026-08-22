@@ -862,13 +862,13 @@ export function ReportsPage() {
                   if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
                 }}
               >
-                <ToggleGroupItem value="table" aria-label="Table view" className="pointer-coarse:min-h-11">
+                <ToggleGroupItem value="table" aria-label="Table view">
                   <TableIcon />
                 </ToggleGroupItem>
-                <ToggleGroupItem value="chart" aria-label="Chart view" className="pointer-coarse:min-h-11">
+                <ToggleGroupItem value="chart" aria-label="Chart view">
                   <ChartBarIcon />
                 </ToggleGroupItem>
-                <ToggleGroupItem value="both" aria-label="Both views" className="pointer-coarse:min-h-11">
+                <ToggleGroupItem value="both" aria-label="Both views">
                   Both
                 </ToggleGroupItem>
               </ToggleGroup>
@@ -941,7 +941,7 @@ export function ReportsPage() {
                         });
                       }}
                     >
-                      <SelectTrigger className="pointer-coarse:min-h-11 w-full" aria-label="Compare against">
+                      <SelectTrigger className="w-full" aria-label="Compare against">
                         <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
@@ -960,7 +960,7 @@ export function ReportsPage() {
                         if (value !== null) setSort(sort === `-${value}` ? `-${value}` : value);
                       }}
                     >
-                      <SelectTrigger className="pointer-coarse:min-h-11 flex-1" aria-label="Sort by">
+                      <SelectTrigger className="flex-1" aria-label="Sort by">
                         <SelectValue>
                           {(value: string) => `Sort: ${definition.columns.find((column) => column.sortField === value)?.header ?? 'Default'}`}
                         </SelectValue>
@@ -1074,7 +1074,7 @@ export function ReportsPage() {
                     });
                   }}
                 >
-                  <SelectTrigger size="sm" className="pointer-coarse:min-h-11 w-36" aria-label="Period granularity">
+                  <SelectTrigger size="sm" className="w-36" aria-label="Period granularity">
                     <SelectValue>{(value: string) => (value === 'month' ? 'This month' : value === 'quarter' ? 'This quarter' : value === 'year' ? 'This FY' : 'Custom period')}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -1094,7 +1094,7 @@ export function ReportsPage() {
                     });
                   }}
                 >
-                  <SelectTrigger size="sm" className="pointer-coarse:min-h-11 w-44" aria-label="Compare against">
+                  <SelectTrigger size="sm" className="w-44" aria-label="Compare against">
                     <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -1230,15 +1230,15 @@ export function ReportsPage() {
                   if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
                 }}
               >
-                <ToggleGroupItem value="table" className="pointer-coarse:h-11">
+                <ToggleGroupItem value="table">
                   <TableIcon data-icon="inline-start" />
                   Table
                 </ToggleGroupItem>
-                <ToggleGroupItem value="chart" className="pointer-coarse:h-11">
+                <ToggleGroupItem value="chart">
                   <ChartBarIcon data-icon="inline-start" />
                   Chart
                 </ToggleGroupItem>
-                <ToggleGroupItem value="both" className="pointer-coarse:h-11">
+                <ToggleGroupItem value="both">
                   Both
                 </ToggleGroupItem>
               </ToggleGroup>

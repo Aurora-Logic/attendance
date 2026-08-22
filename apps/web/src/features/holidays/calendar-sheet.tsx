@@ -128,7 +128,6 @@ function CalendarSheetBody({
             <Input
               id="calendar-name"
               autoFocus
-              className="pointer-coarse:h-11"
               value={draft.name}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));
@@ -149,7 +148,7 @@ function CalendarSheetBody({
               min={2000}
               max={2100}
               disabled={!isNew}
-              className="pointer-coarse:h-11 tabular-nums"
+              className="tabular-nums"
               value={String(draft.year)}
               onChange={(event) => {
                 const next = Number(event.target.value);
@@ -171,7 +170,7 @@ function CalendarSheetBody({
               inputMode="numeric"
               min={0}
               max={365}
-              className="pointer-coarse:h-11 tabular-nums"
+              className="tabular-nums"
               value={String(draft.restrictedAllowance)}
               onChange={(event) => {
                 const next = Number(event.target.value);

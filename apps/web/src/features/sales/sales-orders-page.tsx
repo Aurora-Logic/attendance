@@ -205,7 +205,7 @@ export function SalesOrdersPage() {
               );
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Status">
+            <SelectTrigger className="w-40" aria-label="Status">
               <SelectValue>{(value: string) => (value === ALL ? 'Any status' : SALES_DOCUMENT_STATUS_LABELS[value as SalesOrderStatus])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -232,7 +232,7 @@ export function SalesOrdersPage() {
               );
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-44" aria-label="Tally state">
+            <SelectTrigger className="w-44" aria-label="Tally state">
               <SelectValue>{(value: string) => (value === ALL ? 'Any Tally state' : SYNC_STATE_LABELS[value as DocumentSyncState])}</SelectValue>
             </SelectTrigger>
             <SelectContent>

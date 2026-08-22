@@ -95,7 +95,7 @@ export function ActivityTimeline({
                   if (parsed) setKind(parsed);
                 }}
               >
-                <SelectTrigger id="activity-kind" aria-label="Activity kind" className="pointer-coarse:h-11 w-full">
+                <SelectTrigger id="activity-kind" aria-label="Activity kind" className="w-full">
                   <SelectValue>{(value: CrmActivityKind) => CRM_ACTIVITY_KIND_LABELS[value]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>

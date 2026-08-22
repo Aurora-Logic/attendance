@@ -214,7 +214,7 @@ function PackForm({ order, onClose, onPacked }: { order: Estimate; onClose: () =
                       aria-label={`Line ${String(line.lineNo)} packed quantity`}
                       aria-invalid={problem !== null || undefined}
                       inputMode="decimal"
-                      className="pointer-coarse:h-11 tabular-nums"
+                      className="tabular-nums"
                       placeholder="Qty"
                       disabled={!packable}
                       value={entry.quantity}
@@ -230,7 +230,6 @@ function PackForm({ order, onClose, onPacked }: { order: Estimate; onClose: () =
                     />
                     <Input
                       aria-label={`Line ${String(line.lineNo)} comment`}
-                      className="pointer-coarse:h-11"
                       placeholder="Comment: short supply, damage, substitution"
                       disabled={!packable}
                       value={entry.comment}
@@ -253,7 +252,7 @@ function PackForm({ order, onClose, onPacked }: { order: Estimate; onClose: () =
               <Input
                 id="pack-boxes"
                 inputMode="numeric"
-                className="pointer-coarse:h-11 tabular-nums"
+                className="tabular-nums"
                 aria-invalid={!boxesValid || undefined}
                 value={boxCount}
                 onChange={(event) => {

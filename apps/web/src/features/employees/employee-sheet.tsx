@@ -349,7 +349,7 @@ function EmployeeForm({
             <FieldLabel htmlFor="employee-code">Employee code</FieldLabel>
             <Input
               id="employee-code"
-              className="pointer-coarse:h-11 tabular-nums"
+              className="tabular-nums"
               value={draft.employeeCode}
               disabled={existing !== null}
               autoFocus={existing === null}
@@ -370,7 +370,6 @@ function EmployeeForm({
             <FieldLabel htmlFor="employee-first-name">First name</FieldLabel>
             <Input
               id="employee-first-name"
-              className="pointer-coarse:h-11"
               value={draft.firstName}
               autoFocus={existing !== null}
               onChange={(event) => {
@@ -384,7 +383,6 @@ function EmployeeForm({
             <FieldLabel htmlFor="employee-last-name">Last name</FieldLabel>
             <Input
               id="employee-last-name"
-              className="pointer-coarse:h-11"
               value={draft.lastName}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, lastName: event.target.value }));
@@ -403,7 +401,6 @@ function EmployeeForm({
                   type="email"
                   inputMode="email"
                   autoComplete="off"
-                  className="pointer-coarse:h-11"
                   value={draft.workEmail}
                   onChange={(event) => {
                     setDraft((current) => ({ ...current, workEmail: event.target.value }));
@@ -421,7 +418,6 @@ function EmployeeForm({
                   type="email"
                   inputMode="email"
                   autoComplete="off"
-                  className="pointer-coarse:h-11"
                   value={draft.personalEmail}
                   onChange={(event) => {
                     setDraft((current) => ({ ...current, personalEmail: event.target.value }));
@@ -438,7 +434,7 @@ function EmployeeForm({
                   id="employee-mobile"
                   type="tel"
                   inputMode="tel"
-                  className="pointer-coarse:h-11 tabular-nums"
+                  className="tabular-nums"
                   value={draft.mobile}
                   onChange={(event) => {
                     setDraft((current) => ({ ...current, mobile: event.target.value }));
@@ -482,7 +478,7 @@ function EmployeeForm({
                   <SelectTrigger
                     id="employee-employment-type"
                     aria-label="Employment type"
-                    className="pointer-coarse:h-11 w-full"
+                    className="w-full"
                   >
                     <SelectValue>{(value: string) => humaniseEnum(value)}</SelectValue>
                   </SelectTrigger>
