@@ -606,3 +606,120 @@ describe('the second analytics set (owner, 22 Aug 2026)', () => {
     expect(catalogue.body.data.some((report) => report.key === 'aov-trend')).toBe(true);
   });
 });
+
+/**
+ * REQ-Y-02 and REQ-Y-04, the two reports `bill_allocations` unblocks.
+ *
+ * The fixture is three bills for one party, chosen so each answers a question
+ * a net balance cannot:
+ *
+ *   BILL-A  10,000  raised 200 days ago, settled in full after 40 days
+ *   BILL-B   5,000  raised 100 days ago, 2,000 paid  -> 3,000 open, 90+ bucket
+ *   BILL-C   8,000  raised 10 days ago, untouched    -> 8,000 open, 0-30
+ *
+ * Net exposure is 11,000 either way. What only the bill view can say is that
+ * 3,000 of it has been owed for a hundred days.
+ */
+describe('ageing and payment analysis (Phase 6d, REQ-Y-02 / REQ-Y-04)', () => {
+  let billPartyId = '';
+
+  beforeAll(async () => {
+    const party = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group, credit_limit, credit_days)
+      VALUES (${ORG_ID}, ${connectionId}, 'Bill-wise Traders', 'Sundry Debtors', '500000', 30)
+      RETURNING id
+    `);
+    billPartyId = party.rows[0]?.id ?? '';
+
+    const raise = async (number: string, daysAgo: number, amount: string): Promise<string> => {
+      const rows = await harness.db.execute<{ id: string }>(sql`
+        INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, amount)
+        VALUES (${ORG_ID}, ${connectionId}, CURRENT_DATE - (${daysAgo})::int, 'Sales', ${number}, 'Bill-wise Traders', ${billPartyId}, ${amount})
+        RETURNING id
+      `);
+      return rows.rows[0]?.id ?? '';
+    };
+    const settle = async (daysAgo: number, amount: string): Promise<string> => {
+      const rows = await harness.db.execute<{ id: string }>(sql`
+        INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, amount)
+        VALUES (${ORG_ID}, ${connectionId}, CURRENT_DATE - (${daysAgo})::int, 'Receipt', 'RCT-BW', 'Bill-wise Traders', ${billPartyId}, ${amount})
+        RETURNING id
+      `);
+      return rows.rows[0]?.id ?? '';
+    };
+
+    const a = await raise('BILL-A', 200, '10000');
+    const b = await raise('BILL-B', 100, '5000');
+    const c = await raise('BILL-C', 10, '8000');
+    const payA = await settle(160, '10000');
+    const payB = await settle(90, '2000');
+
+    await harness.db.execute(sql`
+      INSERT INTO bill_allocations (org_id, connection_id, voucher_id, party_id, party_name, bill_name, ref_type, bill_date, amount)
+      VALUES
+        (${ORG_ID}, ${connectionId}, ${a}, ${billPartyId}, 'Bill-wise Traders', 'BILL-A', 'new', CURRENT_DATE - 200, '10000'),
+        (${ORG_ID}, ${connectionId}, ${b}, ${billPartyId}, 'Bill-wise Traders', 'BILL-B', 'new', CURRENT_DATE - 100, '5000'),
+        (${ORG_ID}, ${connectionId}, ${c}, ${billPartyId}, 'Bill-wise Traders', 'BILL-C', 'new', CURRENT_DATE - 10, '8000'),
+        (${ORG_ID}, ${connectionId}, ${payA}, ${billPartyId}, 'Bill-wise Traders', 'BILL-A', 'against', CURRENT_DATE - 200, '-10000'),
+        (${ORG_ID}, ${connectionId}, ${payB}, ${billPartyId}, 'Bill-wise Traders', 'BILL-B', 'against', CURRENT_DATE - 100, '-2000')
+    `);
+  });
+
+  it('lists only bills with something still on them, aged from the bill date', async () => {
+    const res = await harness.get<{
+      data: { partyName: string; billName: string; ageDays: number; bucket: string; outstanding: string; overdue: boolean }[];
+    }>(`/reports/ageing/rows?partyId=${billPartyId}`, { token: adminToken });
+    expect(res.status).toBe(200);
+
+    // BILL-A settled in full, so it is gone -- no "paid" flag was needed to
+    // say so, the rows simply net to zero.
+    expect(res.body.data.map((r) => r.billName)).toEqual(['BILL-B', 'BILL-C']);
+
+    const b = res.body.data.find((r) => r.billName === 'BILL-B');
+    expect(b?.outstanding).toBe('3000.00');
+    expect(b?.ageDays).toBe(100);
+    expect(b?.bucket).toBe('90+');
+    // Raised 100 days ago on 30-day terms.
+    expect(b?.overdue).toBe(true);
+
+    const c = res.body.data.find((r) => r.billName === 'BILL-C');
+    expect(c?.outstanding).toBe('8000.00');
+    expect(c?.bucket).toBe('0-30');
+    expect(c?.overdue).toBe(false);
+  });
+
+  it('says what a net balance cannot: how old the open money is', async () => {
+    const res = await harness.get<{ data: { outstanding: string; ageDays: number }[] }>(
+      `/reports/ageing/rows?partyId=${billPartyId}`,
+      { token: adminToken },
+    );
+    const total = res.body.data.reduce((sum, row) => sum + Number(row.outstanding), 0);
+    // The same 11,000 the credit cycle would show as one figure...
+    expect(total).toBe(11000);
+    // ...of which this much has been owed beyond the terms.
+    const aged = res.body.data.filter((r) => r.ageDays > 30).reduce((sum, r) => sum + Number(r.outstanding), 0);
+    expect(aged).toBe(3000);
+  });
+
+  it('measures days to pay from the settlement that names the bill', async () => {
+    const res = await harness.get<{
+      data: { partyName: string; creditDays: number | null; avgDaysToPay: number | null; slippage: number | null; billsPaid: number; billsOpen: number; oldestOpenDays: number | null }[];
+    }>(`/reports/payment-analysis/rows?partyId=${billPartyId}`, { token: adminToken });
+    expect(res.status).toBe(200);
+
+    const row = res.body.data[0];
+    expect(row?.partyName).toBe('Bill-wise Traders');
+    // BILL-A alone is settled: raised 200 days ago, paid at 160 -- forty days.
+    expect(row?.avgDaysToPay).toBe(40);
+    expect(row?.billsPaid).toBe(1);
+    expect(row?.billsOpen).toBe(2);
+    // Agreed 30, took 40.
+    expect(row?.slippage).toBe(10);
+    expect(row?.oldestOpenDays).toBe(100);
+  });
+
+  it('refuses an account without receivables.view', async () => {
+    const refused = await harness.get('/reports/ageing/rows', { token: employeeToken });
+    expect(refused.status).toBe(403);
+  });
+});

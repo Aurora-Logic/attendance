@@ -42,6 +42,8 @@ export const REPORT_KEYS = [
   'voucher-reconciliation',
   'customer-statement',
   'credit-cycle',
+  'ageing',
+  'payment-analysis',
   'sales-analysis',
   'pending-dispatch',
   'low-stock',
@@ -87,7 +89,7 @@ export const REPORT_KEYS = [
 export type ReportKey = (typeof REPORT_KEYS)[number];
 
 /** The keys the Tally module's source claims; everything else is attendance's. */
-export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'sales-analysis', 'low-stock', 'day-book', 'customer-lapse'] as const satisfies readonly ReportKey[];
+export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'ageing', 'payment-analysis', 'sales-analysis', 'low-stock', 'day-book', 'customer-lapse'] as const satisfies readonly ReportKey[];
 /** 14 Tier 1 (D-46), served by the analytics source; the same receivables gate as the Tally set. */
 export const ANALYTICS_REPORT_KEYS = [
   'ledger-extract',
@@ -554,6 +556,49 @@ const CUSTOMER_STATEMENT_COLUMNS: readonly ReportColumnSpec[] = [
  * "Actual overdue" is deliberately absent until bill-wise allocations
  * arrive (P6b): without them, which invoice a receipt settled is a guess.
  */
+/**
+ * REQ-Y-02. One row per open bill, not per party -- that is the whole point.
+ * A party's net balance ages from nothing; a bill has a date, so its age is
+ * arithmetic. The bucket is a column rather than four columns of money because
+ * a bill sits in exactly one, and four columns with three blanks is a crosstab
+ * pretending to be a list.
+ */
+const AGEING_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 26 },
+  { key: 'billName', header: 'Bill', type: 'code', width: 16 },
+  { key: 'billDate', header: 'Bill date', type: 'date', sortField: 'billDate', width: 12 },
+  { key: 'dueDate', header: 'Due', type: 'date', secondary: true, width: 12 },
+  { key: 'ageDays', header: 'Age (days)', type: 'number', sortField: 'ageDays', width: 10 },
+  { key: 'bucket', header: 'Bucket', type: 'status', width: 12 },
+  { key: 'outstanding', header: 'Outstanding', type: 'text', sortField: 'outstanding', width: 14 },
+  { key: 'overdue', header: 'Overdue', type: 'status', width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/**
+ * REQ-Y-04. What a party actually does, against what they agreed to.
+ *
+ * `avgDaysToPay` is observed from settlements that name the bill they settle,
+ * which is why this report could not exist before `bill_allocations`: without
+ * the link, "days to pay" could only be inferred from the order receipts
+ * happened to arrive in, and a customer paying March's bill in July would look
+ * like a customer paying June's on time.
+ *
+ * The requirement says so itself -- with one financial year it is noise -- so
+ * `billsPaid` is on the row. A three-bill average is a number, not a finding.
+ */
+const PAYMENT_ANALYSIS_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 26 },
+  { key: 'creditDays', header: 'Agreed days', type: 'number', width: 12 },
+  { key: 'avgDaysToPay', header: 'Actual days', type: 'number', sortField: 'avgDaysToPay', width: 12 },
+  { key: 'slippage', header: 'Slippage', type: 'number', sortField: 'slippage', width: 10 },
+  { key: 'billsPaid', header: 'Bills settled', type: 'number', secondary: true, width: 12 },
+  { key: 'billsOpen', header: 'Still open', type: 'number', secondary: true, width: 10 },
+  { key: 'oldestOpenDays', header: 'Oldest open', type: 'number', width: 12 },
+  { key: 'onTime', header: 'Pays on time', type: 'status', width: 12 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
 const CREDIT_CYCLE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 28 },
   { key: 'creditLimit', header: 'Credit limit', type: 'text', width: 14 },
@@ -1116,6 +1161,26 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
       'Credit limit and credit days per party against current exposure. Overdue by bill waits for bill-wise allocations.',
     columns: CREDIT_CYCLE_COLUMNS,
     defaultSort: '-exposure',
+    filters: ['partyId'],
+  },
+  ageing: {
+    key: 'ageing',
+    category: 'Receivables',
+    label: 'Ageing',
+    description:
+      'Every open bill, its age and its bucket. Buckets are 0-30, 31-60, 61-90 and over 90 days from the bill date.',
+    columns: AGEING_COLUMNS,
+    defaultSort: '-ageDays',
+    filters: ['partyId'],
+  },
+  'payment-analysis': {
+    key: 'payment-analysis',
+    category: 'Receivables',
+    label: 'Payment analysis',
+    description:
+      'Average days to pay against agreed credit days, per party, from settlements that name the bill they settle.',
+    columns: PAYMENT_ANALYSIS_COLUMNS,
+    defaultSort: '-slippage',
     filters: ['partyId'],
   },
   'sales-analysis': {
@@ -2493,6 +2558,89 @@ export interface CreditCycleSource {
   readonly lastInvoiceDate: string | null;
   readonly lastReceiptDate: string | null;
   readonly asOf: string | null;
+}
+
+/** One open bill (Phase 6d, REQ-Y-02). */
+export interface AgeingSource {
+  readonly partyId: string | null;
+  readonly partyName: string;
+  readonly billName: string;
+  readonly billDate: string | null;
+  readonly dueDate: string | null;
+  readonly ageDays: number;
+  readonly bucket: string;
+  readonly outstanding: string;
+  readonly overdue: boolean;
+  readonly asOf: string | null;
+}
+
+export function ageingCell(row: AgeingSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName':
+      return row.partyName;
+    case 'billName':
+      return row.billName;
+    case 'billDate':
+      return row.billDate;
+    case 'dueDate':
+      return row.dueDate;
+    case 'ageDays':
+      return row.ageDays;
+    case 'bucket':
+      return row.bucket;
+    case 'outstanding':
+      return row.outstanding;
+    case 'overdue':
+      return row.overdue ? 'OVERDUE' : 'WITHIN TERMS';
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
+}
+
+/** One party's payment behaviour (Phase 6d, REQ-Y-04). */
+export interface PaymentAnalysisSource {
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly creditDays: number | null;
+  /** Null when nothing has been settled yet; the screen says so rather than showing 0. */
+  readonly avgDaysToPay: number | null;
+  /** Actual minus agreed. Positive is late. Null when either side is unknown. */
+  readonly slippage: number | null;
+  readonly billsPaid: number;
+  readonly billsOpen: number;
+  readonly oldestOpenDays: number | null;
+  readonly asOf: string | null;
+}
+
+export function paymentAnalysisCell(row: PaymentAnalysisSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName':
+      return row.partyName;
+    case 'creditDays':
+      return row.creditDays;
+    case 'avgDaysToPay':
+      return row.avgDaysToPay;
+    case 'slippage':
+      return row.slippage;
+    case 'billsPaid':
+      return row.billsPaid;
+    case 'billsOpen':
+      return row.billsOpen;
+    case 'oldestOpenDays':
+      return row.oldestOpenDays;
+    case 'onTime':
+      // Unknown is not "on time". A party with nothing settled has not
+      // demonstrated anything, and saying ON TIME would be a claim the data
+      // does not support.
+      if (row.slippage === null) return 'NOT YET KNOWN';
+      return row.slippage <= 0 ? 'ON TIME' : 'LATE';
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
 }
 
 export function creditCycleCell(row: CreditCycleSource, key: string): ReportCellValue {

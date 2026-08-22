@@ -735,7 +735,8 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
             // has to be unique per punch rather than per run.
             `INSERT INTO punches (id, org_id, employee_id, punch_type, server_time, client_time,
                attendance_date, source, idempotency_key)
-             VALUES ($1,$2,$3,$4,$5,$5,$6,'WEB',$7)`,
+             VALUES ($1,$2,$3,$4,$5,$5,$6,'WEB',$7)
+             ON CONFLICT DO NOTHING`,
             [randomUUID(), orgId, employeeId, type,
              `${date} ${String(Math.min(hh, 23)).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00+05:30`,
              date, `demo-${String(employeeId)}-${date}-${type}`],
@@ -765,6 +766,112 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
            pick(['PENDING', 'APPROVED', 'APPROVED', 'REJECTED'] as const), owner],
         );
         bump('leave_requests');
+      }
+    }
+  }
+
+  // ------------------------------------------------------ bill allocations
+  /*
+   * Derived from the vouchers already seeded rather than invented alongside
+   * them, so the two agree by construction: every Sales voucher raises exactly
+   * one bill for its own amount, and receipts settle those bills oldest first.
+   *
+   * FIFO because that is what bill-wise settlement does when nobody says
+   * otherwise, and because it is what makes the ageing report interesting --
+   * a party who part-pays leaves the *oldest* bill open, which is precisely
+   * the case a net balance hides.
+   *
+   * Runs against whatever vouchers exist, so it works whether they were seeded
+   * a moment ago or last week.
+   */
+  if (!(await already('bill_allocations'))) {
+    const sales = (
+      await db.query<{ id: string; party_id: string | null; party_name: string; voucher_number: string; voucher_date: string; amount: string }>(
+        `SELECT id, party_id, party_name, voucher_number, to_char(voucher_date,'YYYY-MM-DD') AS voucher_date, amount
+           FROM vouchers WHERE org_id = $1 AND voucher_type = 'Sales' AND NOT is_cancelled
+          ORDER BY voucher_date, voucher_number`,
+        [orgId],
+      )
+    ).rows;
+
+    const receipts = (
+      await db.query<{ id: string; party_id: string | null; voucher_date: string; amount: string }>(
+        `SELECT id, party_id, to_char(voucher_date,'YYYY-MM-DD') AS voucher_date, amount
+           FROM vouchers WHERE org_id = $1 AND voucher_type = 'Receipt' AND NOT is_cancelled
+          ORDER BY voucher_date`,
+        [orgId],
+      )
+    ).rows;
+
+    // Credit days come from the party, so a bill's due date is the terms the
+    // customer actually has rather than a constant.
+    const creditDays = new Map<string, number>(
+      (
+        await db.query<{ id: string; credit_days: number | null }>(
+          `SELECT id, credit_days FROM parties WHERE org_id = $1`, [orgId],
+        )
+      ).rows.map((row) => [row.id, row.credit_days ?? 30]),
+    );
+
+    /** Open bills per party, oldest first, as receipts are applied to them. */
+    const open = new Map<string, { billName: string; billDate: string; left: number }[]>();
+
+    for (const voucher of sales) {
+      if (voucher.party_id === null) continue;
+      const amount = Number(voucher.amount);
+      const days = creditDays.get(voucher.party_id) ?? 30;
+      const due = new Date(`${voucher.voucher_date}T00:00:00Z`);
+      due.setUTCDate(due.getUTCDate() + days);
+
+      await db.query(
+        `INSERT INTO bill_allocations (id, org_id, connection_id, voucher_id, party_id, party_name,
+           bill_name, ref_type, bill_date, due_date, amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'new',$8,$9,$10)`,
+        [randomUUID(), orgId, connectionId, voucher.id, voucher.party_id, voucher.party_name,
+         voucher.voucher_number, voucher.voucher_date, due.toISOString().slice(0, 10), amount.toFixed(2)],
+      );
+      bump('bill_allocations');
+
+      const bills = open.get(voucher.party_id) ?? [];
+      bills.push({ billName: voucher.voucher_number, billDate: voucher.voucher_date, left: amount });
+      open.set(voucher.party_id, bills);
+    }
+
+    for (const receipt of receipts) {
+      if (receipt.party_id === null) continue;
+      let remaining = Number(receipt.amount);
+      const bills = (open.get(receipt.party_id) ?? []).filter((bill) => bill.left > 0.005);
+
+      for (const bill of bills) {
+        if (remaining <= 0.005) break;
+        // A receipt can only ever settle what is on the bill; the surplus
+        // moves to the next one. Without this a large payment would drive one
+        // bill negative and the ageing sum would be wrong in both directions.
+        const applied = Math.min(bill.left, remaining);
+        bill.left -= applied;
+        remaining -= applied;
+
+        await db.query(
+          `INSERT INTO bill_allocations (id, org_id, connection_id, voucher_id, party_id, party_name,
+             bill_name, ref_type, bill_date, amount)
+           VALUES ($1,$2,$3,$4,$5,(SELECT party_name FROM vouchers WHERE id = $4),$6,'against',$7,$8)`,
+          [randomUUID(), orgId, connectionId, receipt.id, receipt.party_id,
+           bill.billName, bill.billDate, (-applied).toFixed(2)],
+        );
+        bump('bill_allocations');
+      }
+
+      // Money with no bill left to put it against is exactly what `on_account`
+      // is for, and the ageing report excludes it on purpose -- there is no
+      // date to age from.
+      if (remaining > 0.005) {
+        await db.query(
+          `INSERT INTO bill_allocations (id, org_id, connection_id, voucher_id, party_id, party_name,
+             bill_name, ref_type, amount)
+           VALUES ($1,$2,$3,$4,$5,(SELECT party_name FROM vouchers WHERE id = $4),'On account','on_account',$6)`,
+          [randomUUID(), orgId, connectionId, receipt.id, receipt.party_id, (-remaining).toFixed(2)],
+        );
+        bump('bill_allocations');
       }
     }
   }
