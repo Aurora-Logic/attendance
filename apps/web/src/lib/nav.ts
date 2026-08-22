@@ -1,4 +1,5 @@
 import {
+  ArrowUUpLeftIcon,
   AddressBookIcon,
   ArchiveIcon,
   BooksIcon,
@@ -595,6 +596,15 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
             phase: 8,
             reqs: 'REQ-AA-17, REQ-AA-21, REQ-AA-24',
+          },
+          {
+            to: '/sales/returns',
+            label: 'Returns',
+            shortLabel: 'Returns',
+            icon: ArrowUUpLeftIcon,
+            permission: PERMISSIONS.RETURNS_VIEW,
+            phase: 8,
+            reqs: 'docs/15 REQ-AK-01…11',
           },
           {
             to: '/sales/delivered',

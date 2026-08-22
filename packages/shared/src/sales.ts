@@ -142,6 +142,14 @@ export interface SalesLineView {
   readonly resolvedRate: string | null;
   readonly appliedDiscountPct: string | null;
   readonly rateOverrideReason: string | null;
+  /**
+   * 15 REQ-AK-09 / D-51: a replacement line the company decided to give
+   * away. It has no invoice to wait for, and no floor to sit above. Set only
+   * by the return that raised the order — there is no field for it on the
+   * line editor, because a salesperson marking a line free of charge would
+   * be a way around both rules.
+   */
+  readonly freeOfCharge: boolean;
   /** REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate. */
   readonly pickedQty: string;
   readonly packedQty: string;

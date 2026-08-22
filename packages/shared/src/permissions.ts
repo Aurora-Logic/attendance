@@ -102,6 +102,10 @@ export const PERMISSIONS = {
   COLLECTIONS_VIEW_SELF: 'collections.view.self',
   COLLECTIONS_VIEW_ALL: 'collections.view.all',
   COLLECTIONS_MANAGE: 'collections.manage',
+  // 15 REQ-AK-11: seeing returns, recording them, and deciding a line is scrap.
+  RETURNS_VIEW: 'returns.view',
+  RETURNS_MANAGE: 'returns.manage',
+  RETURNS_DISPOSITION: 'returns.disposition',
 
   /** 08 §2.2 / 13. Purchase and Accounts roles arrive with their phases; Admin holds these meanwhile. */
   PURCHASE_DOCUMENT_VIEW: 'purchase.document.view',
@@ -164,6 +168,9 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'collections.view.self': 'See the collections work for the parties assigned to me',
   'collections.view.all': 'See every collector’s parties, promises and targets',
   'collections.manage': 'Take a promise to pay, assign a collector, send a reminder',
+  'returns.view': 'See sales returns and what they are waiting on',
+  'returns.manage': 'Receive a return, link its credit note, raise a replacement',
+  'returns.disposition': 'Decide a returned line is scrap rather than restock',
   'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
   'purchase.document.create': 'Raise purchase orders and record receipts',
   'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
@@ -261,6 +268,7 @@ const SALES_PERMISSIONS = [
   PERMISSIONS.CRM_TASK_MANAGE,
   PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
   PERMISSIONS.SALES_DOCUMENT_CREATE,
+  PERMISSIONS.RETURNS_VIEW,
 ] as const satisfies readonly PermissionKey[];
 
 /** 08 §2.2, the Sales manager column: all of Sales at full scope, plus receivables. */
@@ -282,6 +290,7 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.COLLECTIONS_VIEW_SELF,
   PERMISSIONS.COLLECTIONS_VIEW_ALL,
   PERMISSIONS.COLLECTIONS_MANAGE,
+  PERMISSIONS.RETURNS_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 /** 08 §2.2, the Purchase column: the procurement queue, POs and receipts, tasks, and the masters. */
@@ -316,6 +325,14 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.COLLECTIONS_VIEW_SELF,
   PERMISSIONS.COLLECTIONS_VIEW_ALL,
   PERMISSIONS.COLLECTIONS_MANAGE,
+  // REQ-AK-05: the awaiting-credit-note queue is the accountant's, exactly
+  // as the awaiting-invoice one is -- and writing goods off is theirs too.
+  // Sales manages returns and raises replacements; it does not scrap stock,
+  // because the person a customer is complaining to should not be the person
+  // who decides the goods were worthless.
+  PERMISSIONS.RETURNS_VIEW,
+  PERMISSIONS.RETURNS_MANAGE,
+  PERMISSIONS.RETURNS_DISPOSITION,
 ] as const satisfies readonly PermissionKey[];
 
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {

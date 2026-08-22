@@ -39,6 +39,7 @@ export function sampleSettings(): OrgSettings {
     locale: { numberFormat: 'indian', currencySymbol: '₹' },
     retention: { exportsDays: 7 },
   duplicates: { confidenceMin: 0.75 },
+  returns: { reasons: ['Damaged in transit', 'Wrong item', 'Wrong quantity', 'Quality rejection', 'Customer cancelled', 'Warranty'] },
     appearance: { accentHue: 277, accentChroma: 0.24, base: 'stone', density: 'comfortable' },
     email: {
       transport: 'log',
@@ -66,6 +67,7 @@ export function sampleSettings(): OrgSettings {
       locale: { numberFormat: 'Every figure', currencySymbol: 'Every figure' },
       retention: { exportsDays: 'Exports' },
     duplicates: { confidenceMin: null },
+    returns: { reasons: 'Return receipt' },
       appearance: { accentHue: 'Shell', accentChroma: 'Shell', base: 'Shell', density: 'Shell' },
     },
     unreadableKeys: [],

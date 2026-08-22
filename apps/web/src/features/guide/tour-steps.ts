@@ -426,6 +426,14 @@ const TRADING_INTROS: GuideStep[] = [
     body: "Vyuha's own price lists: versioned, approved into force, and the floor on every sales line. The simulator beside them answers \"why this rate\" for any party and item.",
   },
   {
+    id: 'screen.sales-returns',
+    route: '/sales/returns',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.RETURNS_VIEW,
+    title: 'Returns',
+    body: 'Goods that came back: how many, why, in what state, and where they went next. Vyuha raises no credit note — each receipt waits for Tally\'s, and a restocked line rises in Tally rather than here.',
+  },
+  {
     id: 'screen.collections',
     route: '/collections',
     anchor: ANCHORS.screenHeader,

@@ -43,7 +43,7 @@ import {
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS, NUMBER_FORMATS, NUMBER_FORMAT_LABELS, CURRENCY_SYMBOLS, SESSION_HOURS_MIN, SESSION_HOURS_MAX, type DuplicatesPolicy } from '@vyuha/shared';
+import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS, NUMBER_FORMATS, NUMBER_FORMAT_LABELS, CURRENCY_SYMBOLS, SESSION_HOURS_MIN, SESSION_HOURS_MAX, type DuplicatesPolicy, type ReturnReasonsPolicy } from '@vyuha/shared';
 
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
@@ -54,7 +54,7 @@ import { SalesSettingsPanel } from '@/features/sales/sales-settings-panel';
 import { AppearancePanel } from './appearance-panel';
 import { useSearchParams } from 'react-router';
 
-import { PolicyChoiceField, PolicyDurationField, PolicyNumberField, PolicyToggleField } from './policy-fields';
+import { PolicyChoiceField, PolicyDurationField, PolicyNumberField, PolicyToggleField, ReturnReasonsField } from './policy-fields';
 import {
   DATE_FORMATS,
   DEVICE_BINDING_LABELS,
@@ -101,6 +101,7 @@ interface Draft {
   locale: WorkspaceLocale;
   retention: RetentionPolicy;
   duplicates: DuplicatesPolicy;
+  returns: ReturnReasonsPolicy;
 }
 
 function draftOf(settings: OrgSettings): Draft {
@@ -113,6 +114,7 @@ function draftOf(settings: OrgSettings): Draft {
     locale: settings.locale,
     retention: settings.retention,
     duplicates: settings.duplicates,
+    returns: settings.returns,
   };
 }
 
@@ -146,6 +148,7 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
   if (!sameGroup(draft.locale, saved.locale)) patch.locale = draft.locale;
   if (!sameGroup(draft.retention, saved.retention)) patch.retention = draft.retention;
   if (!sameGroup(draft.duplicates, saved.duplicates)) patch.duplicates = draft.duplicates;
+  if (!sameGroup(draft.returns, saved.returns)) patch.returns = draft.returns;
 
   return patch;
 }
@@ -375,6 +378,10 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
   function patchRetention(next: Partial<RetentionPolicy>) {
     setDraft((current) => (current === null ? current : { ...current, retention: { ...current.retention, ...next } }));
   }
+  function patchReturns(next: Partial<ReturnReasonsPolicy>) {
+    setDraft((current) => (current === null ? current : { ...current, returns: { ...current.returns, ...next } }));
+  }
+
   function patchDuplicates(next: Partial<DuplicatesPolicy>) {
     setDraft((current) => (current === null ? current : { ...current, duplicates: { ...current.duplicates, ...next } }));
   }
@@ -648,6 +655,17 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 }}
               />
             </FieldGroup>
+          </div>
+
+          <div className="flex flex-col gap-4 border p-4">
+            <SectionHeading title="Return reasons" note="What the return desk may choose from. Free text is always allowed beside the reason, never in place of it — a list of six is what makes the reason report readable." />
+            <ReturnReasonsField
+              reasons={draft.returns.reasons}
+              enforcedBy={saved.enforcement.returns.reasons}
+              onValueChange={(reasons) => {
+                patchReturns({ reasons });
+              }}
+            />
           </div>
 
           <div className="flex flex-col gap-4 border p-4">

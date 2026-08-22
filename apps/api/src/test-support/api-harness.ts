@@ -490,6 +490,12 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM reminder_notices WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM promises_to_pay WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM collector_assignments WHERE org_id = ${this.orgId}`);
+    // 15 Area AK: a return holds an employee (RESTRICT), a dispatch and the
+    // document lines it came off, so it goes before every one of them.
+    await this.db.execute(sql`DELETE FROM sales_return_credit_notes WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_return_attachments WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_return_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM sales_returns WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_notifications WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_attachments WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_lines WHERE org_id = ${this.orgId}`);
@@ -800,6 +806,20 @@ export class ApiHarness {
   async waitForAuditAction(action: string, timeoutMs = 3_000): Promise<boolean> {
     return this.pollAudit(
       sql`SELECT 1 FROM audit_logs WHERE org_id = ${this.orgId} AND action = ${action} LIMIT 1`,
+      timeoutMs,
+    );
+  }
+
+  /**
+   * The precise row: this action, on this record. `waitForAuditAction` alone
+   * can be satisfied by a row an earlier run of the same file left behind --
+   * the audit trail is append-only and outlives `resetOrganisation` -- and
+   * `waitForAuditEntity` by any action on the record, including the one that
+   * created it.
+   */
+  async waitForAuditEntityAction(entityId: string, action: string, timeoutMs = 3_000): Promise<boolean> {
+    return this.pollAudit(
+      sql`SELECT 1 FROM audit_logs WHERE org_id = ${this.orgId} AND entity_id = ${entityId} AND action = ${action} LIMIT 1`,
       timeoutMs,
     );
   }

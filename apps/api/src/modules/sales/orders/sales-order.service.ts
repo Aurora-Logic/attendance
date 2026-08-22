@@ -72,6 +72,10 @@ function netRate(line: Pick<SalesLineView, 'rate' | 'discountPct'>): number {
 }
 
 function isBelowFloor(line: SalesLineView): boolean {
+  // 15 REQ-AK-09: a free replacement line is below every floor by
+  // construction, and the decision that made it free was recorded on the
+  // return. Asking for a discount reason as well would be asking twice.
+  if (line.freeOfCharge) return false;
   return line.resolvedRate !== null && netRate(line) < Number(line.resolvedRate) - 0.005;
 }
 

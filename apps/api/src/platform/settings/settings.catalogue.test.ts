@@ -4,28 +4,31 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
-  ATTENDANCE_SETTINGS,
-  DEFAULT_ATTENDANCE_POLICY,
-  DEFAULT_PHOTO_POLICY,
-  PHOTO_SETTINGS,
-  SECURITY_SETTINGS,
-  DEFAULT_SECURITY_POLICY,
-  securityPolicySchema,
   APPEARANCE_SETTINGS,
+  ATTENDANCE_SETTINGS,
   DEFAULT_APPEARANCE_POLICY,
-  appearancePolicySchema,
-  LOCALE_SETTINGS,
+  DEFAULT_ATTENDANCE_POLICY,
+  DEFAULT_DUPLICATES_POLICY_ROW,
   DEFAULT_LOCALE_POLICY,
-  localePolicySchema,
-  RETENTION_SETTINGS,
-  DUPLICATES_SETTINGS,
+  DEFAULT_PHOTO_POLICY,
   DEFAULT_RETENTION_POLICY,
-  retentionPolicySchema,
+  DEFAULT_SECURITY_POLICY,
+  DUPLICATES_SETTINGS,
+  LOCALE_SETTINGS,
+  PHOTO_SETTINGS,
+  RETENTION_SETTINGS,
+  RETURNS_SETTINGS,
+  SECURITY_SETTINGS,
   WRITABLE_SETTING_KEYS,
+  appearancePolicySchema,
   attendancePolicySchema,
+  localePolicySchema,
   photoPolicySchema,
   resolveGroup,
-  type SettingDescriptor, DEFAULT_DUPLICATES_POLICY_ROW } from './settings.catalogue.js';
+  retentionPolicySchema,
+  securityPolicySchema,
+  type SettingDescriptor,
+} from './settings.catalogue.js';
 
 /**
  * The catalogue is three lists that have to agree: the schema's fields, the
@@ -90,7 +93,7 @@ describe('defaults', () => {
 });
 
 describe('keys', () => {
-  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS), ...Object.values(DUPLICATES_SETTINGS)];
+  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS), ...Object.values(DUPLICATES_SETTINGS), ...Object.values(RETURNS_SETTINGS)];
 
   it('are unique', () => {
     const keys = all.map((descriptor) => descriptor.key);
