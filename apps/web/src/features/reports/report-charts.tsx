@@ -93,7 +93,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
           ? VALUE_CONFIG
           : ({ ...VALUE_CONFIG, compare: { label: compare.label, color: 'var(--muted-foreground)' } } satisfies ChartConfig);
       return (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Frame title="Where the value sits" insight={insight}>
             <ChartContainer config={config} className="h-56 w-full">
               <BarChart data={data} margin={AXIS_MARGIN}>
@@ -199,7 +199,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
     }
     case 'stock-summary':
       return (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ShareRadialChart rows={rows} labelKey="item" valueKey="value" title="Share of stock value" animate={animate} />
           <GenericReportChart reportKey="stock-summary" definition={{ columns: [{ key: 'item', header: 'Item', type: 'text' }, { key: 'value', header: 'Value at cost', type: 'text' }], defaultSort: '-value' }} rows={rows} animate={animate} />
         </div>

@@ -40,7 +40,9 @@ const THIRTY_DAYS_AGO = () => new Date(Date.now() - 30 * 86_400_000).toLocaleDat
 
 /** One bordered surface per block — a dashboard reads as tiles, not floating ink. */
 function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn('rounded-lg border p-4', className)}>{children}</div>;
+  // min-w-0: a grid item defaults to min-width:auto, and a chart's intrinsic
+  // width would otherwise widen the column past a phone (measured: 505px at 360).
+  return <div className={cn('min-w-0 rounded-lg border p-4', className)}>{children}</div>;
 }
 
 function StatTile({ label, value, hint, icon, onOpen, tone }: { label: string; value: string; hint: string; icon: React.ReactNode; onOpen: () => void; tone?: 'warn' | 'bad' }) {
@@ -56,7 +58,7 @@ function StatTile({ label, value, hint, icon, onOpen, tone }: { label: string; v
         <ArrowRightIcon className="ml-auto opacity-0 transition-opacity group-hover:opacity-100" />
       </span>
       <span className={tone === 'bad' ? 'text-destructive text-xl font-semibold tabular-nums' : tone === 'warn' ? 'text-warning text-xl font-semibold tabular-nums' : 'text-xl font-semibold tabular-nums'}>{value}</span>
-      <span className="text-muted-foreground text-xs font-normal">{hint}</span>
+      <span className="text-muted-foreground text-xs font-normal line-clamp-2">{hint}</span>
     </Button>
   );
 }
@@ -132,13 +134,13 @@ export function ReportsDashboardPage() {
       <PageHeader description="The figures behind the reports, each one a door into the report it came from. Every number is as of the last pull." />
       <div className="flex flex-col gap-8">
         {loading ? (
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
             {Array.from({ length: 6 }, (_, i) => (
               <Skeleton key={i} className="h-24" />
             ))}
           </div>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
             <StatTile
               label="Revenue this FY"
               value={`₹${inr(fyNow)}`}
@@ -234,7 +236,7 @@ export function ReportsDashboardPage() {
         </section>
         </Panel>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel>
             <section className="flex flex-col gap-2">
               <SectionHeading
@@ -260,7 +262,7 @@ export function ReportsDashboardPage() {
           </Panel>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel>
             <section className="flex flex-col gap-2">
               <SectionHeading
@@ -275,8 +277,10 @@ export function ReportsDashboardPage() {
               />
               {salesByParty.isPending ? <Skeleton className="h-56 w-full" /> : null}
               {salesByParty.isSuccess ? (
+                // The rows are sales-analysis rows grouped by party, so that is
+                // the key: a borrowed key inherits that report's chart form.
                 <GenericReportChart
-                  reportKey="customer-item-matrix"
+                  reportKey="sales-analysis"
                   definition={{ columns: [{ key: 'label', header: 'Customer', type: 'text' }, { key: 'value', header: 'Value', type: 'text' }], defaultSort: '-value' }}
                   rows={salesByParty.data.data}
                   animate={intro}
@@ -302,7 +306,7 @@ export function ReportsDashboardPage() {
           </Panel>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel>
             <section className="flex flex-col gap-2">
               <SectionHeading
@@ -403,7 +407,7 @@ export function ReportsDashboardPage() {
                       <RateRadial pct={onTimePct} label="On time" animate={intro} />
                     </div>
                   )}
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <StatTile
                       label="Flagged punches waiting"
                       value={String(pendingFlags)}
