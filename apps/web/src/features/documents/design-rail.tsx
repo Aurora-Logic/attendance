@@ -122,6 +122,7 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
                 <ToggleGroup
                   variant="outline"
                   aria-label="Handling marks"
+                  multiple
                   className="flex-wrap"
                   value={[...design.handlingMarks]}
                   onValueChange={(value: string[]) => {
