@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowUUpLeftIcon, LinkIcon, LockKeyIcon, ReceiptIcon } from '@phosphor-icons/react';
 import { useSearchParams } from 'react-router';
 
+import { StatusBadge } from '@/components/shared/status-badge';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -18,7 +19,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, RETURN_STATE_LABELS, type SalesReturnSummary, type ReturnState, type UnlinkedCreditNote } from '@vyuha/shared';
+import { PERMISSIONS, RETURN_STATE_LABELS, type SalesReturnSummary, type UnlinkedCreditNote } from '@vyuha/shared';
 
 import { ReturnReceiptDialog } from './return-receipt-dialog';
 import { ReturnSheet } from './return-sheet';
@@ -33,12 +34,6 @@ import { useLinkCreditNote, useReturns, useUnlinkedCreditNotes } from './use-ret
 
 const TABS = ['open', 'all', 'credit-notes'] as const;
 type Tab = (typeof TABS)[number];
-
-const STATE_VARIANT: Record<ReturnState, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  awaiting_credit_note: 'secondary',
-  credited: 'default',
-  cancelled: 'outline',
-};
 
 export function ReturnsPage() {
   const canView = usePermission(PERMISSIONS.RETURNS_VIEW);
@@ -98,7 +93,7 @@ export function ReturnsPage() {
       header: 'State',
       cell: (row) => (
         <span className="flex flex-wrap items-center gap-1">
-          <Badge variant={STATE_VARIANT[row.state]}>{RETURN_STATE_LABELS[row.state]}</Badge>
+          <StatusBadge state={row.state} label={RETURN_STATE_LABELS[row.state]} />
           {row.scrapLines > 0 ? <Badge variant="destructive">{row.scrapLines} scrap</Badge> : null}
           {row.replacementNumber === null ? null : <Badge variant="outline">{row.replacementNumber}</Badge>}
         </span>

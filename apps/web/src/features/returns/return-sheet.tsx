@@ -3,6 +3,7 @@ import { ArrowUUpLeftIcon, ReceiptIcon, TruckIcon, WarningIcon } from '@phosphor
 import { Link } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Badge } from '@/components/ui/badge';
@@ -18,17 +19,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import {
-  PERMISSIONS,
-  REPLACEMENT_CHARGES,
-  REPLACEMENT_CHARGE_LABELS,
-  RETURN_CONDITION_LABELS,
-  RETURN_DISPOSITION_LABELS,
-  RETURN_STATE_LABELS,
-  type ReplacementCharge,
-  type ReturnLineView,
-  type ReturnState,
-} from '@vyuha/shared';
+import { PERMISSIONS, REPLACEMENT_CHARGES, REPLACEMENT_CHARGE_LABELS, RETURN_CONDITION_LABELS, RETURN_DISPOSITION_LABELS, RETURN_STATE_LABELS, type ReplacementCharge, type ReturnLineView } from '@vyuha/shared';
 
 import { useCancelReturn, useDecideReplacement, useReturn, useSetDisposition } from './use-returns';
 
@@ -38,12 +29,6 @@ import { useCancelReturn, useDecideReplacement, useReturn, useSetDisposition } f
  * whether the replacement is chargeable or free (D-51 — no default, because
  * a wrong one either gives goods away or bills for a company error).
  */
-
-const STATE_VARIANT: Record<ReturnState, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  awaiting_credit_note: 'secondary',
-  credited: 'default',
-  cancelled: 'outline',
-};
 
 export function ReturnSheet({ returnId, onOpenChange }: { returnId: string | null; onOpenChange: (open: boolean) => void }) {
   const canManage = usePermission(PERMISSIONS.RETURNS_MANAGE);
@@ -133,7 +118,7 @@ export function ReturnSheet({ returnId, onOpenChange }: { returnId: string | nul
           ) : (
             <div className="flex flex-col gap-6">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={STATE_VARIANT[view.state]}>{RETURN_STATE_LABELS[view.state]}</Badge>
+                <StatusBadge state={view.state} label={RETURN_STATE_LABELS[view.state]} />
                 {view.sourceNumber === null ? null : (
                   <Badge variant="outline">
                     Against{' '}

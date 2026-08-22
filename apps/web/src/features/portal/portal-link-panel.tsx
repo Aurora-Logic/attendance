@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { CheckIcon, CopyIcon, LinkSimpleIcon, ProhibitIcon } from '@phosphor-icons/react';
 
+import { StatusBadge } from '@/components/shared/status-badge';
 import { SectionHeading } from '@/components/shared/section-heading';
-import { Badge } from '@/components/ui/badge';
+
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -12,7 +13,7 @@ import { toast } from '@/components/ui/toast';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, PORTAL_KEY_DAYS, PORTAL_KEY_STATE_LABELS, type PortalKeyState } from '@vyuha/shared';
+import { PERMISSIONS, PORTAL_KEY_DAYS, PORTAL_KEY_STATE_LABELS } from '@vyuha/shared';
 
 import { useIssuePortalKey, usePortalKeys, useRevokePortalKey } from './use-portal';
 
@@ -25,12 +26,6 @@ import { useIssuePortalKey, usePortalKeys, useRevokePortalKey } from './use-port
  * enough to copy into a message, and no longer. Reloading does not bring it
  * back, because the server does not keep it either.
  */
-const STATE_VARIANT: Record<PortalKeyState, 'default' | 'secondary' | 'outline'> = {
-  active: 'default',
-  expired: 'outline',
-  revoked: 'outline',
-};
-
 export function PortalLinkPanel({ partyId, partyName }: { partyId: string; partyName: string }) {
   const canManage = usePermission(PERMISSIONS.PORTAL_MANAGE);
   const canReadReceivables = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
@@ -60,7 +55,7 @@ export function PortalLinkPanel({ partyId, partyName }: { partyId: string; party
         <p className="text-muted-foreground text-sm">No link is open for {partyName}.</p>
       ) : (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-          <Badge variant={STATE_VARIANT[live.state]}>{PORTAL_KEY_STATE_LABELS[live.state]}</Badge>
+          <StatusBadge state={live.state} label={PORTAL_KEY_STATE_LABELS[live.state]} />
           <span className="text-muted-foreground">
             Issued {formatDate(live.issuedAt.slice(0, 10))}
             {live.issuedByName === null ? '' : ` by ${live.issuedByName}`} · until {formatDate(live.expiresAt.slice(0, 10))} ·{' '}

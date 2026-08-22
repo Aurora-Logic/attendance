@@ -1,10 +1,10 @@
 import { LockKeyIcon, PlusIcon, TagIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
+import { StatusBadge } from '@/components/shared/status-badge';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -24,18 +24,10 @@ import { usePriceLists } from './use-pricing';
  * longer shown: two pricing sources is the same mistake as two ledgers.
  */
 
-const STATE_VARIANT: Record<PriceListState, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  draft: 'outline',
-  pending_approval: 'secondary',
-  active: 'default',
-  superseded: 'outline',
-  expired: 'outline',
-};
-
 const COLUMNS: RecordColumn<PriceListSummary>[] = [
   { key: 'name', header: 'Price list', cell: (row) => <span className="font-medium">{row.name}</span> },
   { key: 'version', header: 'Version', cell: (row) => `v${String(row.version)}`, numeric: true },
-  { key: 'state', header: 'State', cell: (row) => <Badge variant={STATE_VARIANT[row.state]}>{PRICE_LIST_STATE_LABELS[row.state]}</Badge> },
+  { key: 'state', header: 'State', cell: (row) => <StatusBadge state={row.state} label={PRICE_LIST_STATE_LABELS[row.state]} /> },
   { key: 'effective', header: 'Effective', cell: (row) => `${formatDate(row.effectiveFrom)}${row.effectiveTo ? ` – ${formatDate(row.effectiveTo)}` : ' onward'}`, className: 'tabular-nums' },
   { key: 'lines', header: 'Lines', cell: (row) => String(row.lineCount), numeric: true },
   { key: 'assignments', header: 'Assigned to', cell: (row) => String(row.assignmentCount), numeric: true, secondary: true },
@@ -183,7 +175,7 @@ export function PriceListsPage() {
                 rows={rows}
                 rowKey={(row) => row.id}
                 mobilePrimary={(row) => `${row.name} v${String(row.version)}`}
-                mobileStatus={(row) => <Badge variant={STATE_VARIANT[row.state]}>{PRICE_LIST_STATE_LABELS[row.state]}</Badge>}
+                mobileStatus={(row) => <StatusBadge state={row.state} label={PRICE_LIST_STATE_LABELS[row.state]} />}
                 mobileSupporting={(row) => `${formatDate(row.effectiveFrom)}${row.effectiveTo ? ` – ${formatDate(row.effectiveTo)}` : ' onward'} · ${String(row.lineCount)} line${row.lineCount === 1 ? '' : 's'}`}
                 onRowActivate={(row) => {
                   void navigate(`/masters/price-lists/${row.id}`);

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BellRingingIcon, HandshakeIcon, LockKeyIcon, UsersThreeIcon, WarningDiamondIcon } from '@phosphor-icons/react';
 import { Link, useSearchParams } from 'react-router';
 
+import { StatusBadge } from '@/components/shared/status-badge';
 import { KpiGrid, type KpiTileProps } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -36,13 +37,6 @@ import { useCollectorDashboard, usePromises, useSendReminder } from './use-colle
  * shows the cluster's combined outstanding beside its own, so one company
  * is not chased twice for halves of the same balance.
  */
-
-const STATE_VARIANT: Record<PromiseState, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  open: 'secondary',
-  kept: 'default',
-  partially_kept: 'outline',
-  broken: 'destructive',
-};
 
 const ANY = 'any';
 
@@ -338,7 +332,7 @@ function PromisesTab({ from, to, canView }: { from: string; to: string; canView:
     { key: 'amount', header: 'Promised', cell: (row) => formatMoney(row.amount), numeric: true },
     { key: 'received', header: 'Received', cell: (row) => formatMoney(row.receivedAmount), numeric: true },
     { key: 'date', header: 'By', cell: (row) => formatDate(row.promisedDate), className: 'tabular-nums' },
-    { key: 'state', header: 'State', cell: (row) => <Badge variant={STATE_VARIANT[row.state]}>{PROMISE_STATE_LABELS[row.state]}</Badge> },
+    { key: 'state', header: 'State', cell: (row) => <StatusBadge state={row.state} label={PROMISE_STATE_LABELS[row.state]} /> },
     { key: 'bills', header: 'Against', cell: (row) => (row.bills.length === 0 ? 'any receipt' : row.bills.join(', ')), secondary: true },
     { key: 'takenBy', header: 'Taken by', cell: (row) => row.takenByName ?? EMPTY_VALUE, secondary: true },
     { key: 'collector', header: 'Collector', cell: (row) => row.collectorName ?? 'Unassigned', secondary: true },
@@ -403,7 +397,7 @@ function PromisesTab({ from, to, canView }: { from: string; to: string; canView:
           rows={[...rows]}
           rowKey={(row) => row.id}
           mobilePrimary={(row) => row.partyName}
-          mobileStatus={(row) => <Badge variant={STATE_VARIANT[row.state]}>{PROMISE_STATE_LABELS[row.state]}</Badge>}
+          mobileStatus={(row) => <StatusBadge state={row.state} label={PROMISE_STATE_LABELS[row.state]} />}
           mobileSupporting={(row) => `${formatMoney(row.amount)} by ${formatDate(row.promisedDate)} · ${formatMoney(row.receivedAmount)} received`}
         />
       ) : null}

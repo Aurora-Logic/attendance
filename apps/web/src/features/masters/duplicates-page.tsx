@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowCounterClockwiseIcon, CopyIcon, LockKeyIcon, MagnifyingGlassIcon, PaperPlaneTiltIcon, ProhibitIcon, WarningDiamondIcon } from '@phosphor-icons/react';
 import { Link, useSearchParams } from 'react-router';
 
+import { StatusBadge } from '@/components/shared/status-badge';
 import { matchedFieldLabels } from '@/components/shared/duplicate-flag';
 import { PageHeader } from '@/components/shared/page-header';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
@@ -38,13 +39,6 @@ import { useDetectDuplicates, useDismissDuplicate, useDuplicateClusters, useReop
  * sent to Tally (the merge is Tally's), genuinely different (with a
  * reason), or reopened. Nothing here edits a master (REQ-AO-11).
  */
-
-const STATE_VARIANT: Record<DuplicateClusterState, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  open: 'destructive',
-  sent_to_tally: 'secondary',
-  dismissed: 'outline',
-  resolved: 'outline',
-};
 
 const ANY = 'open_or_sent';
 
@@ -216,7 +210,7 @@ function ClusterRow({ cluster, canManage }: { cluster: DuplicateClusterView; can
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <WarningDiamondIcon className={cluster.state === 'open' ? 'text-destructive' : 'text-muted-foreground'} weight="fill" />
-          <Badge variant={STATE_VARIANT[cluster.state]}>{DUPLICATE_CLUSTER_STATE_LABELS[cluster.state]}</Badge>
+          <StatusBadge state={`duplicate_${cluster.state}`} label={DUPLICATE_CLUSTER_STATE_LABELS[cluster.state]} />
           <Badge variant="outline" className="tabular-nums">
             {Math.round(cluster.confidence * 100)}% sure
           </Badge>

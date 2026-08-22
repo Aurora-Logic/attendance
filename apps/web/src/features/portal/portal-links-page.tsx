@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { BooksIcon, CheckIcon, CopyIcon, LinkSimpleIcon, LockKeyIcon, ProhibitIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
+import { StatusBadge } from '@/components/shared/status-badge';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
-import { Badge } from '@/components/ui/badge';
+
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
@@ -19,7 +20,7 @@ import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
 import { formatDate } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
-import { PERMISSIONS, PORTAL_KEY_DAYS, PORTAL_KEY_STATE_LABELS, type PortalKeyState, type PortalKeyView } from '@vyuha/shared';
+import { PERMISSIONS, PORTAL_KEY_DAYS, PORTAL_KEY_STATE_LABELS, type PortalKeyView } from '@vyuha/shared';
 
 import { useIssuePortalKey, usePortalKeys, useRevokePortalKey } from './use-portal';
 
@@ -36,12 +37,6 @@ import { useIssuePortalKey, usePortalKeys, useRevokePortalKey } from './use-port
  * the next render: the server keeps only a hash, so there is nothing to
  * show a second time (D-60).
  */
-
-const STATE_VARIANT: Record<PortalKeyState, 'default' | 'secondary' | 'outline'> = {
-  active: 'default',
-  expired: 'outline',
-  revoked: 'outline',
-};
 
 export function PortalLinksPage() {
   const canManage = usePermission(PERMISSIONS.PORTAL_MANAGE);
@@ -88,7 +83,7 @@ export function PortalLinksPage() {
         </Link>
       ),
     },
-    { key: 'state', header: 'State', cell: (row) => <Badge variant={STATE_VARIANT[row.state]}>{PORTAL_KEY_STATE_LABELS[row.state]}</Badge> },
+    { key: 'state', header: 'State', cell: (row) => <StatusBadge state={row.state} label={PORTAL_KEY_STATE_LABELS[row.state]} /> },
     { key: 'expires', header: 'Until', cell: (row) => formatDate(row.expiresAt.slice(0, 10)) },
     { key: 'opened', header: 'Opened', cell: (row) => (row.lastUsedAt === null ? <span className="text-muted-foreground">Never</span> : <span className="tabular-nums">{row.viewCount} · {formatDate(row.lastUsedAt.slice(0, 10))}</span>) },
     { key: 'issued', header: 'Issued', cell: (row) => `${formatDate(row.issuedAt.slice(0, 10))}${row.issuedByName === null ? '' : ` · ${row.issuedByName}`}`, secondary: true },
@@ -244,7 +239,7 @@ export function PortalLinksPage() {
           rows={[...rows]}
           rowKey={(row) => row.id}
           mobilePrimary={(row) => row.partyName}
-          mobileStatus={(row) => <Badge variant={STATE_VARIANT[row.state]}>{PORTAL_KEY_STATE_LABELS[row.state]}</Badge>}
+          mobileStatus={(row) => <StatusBadge state={row.state} label={PORTAL_KEY_STATE_LABELS[row.state]} />}
           mobileSupporting={(row) => `Until ${formatDate(row.expiresAt.slice(0, 10))} · ${row.lastUsedAt === null ? 'never opened' : `opened ${String(row.viewCount)} times`}`}
         />
       )}
