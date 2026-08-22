@@ -1,25 +1,23 @@
-import { Fragment } from 'react';
-import { CaretDownIcon, ShieldCheckIcon } from '@phosphor-icons/react';
+import { Fragment, useState } from 'react';
+import { CaretDownIcon, IdentificationBadgeIcon, ShieldCheckIcon, UsersThreeIcon } from '@phosphor-icons/react';
 
 import { PageHeader } from '@/components/shared/page-header';
+import { SearchField } from '@/components/shared/search-field';
+import { SectionHeading } from '@/components/shared/section-heading';
+import { ThemeToggleGroup } from '@/components/shared/theme-toggle-group';
 import { MfaProfileSection } from '@/features/auth/mfa-profile-section';
+import { useMfaStatus } from '@/features/auth/use-mfa';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import {
-  Item,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemSeparator,
-  ItemTitle,
-} from '@/components/ui/item';
+import { Item, ItemContent, ItemDescription, ItemGroup, ItemSeparator, ItemTitle } from '@/components/ui/item';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { NotificationPreferences } from '@/features/notifications';
 import { humaniseEnum } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { useMe } from '@/lib/session/use-session';
 import { PERMISSION_DESCRIPTIONS, employeeDisplayName, type PermissionKey } from '@vyuha/shared';
 
@@ -31,11 +29,12 @@ import { PERMISSION_DESCRIPTIONS, employeeDisplayName, type PermissionKey } from
  * answer to "what can this person do", and a screen that recalculated it from
  * role names would be a second, quieter answer that could disagree.
  *
- * Three weights, top to bottom: who you are (read at a glance), what you can
- * change here (notification preferences — the one thing on this screen that
- * is yours to act on), and the reference list of permissions, which most
- * people open once. The list is folded by default because twenty-odd rows of
- * keys are the wrong thing to scroll past on a phone to reach nothing.
+ * Laid out in the order a person needs it (owner, 22 Aug 2026): who you are,
+ * read in a glance, with three figures under it; then what is yours to
+ * change -- how you sign in, how the product looks to you, what reaches you
+ * -- two columns on a desk, one on a phone; then the reference list of
+ * permissions, folded, with a filter, because twenty-odd rows are the wrong
+ * thing to scroll past to reach nothing.
  *
  * It is reached from the user menu rather than the sidebar: PRD §6.1 fixes the
  * sidebar groups to Work, Records, Reports and Setup, and a personal account
@@ -87,21 +86,24 @@ export function ProfilePage() {
   const { data: me, isPending, isError, error, refetch } = useMe();
 
   if (isPending) {
-    // The skeleton is the page's own shape: the identity row, then the
-    // blocks. A skeleton that looks like something else promises the wrong
-    // screen for the half-second it shows.
+    // The skeleton is the page's own shape: the identity row, the strip,
+    // then the two columns. A skeleton that looks like something else
+    // promises the wrong screen for the half-second it shows.
     return (
       <div role="status" aria-busy="true" aria-label="Loading profile" className="flex flex-col gap-6">
         <div className="flex items-start gap-4">
-          <Skeleton className="size-10 shrink-0 rounded-full" />
+          <Skeleton className="size-12 shrink-0 rounded-full" />
           <div className="flex flex-col gap-2 pt-1">
-            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-5 w-40" />
             <Skeleton className="h-3 w-56" />
             <Skeleton className="h-5 w-32" />
           </div>
         </div>
-        <Skeleton className="h-40 w-full" />
-        <Skeleton className="h-11 w-full" />
+        <Skeleton className="h-14 w-full" />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Skeleton className="h-40 w-full" />
+          <Skeleton className="h-40 w-full" />
+        </div>
       </div>
     );
   }
@@ -143,88 +145,120 @@ export function ProfilePage() {
     );
   }
 
-  const name = me.employee
-    ? employeeDisplayName(me.employee.firstName, me.employee.lastName)
-    : me.user.email;
-  const groups = groupByModule(me.permissions);
-  const permissionCount = me.permissions.length;
+  const name = me.employee ? employeeDisplayName(me.employee.firstName, me.employee.lastName) : me.user.email;
 
   return (
     <>
-      <PageHeader description="The account you are signed in with, and what it is allowed to do." />
+      <PageHeader description="The account you are signed in with, what is yours to change, and what it is allowed to do." />
 
-      {/* Identity. Name first, then the sign-in email, then the chips that
-          qualify the account: the employee code, any status that is not the
-          normal one (an active account needs no badge saying so), and the
-          roles. One row, read in a glance, nothing repeated below it. */}
-      <section className="flex items-start gap-4">
-        <Avatar size="lg">
-          <AvatarFallback>{initialsOf(name)}</AvatarFallback>
-        </Avatar>
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h2 className="truncate text-lg leading-tight font-semibold tracking-tight">{name}</h2>
-          {me.employee ? <p className="text-muted-foreground truncate text-xs">{me.user.email}</p> : null}
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {me.employee ? (
-              <Badge variant="outline" className="font-mono">
-                {me.employee.employeeCode}
-              </Badge>
-            ) : (
-              // REQ-B-02: a login and an employee record are separate
-              // entities. Saying so beats an unexplained dash.
-              <Badge variant="outline">Not linked to an employee record</Badge>
-            )}
-            {me.user.status === 'ACTIVE' ? null : <Badge variant="destructive">{humaniseEnum(me.user.status)}</Badge>}
-            {me.roles.map((role) => (
-              <Badge key={role.id} variant="secondary">
-                {role.name}
-              </Badge>
-            ))}
-            {me.roles.length === 0 ? (
-              <span className="text-muted-foreground text-xs">No role assigned — only what everyone can see.</span>
-            ) : null}
-          </div>
+      <Identity name={name} email={me.user.email} employeeCode={me.employee?.employeeCode ?? null} status={me.user.status} roles={me.roles} />
+
+      <AtAGlance roleCount={me.roles.length} permissionCount={me.permissions.length} />
+
+      {/* What is yours to change. Two columns on a desk; on a phone they
+          stack, sign-in first because it is the one that can lock you out. */}
+      <div className="grid gap-8 lg:grid-cols-2 lg:gap-10">
+        <div className="flex flex-col gap-8">
+          <MfaProfileSection />
+          <section className="flex flex-col gap-3">
+            <SectionHeading title="Appearance for you" note="Light, dark, or whatever the device is using. The workspace's colours are an administrator's setting." />
+            <ThemeToggleGroup className="w-full max-w-sm" />
+          </section>
         </div>
-      </section>
-
-      <MfaProfileSection />
-
-      <Separator />
-
-      {/* REQ-K-04. On this screen rather than in Settings: Settings is org
-          policy behind `settings.manage`, and these are choices about this one
-          account, which an employee with no permissions at all still gets to
-          make. */}
-      <NotificationPreferences />
+        <NotificationPreferences />
+      </div>
 
       <Separator />
 
+      <Access permissions={me.permissions} />
+    </>
+  );
+}
+
+function Identity({ name, email, employeeCode, status, roles }: { name: string; email: string; employeeCode: string | null; status: string; roles: readonly { id: string; name: string }[] }) {
+  return (
+    <section className="flex items-start gap-4">
+      <Avatar size="lg">
+        <AvatarFallback>{initialsOf(name)}</AvatarFallback>
+      </Avatar>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <h2 className="truncate text-xl leading-tight font-semibold tracking-tight">{name}</h2>
+        {/* The email is the sign-in; when the account has no employee record the name is the email already. */}
+        {name === email ? null : <p className="text-muted-foreground truncate text-sm">{email}</p>}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {employeeCode === null ? (
+            // REQ-B-02: a login and an employee record are separate entities. Saying so beats an unexplained dash.
+            <Badge variant="outline">Not linked to an employee record</Badge>
+          ) : (
+            <Badge variant="outline" className="font-mono">
+              <IdentificationBadgeIcon data-icon="inline-start" />
+              {employeeCode}
+            </Badge>
+          )}
+          {status === 'ACTIVE' ? null : <Badge variant="destructive">{humaniseEnum(status)}</Badge>}
+          {roles.map((role) => (
+            <Badge key={role.id} variant="secondary">
+              {role.name}
+            </Badge>
+          ))}
+          {roles.length === 0 ? <span className="text-muted-foreground text-xs">No role assigned — only what everyone can see.</span> : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Three figures, read before anything is scrolled: the same strip the dashboard uses. */
+function AtAGlance({ roleCount, permissionCount }: { roleCount: number; permissionCount: number }) {
+  const mfa = useMfaStatus();
+  const twoStep = mfa.data === undefined ? '…' : mfa.data.enabled ? 'On' : mfa.data.required ? 'Set-up required' : 'Off';
+  const entries: readonly [string, string][] = [
+    ['Roles', String(roleCount)],
+    ['Permissions', String(permissionCount)],
+    ['Two-step sign-in', twoStep],
+  ];
+  return (
+    <dl className="divide-border grid grid-cols-2 divide-x divide-y border sm:grid-cols-3 sm:divide-y-0">
+      {entries.map(([label, value], index) => (
+        <div key={label} className={cn('flex flex-col gap-0.5 px-3 py-2', index === entries.length - 1 && 'col-span-2 sm:col-span-1')}>
+          <dt className="text-muted-foreground text-[0.6875rem]">{label}</dt>
+          <dd className="text-base font-medium tabular-nums">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** The roles, then the effective permission list folded behind a row with a count and a filter. */
+function Access({ permissions }: { permissions: readonly PermissionKey[] }) {
+  const [needle, setNeedle] = useState('');
+  const query = needle.trim().toLowerCase();
+  const matching = query === '' ? permissions : permissions.filter((key) => key.toLowerCase().includes(query) || PERMISSION_DESCRIPTIONS[key].toLowerCase().includes(query));
+  const groups = groupByModule(matching);
+
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHeading
+        icon={<UsersThreeIcon />}
+        title="What you can do"
+        note="The effective set the server returned. Every screen and endpoint is decided from this list, not from the role names."
+      />
       <Collapsible>
         {/* The whole row is the target (thumb-reach: a full-width row, not a
             chevron), and the count is on the closed state so nobody has to
             open it to learn there is nothing inside. */}
-        <CollapsibleTrigger
-          render={
-            <Button
-              variant="ghost"
-              className="group/fold h-auto w-full min-h-11 justify-between gap-4 px-0 text-left whitespace-normal hover:bg-transparent"
-            />
-          }
-        >
-          <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-sm font-semibold">
-              Permissions
-              <span className="text-muted-foreground ml-2 font-normal tabular-nums">{permissionCount}</span>
-            </span>
-            <span className="text-muted-foreground text-xs font-normal">
-              The effective set the server returned. Every screen and endpoint is decided from this list, not from the role names above.
-            </span>
+        <CollapsibleTrigger render={<Button variant="ghost" className="group/fold h-auto w-full min-h-11 justify-between gap-4 px-0 text-left whitespace-normal hover:bg-transparent" />}>
+          <span className="text-sm font-semibold">
+            Permissions
+            <span className="text-muted-foreground ml-2 font-normal tabular-nums">{permissions.length}</span>
           </span>
           <CaretDownIcon className="text-muted-foreground shrink-0 transition-transform duration-200 ease-out group-data-[panel-open]/fold:rotate-180 motion-reduce:transition-none" />
         </CollapsibleTrigger>
         <CollapsibleContent className="h-[var(--collapsible-panel-height)] overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0 motion-reduce:transition-none">
-          {permissionCount > 0 ? (
+          {permissions.length > 0 ? (
             <div className="flex flex-col gap-4 pt-3">
+              <SearchField value={needle} onValueChange={setNeedle} placeholder="Filter permissions" aria-label="Filter permissions" className="sm:max-w-xs" />
+              {groups.length === 0 ? <p className="text-muted-foreground text-xs">Nothing matches &ldquo;{needle.trim()}&rdquo;.</p> : null}
               {groups.map((group) => (
                 <section key={group.label} className="flex flex-col gap-1.5">
                   <h3 className="text-muted-foreground text-xs font-medium">{group.label}</h3>
@@ -254,14 +288,12 @@ export function ProfilePage() {
                   <ShieldCheckIcon />
                 </EmptyMedia>
                 <EmptyTitle>No permissions</EmptyTitle>
-                <EmptyDescription>
-                  This account has no permissions yet. Ask an administrator to assign a role.
-                </EmptyDescription>
+                <EmptyDescription>This account has no permissions yet. Ask an administrator to assign a role.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           )}
         </CollapsibleContent>
       </Collapsible>
-    </>
+    </section>
   );
 }

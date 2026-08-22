@@ -22,6 +22,7 @@ import { ErrorBoundary } from '@/components/shared/error-boundary';
 import { useTheme } from '@/components/theme-provider';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { AppearanceEffect } from '@/components/shared/appearance-effect';
+import { ThemeToggleGroup } from '@/components/shared/theme-toggle-group';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -139,45 +140,6 @@ function initialsOf(name: string): string {
   return (first + last).toUpperCase() || '?';
 }
 
-/**
- * The same three choices as ThemeSection, laid out for a phone.
- *
- * A ToggleGroup rather than three buttons with hand-managed pressed state:
- * three mutually exclusive options is exactly what it is for, and it carries
- * the radio semantics and arrow-key movement for free.
- *
- * The guard on an empty selection matters — Base UI reports the group value as
- * an array and will hand back an empty one if the pressed item is pressed
- * again. There is no such thing as "no theme", so that deselect is ignored.
- */
-function ThemeToggleGroup() {
-  const { theme, setTheme } = useTheme();
-
-  return (
-    <ToggleGroup
-      variant="outline"
-      className="w-full"
-      value={[theme]}
-      onValueChange={(value) => {
-        const next = value[0];
-        if (next) setTheme(next as 'light' | 'dark' | 'system');
-      }}
-    >
-      <ToggleGroupItem value="light" className="min-h-11 flex-1">
-        <SunIcon />
-        Light
-      </ToggleGroupItem>
-      <ToggleGroupItem value="dark" className="min-h-11 flex-1">
-        <MoonIcon />
-        Dark
-      </ToggleGroupItem>
-      <ToggleGroupItem value="system" className="min-h-11 flex-1">
-        <MonitorIcon />
-        System
-      </ToggleGroupItem>
-    </ToggleGroup>
-  );
-}
 
 /**
  * Who is signed in, and the way out.

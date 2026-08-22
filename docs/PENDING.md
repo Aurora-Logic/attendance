@@ -101,6 +101,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-32 | One Settings screen | Every module's settings under one screen, one tab each: Organisation, Appearance, Office location, Attendance (with punch photos), Sales, Purchase, Documents, Email, Security & access; the tab is in the URL; the Sales and Purchase list pages link to their tab; an approver without settings.manage sees only their tabs | Done (3 of 4 in the appearance brief) |
 | B-33 | Workspace globals | Number grouping and currency symbol for every figure; the sign-in window and end-on-close per organisation; download-tray retention; audit-trail retention withdrawn because the trail is append-only by design (OPEN-QUESTIONS) | Done (4 of 4 in the appearance brief) |
 | B-34 | Recovery codes as a PDF | Download as PDF beside Copy all, wherever the ten codes are shown: account, organisation, date, the codes, how to use one, what to do when the phone or the codes are lost; printed from the screen that holds them, browser print-to-PDF | Done |
+| B-35 | Profile page redesign | Identity with the avatar and the chips, three figures at a glance (roles, permissions, two-step), two columns on a desk -- sign-in and security with your light/dark choice, and notifications -- then what you can do with a filter over the folded permissions; shadcn only, the preset only | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -322,3 +323,13 @@ Tests: 540 web tests, eslint clean on the changed files, a direct Vite build. Th
 Withdrawn, and why: audit-trail retention. `audit_logs` is append-only at the database (`vyuha_forbid_mutation`, migration 0002); the purge the test suite tried was refused by the trigger. Loosening that is a decision about what the trail promises, recorded in OPEN-QUESTIONS with a recommended default.
 
 Tests: the session window and end-on-close over real HTTP (a two-hour window expires the row in two hours; the cookie loses Max-Age; restored after), the catalogue agreement for the new groups, the number-format unit test, 1822 API tests and 542 web tests. Browser gate not run (owner instruction).
+
+### B-35 (owner: "redesign the Profile page, our preset only, shadcn only"), 22 Aug 2026
+
+| Before | After | Why |
+| --- | --- | --- |
+| Identity row, then two-step, notifications and the permission fold stacked in one column at every width | Identity, then a three-figure strip (roles, permissions, two-step sign-in), then two columns on a desk -- sign-in and security beside notifications -- then the access list full width | The things that are yours to change sit together and above the fold; the reference list stays last and folded |
+| Light/dark lived only in the account menu | "Appearance for you" on the profile, the same ToggleGroup the account sheet uses, lifted to `components/shared` | The one appearance that is the person's, beside the other things that are theirs; one component, two places |
+| Twenty-odd permission rows with no way to find one | A filter over the description and the key inside the fold; "nothing matches" says so | A reference list is searched, not read |
+
+Every surface is shadcn (Avatar, Badge, ToggleGroup, Collapsible, Item, SearchField, Empty) on the preset's tokens; no card in a card. Browser gate not run (owner instruction); 557 web tests, eslint clean, Vite build.
