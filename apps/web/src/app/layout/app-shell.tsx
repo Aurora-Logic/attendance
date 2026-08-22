@@ -49,7 +49,6 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import { Toaster, toast } from '@/components/ui/toast';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CalculatorButton, CalculatorPanel, useCalculatorStore } from '@/features/calculator';
 import { GuideOverlay } from '@/features/guide';
 import { NotificationBell } from '@/features/notifications';

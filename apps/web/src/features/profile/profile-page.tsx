@@ -257,7 +257,7 @@ function Access({ permissions }: { permissions: readonly PermissionKey[] }) {
         <CollapsibleContent className="h-[var(--collapsible-panel-height)] overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0 motion-reduce:transition-none">
           {permissions.length > 0 ? (
             <div className="flex flex-col gap-4 pt-3">
-              <SearchField value={needle} onValueChange={setNeedle} placeholder="Filter permissions" aria-label="Filter permissions" className="sm:max-w-xs" />
+              <SearchField id="profile-permission-filter" label="Filter permissions" value={needle} onValueChange={setNeedle} placeholder="Filter permissions" className="sm:max-w-xs" />
               {groups.length === 0 ? <p className="text-muted-foreground text-xs">Nothing matches &ldquo;{needle.trim()}&rdquo;.</p> : null}
               {groups.map((group) => (
                 <section key={group.label} className="flex flex-col gap-1.5">
