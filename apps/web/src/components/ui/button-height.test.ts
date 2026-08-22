@@ -26,7 +26,9 @@ const SOURCES = import.meta.glob<string>(
  * screen states in place: the 64px punch photo thumbnail, the calculator
  * keypad's 44px keys on every pointer, the profile page's multi-line fold
  * rows, the punch page's 56px hero action, the design rail's upload tile,
- * and the 56px bottom bar whose More button matches its links.
+ * the 56px bottom bar whose More button matches its links, and the report
+ * catalogue's cards (a name over a two-line description, the whole card
+ * the target).
  */
 const ALLOWED = new Set([
   '/src/features/attendance/day-punches.tsx',
@@ -35,6 +37,7 @@ const ALLOWED = new Set([
   '/src/features/punch/punch-page.tsx',
   '/src/features/documents/design-rail.tsx',
   '/src/components/shared/mobile-bottom-nav.tsx',
+  '/src/features/reports/report-catalogue.tsx',
 ]);
 
 /**
