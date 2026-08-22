@@ -181,7 +181,10 @@ export function DocumentEditor(props: DocumentEditorProps) {
             <ArrowLeftIcon data-icon="inline-start" />
             <span className="max-md:sr-only">{backLabel}</span>
           </Button>
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+          {/* The badges may wrap under the title on a phone; this block is
+              flex-1, so wrapping inside it never moves the actions beside it.
+              Measured: an 'Awaiting invoice' pill pushed the page to 391px at 360. */}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="truncate text-sm font-semibold">{title}</span>
             {badges}
             {dirty ? <Badge variant="secondary">Unsaved</Badge> : null}

@@ -129,10 +129,18 @@ function PackForm({ order, onClose, onPacked }: { order: Estimate; onClose: () =
       },
       {
         onSuccess: (record) => {
+          // D-47: the slip is what the packer needs next, so it is one tap
+          // from here - the print route opens with one sheet per box.
           toast.add({
             type: 'success',
             title: `${order.number} packed`,
-            description: `${String(record.lines.length)} line${record.lines.length === 1 ? '' : 's'} in ${String(record.boxCount)} box${record.boxCount === 1 ? '' : 'es'}.`,
+            description: `${String(record.lines.length)} line${record.lines.length === 1 ? '' : 's'} in ${String(record.boxCount)} box${record.boxCount === 1 ? '' : 'es'}. Print the slip${record.boxCount === 1 ? '' : 's'} for the box${record.boxCount === 1 ? '' : 'es'}.`,
+            actionProps: {
+              children: 'Print slips',
+              onClick: () => {
+                window.open(`/print/packs/${record.id}`, '_blank', 'noopener');
+              },
+            },
           });
           onPacked?.(record);
           onClose();

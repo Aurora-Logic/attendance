@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowsClockwiseIcon, BooksIcon, CheckIcon, LockKeyOpenIcon, PackageIcon, PencilSimpleIcon, ProhibitIcon, ReceiptIcon, TruckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon } from '@phosphor-icons/react';
+import { ArrowsClockwiseIcon, BooksIcon, CheckIcon, LockKeyOpenIcon, PackageIcon, PencilSimpleIcon, PrinterIcon, ProhibitIcon, ReceiptIcon, TruckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
 import { PersonChip } from '@/components/shared/person';
@@ -714,17 +714,28 @@ export function FulfilmentSections({ record, packs, dispatches }: { record: Esti
         {packs.isSuccess && packs.data.length > 0 ? (
           <ul className="divide-y border">
             {packs.data.map((pack) => (
-              <li key={pack.id} className="flex flex-col gap-1 px-3 py-2">
+              <li key={pack.id} className="flex flex-col gap-2 px-3 py-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <span className="text-xs">
-                    <Link to={`/sales/packs/${pack.id}`} className="font-medium underline-offset-4 hover:underline" title="The packing slip">
-                      <PersonChip name={pack.packedByName ?? 'Someone'} tiny />
-                    </Link>
+                    <PersonChip name={pack.packedByName ?? 'Someone'} tiny />
                     <span className="text-muted-foreground"> · {formatRelativeAge(pack.packedAt)} · {String(pack.boxCount)} box{pack.boxCount === 1 ? '' : 'es'}</span>
                   </span>
                   <span className="text-muted-foreground text-xs tabular-nums">
                     {pack.lines.map((l) => `${trimZeros(l.quantity)} × ${l.description}`).join(', ')}
                   </span>
+                </div>
+                {/* D-47: the slip is the thing a packer needs next, so it is a
+                    named action here, not a hover title on a name. Print opens
+                    the sheets - one per box - straight into the print dialog. */}
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" nativeButton={false} render={<Link to={`/sales/packs/${pack.id}`} />}>
+                    <PackageIcon data-icon="inline-start" />
+                    Packing slip
+                  </Button>
+                  <Button variant="outline" size="sm" nativeButton={false} render={<a href={`/print/packs/${pack.id}`} target="_blank" rel="noreferrer" />}>
+                    <PrinterIcon data-icon="inline-start" />
+                    Print slips
+                  </Button>
                 </div>
                 {pack.comment ? <p className="text-xs">{pack.comment}</p> : null}
                 {pack.lines.filter((l) => l.comment !== null).map((l) => (

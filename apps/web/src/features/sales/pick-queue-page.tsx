@@ -1,6 +1,7 @@
-import { BarcodeIcon, LockKeyIcon } from '@phosphor-icons/react';
-import { useNavigate, useParams } from 'react-router';
+import { BarcodeIcon, LockKeyIcon, ScanIcon } from '@phosphor-icons/react';
+import { Link, useNavigate, useParams } from 'react-router';
 
+import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
@@ -88,7 +89,16 @@ export function PickQueuePage() {
 
   return (
     <>
-      <PageHeader description="Confirmed orders with something left to pack, oldest first. Tap one to pack it; a short pack keeps the balance here." />
+      <PageHeader
+        description="Confirmed orders with something left to pack, oldest first. Tap one to pack it; a short pack keeps the balance here."
+        action={
+          // D-47: the scan is one tap from the screens a person holds a box on.
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/sales/scan" />}>
+            <ScanIcon data-icon="inline-start" />
+            Scan a slip
+          </Button>
+        }
+      />
 
       <div className="flex flex-col gap-4">
         {queue.isPending ? <ListSkeleton /> : null}

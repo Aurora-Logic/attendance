@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LockKeyIcon, TruckIcon } from '@phosphor-icons/react';
+import { LockKeyIcon, ScanIcon, TruckIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
@@ -150,7 +150,16 @@ export function DispatchesPage() {
 
   return (
     <>
-      <PageHeader description="Every dispatch, newest first. Each is its own record with its own lines; it pushes to Tally as a Delivery Note, and the customer's message is composed here and sent by hand." />
+      <PageHeader
+        description="Every dispatch, newest first. Each is its own record with its own lines; it pushes to Tally as a Delivery Note, the customer's mail goes by itself, and WhatsApp is one tap."
+        action={
+          // D-47: the scan is one tap from the screens a person holds a box on.
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/sales/scan" />}>
+            <ScanIcon data-icon="inline-start" />
+            Scan a slip
+          </Button>
+        }
+      />
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
