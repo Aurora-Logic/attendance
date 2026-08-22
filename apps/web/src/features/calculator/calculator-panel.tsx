@@ -62,9 +62,15 @@ interface KeyDefinition {
   readonly action: CalculatorAction;
   readonly variant?: 'default' | 'outline' | 'secondary' | 'ghost';
   readonly ariaLabel?: string;
+  /** Columns the key covers; the GST keys take two so two of them fill the row. */
+  readonly span?: number;
 }
 
 const KEYPAD: readonly (readonly KeyDefinition[])[] = [
+  [
+    { label: '+GST', action: { kind: 'gstAdd' }, variant: 'secondary', span: 2, ariaLabel: 'Add GST (multiply by 1.18)' },
+    { label: '−GST', action: { kind: 'gstReverse' }, variant: 'secondary', span: 2, ariaLabel: 'Remove GST (divide by 1.18)' },
+  ],
   [
     { label: 'MC', action: { kind: 'memoryClear' }, variant: 'ghost', ariaLabel: 'Memory clear' },
     { label: 'MR', action: { kind: 'memoryRecall' }, variant: 'ghost', ariaLabel: 'Memory recall' },
@@ -329,7 +335,7 @@ function CalculatorBody({ onClose }: { onClose: () => void }) {
               // A taller key than the default so the keypad reads as a keypad.
               // The painted height already clears 44px, so the Button's own
               // coarse-pointer reach needs no help.
-              className="h-11 font-mono text-sm"
+              className={cn('h-11 font-mono text-sm', key.span === 2 && 'col-span-2')}
               aria-label={key.ariaLabel ?? key.label}
               onClick={(event) => {
                 dispatch(key.action);
