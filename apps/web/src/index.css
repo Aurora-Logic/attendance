@@ -113,6 +113,22 @@
   }
 }
 
+/* The theme switch cross-fades through a view transition (theme-provider).
+   The page is a snapshot for the duration, so it stays short. Under reduced
+   motion the provider never starts one; this rule is the belt to that brace. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
 /*
  * NFR-07: reduced motion is respected.
  *

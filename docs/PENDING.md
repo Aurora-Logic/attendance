@@ -79,6 +79,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-15 | Attendance block on the Reports dashboard | On-time radial, open flags, oldest pending approval, top streaks | Done — shown to dashboard viewers who also hold attendance.view.all (the dashboard itself stays a receivables surface) |
 | B-16 | Screen audit | Source-level pass over every route (Chrome stays off by owner instruction), both skills' violation classes probed in bulk; see the findings table below | Done |
 | B-17 | Motion audit (emil-design-eng) | Every animated primitive and every pressable surface read against the decision framework; see the B-17 table below | Done |
+| B-18 | Raise the bar, round one | Sliding tab pill, tooltip delay with instant follow-on from one root provider, theme cross-fade through a view transition | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -105,3 +106,13 @@ The B-16 line claimed "no `transition-all`"; that grep had skipped `components/u
 | Activatable table rows, mobile record cards, notification rows and administration tiles had hover but no press state | `active:bg-muted` / `active:bg-accent` alongside the hover | Touch devices have no hover; the press is the only feedback a thumb gets |
 
 Accepted as they stand: dialogs at 200ms in / 150ms out on the strong ease-out with a centred origin (modals are not anchored); sheets at 380ms in / 250ms out on the drawer curve, as CSS transitions so a second tap mid-motion retargets; dropdown, select and popover at 100ms from `--transform-origin`; toasts enter and leave along the same edge on transitions; charts draw once in 300ms and never again; the sidebar animates `width` because the content beside it has to reflow either way, and it is 200ms linear as shadcn ships it; tooltip delay stays 0 (a house decision; raising it is listed under the proposals).
+
+### B-18 (owner picked the small set first), 22 Aug 2026
+
+| Before | After | Why |
+| --- | --- | --- |
+| Each tab trigger painted its own active background, so a switch was one box vanishing and another appearing | One Base UI `Tabs.Indicator` pill per list, translated to `--active-tab-left/top` and sized to `--active-tab-width/height`, 200ms on the strong ease-out; hidden until measured; the line variant keeps its underline | The selection is one thing that moves; emil's sliding-tab principle without a second DOM copy |
+| Tooltips without a provider waited Base UI's 600ms; the one provider in the tree had `delay=0`; no instant follow-on anywhere | One `TooltipProvider` at the root with a 300ms first-hover delay; `data-instant` zeroes the animation for neighbours | A pointer crossing a toolbar should not fire every label, and the second tooltip should not make the person wait again |
+| Theme change cut from light to dark in one frame (transitions deliberately disabled for the swap) | The swap runs inside `document.startViewTransition` after first paint, 200ms crossfade; reduced motion, the first application and browsers without the API take the cut | No abrupt brightness jump (Apple); the per-element transition lock stays so nothing animates twice |
+
+Still on the table from the same proposal: bottom-sheet drag-to-dismiss with momentum, morphing Save/Saving/Saved buttons, and removing the two committed `dist-probe-*` build directories.

@@ -4,8 +4,12 @@ import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 
 import { cn } from "@/lib/utils"
 
+// A first tooltip waits so that a pointer crossing a toolbar does not fire a
+// label off every control it passes; once one is open, Base UI opens its
+// neighbours at once (data-instant, zero duration in TooltipContent). The app
+// mounts one provider at the root so that grouping spans every toolbar.
 function TooltipProvider({
-  delay = 0,
+  delay = 300,
   ...props
 }: TooltipPrimitive.Provider.Props) {
   return (

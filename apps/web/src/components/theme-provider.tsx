@@ -81,21 +81,45 @@ export function ThemeProvider({
     [storageKey]
   )
 
+  const hasPaintedRef = React.useRef(false)
+
   const applyTheme = React.useCallback(
     (nextTheme: Theme) => {
       const root = document.documentElement
       const resolvedTheme =
         nextTheme === "system" ? getSystemTheme() : nextTheme
-      const restoreTransitions = disableTransitionOnChange
-        ? disableTransitionsTemporarily()
-        : null
 
-      root.classList.remove("light", "dark")
-      root.classList.add(resolvedTheme)
+      const swap = () => {
+        const restoreTransitions = disableTransitionOnChange
+          ? disableTransitionsTemporarily()
+          : null
 
-      if (restoreTransitions) {
-        restoreTransitions()
+        root.classList.remove("light", "dark")
+        root.classList.add(resolvedTheme)
+
+        if (restoreTransitions) {
+          restoreTransitions()
+        }
       }
+
+      // A theme change after first paint cross-fades the whole page through a
+      // view transition instead of cutting from light to dark in one frame.
+      // Per-element transitions stay disabled inside the swap so nothing
+      // animates twice. The first application on mount, browsers without the
+      // API, and people who asked for reduced motion all take the cut.
+      const crossFade =
+        hasPaintedRef.current &&
+        root.classList.contains(resolvedTheme === "dark" ? "light" : "dark") &&
+        typeof document.startViewTransition === "function" &&
+        !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      hasPaintedRef.current = true
+
+      if (crossFade) {
+        document.startViewTransition(swap)
+        return
+      }
+
+      swap()
     },
     [disableTransitionOnChange]
   )
