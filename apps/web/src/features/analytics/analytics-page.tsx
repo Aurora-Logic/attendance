@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { type ReactNode, useMemo, useRef, useState } from 'react';
 import { ChartBarIcon, InfoIcon, LockKeyIcon } from '@phosphor-icons/react';
 import { subDays } from 'date-fns';
 
@@ -7,6 +7,7 @@ import { canViewOvertime, PERMISSIONS } from '@vyuha/shared';
 import { PageHeader } from '@/components/shared/page-header';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Empty,
@@ -112,10 +113,11 @@ function isRangeDays(value: string | undefined): value is `${RangeDays}` {
  * on the page surface, and a grid of cards each holding a figure is the
  * box-in-box this product does not do.
  */
-function FigureStrip({ entries }: { entries: readonly [string, string][] }) {
+/** Label, value, and optionally the glyph the figure's subject wears elsewhere (the flag). */
+function FigureStrip({ entries }: { entries: readonly (readonly [string, string] | readonly [string, string, ReactNode])[] }) {
   return (
     <dl className="divide-border grid grid-cols-2 divide-x divide-y border sm:grid-cols-4 sm:divide-y-0">
-      {entries.map(([label, value], index) => (
+      {entries.map(([label, value, icon], index) => (
         <div
           key={label}
           className={cn(
@@ -125,7 +127,10 @@ function FigureStrip({ entries }: { entries: readonly [string, string][] }) {
               : null,
           )}
         >
-          <dt className="text-muted-foreground text-[0.6875rem]">{label}</dt>
+          <dt className="text-muted-foreground text-[0.6875rem]">
+            {icon ? <span aria-hidden className="mr-1 inline-flex align-[-2px] [&_svg]:size-3">{icon}</span> : null}
+            {label}
+          </dt>
           <dd className="text-base font-medium tabular-nums">{value}</dd>
         </div>
       ))}
@@ -283,7 +288,7 @@ export function AnalyticsPage() {
                   // vendored shadcn variant keeps the box at 32px and grows an
                   // invisible ::after hit area instead. That satisfies a thumb
                   // and fails the route sweep, which measures the element.
-                  className={cn('pointer-coarse:h-11 px-2.5', PRESS)}
+                  className={cn(' px-2.5', PRESS)}
                 >
                   {String(option)}d
                 </ToggleGroupItem>
@@ -298,7 +303,7 @@ export function AnalyticsPage() {
               setDepartmentId(next === null || next === ALL ? null : next);
             }}
           >
-            <SelectTrigger aria-label="Filter by department" className="pointer-coarse:h-11 w-full sm:w-48">
+            <SelectTrigger aria-label="Filter by department" className="w-full sm:w-48">
               <SelectValue>
                 {(value: string) =>
                   departmentOptions.find((option) => option.id === value)?.name ?? 'All departments'
@@ -366,7 +371,7 @@ export function AnalyticsPage() {
                     'Attendance rate',
                     totals.attendanceRate === null ? '—' : `${String(totals.attendanceRate)}%`,
                   ],
-                  ['Flagged days', String(totals.flaggedDays)],
+                  ['Flagged days', String(totals.flaggedDays), <ACTION_ICONS.flag key="flag" />],
                 ]}
               />
 
@@ -410,7 +415,7 @@ export function AnalyticsPage() {
           <section className="flex flex-col gap-3">
             <SectionHeading
               title="Punctuality"
-              note="Late arrivals, by how late and by who. Minutes come from the shift's own late threshold (REQ-C-01)."
+              note="Late arrivals, by how late and by who. Minutes come from the shift's own late threshold."
             />
 
             <div className="grid gap-3 lg:grid-cols-2">
@@ -444,7 +449,7 @@ export function AnalyticsPage() {
           <section className="flex flex-col gap-3">
             <SectionHeading
               title="Overtime"
-              note="Minutes only. This product records overtime and never prices it (REQ-E-05)."
+              note="Minutes only. This product records overtime and never prices it."
             />
 
             <ChartPanel
@@ -511,6 +516,7 @@ export function AnalyticsPage() {
               </ChartPanel>
 
               <ChartPanel
+                icon={<ACTION_ICONS.flag />}
                 caption="Flagged punches, by kind"
                 note={flagPoints.length > 0 ? 'Red needs somebody to look' : undefined}
               >

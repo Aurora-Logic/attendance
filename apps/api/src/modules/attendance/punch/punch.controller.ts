@@ -17,9 +17,9 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import {
+  type CursorPaginated,
   MAX_OFFLINE_SYNC_BATCH,
   PERMISSIONS,
-  type CursorPaginated,
   type PunchContext,
   type PunchReceipt,
   type PunchRecord,
@@ -31,13 +31,8 @@ import type { Request, Response } from 'express';
 import { AppError } from '../../../platform/common/errors.js';
 import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js';
 import { RequirePermission, WindowExempt } from '../../../platform/rbac/route-policy.js';
-import {
-  PunchFeedQueryDto,
-  PunchFormDto,
-  PunchPhotoQueryDto,
-  PunchSyncFormDto,
-  idempotencyHeaderSchema,
-} from './punch.dto.js';
+import { AdminPunchDto, PunchFeedQueryDto, PunchFlagReviewDto, PunchFormDto, PunchPhotoQueryDto, PunchSyncFormDto, idempotencyHeaderSchema } from './punch.dto.js';
+import { PunchFlagReviewService } from './punch-flag-review.service.js';
 import { PunchService, type RequestMeta, type UploadedPhoto } from './punch.service.js';
 
 /**
@@ -111,7 +106,40 @@ function metaOf(request: Request): RequestMeta {
 @WindowExempt()
 @Controller('punches')
 export class PunchController {
-  constructor(private readonly punches: PunchService) {}
+  constructor(
+    private readonly punches: PunchService,
+    private readonly reviews: PunchFlagReviewService,
+  ) {}
+
+  /**
+   * Owner, 21 Aug 2026: Accept, Keep flagged, Mark half day or Add note on a
+   * flagged punch, from Approvals. `attendance.edit` because acting on a flag
+   * is acting on the day it marks.
+   */
+  /**
+   * Owner, 21 Aug 2026: an admin records an IN or OUT for an employee (or for
+   * themselves). `attendance.edit`, like every other hand laid on a day.
+   */
+  @Post('admin')
+  @RequirePermission(PERMISSIONS.ATTENDANCE_EDIT)
+  @HttpCode(HttpStatus.CREATED)
+  recordAdminEntry(
+    @CurrentUser() principal: Principal,
+    @Body() body: AdminPunchDto,
+  ): Promise<PunchReceipt> {
+    return this.punches.recordAdminEntry(principal, body);
+  }
+
+  @Post(':id/flag-review')
+  @RequirePermission(PERMISSIONS.ATTENDANCE_EDIT)
+  @HttpCode(HttpStatus.OK)
+  reviewFlag(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: PunchFlagReviewDto,
+  ): Promise<PunchRecord> {
+    return this.reviews.review(principal, id, body);
+  }
 
   /**
    * REQ-D-02's photo is a multipart part, not a field in the JSON. There is no

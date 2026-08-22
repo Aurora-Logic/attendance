@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { SYSTEM_ROLES } from './permissions.js';
+
 /**
  * What an administrator gets back when they provision access (REQ-B-03,
  * REQ-B-04).
@@ -89,6 +91,8 @@ export const signInAccountSchema = z.object({
     .object({
       email: z.string(),
       status: z.enum(['INVITED', 'ACTIVE', 'SUSPENDED']),
+      /** REQ-B-09: whether the account has confirmed an authenticator. */
+      mfaEnabled: z.boolean().default(false),
     })
     .nullable(),
 });
@@ -104,3 +108,109 @@ export const passwordResetLinkSchema = z.object({
 });
 
 export type PasswordResetLink = z.infer<typeof passwordResetLinkSchema>;
+
+// ---------------------------------------------------------------- REQ-B-09
+
+/**
+ * Two-step sign-in with an authenticator app (TOTP, RFC 6238). Owner, 22 Aug
+ * 2026: required for Admin and Accounts by default and optional for everyone
+ * else, thirty-day trusted browsers, ten one-time recovery codes, an Admin
+ * reset. The policy is an organisation setting; these are its values.
+ */
+export const MFA_POLICIES = ['none', 'admin', 'admin_accounts', 'everyone'] as const;
+export type MfaPolicy = (typeof MFA_POLICIES)[number];
+export const DEFAULT_MFA_POLICY: MfaPolicy = 'admin_accounts';
+export const MFA_POLICY_LABELS: Record<MfaPolicy, string> = {
+  none: 'Nobody is required; anyone may turn it on',
+  admin: 'Admin',
+  admin_accounts: 'Admin and Accounts',
+  everyone: 'Everyone',
+};
+
+/** Whether a person holding these roles must enrol under a policy. */
+export function mfaPolicyRequires(policy: MfaPolicy, roleNames: readonly string[]): boolean {
+  switch (policy) {
+    case 'none':
+      return false;
+    case 'everyone':
+      return true;
+    case 'admin':
+      return roleNames.includes(SYSTEM_ROLES.ADMIN);
+    case 'admin_accounts':
+      return roleNames.includes(SYSTEM_ROLES.ADMIN) || roleNames.includes(SYSTEM_ROLES.ACCOUNTS);
+  }
+}
+
+export const TOTP_DIGITS = 6;
+export const TOTP_PERIOD_SECONDS = 30;
+export const RECOVERY_CODE_COUNT = 10;
+export const TRUSTED_DEVICE_DAYS = 30;
+export const MFA_CHALLENGE_TTL_MINUTES = 5;
+/** Wrong codes against one challenge before it is spent. */
+export const MFA_CHALLENGE_MAX_ATTEMPTS = 5;
+
+/** Six digits, or a recovery code as it was shown: five-five, letters and digits. */
+const totpCodeField = z.string().trim().regex(/^\d{6}$/u, 'Enter the six digits from the app.');
+const recoveryCodeField = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/\s+/gu, '').toUpperCase())
+  .pipe(z.string().regex(/^[A-Z2-9]{5}-?[A-Z2-9]{5}$/u, 'A recovery code is ten letters and digits.'));
+export const mfaCodeSchema = z.union([totpCodeField, recoveryCodeField]);
+
+export const mfaVerifySchema = z.object({
+  challengeToken: z.string().min(16).max(256),
+  code: mfaCodeSchema,
+  trustDevice: z.boolean().default(false),
+});
+export type MfaVerifyInput = z.infer<typeof mfaVerifySchema>;
+
+export const mfaCodeOnlySchema = z.object({ code: mfaCodeSchema });
+export type MfaCodeOnlyInput = z.infer<typeof mfaCodeOnlySchema>;
+
+/** What POST /auth/login answers when the password was right and a code is next. */
+export interface MfaChallengeResponse {
+  readonly mfaRequired: true;
+  readonly challengeToken: string;
+  readonly expiresInSeconds: number;
+}
+
+export function isMfaChallenge(value: unknown): value is MfaChallengeResponse {
+  return typeof value === 'object' && value !== null && (value as { mfaRequired?: unknown }).mfaRequired === true;
+}
+
+export interface MfaEnrolmentStart {
+  /** Base32, for typing into an app that cannot scan. Shown once. */
+  readonly secret: string;
+  readonly otpauthUri: string;
+}
+
+export interface MfaRecoveryCodes {
+  readonly codes: readonly string[];
+}
+
+export interface MfaTrustedDeviceView {
+  readonly id: string;
+  readonly userAgent: string | null;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  /** The browser asking is this one. */
+  readonly current: boolean;
+}
+
+export interface MfaStatus {
+  readonly enabled: boolean;
+  readonly confirmedAt: string | null;
+  /** The organisation's policy requires it of this person's roles. */
+  readonly required: boolean;
+  readonly recoveryCodesLeft: number;
+  readonly trustedDevices: readonly MfaTrustedDeviceView[];
+}
+
+/** Carried on /me so the shell can insist on enrolment before anything else. */
+export interface MfaSummary {
+  readonly enabled: boolean;
+  readonly required: boolean;
+  readonly enrolmentRequired: boolean;
+}
+

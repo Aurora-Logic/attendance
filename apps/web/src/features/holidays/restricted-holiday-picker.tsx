@@ -50,7 +50,7 @@ const BLOCKER_COPY = {
   NO_CALENDAR: {
     title: 'No holiday calendar is attached to you',
     description:
-      'Restricted holidays come from the calendar your location follows (REQ-H-02). An administrator attaches one before there is anything to choose.',
+      'Restricted holidays come from the calendar your location follows. An administrator attaches one before there is anything to choose.',
   },
   NOT_ENABLED: {
     title: 'Your calendar does not offer restricted holidays',

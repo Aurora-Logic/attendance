@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   EXPORT_FORMATS,
   EXPORT_STATUSES,
+  REPORT_CATEGORIES,
   REPORT_COLUMN_TYPES,
   REPORT_DEFINITIONS,
   REPORT_FILTER_NAMES,
@@ -13,9 +14,12 @@ import {
   attendanceRegisterCell,
   headcountCell,
   creditCycleCell,
+  customerLapseCell,
   customerStatementCell,
   lowStockCell,
   pendingDispatchCell,
+  dayBookCell,
+  recordCell,
   salesAnalysisCell,
   voucherReconciliationCell,
   leaveAvailedCell,
@@ -60,6 +64,7 @@ export const reportColumnSchema = z.object({
 export const reportDefinitionSchema = z.object({
   key: z.enum(REPORT_KEYS),
   label: z.string(),
+  category: z.enum(REPORT_CATEGORIES),
   description: z.string(),
   columns: z.array(reportColumnSchema).min(1),
   defaultSort: z.string(),
@@ -122,7 +127,7 @@ export const punchAuditRowSchema = z.object({
   clockSkewSeconds: z.number().nullable(),
   syncDelaySeconds: z.number().nullable(),
   source: z.string(),
-  photo: z.object({ fileId: z.string(), thumbnailFileId: z.string() }),
+  photo: z.object({ fileId: z.string(), thumbnailFileId: z.string() }).nullable(),
   location: z
     .object({
       latitude: z.number(),
@@ -376,6 +381,33 @@ export const customerStatementRowSchema = z.object({
 });
 export type CustomerStatementRow = z.infer<typeof customerStatementRowSchema>;
 
+export const dayBookRowSchema = z.object({
+  voucherId: z.string(),
+  date: z.string(),
+  voucherType: z.string(),
+  voucherNumber: z.string(),
+  partyName: z.string().nullable(),
+  amount: z.string(),
+  narration: z.string().nullable(),
+  cancelled: z.boolean(),
+  asOf: z.string().nullable(),
+});
+export type DayBookRow = z.infer<typeof dayBookRowSchema>;
+
+export const customerLapseRowSchema = z.object({
+  partyId: z.string(),
+  partyName: z.string(),
+  state: z.enum(['LAPSED', 'AT_RISK', 'ON_RHYTHM']),
+  lastSaleDate: z.string(),
+  daysSince: z.number(),
+  medianGapDays: z.number(),
+  expectedBy: z.string(),
+  sales12m: z.number(),
+  revenue12m: z.string(),
+  asOf: z.string().nullable(),
+});
+export type CustomerLapseRow = z.infer<typeof customerLapseRowSchema>;
+
 export const creditCycleRowSchema = z.object({
   partyId: z.string(),
   partyName: z.string(),
@@ -606,12 +638,87 @@ const PENDING_DISPATCH_SHAPE: RowViewShape<PendingDispatchRow> = {
   status: (row) => row.fulfilment.toUpperCase(),
 };
 
+const DAY_BOOK_SHAPE: RowViewShape<DayBookRow> = {
+  schema: dayBookRowSchema,
+  cell: dayBookCell,
+  id: (row) => row.voucherId,
+  primary: (row) => `${row.voucherType}${row.voucherNumber ? ` ${row.voucherNumber}` : ''}`,
+  status: (row) => (row.cancelled ? 'CANCELLED' : null),
+};
+
+const CUSTOMER_LAPSE_SHAPE: RowViewShape<CustomerLapseRow> = {
+  schema: customerLapseRowSchema,
+  cell: customerLapseCell,
+  id: (row) => row.partyId,
+  primary: (row) => row.partyName,
+  status: (row) => (row.state === 'ON_RHYTHM' ? null : row.state),
+};
+
 const LOW_STOCK_SHAPE: RowViewShape<LowStockRow> = {
   schema: lowStockRowSchema,
   cell: lowStockCell,
   id: (row) => row.stockItemId,
   primary: (row) => row.item,
   status: () => null,
+};
+
+/**
+ * The Tier 1 analytics rows (D-46) are flat records whose keys are the
+ * column keys; one loose shape serves all fifteen, with the id and the
+ * mobile-primary named per report. `recordCell` reads any of them.
+ */
+const analyticsRowSchema = z.record(z.string(), z.unknown());
+type AnalyticsRow = z.infer<typeof analyticsRowSchema>;
+
+function analyticsShape(idKey: string, primaryKey: string, statusKey?: string): RowViewShape<AnalyticsRow> {
+  return {
+    schema: analyticsRowSchema,
+    cell: recordCell,
+    id: (row) => {
+      const value = row[idKey];
+      return typeof value === 'string' ? value : JSON.stringify(row);
+    },
+    primary: (row) => {
+      const value = row[primaryKey];
+      return typeof value === 'string' ? value : '';
+    },
+    status: (row) => (statusKey === undefined ? null : ((row[statusKey] as string | null | undefined) ?? null)),
+  };
+}
+
+const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> = {
+  'ledger-extract': analyticsShape('id', 'voucherType'),
+  'stock-summary': analyticsShape('stockItemId', 'item'),
+  'negative-stock': analyticsShape('stockItemId', 'item'),
+  'stale-projections': analyticsShape('connectionId', 'companyName', 'connectionState'),
+  'duplicate-masters': analyticsShape('id', 'nameA'),
+  'customer-item-matrix': analyticsShape('id', 'partyName'),
+  'purchase-rhythm': analyticsShape('partyId', 'partyName', 'trend'),
+  'price-variance': analyticsShape('id', 'item'),
+  'item-velocity': analyticsShape('stockItemId', 'item', 'trend'),
+  'dead-stock': analyticsShape('stockItemId', 'item'),
+  'movement-analysis': analyticsShape('id', 'item'),
+  'vendor-item-history': analyticsShape('id', 'vendorName', 'rateTrend'),
+  'vendor-price-comparison': analyticsShape('id', 'item'),
+  'credit-breaches': analyticsShape('partyId', 'partyName'),
+  'stock-ageing': analyticsShape('stockItemId', 'item'),
+  'customer-concentration': analyticsShape('partyId', 'partyName'),
+  'order-pipeline': analyticsShape('id', 'number', 'stage'),
+  'dispatch-performance': analyticsShape('id', 'number', 'mode'),
+  'order-fill-rate': analyticsShape('partyId', 'partyName'),
+  'new-vs-repeat': analyticsShape('month', 'month'),
+  'requirement-ageing': analyticsShape('id', 'item', 'source'),
+  // Owner, 22 Aug 2026: the second analytics set.
+  'flag-review-log': analyticsShape('id', 'employeeName', 'action'),
+  'approvals-turnaround': analyticsShape('id', 'type'),
+  'early-arrival-leaderboard': analyticsShape('employeeId', 'employeeName'),
+  'on-time-rate': analyticsShape('id', 'department'),
+  'aov-trend': analyticsShape('month', 'month'),
+  'partial-shipments': analyticsShape('id', 'partyName'),
+  'vendor-lead-time': analyticsShape('id', 'partyName'),
+  'stock-out-frequency': analyticsShape('id', 'item'),
+  'margin-proxy': analyticsShape('stockItemId', 'item'),
+  'sales-heatmap': analyticsShape('id', 'partyName'),
 };
 
 function build<T>(
@@ -681,6 +788,15 @@ export function toRowViews(reportKey: ReportKey, rows: readonly unknown[]): Repo
       return build(PENDING_DISPATCH_SHAPE, reportKey, rows);
     case 'low-stock':
       return build(LOW_STOCK_SHAPE, reportKey, rows);
+    case 'day-book':
+      return build(DAY_BOOK_SHAPE, reportKey, rows);
+    case 'customer-lapse':
+      return build(CUSTOMER_LAPSE_SHAPE, reportKey, rows);
+    default: {
+      const shape = ANALYTICS_SHAPES[reportKey];
+      if (shape === undefined) throw new Error(`No row shape for "${reportKey}".`);
+      return build(shape, reportKey, rows);
+    }
   }
 }
 

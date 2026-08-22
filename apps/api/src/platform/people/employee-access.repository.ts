@@ -74,6 +74,7 @@ export class EmployeeAccessRepository {
         email: users.email,
         status: users.status,
         lastLoginAt: users.lastLoginAt,
+        totpConfirmedAt: users.totpConfirmedAt,
       })
       .from(users)
       .where(
@@ -92,6 +93,8 @@ export class EmployeeAccessRepository {
       email: row.email,
       status: row.status,
       lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+      // REQ-B-09: whether an authenticator is confirmed, so the page can offer the reset.
+      mfaEnabled: row.totpConfirmedAt !== null,
     };
   }
 

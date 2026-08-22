@@ -1,4 +1,5 @@
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { compactCount, stackTotal, valueCaps } from '@/components/shared/chart-labels';
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis, LabelList } from 'recharts';
 
 import {
   ChartContainer,
@@ -118,7 +119,10 @@ const MAX_DATE_TICKS = 5;
  * the panel; the right margin moves the last column in far enough for its own
  * label.
  */
-const AXIS_MARGIN = { left: 0, right: 16, top: 4 } as const;
+/* `top` is room for the value on a bar cap or a line end. At 4px the
+   tallest mark had its label sliced off by the plot edge -- the marks
+   that most need reading were the ones cut in half. */
+const AXIS_MARGIN = { left: 0, right: 16, top: 20 } as const;
 
 /**
  * The axis label colour, set here rather than inherited.
@@ -174,16 +178,22 @@ function minutesValue(value: unknown): string {
 export function ChartPanel({
   caption,
   note,
+  icon,
   children,
 }: {
   caption: string;
   note?: string;
+  /** The glyph the panel's subject wears elsewhere (the flag), so the caption agrees with the rows. */
+  icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2 border p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h3 className="text-xs font-medium">{caption}</h3>
+        <h3 className="flex items-center gap-1 text-xs font-medium [&_svg]:size-3.5">
+          {icon ? <span aria-hidden className="text-muted-foreground">{icon}</span> : null}
+          {caption}
+        </h3>
         {note ? <p className="text-muted-foreground text-[0.6875rem] tabular-nums">{note}</p> : null}
       </div>
       {children}
@@ -252,7 +262,9 @@ export function StatusBandsChart({ points, animate }: ChartProps<BandPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...stackTotal([...points], ['work', 'leave', 'absent', 'other'])} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -301,7 +313,9 @@ export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('workedMinutes', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -353,7 +367,9 @@ export function TimekeepingChart({ points, animate }: ChartProps<TimekeepingPoin
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('lateMinutes', compactCount)} />
+        </Bar>
         <Bar
           dataKey="earlyExitMinutes"
           fill="var(--color-earlyExitMinutes)"
@@ -361,7 +377,9 @@ export function TimekeepingChart({ points, animate }: ChartProps<TimekeepingPoin
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('earlyExitMinutes', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );

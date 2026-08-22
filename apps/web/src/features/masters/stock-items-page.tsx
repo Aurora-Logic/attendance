@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowsClockwiseIcon, LockKeyIcon, PackageIcon } from '@phosphor-icons/react';
-import { useSearchParams } from 'react-router';
+import { useSearchParams, useNavigate } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -75,6 +75,7 @@ function ListSkeleton() {
 }
 
 export function StockItemsPage() {
+  const navigate = useNavigate();
   const canView = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -198,6 +199,9 @@ export function StockItemsPage() {
               rows={rows}
               rowKey={(row) => row.id}
               mobilePrimary={(row) => row.name}
+              onRowActivate={(row) => {
+                void navigate(`/masters/items/${row.id}`);
+              }}
               mobileStatus={(row) =>
                 row.absentInTally ? <Badge variant="outline">Absent</Badge> : null
               }

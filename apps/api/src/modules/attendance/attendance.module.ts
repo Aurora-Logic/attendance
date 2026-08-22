@@ -20,6 +20,7 @@ import {
   PunchReminderHandler,
 } from './punch/punch-notification-jobs.handler.js';
 import { PunchContextController, PunchController } from './punch/punch.controller.js';
+import { PunchFlagApprovalHandler, PunchFlagReviewService } from './punch/punch-flag-review.service.js';
 import { PunchService } from './punch/punch.service.js';
 
 /**
@@ -56,6 +57,8 @@ import { PunchService } from './punch/punch.service.js';
   providers: [
     DayEngineService,
     PunchService,
+    PunchFlagReviewService,
+    PunchFlagApprovalHandler,
     AttendanceDayService,
     AttendanceOverrideService,
     PeriodLockService,

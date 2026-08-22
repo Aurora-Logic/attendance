@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+import type { Appearance } from './appearance.js';
+import type { WorkspaceLocale } from './workspace.js';
+
 import type { AgentCondition } from './sync.js';
 
 import type { IntegrationStatus, IntegrationSystem } from './enums.js';
@@ -269,6 +272,10 @@ export interface OrgBranding {
   readonly logoUrl: string | null;
   /** How long the URL above is good for, so a client can decide when to refetch. */
   readonly logoUrlExpiresInSeconds: number | null;
+  /** The workspace's accent, base and density, so the shell colours itself before any screen mounts. */
+  readonly appearance: Appearance;
+  /** How figures are written everywhere: grouping and the currency symbol. */
+  readonly locale: WorkspaceLocale;
 }
 
 // ---------------------------------------------------------------------------

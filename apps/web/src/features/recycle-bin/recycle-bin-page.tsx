@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router';
 import { PageHeader } from '@/components/shared/page-header';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { RecordPagination } from '@/components/shared/record-pagination';
+import { PersonChip } from '@/components/shared/person';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
 import { Badge } from '@/components/ui/badge';
@@ -151,7 +152,14 @@ function RecycleBinBody({ allowed }: { allowed: readonly SoftDeletableEntity[] }
     {
       key: 'deletedBy',
       header: 'Deleted by',
-      cell: (row) => row.deletedBy?.name ?? 'Not recorded',
+      cell: (row) =>
+        row.deletedBy ? (
+          <PersonChip name={row.deletedBy.name} />
+        ) : (
+          // Not the em dash PersonChip would give a null: the row was deleted by
+          // somebody, the trail just predates the column.
+          <span className="text-muted-foreground">Not recorded</span>
+        ),
       secondary: true,
     },
     {
@@ -187,7 +195,7 @@ function RecycleBinBody({ allowed }: { allowed: readonly SoftDeletableEntity[] }
 
   return (
     <>
-      <PageHeader description="Nothing is ever hard-deleted (REQ-M-04). Anything removed lands here with who removed it and why, and can be put back." />
+      <PageHeader description="Nothing is ever hard-deleted. Anything removed lands here with who removed it and why, and can be put back." />
 
       <div className="flex flex-col gap-4">
         {/* Toolbar row (PRD §6.2). Wraps at 360px rather than scrolling. */}
@@ -212,7 +220,7 @@ function RecycleBinBody({ allowed }: { allowed: readonly SoftDeletableEntity[] }
           >
             <SelectTrigger
               aria-label="Filter by kind"
-              className="pointer-coarse:h-11 w-full sm:w-52"
+              className="w-full sm:w-52"
             >
               {/* A render function, not `placeholder`. Base UI's Value shows the
                   raw value when it is given neither, so the trigger read "all"

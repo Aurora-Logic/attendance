@@ -1,8 +1,14 @@
-import { SYSTEM_ROLES, type Paginated, type PartyView } from '@vyuha/shared';
+import { PERMISSIONS, SYSTEM_ROLES, type ExportDownload, type ExportJobSummary, type Paginated, type PartyView } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+import { env } from '../common/env.js';
 
 import { ApiHarness, scopedEmail } from '../../test-support/api-harness.js';
+import { ExceptionSweepHandler } from './exception-sweep.handler.js';
+import { ExportService } from '../export/export.service.js';
+import { NotificationDispatcher, type NotificationEvent } from '../notifications/notification.dispatcher.js';
 
 /**
  * The masters read surface (09 §5), and the 6b acceptance line it exists to
@@ -21,6 +27,14 @@ let connectionId = '';
 let ashaId = '';
 
 beforeAll(async () => {
+  // export_jobs.requested_by is ON DELETE RESTRICT; a row left by a crashed
+  // run pins its user and breaks resetOrganisation for every later run.
+  const pool = new Pool({ connectionString: env.DATABASE_URL, max: 1 });
+  try {
+    await pool.query('DELETE FROM export_jobs WHERE org_id = $1', [ORG_ID]);
+  } finally {
+    await pool.end();
+  }
   harness = await ApiHarness.start(ORG_ID, 'Masters Fixture Org');
 
   await harness.db.execute(sql`DELETE FROM sync_jobs WHERE org_id = ${ORG_ID}`);
@@ -357,5 +371,355 @@ describe('the receivables reports (Phase 6d, REQ-Y-01, Y-03, Y-05, Y-07)', () =>
 
     const bad = await harness.get('/reports/sales-analysis/rows?groupBy=salesperson', { token: adminToken });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe('the Tier 1 analytics (14 REQ-AE-01, REQ-AG-02)', () => {
+  it('the day book lists every voucher for the period and narrows by type', async () => {
+    const all = await harness.get<{ data: { voucherType: string; voucherNumber: string; partyName: string | null; amount: string; cancelled: boolean; asOf: string | null }[]; meta: { total: number } }>(
+      '/reports/day-book/rows?from=2026-08-01&to=2026-08-31',
+      { token: adminToken },
+    );
+    expect(all.status).toBe(200);
+    expect(all.body.meta.total).toBeGreaterThanOrEqual(3);
+    expect(all.body.data.every((r) => r.asOf !== null)).toBe(true);
+
+    const sales = await harness.get<{ data: { voucherType: string }[] }>('/reports/day-book/rows?from=2026-08-01&to=2026-08-31&voucherType=Sales', { token: adminToken });
+    expect(sales.status).toBe(200);
+    expect(sales.body.data.length).toBeGreaterThan(0);
+    expect(sales.body.data.every((r) => r.voucherType === 'Sales')).toBe(true);
+  });
+
+  it('customer lapse measures each customer against their own median gap and ranks by revenue at risk', async () => {
+    // A customer with a monthly rhythm who has gone quiet for over two gaps.
+    await harness.db.execute(sql`
+      INSERT INTO vouchers
+        (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, is_cancelled, amount)
+      VALUES
+        (${ORG_ID}, ${connectionId}, CURRENT_DATE - 160, 'Sales', 'LAP-1', 'Asha Traders', ${ashaId}, false, '900.00'),
+        (${ORG_ID}, ${connectionId}, CURRENT_DATE - 130, 'Sales', 'LAP-2', 'Asha Traders', ${ashaId}, false, '900.00'),
+        (${ORG_ID}, ${connectionId}, CURRENT_DATE - 100, 'Sales', 'LAP-3', 'Asha Traders', ${ashaId}, false, '900.00')
+    `);
+    const lapse = await harness.get<{ data: { partyName: string; state: string; daysSince: number; medianGapDays: number; sales12m: number; revenue12m: string; asOf: string | null }[] }>(
+      '/reports/customer-lapse/rows',
+      { token: adminToken },
+    );
+    expect(lapse.status).toBe(200);
+    const asha = lapse.body.data.find((r) => r.partyName === 'Asha Traders');
+    expect(asha).toBeDefined();
+    // The June/August fixture invoices land inside the last 365 days too.
+    expect(asha?.sales12m).toBeGreaterThanOrEqual(3);
+    expect(asha?.medianGapDays).toBeGreaterThan(0);
+    expect(asha?.daysSince).toBeGreaterThanOrEqual(0);
+    expect(['LAPSED', 'AT_RISK', 'ON_RHYTHM']).toContain(asha?.state);
+    expect(asha?.asOf).not.toBeNull();
+  });
+});
+
+describe('the Tier 1 analytics, the wider set (14, D-46)', () => {
+  it('the ledger extract opens from what came before and runs a balance', async () => {
+    const noLedger = await harness.get<{ error: { details?: { fields?: { path: string }[] } } }>('/reports/ledger-extract/rows', { token: adminToken });
+    expect(noLedger.status).toBe(400);
+    expect(noLedger.body.error.details?.fields?.[0]?.path).toBe('ledgerName');
+
+    const extract = await harness.get<{ data: { voucherType: string; balance: string; debit: string | null; credit: string | null }[]; meta: { total: number } }>(
+      '/reports/ledger-extract/rows?ledgerName=Sales&from=2026-08-01&to=2026-08-31',
+      { token: adminToken },
+    );
+    expect(extract.status).toBe(200);
+    expect(extract.body.data[0]?.voucherType).toBe('Opening balance');
+    expect(extract.body.data.every((r) => /^-?\d+\.\d\d$/u.test(r.balance))).toBe(true);
+  });
+
+  it('stock summary values closing at cost and carries committed and available', async () => {
+    await harness.db.execute(sql`
+      INSERT INTO stock_items (org_id, connection_id, name, parent_group, unit, closing_qty, cost_price, absent_in_tally)
+      VALUES (${ORG_ID}, ${connectionId}, 'Summary Cable', 'Cables', 'NOS', 12, 250, false)
+    `);
+    const summary = await harness.get<{ data: { item: string; closingQty: string | null; committedQty: string; availableQty: string | null; value: string | null }[] }>(
+      '/reports/stock-summary/rows',
+      { token: adminToken },
+    );
+    expect(summary.status).toBe(200);
+    const cable = summary.body.data.find((r) => r.item === 'Summary Cable');
+    expect(cable).toBeDefined();
+    expect(Number(cable?.value)).toBe(3000);
+    expect(cable?.committedQty).toBe('0');
+    expect(Number(cable?.availableQty)).toBe(12);
+  });
+
+  it('duplicate masters flags names that collapse to the same key', async () => {
+    await harness.db.execute(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group)
+      VALUES (${ORG_ID}, ${connectionId}, 'ASHA  TRADERS.', 'Sundry Debtors')
+    `);
+    const dupes = await harness.get<{ data: { kind: string; nameA: string; nameB: string }[] }>('/reports/duplicate-masters/rows', { token: adminToken });
+    expect(dupes.status).toBe(200);
+    const pair = dupes.body.data.find((r) => r.kind === 'Party' && [r.nameA, r.nameB].some((n) => n.includes('Asha') || n.includes('ASHA')));
+    expect(pair).toBeDefined();
+  });
+
+  it('the customer × product matrix counts invoices per party and item', async () => {
+    const matrix = await harness.get<{ data: { partyName: string; item: string; invoices: number; value: string }[] }>(
+      '/reports/customer-item-matrix/rows',
+      { token: adminToken },
+    );
+    expect(matrix.status).toBe(200);
+    expect(matrix.body.data.length).toBeGreaterThan(0);
+    expect(matrix.body.data.every((r) => r.invoices >= 1)).toBe(true);
+  });
+
+});
+
+describe('the daily exception sweep and usage retention (D-46, D14-6)', () => {
+  it('opening a report records one usage row, deduplicated within the minute', async () => {
+    await harness.db.execute(sql`DELETE FROM report_usage WHERE org_id = ${ORG_ID}`);
+    await harness.get('/reports/negative-stock/rows', { token: adminToken });
+    await harness.get('/reports/negative-stock/rows', { token: adminToken });
+    // The insert is deliberately fire-and-forget, so give it a beat.
+    let rows: { rows: { n: number }[] } = { rows: [] };
+    for (let i = 0; i < 20; i += 1) {
+      rows = await harness.db.execute<{ n: number }>(
+        sql`SELECT count(*)::int AS n FROM report_usage WHERE org_id = ${ORG_ID} AND report_key = 'negative-stock'`,
+      );
+      if ((rows.rows[0]?.n ?? 0) > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(rows.rows[0]?.n).toBe(1);
+  });
+
+  it('notifies the permission holders about non-empty exception reports and prunes year-old usage', async () => {
+    const emitted: NotificationEvent[] = [];
+    const spy = vi.spyOn(harness.resolve(NotificationDispatcher), 'emit').mockImplementation((event) => {
+      emitted.push(event);
+      return Promise.resolve('spied');
+    });
+    try {
+      await harness.db.execute(sql`
+        INSERT INTO report_usage (org_id, user_id, report_key, opened_at)
+        SELECT ${ORG_ID}, (SELECT id FROM users WHERE org_id = ${ORG_ID} LIMIT 1), 'day-book', t.at
+          FROM (VALUES (now() - interval '13 months'), (now())) AS t(at)
+      `);
+      const sweep = harness.resolve(ExceptionSweepHandler);
+      const result = await sweep.run({ now: '2026-08-21T02:00:00.000Z' }, { jobId: 'test', attempt: 1 });
+      const mine = emitted.filter((e) => e.orgId === ORG_ID && e.type === 'reports.exceptions_daily');
+      expect(mine).toHaveLength(1);
+      expect(mine[0]?.audience).toEqual({ kind: 'permission', key: 'reports.exceptions.notify' });
+      expect(String(mine[0]?.payload?.summary)).toContain('duplicate masters');
+      expect(mine[0]?.idempotencyKey).toBe(`exception-sweep-${ORG_ID}-2026-08-21`);
+      expect(Number(result.usageRowsPruned)).toBeGreaterThanOrEqual(1);
+      const kept = await harness.db.execute<{ n: number }>(
+        sql`SELECT count(*)::int AS n FROM report_usage WHERE org_id = ${ORG_ID} AND report_key = 'day-book'`,
+      );
+      expect(kept.rows[0]?.n).toBe(1);
+
+      // The same morning run twice carries the same idempotency key, so BullMQ delivers once.
+      await sweep.run({ now: '2026-08-21T04:00:00.000Z' }, { jobId: 'test', attempt: 1 });
+      const again = emitted.filter((e) => e.orgId === ORG_ID && e.type === 'reports.exceptions_daily');
+      expect(again[1]?.idempotencyKey).toBe(again[0]?.idempotencyKey);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('comparison flows into the exported file (data-analyst §3)', () => {
+  it('a CSV export with compare carries a previous column and a change column, joined by the same key as the screen', async () => {
+    // Sales analysis reads inventory lines; the June fixture voucher has
+    // none, so give it one for the comparison period to find.
+    await harness.db.execute(sql`
+      INSERT INTO voucher_lines (org_id, voucher_id, line_no, kind, stock_item_name, billed_qty, rate, amount)
+      SELECT ${ORG_ID}, id, 1, 'inventory', 'Cat6 Cable Box', '1 NOS', '1000.00', '1000.00'
+        FROM vouchers WHERE org_id = ${ORG_ID} AND voucher_number = 'INV-0031'
+    `);
+    const accepted = await harness.post<ExportJobSummary>('/reports/exports', {
+      token: adminToken,
+      body: {
+        reportKey: 'sales-analysis',
+        filters: { from: '2026-08-01', to: '2026-08-31' },
+        format: 'CSV',
+        compare: { from: '2026-06-01', to: '2026-06-30', columnKey: 'value', label: 'previous' },
+      },
+    });
+    expect(accepted.status).toBe(202);
+    // Run the job directly so the assertion does not race the queue; the
+    // queued worker's own attempt then reads DONE and skips.
+    await harness.resolve(ExportService).run(ORG_ID, accepted.body.id, 1);
+    const link = await harness.get<ExportDownload>(`/reports/exports/${accepted.body.id}/download`, { token: adminToken });
+    expect(link.status).toBe(200);
+    const response = await fetch(link.body.url);
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    const lines = text.split('\n');
+    const header = lines.find((line) => line.startsWith('Group,')) ?? '';
+    expect(header).toContain('Value (previous)');
+    expect(header).toContain('Change');
+    const asha = lines.find((line) => line.startsWith('Asha Traders')) ?? '';
+    // August 4150.50 against June 1000: the file states the base and the delta.
+    expect(asha).toContain('1000');
+    expect(asha).toContain('+3150.5 (315.1%)');
+  });
+});
+
+describe('the second analytics set (owner, 22 Aug 2026)', () => {
+  it('serves each new report with its declared columns', async () => {
+    for (const key of ['aov-trend', 'partial-shipments', 'vendor-lead-time', 'stock-out-frequency', 'sales-heatmap'] as const) {
+      const page = await harness.get<{ data: Record<string, unknown>[]; meta: { total: number } }>(
+        `/reports/${key}/rows?from=2026-06-01&to=2026-08-31`,
+        { token: adminToken },
+      );
+      expect(page.status, `${key}: ${page.text}`).toBe(200);
+      expect(Array.isArray(page.body.data)).toBe(true);
+    }
+  });
+
+  it('average order value reads the fixture invoices month by month', async () => {
+    const page = await harness.get<{ data: { month: string; invoices: number; aov: string }[] }>(
+      '/reports/aov-trend/rows?from=2026-06-01&to=2026-08-31',
+      { token: adminToken },
+    );
+    expect(page.status, page.text).toBe(200);
+    const august = page.body.data.find((row) => row.month === '2026-08');
+    expect(august).toBeDefined();
+    expect(august?.invoices).toBeGreaterThanOrEqual(1);
+    expect(Number(august?.aov)).toBeGreaterThan(0);
+  });
+
+  it('the margin proxy is for margin eyes only, and says cost against price', async () => {
+    const margin = await harness.get<{ data: { item: string; revenue: string; cost: string; margin: string }[] }>(
+      '/reports/margin-proxy/rows?from=2026-08-01&to=2026-08-31',
+      { token: adminToken },
+    );
+    expect(margin.status, margin.text).toBe(200);
+    const cable = margin.body.data.find((row) => row.item === 'Cat6 Cable Box');
+    expect(cable).toBeDefined();
+    expect(Number(cable?.revenue)).toBeGreaterThan(0);
+    expect(Number(cable?.margin)).toBe(Number(cable?.revenue) - Number(cable?.cost));
+
+    const narrowRoleId = await harness.createRole('Receivables only', [PERMISSIONS.RECEIVABLES_VIEW, PERMISSIONS.REPORT_VIEW]);
+    const viewer = await harness.createUser({ email: scopedEmail('masters-no-margin'), roleIds: [narrowRoleId] });
+    const viewerToken = (await harness.login(viewer.email, viewer.password)).token;
+    const refused = await harness.get<{ error: { code: string } }>('/reports/margin-proxy/rows', { token: viewerToken });
+    expect(refused.status).toBe(403);
+    const catalogue = await harness.get<{ data: { key: string }[] }>('/reports', { token: viewerToken });
+    expect(catalogue.body.data.some((report) => report.key === 'margin-proxy')).toBe(false);
+    expect(catalogue.body.data.some((report) => report.key === 'aov-trend')).toBe(true);
+  });
+});
+
+/**
+ * REQ-Y-02 and REQ-Y-04, the two reports `bill_allocations` unblocks.
+ *
+ * The fixture is three bills for one party, chosen so each answers a question
+ * a net balance cannot:
+ *
+ *   BILL-A  10,000  raised 200 days ago, settled in full after 40 days
+ *   BILL-B   5,000  raised 100 days ago, 2,000 paid  -> 3,000 open, 90+ bucket
+ *   BILL-C   8,000  raised 10 days ago, untouched    -> 8,000 open, 0-30
+ *
+ * Net exposure is 11,000 either way. What only the bill view can say is that
+ * 3,000 of it has been owed for a hundred days.
+ */
+describe('ageing and payment analysis (Phase 6d, REQ-Y-02 / REQ-Y-04)', () => {
+  let billPartyId = '';
+
+  beforeAll(async () => {
+    const party = await harness.db.execute<{ id: string }>(sql`
+      INSERT INTO parties (org_id, connection_id, name, parent_group, credit_limit, credit_days)
+      VALUES (${ORG_ID}, ${connectionId}, 'Bill-wise Traders', 'Sundry Debtors', '500000', 30)
+      RETURNING id
+    `);
+    billPartyId = party.rows[0]?.id ?? '';
+
+    const raise = async (number: string, daysAgo: number, amount: string): Promise<string> => {
+      const rows = await harness.db.execute<{ id: string }>(sql`
+        INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, amount)
+        VALUES (${ORG_ID}, ${connectionId}, CURRENT_DATE - (${daysAgo})::int, 'Sales', ${number}, 'Bill-wise Traders', ${billPartyId}, ${amount})
+        RETURNING id
+      `);
+      return rows.rows[0]?.id ?? '';
+    };
+    const settle = async (daysAgo: number, amount: string): Promise<string> => {
+      const rows = await harness.db.execute<{ id: string }>(sql`
+        INSERT INTO vouchers (org_id, connection_id, voucher_date, voucher_type, voucher_number, party_name, party_id, amount)
+        VALUES (${ORG_ID}, ${connectionId}, CURRENT_DATE - (${daysAgo})::int, 'Receipt', 'RCT-BW', 'Bill-wise Traders', ${billPartyId}, ${amount})
+        RETURNING id
+      `);
+      return rows.rows[0]?.id ?? '';
+    };
+
+    const a = await raise('BILL-A', 200, '10000');
+    const b = await raise('BILL-B', 100, '5000');
+    const c = await raise('BILL-C', 10, '8000');
+    const payA = await settle(160, '10000');
+    const payB = await settle(90, '2000');
+
+    await harness.db.execute(sql`
+      INSERT INTO bill_allocations (org_id, connection_id, voucher_id, party_id, party_name, bill_name, ref_type, bill_date, amount)
+      VALUES
+        (${ORG_ID}, ${connectionId}, ${a}, ${billPartyId}, 'Bill-wise Traders', 'BILL-A', 'new', CURRENT_DATE - 200, '10000'),
+        (${ORG_ID}, ${connectionId}, ${b}, ${billPartyId}, 'Bill-wise Traders', 'BILL-B', 'new', CURRENT_DATE - 100, '5000'),
+        (${ORG_ID}, ${connectionId}, ${c}, ${billPartyId}, 'Bill-wise Traders', 'BILL-C', 'new', CURRENT_DATE - 10, '8000'),
+        (${ORG_ID}, ${connectionId}, ${payA}, ${billPartyId}, 'Bill-wise Traders', 'BILL-A', 'against', CURRENT_DATE - 200, '-10000'),
+        (${ORG_ID}, ${connectionId}, ${payB}, ${billPartyId}, 'Bill-wise Traders', 'BILL-B', 'against', CURRENT_DATE - 100, '-2000')
+    `);
+  });
+
+  it('lists only bills with something still on them, aged from the bill date', async () => {
+    const res = await harness.get<{
+      data: { partyName: string; billName: string; ageDays: number; bucket: string; outstanding: string; overdue: boolean }[];
+    }>(`/reports/ageing/rows?partyId=${billPartyId}`, { token: adminToken });
+    expect(res.status).toBe(200);
+
+    // BILL-A settled in full, so it is gone -- no "paid" flag was needed to
+    // say so, the rows simply net to zero.
+    expect(res.body.data.map((r) => r.billName)).toEqual(['BILL-B', 'BILL-C']);
+
+    const b = res.body.data.find((r) => r.billName === 'BILL-B');
+    expect(b?.outstanding).toBe('3000.00');
+    expect(b?.ageDays).toBe(100);
+    expect(b?.bucket).toBe('90+');
+    // Raised 100 days ago on 30-day terms.
+    expect(b?.overdue).toBe(true);
+
+    const c = res.body.data.find((r) => r.billName === 'BILL-C');
+    expect(c?.outstanding).toBe('8000.00');
+    expect(c?.bucket).toBe('0-30');
+    expect(c?.overdue).toBe(false);
+  });
+
+  it('says what a net balance cannot: how old the open money is', async () => {
+    const res = await harness.get<{ data: { outstanding: string; ageDays: number }[] }>(
+      `/reports/ageing/rows?partyId=${billPartyId}`,
+      { token: adminToken },
+    );
+    const total = res.body.data.reduce((sum, row) => sum + Number(row.outstanding), 0);
+    // The same 11,000 the credit cycle would show as one figure...
+    expect(total).toBe(11000);
+    // ...of which this much has been owed beyond the terms.
+    const aged = res.body.data.filter((r) => r.ageDays > 30).reduce((sum, r) => sum + Number(r.outstanding), 0);
+    expect(aged).toBe(3000);
+  });
+
+  it('measures days to pay from the settlement that names the bill', async () => {
+    const res = await harness.get<{
+      data: { partyName: string; creditDays: number | null; avgDaysToPay: number | null; slippage: number | null; billsPaid: number; billsOpen: number; oldestOpenDays: number | null }[];
+    }>(`/reports/payment-analysis/rows?partyId=${billPartyId}`, { token: adminToken });
+    expect(res.status).toBe(200);
+
+    const row = res.body.data[0];
+    expect(row?.partyName).toBe('Bill-wise Traders');
+    // BILL-A alone is settled: raised 200 days ago, paid at 160 -- forty days.
+    expect(row?.avgDaysToPay).toBe(40);
+    expect(row?.billsPaid).toBe(1);
+    expect(row?.billsOpen).toBe(2);
+    // Agreed 30, took 40.
+    expect(row?.slippage).toBe(10);
+    expect(row?.oldestOpenDays).toBe(100);
+  });
+
+  it('refuses an account without receivables.view', async () => {
+    const refused = await harness.get('/reports/ageing/rows', { token: employeeToken });
+    expect(refused.status).toBe(403);
   });
 });

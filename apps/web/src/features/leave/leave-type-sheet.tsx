@@ -274,7 +274,6 @@ function LeaveTypeForm({
                         maxLength={60}
                         placeholder="Casual Leave"
                         aria-invalid={attempted && Boolean(errors.name)}
-                        className="pointer-coarse:h-11"
                         onChange={(event) => {
                           set('name', event.target.value);
                         }}
@@ -291,7 +290,7 @@ function LeaveTypeForm({
                         placeholder="CL"
                         autoCapitalize="characters"
                         aria-invalid={attempted && Boolean(errors.code)}
-                        className="pointer-coarse:h-11 uppercase"
+                        className="uppercase"
                         onChange={(event) => {
                           set('code', event.target.value);
                         }}
@@ -309,7 +308,7 @@ function LeaveTypeForm({
                         if (next !== null) set('accrualMethod', next as LeaveAccrualMethod);
                       }}
                     >
-                      <SelectTrigger id="lt-accrual" className="w-full pointer-coarse:h-11">
+                      <SelectTrigger id="lt-accrual" className="w-full">
                         <SelectValue>
                           {(value: string) => ACCRUAL_METHOD_LABELS[value as LeaveAccrualMethod]}
                         </SelectValue>
@@ -341,7 +340,7 @@ function LeaveTypeForm({
                         inputMode="decimal"
                         value={draft.annualEntitlement}
                         aria-invalid={attempted && Boolean(errors.annualEntitlement)}
-                        className="pointer-coarse:h-11 tabular-nums"
+                        className="tabular-nums"
                         onChange={(event) => {
                           set('annualEntitlement', event.target.value);
                         }}
@@ -360,7 +359,7 @@ function LeaveTypeForm({
                         inputMode="decimal"
                         value={draft.carryForwardCap}
                         aria-invalid={attempted && Boolean(errors.carryForwardCap)}
-                        className="pointer-coarse:h-11 tabular-nums"
+                        className="tabular-nums"
                         onChange={(event) => {
                           set('carryForwardCap', event.target.value);
                         }}
@@ -379,13 +378,13 @@ function LeaveTypeForm({
                         inputMode="decimal"
                         value={draft.negativeBalanceLimit}
                         aria-invalid={attempted && Boolean(errors.negativeBalanceLimit)}
-                        className="pointer-coarse:h-11 tabular-nums"
+                        className="tabular-nums"
                         onChange={(event) => {
                           set('negativeBalanceLimit', event.target.value);
                         }}
                       />
                       <FieldDescription>
-                        REQ-G-08: how far a balance may go below zero. Zero disallows it.
+                        How far a balance may go below zero. Zero disallows it.
                       </FieldDescription>
                       {attempted ? <FieldError>{errors.negativeBalanceLimit}</FieldError> : null}
                     </Field>
@@ -400,7 +399,7 @@ function LeaveTypeForm({
                         inputMode="numeric"
                         value={draft.noticeDays}
                         aria-invalid={attempted && Boolean(errors.noticeDays)}
-                        className="pointer-coarse:h-11 tabular-nums"
+                        className="tabular-nums"
                         onChange={(event) => {
                           set('noticeDays', event.target.value);
                         }}

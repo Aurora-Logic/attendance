@@ -118,7 +118,7 @@ export function RecordPicker({
               {clearable ? (
                 <CommandItem
                   value={clearLabel}
-                  className="pointer-coarse:min-h-11 gap-2"
+                  className="gap-2"
                   onSelect={() => {
                     onValueChange(null);
                     setOpen(false);
@@ -135,7 +135,7 @@ export function RecordPicker({
                   key={option.id}
                   // Both parts, so a search matches the code as well as the name.
                   value={`${option.label} ${option.hint ?? ''}`}
-                  className="pointer-coarse:min-h-11 gap-2"
+                  className="gap-2"
                   onSelect={() => {
                     onValueChange(option);
                     setOpen(false);

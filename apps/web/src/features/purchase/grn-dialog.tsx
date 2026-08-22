@@ -122,7 +122,7 @@ function GrnDialogBody({ order, onReceived, onClose }: { order: PurchaseOrder; o
       <DialogHeader>
         <DialogTitle>Receive against {order.number}</DialogTitle>
         <DialogDescription>
-          {order.vendorName}. Enter what arrived per line; anything rejected needs a reason and does not go into stock (REQ-X-21). Leave a line blank if none of it came.
+          {order.vendorName}. Enter what arrived per line; anything rejected needs a reason and does not go into stock. Leave a line blank if none of it came.
         </DialogDescription>
       </DialogHeader>
       <Form onSubmit={submit} className="max-h-[60vh] overflow-y-auto">
@@ -150,7 +150,7 @@ function GrnDialogBody({ order, onReceived, onClose }: { order: PurchaseOrder; o
                   <Input
                     aria-label={`Line ${String(index + 1)} received quantity`}
                     inputMode="decimal"
-                    className="pointer-coarse:h-11 tabular-nums"
+                    className="tabular-nums"
                     placeholder="Received"
                     aria-invalid={over ? true : undefined}
                     value={entry.receivedQty}
@@ -161,7 +161,7 @@ function GrnDialogBody({ order, onReceived, onClose }: { order: PurchaseOrder; o
                   <Input
                     aria-label={`Line ${String(index + 1)} rejected quantity`}
                     inputMode="decimal"
-                    className="pointer-coarse:h-11 tabular-nums"
+                    className="tabular-nums"
                     placeholder="Rejected"
                     aria-invalid={over ? true : undefined}
                     value={entry.rejectedQty}
@@ -171,7 +171,6 @@ function GrnDialogBody({ order, onReceived, onClose }: { order: PurchaseOrder; o
                   />
                   <Input
                     aria-label={`Line ${String(index + 1)} rejection reason`}
-                    className="pointer-coarse:h-11"
                     placeholder="Reason for rejection"
                     disabled={num(entry.rejectedQty) <= 0}
                     aria-invalid={reasonMissing ? true : undefined}
@@ -192,14 +191,13 @@ function GrnDialogBody({ order, onReceived, onClose }: { order: PurchaseOrder; o
               <FieldLabel htmlFor="grn-invoice-ref">Vendor invoice reference</FieldLabel>
               <Input
                 id="grn-invoice-ref"
-                className="pointer-coarse:h-11"
                 maxLength={80}
                 value={vendorInvoiceRef}
                 onChange={(event) => {
                   setVendorInvoiceRef(event.target.value);
                 }}
               />
-              <FieldDescription>Carried into the Receipt Note narration for the accountant booking the bill (REQ-X-22).</FieldDescription>
+              <FieldDescription>Carried into the Receipt Note narration for the accountant booking the bill.</FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="grn-notes">Notes</FieldLabel>

@@ -61,19 +61,31 @@ export const APPROVAL_SUBJECT_KEYS: Partial<
       all: [PERMISSIONS.LEAVE_APPROVE_ALL],
     },
   },
+  // Owner, 21 Aug 2026: corrections and on-duty requests can no longer be
+  // raised; the keys that raised them are gone. Requests already open stay
+  // decidable from the inbox by whoever may edit attendance, and an
+  // employee may still see their own under `raise` (punch.self is what every
+  // employee holds).
   regularization: {
-    act: [PERMISSIONS.REGULARIZATION_APPROVE],
-    // PRD §2.1 and REQ-G-09: HR's org-wide leave key is who corrections
-    // escalate to; the slice declared exactly this before the catalogue did.
-    override: [PERMISSIONS.LEAVE_APPROVE_ALL],
-    raise: [PERMISSIONS.REGULARIZATION_RAISE],
+    act: [PERMISSIONS.ATTENDANCE_EDIT],
+    override: [PERMISSIONS.ATTENDANCE_EDIT],
+    raise: [PERMISSIONS.PUNCH_SELF],
     scope: {},
   },
   on_duty_request: {
-    act: [PERMISSIONS.REGULARIZATION_APPROVE],
-    override: [PERMISSIONS.LEAVE_APPROVE_ALL],
-    raise: [PERMISSIONS.REGULARIZATION_RAISE],
+    act: [PERMISSIONS.ATTENDANCE_EDIT],
+    override: [PERMISSIONS.ATTENDANCE_EDIT],
+    raise: [PERMISSIONS.PUNCH_SELF],
     scope: {},
+  },
+  // Owner, 21 Aug 2026: a late or out-of-window punch is flagged into the
+  // inbox and acted on by whoever may edit attendance. The punch itself was
+  // raised by the employee punching.
+  punch: {
+    act: [PERMISSIONS.ATTENDANCE_EDIT],
+    override: [PERMISSIONS.ATTENDANCE_EDIT],
+    raise: [PERMISSIONS.PUNCH_SELF],
+    scope: { all: [PERMISSIONS.ATTENDANCE_EDIT] },
   },
   // 13 REQ-X-16: a PO over the threshold is decided by holders of
   // purchase.document.approve, and by nobody else -- HR's leave key does

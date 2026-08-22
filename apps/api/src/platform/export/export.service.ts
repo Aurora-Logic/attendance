@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  EXPORT_RETENTION_DAYS,
   MAX_EXPORT_ROWS,
   PERMISSIONS,
   REPORT_DEFINITIONS,
@@ -8,18 +7,24 @@ import {
   exportFileName,
   isReportKey,
   reportFilterSchema,
+  exportCompareSchema,
+  reportRowJoinKey,
   resolveColumns,
   type ExportDownload,
   type ExportFormat,
   type ExportJobSummary,
   type ExportRequest,
   type ExportStatus,
+  type ReportCellValue,
+  type ReportColumnSpec,
   type ReportFilters,
   type ReportKey,
 } from '@vyuha/shared';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { DEFAULT_RETENTION_POLICY, RETENTION_SETTINGS, retentionPolicySchema } from '../settings/settings.catalogue.js';
+import { WorkspacePolicyReader } from '../settings/workspace-policy.reader.js';
 import { AuditContext } from '../audit/audit-context.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AppError, describeError } from '../common/errors.js';
@@ -63,6 +68,7 @@ const requestSnapshotSchema = z.object({
   filters: reportFilterSchema,
   columns: z.array(z.string()).default([]),
   sort: z.string().optional(),
+  compare: exportCompareSchema.optional(),
 });
 
 type RequestSnapshot = z.infer<typeof requestSnapshotSchema>;
@@ -108,6 +114,7 @@ export class ExportService {
     private readonly jobs: JobRunner,
     private readonly principals: PrincipalService,
     private readonly auditContext: AuditContext,
+    private readonly policies: WorkspacePolicyReader,
     private readonly audit: AuditService,
   ) {}
 
@@ -129,6 +136,7 @@ export class ExportService {
       filters,
       columns: resolveColumns(input.reportKey, input.columns).map((column) => column.key),
       ...(input.sort === undefined ? {} : { sort: input.sort }),
+      ...(input.compare === undefined ? {} : { compare: input.compare }),
     };
 
     const repository = this.repository(orgContextOf(principal));
@@ -315,6 +323,46 @@ export class ExportService {
     ]);
 
     const columns = resolveColumns(reportKey, snapshot.columns);
+    // Comparison deltas ride beside the column the screen showed them on
+    // (data-analyst skill §3: comparison state flows into exports). The
+    // whole comparison period is read into a map first, keyed the same way
+    // the screen joins rows, so file and screen agree row for row.
+    const compare = snapshot.compare;
+    const compareColumn =
+      compare === undefined ? undefined : columns.find((column) => column.key === compare.columnKey);
+    const previousByKey = new Map<string, number>();
+    if (compare !== undefined && compareColumn !== undefined) {
+      const previousFilters = source.assertFiltersUsable(reportKey, {
+        ...snapshot.filters,
+        from: compare.from,
+        to: compare.to,
+      });
+      const previousTotal = Math.min(
+        await source.count(principal, reportKey, previousFilters),
+        MAX_EXPORT_ROWS,
+      );
+      for (let offset = 0; offset < previousTotal; offset += EXPORT_BATCH_ROWS) {
+        const page = await source.page(principal, reportKey, previousFilters, EXPORT_BATCH_ROWS, offset);
+        if (page.rows.length === 0) break;
+        for (let index = 0; index < page.rows.length; index += 1) {
+          const raw = page.rows[index];
+          if (typeof raw !== 'object' || raw === null) continue;
+          const key = reportRowJoinKey(reportKey, raw as Record<string, unknown>);
+          if (key === null || previousByKey.has(key)) continue;
+          const [cell] = source.cells(page, index, [compareColumn]);
+          previousByKey.set(key, numberOfCell(cell ?? null));
+        }
+      }
+    }
+    const writtenColumns: ReportColumnSpec[] =
+      compare !== undefined && compareColumn !== undefined
+        ? [
+            ...columns,
+            { key: 'comparePrevious', header: `${compareColumn.header} (${compare.label})`, type: compareColumn.type },
+            { key: 'compareChange', header: 'Change', type: 'text' },
+          ]
+        : [...columns];
+
     const format = toFormat(row.format);
     const writer = writerFor(format);
     const generatedAt = new Date();
@@ -333,7 +381,7 @@ export class ExportService {
         dateFormat: profile.dateFormat,
         rowCount: total,
       },
-      columns,
+      writtenColumns,
     );
 
     let written = 0;
@@ -354,7 +402,21 @@ export class ExportService {
       if (length === 0) break;
 
       for (let index = 0; index < length; index += 1) {
-        writer.writeRow(source.cells(page, index, columns));
+        const cells = source.cells(page, index, columns);
+        if (compare !== undefined && compareColumn !== undefined) {
+          const raw = page.rows[index];
+          const key =
+            typeof raw === 'object' && raw !== null
+              ? reportRowJoinKey(reportKey, raw as Record<string, unknown>)
+              : null;
+          const previous = key === null ? undefined : previousByKey.get(key);
+          const current = numberOfCell(
+            cells[columns.findIndex((column) => column.key === compareColumn.key)] ?? null,
+          );
+          writer.writeRow([...cells, previous ?? null, describeChange(current, previous)]);
+        } else {
+          writer.writeRow(cells);
+        }
         written += 1;
       }
 
@@ -368,6 +430,7 @@ export class ExportService {
     }
 
     const bytes = await writer.finish();
+    const retention = await this.policies.read(row.orgId, retentionPolicySchema, RETENTION_SETTINGS, DEFAULT_RETENTION_POLICY);
     const stored = await this.filesService.storeDocument({
       orgId: row.orgId,
       createdBy: row.requestedBy,
@@ -377,7 +440,7 @@ export class ExportService {
       extension: writer.extension,
       // REQ-J-03's seven days. The existing purge job reads this column, so
       // retention needs nothing of its own here.
-      expiresAt: new Date(Date.now() + EXPORT_RETENTION_DAYS * MILLISECONDS_PER_DAY),
+      expiresAt: new Date(Date.now() + retention.exportsDays * MILLISECONDS_PER_DAY),
     });
 
     const finishedAt = new Date();
@@ -631,4 +694,19 @@ function toRow(row: typeof exportJobs.$inferSelect): ExportJobRow {
     finishedAt: row.finishedAt,
     createdAt: row.createdAt,
   };
+}
+
+/** The one number a delta is computed from; a cell that is not one reads as zero, like the screen. */
+function numberOfCell(cell: ReportCellValue): number {
+  if (typeof cell === 'number') return cell;
+  if (typeof cell === 'string') return Number(cell) || 0;
+  return 0;
+}
+
+/** The screen's delta rules (data-analyst skill §3): never a percentage of a zero base. */
+function describeChange(current: number, previous: number | undefined): string {
+  if (previous === undefined || previous === 0) return current === 0 ? '' : 'new';
+  const absolute = current - previous;
+  const pct = Math.round((absolute / Math.abs(previous)) * 1000) / 10;
+  return `${absolute > 0 ? '+' : ''}${String(Math.round(absolute * 100) / 100)} (${String(pct)}%)`;
 }

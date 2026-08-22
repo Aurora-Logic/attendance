@@ -19,6 +19,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { DocumentEditor } from '@/features/documents/document-editor';
 import { PaperField, type PaperEditing, type PaperLine, type PaperModel } from '@/features/documents/paper';
 import { useDesignDraft } from '@/features/documents/use-design-draft';
+import { useDraftBackup } from '@/features/documents/use-draft-backup';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
 import { useStockItems } from '@/features/masters/use-stock-items';
@@ -112,6 +113,16 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
     setDraft(next);
     setBase(next);
   };
+  // Crash insurance for a new document: the unsaved draft mirrors into
+  // sessionStorage and comes back if the tab reloads mid-typing.
+  const backup = useDraftBackup('purchase-order', draft, record === null);
+
+  const [backupOffered, setBackupOffered] = useState(false);
+  if (!backupOffered && backup.restored !== null && record === null && JSON.stringify(backup.restored) !== JSON.stringify(draft)) {
+    setBackupOffered(true);
+    setDraft(backup.restored);
+  }
+
   const [dialog, setDialog] = useState<'receive' | 'short-close' | null>(null);
   const [allocating, setAllocating] = useState<Grn | null>(null);
   const [item, setItem] = useState<{ id: string; name: string } | null>(null);
@@ -238,6 +249,9 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
           </div>
         ),
         date: <DateField label="Order date" value={fromDateParam(draft.date)} onValueChange={(next) => { setDraft((current) => ({ ...current, date: toDateParam(next) })); }} yearsBack={1} yearsForward={1} className="paper-field h-auto min-h-0 px-0 py-0 shadow-none" />,
+        setDate: (iso) => {
+          setDraft((current) => ({ ...current, date: iso }));
+        },
         validUntil: <OptionalDateField label="Expected date" emptyLabel="No date yet" value={draft.expectedDate} onValueChange={(next) => { setDraft((current) => ({ ...current, expectedDate: next })); }} />,
         itemPicker: (line) => {
           const draftLine = draft.lines.find((l) => l.key === line.key);
@@ -311,7 +325,8 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
       {
         onSuccess: (saved) => {
           toast.add({ type: 'success', title: isNew ? `${saved.number} drafted` : `${saved.number} saved`, description: `${saved.vendorName} · ${formatMoney(saved.grandTotal)}` });
-          if (isNew) void navigate(`/purchase/orders/${saved.id}`, { replace: true });
+          backup.clear();
+        if (isNew) void navigate(`/purchase/orders/${saved.id}`, { replace: true });
           else adopt(purchaseOrderToDraft(saved));
         },
       },
@@ -324,7 +339,7 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
       {
         onSuccess: (saved) => {
           if (saved.status === 'PENDING_APPROVAL') {
-            toast.add({ type: 'success', title: `${saved.number} awaiting approval`, description: `${formatMoney(saved.grandTotal)} is above the approval threshold: a holder of purchase.document.approve decides it in the Approvals inbox (REQ-X-16).` });
+            toast.add({ type: 'success', title: `${saved.number} awaiting approval`, description: `${formatMoney(saved.grandTotal)} is above the approval threshold: a holder of purchase.document.approve decides it in the Approvals inbox.` });
           } else {
             toast.add({
               type: 'success',
@@ -382,7 +397,7 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
                   <AlertTitle>Tally rejected it</AlertTitle>
                   <AlertDescription>
                     <p className="font-mono text-xs">{record.lastError}</p>
-                    <p className="mt-1">Tally&rsquo;s own words (REQ-T-01). Fix the cause there or here, then push again.</p>
+                    <p className="mt-1">Tally&rsquo;s own words. Fix the cause there or here, then push again.</p>
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -403,11 +418,11 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
                 <Alert>
                   <ProhibitIcon />
                   <AlertTitle>Short-closed {formatRelativeAge(record.shortClosedAt)}</AlertTitle>
-                  <AlertDescription>{record.shortCloseReason ?? 'The vendor will not supply the balance.'} What was not received went back to the queue (REQ-X-23).</AlertDescription>
+                  <AlertDescription>{record.shortCloseReason ?? 'The vendor will not supply the balance.'} What was not received went back to the queue.</AlertDescription>
                 </Alert>
               ) : null}
               {isDraft && record.approvalRequired && !canApprove ? (
-                <p className="text-muted-foreground text-sm">At {formatMoney(record.grandTotal)} this order is above the approval threshold: confirming sends it to the Approvals inbox rather than to Tally (REQ-X-16).</p>
+                <p className="text-muted-foreground text-sm">At {formatMoney(record.grandTotal)} this order is above the approval threshold: confirming sends it to the Approvals inbox rather than to Tally.</p>
               ) : null}
               {record.salesOrderId ? (
                 <p className="text-muted-foreground text-sm">
@@ -504,7 +519,7 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
               }
             }}
             title={`Short-close ${record.number}?`}
-            description="The vendor will not supply the balance (REQ-X-23). Nothing more can be received against it."
+            description="The vendor will not supply the balance. Nothing more can be received against it."
             consequences={[`${formatQty(String(owed))} still owed goes back to the queue as open requirements.`, 'The reason is recorded and audited.']}
             prompt="Why will the balance not come?"
             confirmLabel="Short close"

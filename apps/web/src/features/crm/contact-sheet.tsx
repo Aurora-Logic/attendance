@@ -134,7 +134,7 @@ function ContactSheetBody({
         <SheetTitle>{isNew ? 'New contact' : initial.name}</SheetTitle>
         <SheetDescription>
           {isNew
-            ? 'A person you sell to or through. Nothing here reaches Tally — a contact becomes a party only when they buy (REQ-U-03).'
+            ? 'A person you sell to or through. Nothing here reaches Tally — a contact becomes a party only when they buy.'
             : 'Edit the contact. The change is audited under your name.'}
         </SheetDescription>
       </SheetHeader>
@@ -155,7 +155,6 @@ function ContactSheetBody({
               id="contact-name"
               autoFocus
               autoComplete="off"
-              className="pointer-coarse:h-11"
               value={draft.name}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));
@@ -171,7 +170,6 @@ function ContactSheetBody({
                 type="tel"
                 inputMode="tel"
                 autoComplete="off"
-                className="pointer-coarse:h-11"
                 value={draft.phone}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, phone: event.target.value }));
@@ -185,7 +183,6 @@ function ContactSheetBody({
                 type="email"
                 inputMode="email"
                 autoComplete="off"
-                className="pointer-coarse:h-11"
                 value={draft.email}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, email: event.target.value }));
@@ -219,7 +216,7 @@ function ContactSheetBody({
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1">You can still save — this is a warning, not a refusal (REQ-U-08).</p>
+                <p className="mt-1">You can still save — this is a warning, not a refusal.</p>
               </AlertDescription>
             </Alert>
           ) : null}
@@ -229,7 +226,6 @@ function ContactSheetBody({
             <Input
               id="contact-designation"
               autoComplete="off"
-              className="pointer-coarse:h-11"
               placeholder="Purchase head, Director, Accounts"
               value={draft.designation}
               onChange={(event) => {
@@ -288,7 +284,6 @@ function ContactSheetBody({
             <Input
               id="contact-source"
               autoComplete="off"
-              className="pointer-coarse:h-11"
               placeholder="Referral, website, an exhibition"
               value={draft.source}
               onChange={(event) => {

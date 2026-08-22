@@ -26,7 +26,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
-import { TimeField } from '@/features/attendance/pickers';
+import { DurationField, TimeField } from '@/features/attendance/pickers';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { SHIFT_POLICY_DEFAULTS, SHIFT_POLICY_FIELDS } from '@vyuha/shared';
@@ -60,11 +60,8 @@ const NEW_SHIFT: ShiftDraft = {
 };
 
 /**
- * A minutes field.
- *
- * `type="number"` on shadcn's Input, not a slider or a stepper: these are
- * exact policy values a manager types from a written policy document, and
- * every one of them is bounded but not small.
+ * A duration field: hours and minutes in five-minute steps through the
+ * shared picker surface, so nothing in a policy is typed (owner, 21 Aug 2026).
  */
 function MinutesField({
   id,
@@ -82,22 +79,7 @@ function MinutesField({
   return (
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <Input
-        id={id}
-        type="number"
-        inputMode="numeric"
-        min={0}
-        max={1440}
-        className="pointer-coarse:h-11 tabular-nums"
-        value={String(value)}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          // An emptied field is Number('') === 0, which is a legitimate value
-          // for most of these, so it is accepted rather than rejected. NaN is
-          // not, and is dropped rather than written into the policy.
-          if (!Number.isNaN(next)) onValueChange(next);
-        }}
-      />
+      <DurationField id={id} label={label} value={value} onValueChange={onValueChange} />
       <FieldDescription>{help}</FieldDescription>
     </Field>
   );
@@ -225,7 +207,6 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift | 'new'; onClose: () 
             <FieldLabel htmlFor="shift-name">Name</FieldLabel>
             <Input
               id="shift-name"
-              className="pointer-coarse:h-11"
               value={draft.name}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));
@@ -240,7 +221,6 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift | 'new'; onClose: () 
             <FieldLabel htmlFor="shift-code">Code</FieldLabel>
             <Input
               id="shift-code"
-              className="pointer-coarse:h-11"
               value={draft.code}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, code: event.target.value }));
@@ -280,7 +260,7 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift | 'new'; onClose: () 
               <MinutesField
                 id="shift-break"
                 label="Break minutes"
-                help="Subtracted from worked minutes (REQ-E-03)."
+                help="Subtracted from worked minutes."
                 value={draft.breakMinutes}
                 onValueChange={(next) => {
                   setDraft((current) => ({ ...current, breakMinutes: next }));
@@ -298,7 +278,7 @@ function ShiftSheetBody({ shift, onClose }: { shift: Shift | 'new'; onClose: () 
                 />
               </Field>
               <FieldDescription>
-                REQ-C-02: a night shift is attributed to the date it starts, not the date the OUT
+                A night shift is attributed to the date it starts, not the date the OUT
                 punch lands on.
               </FieldDescription>
 

@@ -22,7 +22,23 @@ export const regularizationKindEnum = pgEnum('regularization_kind', [
   'FORGOT_TO_PUNCH',
 ]);
 
-/** REQ-F-01. The reason is mandatory; the attachment is not. */
+/**
+ * Who put the request in front of an approver.
+ *
+ * `SYSTEM` is the auto-file setting's doing (`attendance.regularization_auto_file`):
+ * the day engine notices a `late`/`outside_window` punch and drops a draft in
+ * the employee's own queue, `reason` left null. It is not raised into the
+ * approvals framework -- `approval_request_id` stays null too -- until the
+ * employee supplies the reason a human still has to give, at which point it
+ * becomes an ordinary request an approver decides exactly as they always have.
+ */
+export const regularizationOriginEnum = pgEnum('regularization_origin', ['EMPLOYEE', 'SYSTEM']);
+
+/**
+ * REQ-F-01. The reason is mandatory for an employee's own request; the
+ * attachment is not. A `SYSTEM`-origin row is the one exception -- see
+ * `regularizations_system_reason_optional` below.
+ */
 export const regularizations = pgTable(
   'regularizations',
   {
@@ -37,7 +53,9 @@ export const regularizations = pgTable(
     kind: regularizationKindEnum('kind').notNull(),
     requestedIn: timestamp('requested_in', { withTimezone: true }),
     requestedOut: timestamp('requested_out', { withTimezone: true }),
-    reason: text('reason').notNull(),
+    /** Null only while a `SYSTEM`-origin draft waits on the employee. */
+    reason: text('reason'),
+    origin: regularizationOriginEnum('origin').notNull().default('EMPLOYEE'),
     attachmentFileId: uuid('attachment_file_id').references(() => files.id, {
       onDelete: 'set null',
     }),
@@ -79,6 +97,12 @@ export const regularizations = pgTable(
     check(
       'regularizations_decision_is_attributed',
       sql`(decided_at IS NULL) = (decided_by IS NULL)`,
+    ),
+    // An employee's own request has always required a reason; a SYSTEM draft
+    // is the one row allowed to be missing one, and only until it is completed.
+    check(
+      'regularizations_system_reason_optional',
+      sql`origin = 'SYSTEM' OR reason IS NOT NULL`,
     ),
   ],
 );

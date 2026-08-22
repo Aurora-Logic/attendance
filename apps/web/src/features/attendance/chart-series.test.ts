@@ -35,6 +35,8 @@ function day(partial: Partial<AttendanceDay> & { date: string }): AttendanceDay 
     workedMinutes: 0,
     otMinutes: 0,
     lateMinutes: 0,
+    earlyArrival: false,
+    earlyStreak: 0,
     earlyExitMinutes: 0,
     status: 'PRESENT',
     flags: [],

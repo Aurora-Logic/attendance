@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { GearIcon, HandshakeIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
+import { BuildingsIcon, CalendarBlankIcon, CircleDashedIcon, CircleHalfIcon, CircleIcon, CurrencyInrIcon, GearIcon, HandshakeIcon, KanbanIcon, ListBulletsIcon, LockKeyIcon, PlusIcon, SealCheckIcon, XCircleIcon } from '@phosphor-icons/react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { KanbanBoard } from '@/components/shared/kanban-board';
+import { PersonChip } from '@/components/shared/person';
+import { SavedViews } from '@/components/shared/saved-views';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -16,9 +18,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
+import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { useTaskViewStore, type TaskViewMode } from '@/features/tasks/task-view-store';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatAmount } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
@@ -38,14 +41,37 @@ import { useDeal, useDealBoard, useDeals, useMoveDeal, usePipelines, type DealFi
 
 const STATUS_LABELS: Record<DealStatusFilter, string> = { open: 'Open', won: 'Won', lost: 'Lost', all: 'All' };
 
-/** en-IN grouping (last three, then twos) for a figure that is read, never computed on. */
+/**
+ * A tint per open stage, cycled by position, worn by the lane's header chip
+ * (the grouped-board idiom) — stages are user-named, so the colour says
+ * "which column" at a glance rather than anything semantic. Won is always
+ * green, lost always rose. Full literal classes, for Tailwind.
+ */
+const STAGE_HUES = [
+  'bg-tint-1/15 text-tint-1',
+  'bg-tint-2/15 text-tint-2',
+  'bg-tint-3/15 text-tint-3',
+  'bg-tint-4/15 text-tint-4',
+  'bg-tint-5/15 text-tint-5',
+  'bg-tint-6/15 text-tint-6',
+] as const;
+const WON_HUE = 'bg-success/15 text-success';
+const LOST_HUE = 'bg-destructive/10 text-destructive';
+
+/** Won a seal, lost a cross; an open stage a circle filling with its probability. */
+function stageIcon(stage: { isWon: boolean; isLost: boolean; probability: number }, className: string) {
+  if (stage.isWon) return <SealCheckIcon className={className} />;
+  if (stage.isLost) return <XCircleIcon className={className} />;
+  if (stage.probability >= 75) return <CircleIcon weight="fill" className={className} />;
+  if (stage.probability >= 40) return <CircleHalfIcon weight="fill" className={className} />;
+  return <CircleDashedIcon className={className} />;
+}
+
+/** A deal's value, written the way the workspace writes figures; a whole rupee stays whole. */
 function formatValue(value: string | null): string {
   if (value === null) return EMPTY_VALUE;
-  const [whole = '0', fraction] = value.split('.');
-  const last3 = whole.slice(-3);
-  const rest = whole.slice(0, -3);
-  const grouped = rest === '' ? last3 : `${rest.replace(/\B(?=(\d{2})+(?!\d))/gu, ',')},${last3}`;
-  return fraction === undefined || /^0*$/u.test(fraction) ? grouped : `${grouped}.${fraction.padEnd(2, '0').slice(0, 2)}`;
+  const amount = formatAmount(value);
+  return amount.endsWith('.00') ? amount.slice(0, -3) : amount;
 }
 
 const COLUMNS: RecordColumn<Deal>[] = [
@@ -63,7 +89,7 @@ const COLUMNS: RecordColumn<Deal>[] = [
   { key: 'stage', header: 'Stage', cell: (row) => `${row.stageName} · ${String(row.probability)}%` },
   { key: 'value', header: 'Value', cell: (row) => formatValue(row.value), numeric: true },
   { key: 'close', header: 'Expected close', cell: (row) => formatDate(row.expectedCloseDate), className: 'tabular-nums', secondary: true },
-  { key: 'owner', header: 'Owner', cell: (row) => row.ownerName ?? EMPTY_VALUE, secondary: true },
+  { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
 
 function ListSkeleton() {
@@ -80,11 +106,23 @@ function ListSkeleton() {
   );
 }
 
+/** What a saved view keeps: the filter and view keys, never the transients (page, the open sheet). */
+function dealViewQuery(params: URLSearchParams): string {
+  const kept = new URLSearchParams();
+  for (const key of ['q', 'status', 'pipeline', 'stage', 'owner', 'company', 'view']) {
+    const value = params.get(key);
+    if (value !== null && value !== '') kept.set(key, value);
+  }
+  return kept.toString();
+}
+
 function isStatus(value: string | null): value is DealStatusFilter {
   return DEAL_STATUSES.some((s) => s === value);
 }
 
 export function DealsPage() {
+  // Overdue is "before today" in the org's working sense: the local calendar date.
+  const todayParam = new Date().toLocaleDateString('en-CA');
   const canViewSelf = usePermission(PERMISSIONS.CRM_DEAL_VIEW_SELF);
   const canViewAll = usePermission(PERMISSIONS.CRM_DEAL_VIEW_ALL);
   const canView = canViewSelf || canViewAll;
@@ -108,6 +146,8 @@ export function DealsPage() {
   const openId = params.id ?? null;
   const creating = searchParams.get('new') === '1';
   const companyParam = searchParams.get('company') ?? '';
+  const ownerParam = searchParams.get('owner') ?? '';
+  const stageParam = searchParams.get('stage') ?? '';
 
   const [draft, setDraft] = useState(q);
   const [syncedQ, setSyncedQ] = useState(q);
@@ -148,7 +188,10 @@ export function DealsPage() {
     ...(status === 'open' ? {} : { status }),
     ...(pipeline === null ? {} : { pipelineId: pipeline.id }),
     ...(companyParam ? { companyId: companyParam } : {}),
+    ...(ownerParam ? { ownerId: ownerParam } : {}),
+    ...(stageParam && view === 'list' ? { stageId: stageParam } : {}),
   };
+  const owners = useManagerOptions();
 
   const list = useDeals({ ...filters, page }, { enabled: canView && view === 'list' });
   const board = useDealBoard(filters, { enabled: canView && view === 'board' && pipeline !== null });
@@ -201,7 +244,7 @@ export function DealsPage() {
   const meta = list.data?.meta ?? null;
   const query = view === 'list' ? list : board;
   const nothing = view === 'list' ? list.isSuccess && rows.length === 0 : board.isSuccess && board.data.lanes.every((l) => l.deals.length === 0);
-  const filtered = Boolean(q) || status !== 'open' || Boolean(companyParam);
+  const filtered = Boolean(q) || status !== 'open' || Boolean(companyParam) || Boolean(ownerParam) || Boolean(stageParam);
 
   return (
     <>
@@ -229,7 +272,7 @@ export function DealsPage() {
                 setParam('pipeline', value);
               }}
             >
-              <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Pipeline">
+              <SelectTrigger className="w-40" aria-label="Pipeline">
                 <SelectValue>{(value: string) => pipelineList.find((p) => p.id === value)?.name ?? 'Pipeline'}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -253,14 +296,61 @@ export function DealsPage() {
               }}
             >
               {DEAL_STATUSES.map((s) => (
-                <ToggleGroupItem key={s} value={s} className="pointer-coarse:h-11">
+                <ToggleGroupItem key={s} value={s}>
                   {STATUS_LABELS[s]}
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
           ) : null}
 
+          {view === 'list' && pipeline !== null && pipeline.stages.length > 0 ? (
+            <Select
+              value={stageParam === '' ? 'all' : stageParam}
+              onValueChange={(value: string | null) => {
+                setParam('stage', value === null || value === 'all' ? null : value);
+              }}
+            >
+              <SelectTrigger className="w-40" aria-label="Stage">
+                <SelectValue>{(value: string) => (value === 'all' ? 'Any stage' : (pipeline.stages.find((st) => st.id === value)?.name ?? 'Stage'))}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any stage</SelectItem>
+                {pipeline.stages.map((st) => (
+                  <SelectItem key={st.id} value={st.id}>
+                    {st.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+
+          <Select
+            value={ownerParam === '' ? 'all' : ownerParam}
+            onValueChange={(value: string | null) => {
+              setParam('owner', value === null || value === 'all' ? null : value);
+            }}
+          >
+            <SelectTrigger className="w-40" aria-label="Owner">
+              <SelectValue>{(value: string) => (value === 'all' ? 'Any owner' : ((owners.data ?? []).find((o) => o.id === value)?.name ?? 'Owner'))}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any owner</SelectItem>
+              {(owners.data ?? []).map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <div className="ml-auto flex items-center gap-2">
+            <SavedViews
+              storageKey="vyuha.views.deals"
+              current={dealViewQuery(searchParams)}
+              onApply={(next) => {
+                void navigate(`/crm/deals${next ? `?${next}` : ''}`, { replace: true });
+              }}
+            />
             {canConfigure && pipeline !== null ? (
               <Button
                 variant="ghost"
@@ -353,13 +443,15 @@ export function DealsPage() {
         {view === 'board' && board.data !== undefined && !nothing ? (
           <KanbanBoard
             ariaLabel="Deal pipeline"
-            lanes={board.data.lanes.map(({ stage, deals, total, valueTotal }) => ({
+            lanes={board.data.lanes.map(({ stage, deals, total, valueTotal }, index) => ({
               id: stage.id,
               label: stage.name,
+              accent: stage.isWon ? WON_HUE : stage.isLost ? LOST_HUE : (STAGE_HUES[index % STAGE_HUES.length] ?? STAGE_HUES[0]),
               title: (
                 <>
-                  {stage.name}
-                  <span className="text-muted-foreground text-xs font-normal">{stage.isWon ? 'won' : stage.isLost ? 'lost' : `${String(stage.probability)}%`}</span>
+                  {stageIcon(stage, 'shrink-0')}
+                  <span className="truncate">{stage.name}</span>
+                  {stage.isWon || stage.isLost ? null : <span className="font-normal opacity-70">{stage.probability}%</span>}
                 </>
               ),
               meta: (
@@ -378,11 +470,26 @@ export function DealsPage() {
             renderItem={(deal) => (
               <>
                 <span className={cn('font-medium', deal.status === 'lost' && 'text-muted-foreground line-through')}>{deal.name}</span>
-                <span className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-normal">
-                  {deal.companyName === null ? null : <span>{deal.companyName}</span>}
-                  {deal.value === null ? null : <span className="tabular-nums">{formatValue(deal.value)}</span>}
-                  {deal.expectedCloseDate === null ? null : <span className="tabular-nums">{formatDate(deal.expectedCloseDate)}</span>}
-                  {deal.ownerName === null ? null : <span>{deal.ownerName}</span>}
+                <span className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-normal">
+                  {deal.companyName === null ? null : (
+                    <span className="flex min-w-0 items-center gap-1">
+                      <BuildingsIcon className="shrink-0" />
+                      <span className="truncate">{deal.companyName}</span>
+                    </span>
+                  )}
+                  {deal.value === null ? null : (
+                    <span className="flex items-center gap-0.5 tabular-nums">
+                      <CurrencyInrIcon className="shrink-0" />
+                      {formatValue(deal.value)}
+                    </span>
+                  )}
+                  {deal.expectedCloseDate === null ? null : (
+                    <span className={cn('flex items-center gap-1 tabular-nums', deal.status === 'open' && deal.expectedCloseDate < todayParam && 'text-warning')}>
+                      <CalendarBlankIcon className="shrink-0" />
+                      {formatDate(deal.expectedCloseDate)}
+                    </span>
+                  )}
+                  {deal.ownerName === null ? null : <PersonChip name={deal.ownerName} tiny />}
                 </span>
               </>
             )}

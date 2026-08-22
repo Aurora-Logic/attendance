@@ -235,7 +235,7 @@ function LifecycleBody({ target, onClose }: { target: LifecycleTarget; onClose: 
       {/* Deliberately last and deliberately plain. Somebody who came here
           looking for "delete" should leave knowing why there is not one. */}
       <p className="text-muted-foreground text-xs">
-        There is no delete for an employee, by design (REQ-A-05). The record is what makes past
+        There is no delete for an employee, by design. The record is what makes past
         attendance defensible, so it is retired rather than removed.
       </p>
     </>

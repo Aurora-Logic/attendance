@@ -44,7 +44,7 @@ export function AccessWindowPanel({ window: state, saveError }: { window: Access
   const { query, draft } = state;
   return (
     <div className="flex flex-col gap-4 border p-4">
-      <SectionHeading title="Access window" note="REQ-AB-01. When sign-in closes and reopens, on the organisation's clock. Punch is always allowed." />
+      <SectionHeading title="Access window" note="When sign-in closes and reopens, on the organisation's clock. Punch is always allowed." />
 
       {query.isPending ? (
         <div role="status" aria-busy="true" aria-label="Loading access window" className="grid gap-6 md:grid-cols-2">
@@ -98,7 +98,7 @@ export function AccessWindowPanel({ window: state, saveError }: { window: Access
                 state.edit({ closesAt: next });
               }}
             />
-            <FieldDescription>Sign-in is refused from this time (REQ-AB-01). Sessions already open run on until their token expires (REQ-AB-05).</FieldDescription>
+            <FieldDescription>Sign-in is refused from this time. Sessions already open run on until their token expires.</FieldDescription>
           </Field>
 
           <Field>
@@ -111,7 +111,7 @@ export function AccessWindowPanel({ window: state, saveError }: { window: Access
                 state.edit({ reopensAt: next });
               }}
             />
-            <FieldDescription>Named in the refusal, so nobody is told only "access denied" (REQ-AB-04). A reopen earlier than the close means overnight.</FieldDescription>
+            <FieldDescription>Named in the refusal, so nobody is told only "access denied". A reopen earlier than the close means overnight.</FieldDescription>
           </Field>
 
           <Field className="md:col-span-2">
@@ -127,7 +127,7 @@ export function AccessWindowPanel({ window: state, saveError }: { window: Access
               className="flex-wrap"
             >
               {DAYS.map((day) => (
-                <ToggleGroupItem key={day.value} value={String(day.value)} aria-label={day.long} className="pointer-coarse:h-11 min-w-12">
+                <ToggleGroupItem key={day.value} value={String(day.value)} aria-label={day.long} className="min-w-12">
                   {day.short}
                 </ToggleGroupItem>
               ))}
@@ -140,7 +140,7 @@ export function AccessWindowPanel({ window: state, saveError }: { window: Access
             <AlertTitle>{draft.enabled ? 'What this does' : 'Off: sign-in is open around the clock'}</AlertTitle>
             <AlertDescription>
               Between {formatClock(draft.closesAt)} and {formatClock(draft.reopensAt)} on {describeDays(draft.days)}, only accounts with access.outside_window may sign in or work; punch is always allowed. Every refused
-              sign-in is audited (REQ-AB-08).
+              sign-in is audited.
             </AlertDescription>
           </Alert>
         </FieldGroup>

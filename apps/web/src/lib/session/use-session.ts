@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 
-import { ALL_PERMISSIONS, type PermissionKey } from '@vyuha/shared';
+import { ALL_PERMISSIONS, isMfaChallenge, type MfaChallengeResponse, type MfaSummary, type PermissionKey } from '@vyuha/shared';
 
 import {
   ApiError,
@@ -32,6 +32,8 @@ export interface Me {
   permissions: PermissionKey[];
   /** 12 REQ-AB-05: when today's sign-in window closes, so the shell can warn fifteen minutes ahead. Absent on a snapshot from before it existed. */
   accessWindow?: { closesInMinutes: number | null; exempt: boolean };
+  /** REQ-B-09: absent on a snapshot from before it existed; treated as not required. */
+  mfa?: MfaSummary;
 }
 
 interface LoginResponse {
@@ -218,7 +220,7 @@ export function useLogin() {
 
   return useMutation({
     mutationFn: async (input: { email: string; password: string }) => {
-      const result = await apiRequest<LoginResponse>('/auth/login', {
+      const result = await apiRequest<LoginResponse | MfaChallengeResponse>('/auth/login', {
         method: 'POST',
         body: input,
         // A 401 from this endpoint is the verdict on the typed password, not a
@@ -227,10 +229,12 @@ export function useLogin() {
         // 401 - burning two of REQ-B-10's five lockout attempts per typo.
         skipRefresh: true,
       });
-      setAccessToken(result.accessToken);
+      // REQ-B-09: a challenge carries no token; the code step does.
+      if (!isMfaChallenge(result)) setAccessToken(result.accessToken);
       return result;
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      if (isMfaChallenge(result)) return;
       // Refetch rather than write a guess into the cache: the permission set
       // is the server's answer, and inventing it here is how a client ends up
       // rendering controls the API will refuse.

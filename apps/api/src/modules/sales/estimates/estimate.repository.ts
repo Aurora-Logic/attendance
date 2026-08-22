@@ -576,6 +576,7 @@ function toLineView(row: typeof salesDocumentLines.$inferSelect, invoicing = 0):
     amount: row.amount,
     taxAmount: row.taxAmount,
     hsnCode: row.hsnCode,
+    pickedQty: row.pickedQty,
     packedQty: row.packedQty,
     invoicedQty: row.invoicedQty,
     dispatchedQty: row.dispatchedQty,

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
 
 import { env } from '../common/env.js';
+import { FallbackJobRunner } from './fallback-job-runner.service.js';
 import { JobRegistry } from './job-handler.js';
 import { JobRunner } from './job-runner.service.js';
 import { ALL_QUEUES, type QueueName } from './queue.registry.js';
@@ -37,10 +38,13 @@ export interface JobFailure {
 }
 
 export interface JobMonitorSummary {
+  readonly mode: 'bullmq' | 'db-fallback';
   readonly workerEnabled: boolean;
   readonly registeredJobs: readonly string[];
   readonly queues: readonly QueueSummary[];
   readonly recentFailures: readonly JobFailure[];
+  /** Only set in fallback mode: counts from `fallback_jobs`, grouped by state. */
+  readonly fallbackCounts?: Readonly<Record<string, number>>;
 }
 
 const FAILURES_PER_QUEUE = 20;
@@ -50,9 +54,25 @@ export class JobMonitorService {
   constructor(
     private readonly runner: JobRunner,
     private readonly registry: JobRegistry,
+    private readonly fallback: FallbackJobRunner,
   ) {}
 
   async summary(): Promise<JobMonitorSummary> {
+    if (this.fallback.isActive()) {
+      // BullMQ's own calls below require `maxRetriesPerRequest: null` and
+      // never settle against a dead Redis (queue.registry.ts's own measured
+      // 40s+ hang) -- this page must not make the same mistake by appending
+      // fallback data to them instead of bypassing them entirely.
+      return {
+        mode: 'db-fallback',
+        workerEnabled: env.JOBS_WORKER_ENABLED,
+        registeredJobs: [...this.registry.registeredJobNames()].sort(),
+        queues: [],
+        recentFailures: [],
+        fallbackCounts: await this.fallback.countsByState(),
+      };
+    }
+
     // From the runner's workers, not the registry: a handler is registered on
     // every instance so that every instance understands the job names it
     // enqueues, and only a worker consumes. See `JobRunner.consumedQueues`.
@@ -78,6 +98,7 @@ export class JobMonitorService {
     failures.sort((a, b) => (b.failedAt ?? '').localeCompare(a.failedAt ?? ''));
 
     return {
+      mode: 'bullmq',
       workerEnabled: env.JOBS_WORKER_ENABLED,
       registeredJobs: [...this.registry.registeredJobNames()].sort(),
       queues,

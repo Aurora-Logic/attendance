@@ -3,17 +3,19 @@ import { LockKeyIcon, PackageIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
+import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SyncStateBadge } from '@/features/sales/sales-order-sheet';
-import { EMPTY_VALUE, formatRelativeAge } from '@/lib/format';
+import { formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -35,13 +37,18 @@ function PendingBadge({ grn }: { grn: Grn }) {
 }
 
 const COLUMNS: RecordColumn<Grn>[] = [
-  { key: 'number', header: 'Number', cell: (row) => <span className="font-medium tabular-nums">{row.number}</span> },
+  { key: 'number', header: 'Number', cell: (row) => (
+    <span className="inline-flex items-center gap-1.5 font-medium tabular-nums [&_svg]:size-3.5">
+      <DOCUMENT_ICONS.grn aria-hidden className="text-muted-foreground" />
+      {row.number}
+    </span>
+  ) },
   { key: 'po', header: 'Purchase order', cell: (row) => <span className="tabular-nums">{row.purchaseOrderNumber}</span> },
   { key: 'vendor', header: 'Vendor', cell: (row) => row.vendorName },
   { key: 'received', header: 'Received', cell: (row) => formatRelativeAge(row.receivedAt), className: 'tabular-nums' },
   { key: 'sync', header: 'Tally', cell: (row) => <SyncStateBadge record={row} /> },
   { key: 'pending', header: 'Allocation', cell: (row) => <PendingBadge grn={row} /> },
-  { key: 'by', header: 'Received by', cell: (row) => row.receivedByName ?? EMPTY_VALUE, secondary: true },
+  { key: 'by', header: 'Received by', cell: (row) => <PersonChip name={row.receivedByName} />, secondary: true },
 ];
 
 function ListSkeleton() {

@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
-import { ArrowRightIcon, ChartBarIcon, DatabaseIcon, InfoIcon } from '@phosphor-icons/react';
+import { type ReactNode, useMemo, useRef, useState } from 'react';
+import { ArrowRightIcon, ChartBarIcon, DatabaseIcon, FingerprintIcon, InfoIcon } from '@phosphor-icons/react';
 import { endOfMonth, startOfMonth, subDays } from 'date-fns';
 import { Link } from 'react-router';
 
@@ -8,6 +8,7 @@ import { PERMISSIONS } from '@vyuha/shared';
 import { PageHeader } from '@/components/shared/page-header';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -82,7 +83,8 @@ const STRIP_COLUMNS: Record<number, string> = {
   5: 'sm:grid-cols-5',
 };
 
-function FigureStrip({ entries }: { entries: readonly [string, string][] }) {
+/** Label, value, and optionally the glyph the figure's subject wears elsewhere (the flag). */
+function FigureStrip({ entries }: { entries: readonly (readonly [string, string] | readonly [string, string, ReactNode])[] }) {
   return (
     <dl
       className={cn(
@@ -90,7 +92,7 @@ function FigureStrip({ entries }: { entries: readonly [string, string][] }) {
         STRIP_COLUMNS[entries.length] ?? 'sm:grid-cols-4',
       )}
     >
-      {entries.map(([label, value], index) => (
+      {entries.map(([label, value, icon], index) => (
         <div
           key={label}
           className={cn(
@@ -103,7 +105,10 @@ function FigureStrip({ entries }: { entries: readonly [string, string][] }) {
               : null,
           )}
         >
-          <dt className="text-muted-foreground text-[0.6875rem]">{label}</dt>
+          <dt className="text-muted-foreground text-[0.6875rem]">
+            {icon ? <span aria-hidden className="mr-1 inline-flex align-[-2px] [&_svg]:size-3">{icon}</span> : null}
+            {label}
+          </dt>
           <dd className="text-base font-medium tabular-nums">{value}</dd>
         </div>
       ))}
@@ -321,14 +326,13 @@ export function DashboardPage() {
                 title="Today"
                 action={
                   <Button
-                    variant="outline"
                     size="sm"
                     nativeButton={false}
                     render={<Link to="/punch" />}
                     className={PRESS}
                   >
+                    <FingerprintIcon data-icon="inline-start" />
                     Punch
-                    <ArrowRightIcon />
                   </Button>
                 }
               />
@@ -439,7 +443,7 @@ export function DashboardPage() {
                       ['At work', String(atWorkToday)],
                       ['On leave', String(orgTodayTotals.leave)],
                       ['Absent', String(orgTodayTotals.absent)],
-                      ['Flagged', String(orgTodayTotals.flagged)],
+                      ['Flagged', String(orgTodayTotals.flagged), <ACTION_ICONS.flag key="flag" />],
                     ]}
                   />
                   <p className="text-muted-foreground text-xs">
@@ -481,7 +485,7 @@ export function DashboardPage() {
                           // CLAUDE.md 3.1 as written and the route sweep,
                           // which measures the element. Same idiom the muster
                           // toolbar uses for its select.
-                          className={cn('pointer-coarse:h-11 px-2.5', PRESS)}
+                          className={cn(' px-2.5', PRESS)}
                         >
                           {String(option)}d
                         </ToggleGroupItem>

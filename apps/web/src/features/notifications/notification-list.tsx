@@ -1,5 +1,6 @@
 import { ArrowClockwiseIcon, BellSimpleIcon, WarningCircleIcon } from '@phosphor-icons/react';
-import { Fragment, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { notificationIcon } from '@/components/shared/entity-icons';
+import { Fragment, type KeyboardEvent as ReactKeyboardEvent, createElement } from 'react';
 
 import type { NotificationSummary } from '@vyuha/shared';
 
@@ -147,7 +148,7 @@ export function NotificationList({
             // Item. Space is added because this row behaves as a button rather
             // than as a table row, and a button that ignores Space is a button
             // half the keyboard users of this product will think is broken.
-            className="hover:bg-accent/50 min-h-11 cursor-pointer text-left"
+            className="hover:bg-accent/50 active:bg-accent min-h-11 cursor-pointer text-left"
             tabIndex={0}
             onClick={() => {
               onActivate(notification);
@@ -171,6 +172,7 @@ export function NotificationList({
                     className="bg-primary size-1.5 shrink-0 rounded-full"
                   />
                 ) : null}
+                <NotificationGlyph eventType={notification.eventType} />
                 <span className="min-w-0 truncate">{notification.title}</span>
                 <span className="text-muted-foreground ml-auto shrink-0 text-[11px] font-normal tabular-nums">
                   {relativeTime(notification.createdAt)}
@@ -183,4 +185,9 @@ export function NotificationList({
       ))}
     </ItemGroup>
   );
+}
+
+/** The event family's glyph (owner, 22 Aug 2026), so a bell row reads before its words do. */
+function NotificationGlyph({ eventType }: { eventType: string }) {
+  return createElement(notificationIcon(eventType), { 'aria-hidden': true, className: 'text-muted-foreground size-3.5 shrink-0' });
 }

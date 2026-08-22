@@ -148,7 +148,6 @@ function TaskSheetBody({
               id="task-title"
               autoFocus
               autoComplete="off"
-              className="pointer-coarse:h-11"
               value={draft.title}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, title: event.target.value }));
@@ -197,7 +196,7 @@ function TaskSheetBody({
                   if (parsed) setDraft((current) => ({ ...current, priority: parsed }));
                 }}
               >
-                <SelectTrigger id="task-priority" aria-label="Priority" className="pointer-coarse:h-11 w-full">
+                <SelectTrigger id="task-priority" aria-label="Priority" className="w-full">
                   <SelectValue>{(value: TaskPriority) => TASK_PRIORITY_LABELS[value]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -218,7 +217,7 @@ function TaskSheetBody({
                   if (next) setDraft((current) => ({ ...current, columnId: next }));
                 }}
               >
-                <SelectTrigger id="task-column" aria-label="Status" className="pointer-coarse:h-11 w-full">
+                <SelectTrigger id="task-column" aria-label="Status" className="w-full">
                   <SelectValue>
                     {(value: string) => columnList.find((c) => c.id === value)?.name ?? 'Choose'}
                   </SelectValue>
@@ -241,7 +240,7 @@ function TaskSheetBody({
               <Button
                 type="button"
                 variant="outline"
-                className="pointer-coarse:h-11 w-full justify-start font-normal"
+                className="w-full justify-start font-normal"
                 onClick={() => {
                   setDraft((current) => ({ ...current, dueDate: toDateParam(new Date()) }));
                 }}
@@ -296,7 +295,7 @@ function TaskSheetBody({
                   setDraft((current) => ({ ...current, assigneeId: next?.id ?? null }));
                 }}
               />
-              <FieldDescription>They are told when it lands on them (REQ-V-08).</FieldDescription>
+              <FieldDescription>They are told when it lands on them.</FieldDescription>
             </Field>
           ) : null}
 

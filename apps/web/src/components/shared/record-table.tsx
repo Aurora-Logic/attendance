@@ -18,17 +18,30 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ArrowDownIcon, ArrowUpIcon, ArrowsDownUpIcon } from '@phosphor-icons/react';
+
+import { Button } from '@/components/ui/button';
+
 import { cn } from '@/lib/utils';
 
 export interface RecordColumn<T> {
   key: string;
   header: string;
+  /** A glyph the column's subject wears in its cells (the flag), so the header agrees with them. */
+  headerIcon?: ReactNode;
   cell: (row: T) => ReactNode;
   /** Right-align and use tabular numerals (PRD §6.3). */
   numeric?: boolean;
   /** Hidden below 1280px per the responsive rules in PRD §6.5. */
   secondary?: boolean;
   className?: string;
+  /** Present when this column can order the rows; the header becomes the control. */
+  sortField?: string;
+}
+
+export interface RecordSort {
+  readonly field: string;
+  readonly descending: boolean;
 }
 
 interface RecordTableProps<T> {
@@ -43,6 +56,9 @@ interface RecordTableProps<T> {
   mobileSupporting?: (row: T) => ReactNode;
   onRowActivate?: (row: T) => void;
   emptyState?: ReactNode;
+  /** The current order and its setter; header clicks toggle a column, first ascending. */
+  sort?: RecordSort | null;
+  onSortChange?: (next: RecordSort) => void;
 }
 
 /**
@@ -65,6 +81,8 @@ export function RecordTable<T>({
   mobileSupporting,
   onRowActivate,
   emptyState,
+  sort,
+  onSortChange,
 }: RecordTableProps<T>) {
   if (rows.length === 0 && emptyState) {
     return <div className="border">{emptyState}</div>;
@@ -80,25 +98,52 @@ export function RecordTable<T>({
         <Table>
           <TableHeader>
             <TableRow>
-              {columns.map((column) => (
-                <TableHead
-                  key={column.key}
-                  className={cn(
-                    column.numeric && 'text-right tabular-nums',
-                    column.secondary && 'hidden xl:table-cell',
-                    column.className,
-                  )}
-                >
-                  {column.header}
-                </TableHead>
-              ))}
+              {columns.map((column) => {
+                const sortable = column.sortField !== undefined && onSortChange !== undefined;
+                const isActive = sortable && sort != null && sort.field === column.sortField;
+                return (
+                  <TableHead
+                    key={column.key}
+                    aria-sort={isActive ? (sort.descending ? 'descending' : 'ascending') : undefined}
+                    className={cn(
+                      column.numeric && 'text-right tabular-nums',
+                      column.secondary && 'hidden xl:table-cell',
+                      column.className,
+                    )}
+                  >
+                    {sortable ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className={cn('-mx-2 h-7 gap-1 px-2 font-normal', column.numeric && 'flex-row-reverse', isActive && 'font-medium')}
+                        onClick={() => {
+                          const field = column.sortField ?? '';
+                          onSortChange({ field, descending: isActive ? !sort.descending : false });
+                        }}
+                      >
+                        {column.headerIcon ? <span aria-hidden className="[&_svg]:size-3.5">{column.headerIcon}</span> : null}
+                        {column.header}
+                        {isActive ? sort.descending ? <ArrowDownIcon className="size-3" /> : <ArrowUpIcon className="size-3" /> : <ArrowsDownUpIcon className="size-3 opacity-40" />}
+                      </Button>
+                    ) : column.headerIcon ? (
+                      <span className="inline-flex items-center gap-1 [&_svg]:size-3.5">
+                        <span aria-hidden>{column.headerIcon}</span>
+                        {column.header}
+                      </span>
+                    ) : (
+                      column.header
+                    )}
+                  </TableHead>
+                );
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((row) => (
               <TableRow
                 key={rowKey(row)}
-                className={cn(onRowActivate && 'cursor-pointer')}
+                className={cn(onRowActivate && 'cursor-pointer active:bg-muted')}
                 tabIndex={onRowActivate ? 0 : undefined}
                 onClick={onRowActivate ? () => { onRowActivate(row); } : undefined}
                 onKeyDown={
@@ -168,7 +213,7 @@ export function RecordTable<T>({
                     }
                   : undefined
               }
-              className={cn('min-h-11 rounded-none', onRowActivate && 'cursor-pointer')}
+              className={cn('min-h-11 rounded-none', onRowActivate && 'cursor-pointer hover:bg-muted/50 active:bg-muted')}
             >
               <ItemContent className="min-w-0 gap-0.5">
                 <ItemTitle className="truncate">{mobilePrimary(row)}</ItemTitle>

@@ -8,7 +8,7 @@ import {
   type PermissionKey,
   type SystemRoleName,
 } from '@vyuha/shared';
-import { eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { expect } from 'vitest';
 
 import type { Redis } from 'ioredis';
@@ -487,6 +487,9 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM dispatch_attachments WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_lines WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatches WHERE org_id = ${this.orgId}`);
+    // D-48: the pick tables reference the lines too, so they go first.
+    await this.db.execute(sql`DELETE FROM pick_record_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM pick_records WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM pack_record_lines WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM pack_records WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM sales_order_invoices WHERE org_id = ${this.orgId}`);
@@ -529,6 +532,7 @@ export class ApiHarness {
     // left to cascade to null.
     await this.db.delete(designations).where(eq(designations.orgId, this.orgId));
     await this.db.delete(locations).where(eq(locations.orgId, this.orgId));
+    this.fixtureOfficeId = null;
   }
 
   /** Ensures the global permission catalogue exists, without running the seed. */
@@ -651,13 +655,34 @@ export class ApiHarness {
         reportingManagerId: input.reportingManagerId ?? null,
         departmentId: input.departmentId ?? null,
         designationId: input.designationId ?? null,
-        locationId: input.locationId ?? null,
+        // Undefined means "an ordinary employee", and an ordinary employee
+        // works at an office with coordinates - a punch from nowhere is
+        // refused (owner, 21 Aug 2026). An explicit null keeps them placeless.
+        locationId: input.locationId === undefined ? await this.fixtureOffice() : input.locationId,
       })
       .returning({ id: employees.id });
 
     const row = inserted[0];
     if (row === undefined) throw new Error('Employee fixture insert returned no row.');
     return row.id;
+  }
+
+  private fixtureOfficeId: string | null = null;
+
+  /** The one office every placeless fixture employee is put at, created on first use. */
+  async fixtureOffice(): Promise<string> {
+    if (this.fixtureOfficeId === null) {
+      // Idempotent across harness instances on the same organisation: the
+      // cache is per instance, the row is per org.
+      const existing = await this.db
+        .select({ id: locations.id })
+        .from(locations)
+        .where(and(eq(locations.orgId, this.orgId), eq(locations.code, 'FIXTURE-HQ'), isNull(locations.deletedAt)))
+        .limit(1);
+      this.fixtureOfficeId =
+        existing[0]?.id ?? (await this.createLocation({ code: 'FIXTURE-HQ', name: 'Fixture office' }));
+    }
+    return this.fixtureOfficeId;
   }
 
   async createDesignation(input: { code: string; name: string; grade?: string }): Promise<string> {
@@ -676,10 +701,27 @@ export class ApiHarness {
     return row.id;
   }
 
-  async createLocation(input: { code: string; name: string }): Promise<string> {
+  /**
+   * Every fixture office has coordinates unless a test says `geofence: null`,
+   * because a punch at an office without them is refused (owner, 21 Aug
+   * 2026) and almost no test is about that refusal.
+   */
+  async createLocation(input: {
+    code: string;
+    name: string;
+    geofence?: { latitude: number; longitude: number; radiusM?: number } | null;
+  }): Promise<string> {
+    const geofence = input.geofence === undefined ? FIXTURE_OFFICE : input.geofence;
     const inserted = await this.db
       .insert(locations)
-      .values({ orgId: this.orgId, code: input.code, name: input.name })
+      .values({
+        orgId: this.orgId,
+        code: input.code,
+        name: input.name,
+        geofenceLat: geofence?.latitude ?? null,
+        geofenceLng: geofence?.longitude ?? null,
+        geofenceRadiusM: geofence?.radiusM ?? 100,
+      })
       .returning({ id: locations.id });
 
     const row = inserted[0];
@@ -794,6 +836,9 @@ export class ApiHarness {
 }
 
 /** A unique-enough email so a re-run does not collide on the unique index. */
+/** Where every fixture office stands, and where every fixture punch is taken from. */
+export const FIXTURE_OFFICE = { latitude: 19.076, longitude: 72.8777, radiusM: 100 } as const;
+
 export function scopedEmail(label: string): string {
   return `${label}.${uuidv7().slice(-12)}@vyuha.test`;
 }

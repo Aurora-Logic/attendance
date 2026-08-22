@@ -202,7 +202,7 @@ export function QueuePanel({
       {/* REQ-D-10 and technical design §8: a punch the server refuses does not
           disappear. It is named, the server's own reason is quoted, and the
           instruction is the one the requirement gives — raise a
-          regularization, because a punch is immutable (REQ-D-12) and cannot be
+          regularization, because a punch is immutable and cannot be
           backdated into existence. */}
       {refused.length > 0 ? (
         <Alert variant="destructive">

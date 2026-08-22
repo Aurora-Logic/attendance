@@ -353,7 +353,12 @@ export function leaveRequestsFixture(params: {
 const APPROVALS: ApprovalRequest[] = [
   {
     id: 'ap-2201',
+
     type: 'LEAVE',
+
+    subjectType: 'leave_request',
+
+    subjectId: 'ap-2201-subject',
     requester: { id: 'e-1004', name: 'A. Nair' },
     subject: 'Casual Leave, 24-08-2026 to 25-08-2026, 2 days',
     submittedAt: '2026-08-11T09:14:00.000Z',
@@ -362,7 +367,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2200',
+
     type: 'LEAVE',
+
+    subjectType: 'leave_request',
+
+    subjectId: 'ap-2200-subject',
     requester: { id: 'e-1011', name: 'B. Kulkarni' },
     subject: 'Earned Leave, 01-09-2026 to 05-09-2026, 5 days',
     submittedAt: '2026-08-11T07:02:00.000Z',
@@ -371,7 +381,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2198',
+
     type: 'REGULARIZATION',
+
+    subjectType: 'regularization',
+
+    subjectId: 'ap-2198-subject',
     requester: { id: 'e-1017', name: 'C. Dsouza' },
     subject: 'Missing OUT punch on 07-08-2026, claimed 18:10',
     submittedAt: '2026-08-10T12:48:00.000Z',
@@ -380,7 +395,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2197',
+
     type: 'REGULARIZATION',
+
+    subjectType: 'regularization',
+
+    subjectId: 'ap-2197-subject',
     requester: { id: 'e-1023', name: 'D. Menon' },
     subject: 'Forgot to punch on 06-08-2026, full day claimed',
     submittedAt: '2026-08-10T11:30:00.000Z',
@@ -389,7 +409,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2195',
+
     type: 'ON_DUTY',
+
+    subjectType: 'on_duty_request',
+
+    subjectId: 'ap-2195-subject',
     requester: { id: 'e-1031', name: 'E. Fernandes' },
     subject: 'Field duty, 12-08-2026 to 13-08-2026, client site Pune',
     submittedAt: '2026-08-09T16:20:00.000Z',
@@ -398,7 +423,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2192',
+
     type: 'FLAGGED_PUNCH',
+
+    subjectType: 'punch',
+
+    subjectId: 'ap-2192-subject',
     requester: { id: 'e-1040', name: 'F. Gupta' },
     subject: 'IN punch outside geofence on 08-08-2026 at 09:06',
     submittedAt: '2026-08-08T03:36:00.000Z',
@@ -407,7 +437,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2190',
+
     type: 'DEVICE_REBIND',
+
+    subjectType: 'device',
+
+    subjectId: 'ap-2190-subject',
     requester: { id: 'e-1044', name: 'G. Haldar' },
     subject: 'New handset, previous device last seen 05-08-2026',
     submittedAt: '2026-08-07T05:10:00.000Z',
@@ -416,7 +451,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2184',
+
     type: 'LEAVE',
+
+    subjectType: 'leave_request',
+
+    subjectId: 'ap-2184-subject',
     requester: { id: 'e-1050', name: 'H. Joshi' },
     subject: 'Sick Leave, 04-08-2026, half day',
     submittedAt: '2026-08-04T04:02:00.000Z',
@@ -425,7 +465,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2176',
+
     type: 'LEAVE',
+
+    subjectType: 'leave_request',
+
+    subjectId: 'ap-2176-subject',
     requester: { id: 'e-1004', name: 'A. Nair' },
     subject: 'Casual Leave, 19-06-2026, 1 day',
     submittedAt: '2026-06-18T14:20:00.000Z',
@@ -434,7 +479,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2170',
+
     type: 'ON_DUTY',
+
+    subjectType: 'on_duty_request',
+
+    subjectId: 'ap-2170-subject',
     requester: { id: 'e-1031', name: 'E. Fernandes' },
     subject: 'Field duty, 02-06-2026, client site Nashik',
     submittedAt: '2026-05-30T09:45:00.000Z',
@@ -443,7 +493,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2166',
+
     type: 'REGULARIZATION',
+
+    subjectType: 'regularization',
+
+    subjectId: 'ap-2166-subject',
     requester: { id: 'e-1011', name: 'B. Kulkarni' },
     subject: 'Wrong IN time on 21-05-2026, claimed 09:00',
     submittedAt: '2026-05-22T06:15:00.000Z',
@@ -452,7 +507,12 @@ const APPROVALS: ApprovalRequest[] = [
   },
   {
     id: 'ap-2160',
+
     type: 'FLAGGED_PUNCH',
+
+    subjectType: 'punch',
+
+    subjectId: 'ap-2160-subject',
     requester: { id: 'e-1017', name: 'C. Dsouza' },
     subject: 'Offline sync punch on 15-05-2026, 41 minutes late',
     submittedAt: '2026-05-15T13:58:00.000Z',

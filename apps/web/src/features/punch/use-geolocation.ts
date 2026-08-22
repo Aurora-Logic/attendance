@@ -7,10 +7,10 @@ import { useCallback, useEffect, useState } from 'react';
  * client-side geofence is trivially defeated, so nothing here blocks a punch -
  * it collects the reading and its accuracy and lets the API reject or flag it.
  *
- * A denied or unavailable fix is not a dead end either. REQ-D-08a allows the
- * punch with a mandatory typed reason and a `no_location` flag, which is why
- * this hook reports its failure as a state the form reacts to rather than as
- * an error that stops the screen.
+ * A denied or unavailable fix is reported as a state the form reacts to -
+ * the punch button waits for a position, with a retry beside the message -
+ * rather than as an error that takes the screen down. The server refuses a
+ * punch with no position (owner, 21 Aug 2026), so the form never sends one.
  */
 
 export type LocationState = 'locating' | 'ready' | 'denied' | 'unavailable' | 'timed-out';

@@ -271,7 +271,6 @@ function DepartmentBody({
         <FieldLabel htmlFor="department-name">Name</FieldLabel>
         <Input
           id="department-name"
-          className="pointer-coarse:h-11"
           value={draft.name}
           autoFocus
           onChange={(event) => {
@@ -285,7 +284,6 @@ function DepartmentBody({
         <FieldLabel htmlFor="department-code">Code</FieldLabel>
         <Input
           id="department-code"
-          className="pointer-coarse:h-11"
           value={draft.code}
           onChange={(event) => {
             setDraft((current) => ({ ...current, code: event.target.value }));
@@ -331,7 +329,7 @@ function DepartmentBody({
           }}
         />
         <FieldDescription>
-          REQ-A-02: a hierarchy. The server refuses a parent that would close a loop.
+          A hierarchy. The server refuses a parent that would close a loop.
         </FieldDescription>
       </Field>
     </MasterSheetBody>
@@ -426,7 +424,6 @@ function DesignationBody({
         <FieldLabel htmlFor="designation-name">Name</FieldLabel>
         <Input
           id="designation-name"
-          className="pointer-coarse:h-11"
           value={draft.name}
           autoFocus
           onChange={(event) => {
@@ -440,7 +437,6 @@ function DesignationBody({
         <FieldLabel htmlFor="designation-code">Code</FieldLabel>
         <Input
           id="designation-code"
-          className="pointer-coarse:h-11"
           value={draft.code}
           onChange={(event) => {
             setDraft((current) => ({ ...current, code: event.target.value }));
@@ -453,7 +449,6 @@ function DesignationBody({
         <FieldLabel htmlFor="designation-grade">Grade</FieldLabel>
         <Input
           id="designation-grade"
-          className="pointer-coarse:h-11"
           value={draft.grade ?? ''}
           onChange={(event) => {
             setDraft((current) => ({ ...current, grade: event.target.value }));
@@ -591,7 +586,6 @@ function LocationBody({
         <FieldLabel htmlFor="location-name">Name</FieldLabel>
         <Input
           id="location-name"
-          className="pointer-coarse:h-11"
           value={draft.name}
           autoFocus
           onChange={(event) => {
@@ -605,7 +599,6 @@ function LocationBody({
         <FieldLabel htmlFor="location-code">Code</FieldLabel>
         <Input
           id="location-code"
-          className="pointer-coarse:h-11"
           value={draft.code}
           onChange={(event) => {
             setDraft((current) => ({ ...current, code: event.target.value }));
@@ -631,7 +624,6 @@ function LocationBody({
         <FieldLabel htmlFor="location-timezone">Timezone</FieldLabel>
         <Input
           id="location-timezone"
-          className="pointer-coarse:h-11"
           placeholder="Asia/Kolkata"
           value={draft.timezone}
           onChange={(event) => {
@@ -653,7 +645,6 @@ function LocationBody({
         <FieldLabel htmlFor="location-maps-link">Paste a Google Maps link</FieldLabel>
         <Input
           id="location-maps-link"
-          className="pointer-coarse:h-11"
           placeholder="https://www.google.com/maps/@19.0759837,72.8776559,17z"
           value={mapsLink}
           onChange={(event) => {
@@ -707,7 +698,7 @@ function LocationBody({
           step="any"
           min={-90}
           max={90}
-          className="pointer-coarse:h-11 tabular-nums"
+          className="tabular-nums"
           value={draft.geofenceLat}
           onChange={(event) => {
             setDraft((current) => ({ ...current, geofenceLat: event.target.value }));
@@ -724,14 +715,14 @@ function LocationBody({
           step="any"
           min={-180}
           max={180}
-          className="pointer-coarse:h-11 tabular-nums"
+          className="tabular-nums"
           value={draft.geofenceLng}
           onChange={(event) => {
             setDraft((current) => ({ ...current, geofenceLng: event.target.value }));
           }}
         />
         <FieldDescription>
-          REQ-D-08. Both halves or neither: a centre with one coordinate is not a centre, and the
+          Both halves or neither: a centre with one coordinate is not a centre, and the
           server refuses it.
         </FieldDescription>
       </Field>
@@ -755,7 +746,7 @@ function LocationBody({
           inputMode="numeric"
           min={10}
           max={10_000}
-          className="pointer-coarse:h-11 tabular-nums"
+          className="tabular-nums"
           value={draft.geofenceRadiusM}
           onChange={(event) => {
             setDraft((current) => ({ ...current, geofenceRadiusM: event.target.value }));
@@ -781,7 +772,7 @@ function LocationBody({
           }}
         />
         <FieldDescription>
-          REQ-D-09. One address or CIDR block per line, up to 50. An empty list blocks web punch
+          One address or CIDR block per line, up to 50. An empty list blocks web punch
           from this location; it does not mean everything is allowed.
         </FieldDescription>
       </Field>

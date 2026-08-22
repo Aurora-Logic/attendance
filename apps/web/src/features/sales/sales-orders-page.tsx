@@ -1,25 +1,27 @@
 import { useEffect, useState } from 'react';
 import { FileTextIcon, GearIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams, Link } from 'react-router';
 
+import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { formatDate, EMPTY_VALUE } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
 import { SyncStateBadge } from './sales-order-sheet';
-import { SalesSettingsDialog } from './sales-settings-dialog';
+import { FulfilmentBadge } from './fulfilment-badge';
 import { formatMoney } from './money';
 import type { EstimateSummary } from './types';
 import { useSalesOrders } from './use-estimates';
@@ -32,13 +34,19 @@ import { useSalesOrders } from './use-estimates';
 const ALL = '__all__';
 
 const COLUMNS: RecordColumn<EstimateSummary>[] = [
-  { key: 'number', header: 'Number', cell: (row) => <span className="font-medium tabular-nums">{row.number}</span> },
+  { key: 'number', header: 'Number', cell: (row) => (
+    <span className="inline-flex items-center gap-1.5 font-medium tabular-nums [&_svg]:size-3.5">
+      <DOCUMENT_ICONS.sales_order aria-hidden className="text-muted-foreground" />
+      {row.number}
+    </span>
+  ) },
   { key: 'customer', header: 'Customer', cell: (row) => row.customerName },
   { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
   { key: 'status', header: 'Status', cell: (row) => <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[row.status]}</Badge> },
+  { key: 'fulfilment', header: 'Fulfilment', cell: (row) => (row.fulfilment ? <FulfilmentBadge state={row.fulfilment} /> : EMPTY_VALUE) },
   { key: 'sync', header: 'Tally', cell: (row) => <SyncStateBadge record={row} /> },
   { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },
-  { key: 'owner', header: 'Owner', cell: (row) => row.ownerName ?? EMPTY_VALUE, secondary: true },
+  { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
 ];
 
 function ListSkeleton() {
@@ -65,7 +73,6 @@ export function SalesOrdersPage() {
   const canView = canViewSelf || canViewAll;
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const canApproveDiscount = usePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -160,9 +167,8 @@ export function SalesOrdersPage() {
                   size="sm"
                   variant="outline"
                   aria-label="Sales settings"
-                  onClick={() => {
-                    setSettingsOpen(true);
-                  }}
+                  nativeButton={false}
+                  render={<Link to="/settings?tab=sales" />}
                 >
                   <GearIcon data-icon="inline-start" />
                   <span className="hidden sm:inline">Settings</span>
@@ -198,7 +204,7 @@ export function SalesOrdersPage() {
               );
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Status">
+            <SelectTrigger className="w-40" aria-label="Status">
               <SelectValue>{(value: string) => (value === ALL ? 'Any status' : SALES_DOCUMENT_STATUS_LABELS[value as SalesOrderStatus])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -225,7 +231,7 @@ export function SalesOrdersPage() {
               );
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-44" aria-label="Tally state">
+            <SelectTrigger className="w-44" aria-label="Tally state">
               <SelectValue>{(value: string) => (value === ALL ? 'Any Tally state' : SYNC_STATE_LABELS[value as DocumentSyncState])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -287,8 +293,6 @@ export function SalesOrdersPage() {
           </>
         ) : null}
       </div>
-
-      <SalesSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   );
 }

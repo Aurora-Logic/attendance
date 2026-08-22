@@ -150,7 +150,7 @@ export function CompOffCredits({ employeeId, state, onStateChange }: CompOffCred
               if (next !== null) onStateChange(next as CompOffState);
             }}
           >
-            <SelectTrigger aria-label="Filter credits by state" className="pointer-coarse:h-11 w-40">
+            <SelectTrigger aria-label="Filter credits by state" className="w-40">
               <SelectValue>
                 {(value: string) => COMP_OFF_STATE_LABELS[value as CompOffState]}
               </SelectValue>

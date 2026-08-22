@@ -43,6 +43,8 @@ export const employeeAccessSchema = z.object({
       email: z.string(),
       status: z.enum(USER_STATUSES),
       lastLoginAt: z.string().nullable(),
+      /** REQ-B-09; absent on a server from before it existed. */
+      mfaEnabled: z.boolean().default(false),
     })
     .nullable(),
   roles: z.array(assignedRoleSchema),

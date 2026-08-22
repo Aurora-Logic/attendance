@@ -1,6 +1,7 @@
 import {
   onDutyInputSchema,
   onDutyQuerySchema,
+  regularizationCompleteSchema,
   regularizationDecisionSchema,
   regularizationInputSchema,
   regularizationQuerySchema,
@@ -17,6 +18,7 @@ import { createZodDto } from '../../../platform/common/zod-validation.pipe.js';
  */
 
 export class RegularizationInputDto extends createZodDto(regularizationInputSchema) {}
+export class RegularizationCompleteDto extends createZodDto(regularizationCompleteSchema) {}
 export class RegularizationQueryDto extends createZodDto(regularizationQuerySchema) {}
 export class RegularizationDecisionDto extends createZodDto(regularizationDecisionSchema) {}
 export class RegularizationRejectionDto extends createZodDto(regularizationRejectionSchema) {}

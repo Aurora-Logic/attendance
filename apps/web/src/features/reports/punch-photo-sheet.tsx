@@ -1,11 +1,13 @@
 import { useState } from 'react';
+import { cn } from '@/lib/utils';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { flagClasses, flagLabel } from '@/features/attendance/status';
 import {
   ArrowsOutIcon,
   DeviceMobileIcon,
   ImageBrokenIcon,
   MapPinIcon,
-  WarningIcon,
-} from '@phosphor-icons/react';
+  } from '@phosphor-icons/react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -77,7 +79,7 @@ function PhotoFrame({
         <AlertTitle>The photo could not be loaded</AlertTitle>
         <AlertDescription>
           {/* A punch photo past its retention window is deleted by design
-              (REQ-L-03); the punch record survives without it. */}
+; the punch record survives without it. */}
           It may have passed its retention window, or you may not have permission to view it.
         </AlertDescription>
       </Alert>
@@ -219,13 +221,14 @@ export function PunchPhotoSheet({ punch, onOpenChange }: PunchPhotoSheetProps) {
 
               {punch.flags.length > 0 ? (
                 <Alert>
-                  <WarningIcon />
+                  <ACTION_ICONS.flag />
                   <AlertTitle>Flagged</AlertTitle>
                   <AlertDescription>
                     <span className="flex flex-wrap gap-1">
                       {punch.flags.map((flag) => (
-                        <Badge key={flag} variant="outline" className="font-normal">
-                          {humaniseEnum(flag)}
+                        <Badge key={flag} variant="outline" className={cn('font-normal', flagClasses(flag).text, flagClasses(flag).border, flagClasses(flag).fill)}>
+                          <ACTION_ICONS.flag aria-hidden />
+                          {flagLabel(flag)}
                         </Badge>
                       ))}
                     </span>

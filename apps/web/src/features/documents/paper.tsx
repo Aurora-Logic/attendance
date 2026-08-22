@@ -95,6 +95,16 @@ export interface PaperModel {
   readonly terms: string;
   /** "Original for Recipient" and the like, on an invoice's copies. */
   readonly copyLabel?: string | null;
+  /** D-47: what the packing slip knows that other papers do not — set only by the pack record. */
+  readonly slip?: PaperSlipFacts;
+}
+
+export interface PaperSlipFacts {
+  readonly boxCount: number;
+  readonly packedAt: string;
+  readonly packedByName: string | null;
+  /** The consignee's phone from the parties master, for the loader and the transporter. */
+  readonly phone: string | null;
 }
 
 /** What the page hands the paper when it is the editor. Absent = print. */
@@ -102,6 +112,14 @@ export interface PaperEditing {
   readonly customer: ReactNode;
   readonly date: ReactNode;
   readonly validUntil?: ReactNode;
+  /**
+   * ISO-date setters for the phone form, which draws its own date controls
+   * rather than reusing the paper-styled slots above (those are drawn to sit
+   * on the sheet and look wrong in a form). Absent when the page cannot
+   * change the date, in which case the form falls back to the slot.
+   */
+  readonly setDate?: (iso: string) => void;
+  readonly setValidUntil?: (iso: string) => void;
   readonly itemPicker: (line: PaperLine) => ReactNode;
   /** The i beside a line: what this customer was charged for the item before (REQ-W-02). */
   readonly itemHistory?: (line: PaperLine) => ReactNode;
@@ -127,13 +145,14 @@ interface DocumentPaperProps {
 }
 
 /** The one look-alike input: a box on screen, plain text on paper. */
-export function PaperField({ value, onChange, placeholder, className, label, align = 'left', onKeyDown, dataCell }: { value: string; onChange: (value: string) => void; placeholder?: string; className?: string; label: string; align?: 'left' | 'right'; onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void; dataCell?: string }) {
+export function PaperField({ value, onChange, placeholder, className, label, align = 'left', onKeyDown, dataCell, numeric = false }: { value: string; onChange: (value: string) => void; placeholder?: string; className?: string; label: string; align?: 'left' | 'right'; onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void; dataCell?: string; numeric?: boolean }) {
   return (
     <Input
       aria-label={label}
       value={value}
       placeholder={placeholder}
       data-cell={dataCell}
+      inputMode={numeric ? 'decimal' : undefined}
       onChange={(event) => {
         onChange(event.target.value);
       }}
@@ -414,11 +433,11 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
                 </TableCell>
               ) : null}
               <TableCell className={cn(BOX, 'py-1 text-right align-top font-bold tabular-nums')}>
-                {editable ? <PaperField dataCell={`qty-${String(index)}`} align="right" label={`Line ${String(index + 1)} quantity`} value={line.quantity} onChange={(v) => { editing.updateLine(line.key, { quantity: v }); }} onKeyDown={enter(index, 'qty')} className="font-bold" /> : `${trimQty(line.quantity)}${design.showUnit ? '' : line.unit ? ` ${line.unit}` : ''}`}
+                {editable ? <PaperField dataCell={`qty-${String(index)}`} align="right" label={`Line ${String(index + 1)} quantity`} value={line.quantity} onChange={(v) => { editing.updateLine(line.key, { quantity: v }); }} onKeyDown={enter(index, 'qty')} className="font-bold" numeric /> : `${trimQty(line.quantity)}${design.showUnit ? '' : line.unit ? ` ${line.unit}` : ''}`}
               </TableCell>
               {money ? (
                 <TableCell className={cn(BOX, 'py-1 text-right align-top tabular-nums')}>
-                  {editable ? <PaperField dataCell={`rate-${String(index)}`} align="right" label={`Line ${String(index + 1)} rate`} value={line.rate} placeholder="0.00" onChange={(v) => { editing.updateLine(line.key, { rate: v }); }} onKeyDown={enter(index, 'rate')} /> : formatMoney(line.rate)}
+                  {editable ? <PaperField dataCell={`rate-${String(index)}`} align="right" label={`Line ${String(index + 1)} rate`} value={line.rate} placeholder="0.00" onChange={(v) => { editing.updateLine(line.key, { rate: v }); }} onKeyDown={enter(index, 'rate')} numeric /> : formatMoney(line.rate)}
                 </TableCell>
               ) : null}
               {design.showUnit ? (
@@ -428,7 +447,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
               ) : null}
               {showDiscount ? (
                 <TableCell className={cn(BOX, 'py-1 text-right align-top tabular-nums')}>
-                  {editable ? <PaperField dataCell={`disc-${String(index)}`} align="right" label={`Line ${String(index + 1)} discount percent`} value={line.discountPct} onChange={(v) => { editing.updateLine(line.key, { discountPct: v }); }} onKeyDown={enter(index, 'disc')} /> : Number(line.discountPct) > 0 ? trimQty(line.discountPct) : ''}
+                  {editable ? <PaperField dataCell={`disc-${String(index)}`} align="right" label={`Line ${String(index + 1)} discount percent`} value={line.discountPct} onChange={(v) => { editing.updateLine(line.key, { discountPct: v }); }} onKeyDown={enter(index, 'disc')} numeric /> : Number(line.discountPct) > 0 ? trimQty(line.discountPct) : ''}
                 </TableCell>
               ) : null}
               {money ? <TableCell className={cn(BOX, 'py-1 text-right align-top font-bold tabular-nums')}>{formatMoney(line.amount)}</TableCell> : null}
@@ -921,24 +940,24 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
                     </TableCell>
                   ) : null}
                   <TableCell className={cn(t.cell, 'text-right tabular-nums')}>
-                    {editable ? <PaperField dataCell={`qty-${String(index)}`} align="right" label={`Line ${String(index + 1)} quantity`} value={line.quantity} onChange={(value) => { editing.updateLine(line.key, { quantity: value }); }} onKeyDown={enter(index, 'qty')} /> : trimQty(line.quantity)}
+                    {editable ? <PaperField dataCell={`qty-${String(index)}`} align="right" label={`Line ${String(index + 1)} quantity`} value={line.quantity} onChange={(value) => { editing.updateLine(line.key, { quantity: value }); }} onKeyDown={enter(index, 'qty')} numeric /> : trimQty(line.quantity)}
                   </TableCell>
                   {design.showUnit ? (
                     <TableCell className={t.cell}>{editable ? <PaperField dataCell={`unit-${String(index)}`} label={`Line ${String(index + 1)} unit`} value={line.unit} placeholder="Unit" onChange={(value) => { editing.updateLine(line.key, { unit: value }); }} onKeyDown={enter(index, 'unit')} /> : line.unit}</TableCell>
                   ) : null}
                   {money ? (
                     <TableCell className={cn(t.cell, 'text-right tabular-nums')}>
-                      {editable ? <PaperField dataCell={`rate-${String(index)}`} align="right" label={`Line ${String(index + 1)} rate`} value={line.rate} placeholder="0.00" onChange={(value) => { editing.updateLine(line.key, { rate: value }); }} onKeyDown={enter(index, 'rate')} /> : formatMoney(line.rate)}
+                      {editable ? <PaperField dataCell={`rate-${String(index)}`} align="right" label={`Line ${String(index + 1)} rate`} value={line.rate} placeholder="0.00" onChange={(value) => { editing.updateLine(line.key, { rate: value }); }} onKeyDown={enter(index, 'rate')} numeric /> : formatMoney(line.rate)}
                     </TableCell>
                   ) : null}
                   {showDiscount ? (
                     <TableCell className={cn(t.cell, 'text-right tabular-nums')}>
-                      {editable ? <PaperField dataCell={`disc-${String(index)}`} align="right" label={`Line ${String(index + 1)} discount percent`} value={line.discountPct} onChange={(value) => { editing.updateLine(line.key, { discountPct: value }); }} onKeyDown={enter(index, 'disc')} /> : trimQty(line.discountPct)}
+                      {editable ? <PaperField dataCell={`disc-${String(index)}`} align="right" label={`Line ${String(index + 1)} discount percent`} value={line.discountPct} onChange={(value) => { editing.updateLine(line.key, { discountPct: value }); }} onKeyDown={enter(index, 'disc')} numeric /> : trimQty(line.discountPct)}
                     </TableCell>
                   ) : null}
                   {showTax ? (
                     <TableCell className={cn(t.cell, 'text-right tabular-nums')}>
-                      {editable ? <PaperField dataCell={`tax-${String(index)}`} align="right" label={`Line ${String(index + 1)} tax percent`} value={line.taxPct} onChange={(value) => { editing.updateLine(line.key, { taxPct: value }); }} onKeyDown={enter(index, 'tax')} /> : trimQty(line.taxPct)}
+                      {editable ? <PaperField dataCell={`tax-${String(index)}`} align="right" label={`Line ${String(index + 1)} tax percent`} value={line.taxPct} onChange={(value) => { editing.updateLine(line.key, { taxPct: value }); }} onKeyDown={enter(index, 'tax')} numeric /> : trimQty(line.taxPct)}
                     </TableCell>
                   ) : null}
                   {money ? <TableCell className={cn(t.cell, 'text-right font-medium tabular-nums')}>{formatMoney(line.amount)}</TableCell> : null}

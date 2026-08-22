@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router';
 
 import { OrgLogoDialog } from '@/components/shared/org-logo-dialog';
 import {
@@ -7,6 +8,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { useBranding } from '@/lib/branding/use-branding';
+import { findModuleForPath } from '@/lib/nav';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -16,7 +18,6 @@ import { PERMISSIONS } from '@vyuha/shared';
  * and what it falls back to if the endpoint is unreachable.
  */
 const FALLBACK_NAME = 'Vyuha';
-const ORG_TAGLINE = 'Attendance';
 
 /**
  * The sidebar brand.
@@ -40,6 +41,9 @@ export function OrgBrand() {
   const branding = useBranding();
   const canManage = usePermission(PERMISSIONS.SETTINGS_MANAGE);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // The line under the name says where in the product the reader is; it
+  // follows the route, so switching modules changes it without a reload.
+  const module = findModuleForPath(useLocation().pathname);
 
   const name = branding.data?.name ?? FALLBACK_NAME;
   const logoUrl = branding.data?.logoUrl ?? null;
@@ -83,7 +87,7 @@ export function OrgBrand() {
           {mark}
           <span className="flex min-w-0 flex-col text-left leading-tight">
             <span className="truncate text-sm font-semibold">{name}</span>
-            <span className="text-muted-foreground truncate text-xs">{ORG_TAGLINE}</span>
+            <span className="text-muted-foreground truncate text-xs">{module.label}</span>
           </span>
         </SidebarMenuButton>
       </SidebarMenuItem>

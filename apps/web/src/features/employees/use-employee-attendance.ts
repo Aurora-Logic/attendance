@@ -5,9 +5,11 @@ import { parseOrThrow } from '@/features/attendance/api';
 import { attendanceDaysResponseSchema, type AttendanceDay } from '@/features/attendance/types';
 import { apiRequest } from '@/lib/api/client';
 import {
+  PUNCH_FLAG_REVIEW_ACTIONS,
   PUNCH_SOURCES,
   PUNCH_TYPES,
   type Paginated,
+  type PunchFlagReviewAction,
   type PunchSource,
   type PunchType,
 } from '@vyuha/shared';
@@ -78,6 +80,10 @@ export interface EmployeePunch {
   readonly source: PunchSource;
   readonly reason: string | null;
   readonly flags: readonly string[];
+  /** Owner, 21 Aug 2026: who recorded an ADMIN_ENTRY; null for the employee's own punches. */
+  readonly recordedBy: { readonly id: string; readonly name: string } | null;
+  /** Owner, 21 Aug 2026: the admin's last decisive word on the punch's flags. */
+  readonly flagReview: { readonly action: PunchFlagReviewAction; readonly note: string | null; readonly decidedBy: { readonly id: string; readonly name: string } | null; readonly decidedAt: string } | null;
 }
 
 /**
@@ -98,6 +104,17 @@ const punchSchema = z.object({
   source: z.enum(PUNCH_SOURCES),
   reason: z.string().nullable(),
   flags: z.array(z.string()),
+  recordedBy: z.object({ id: z.string(), name: z.string() }).nullable().default(null),
+  flagReview: z
+    .object({
+      action: z.enum(PUNCH_FLAG_REVIEW_ACTIONS),
+      note: z.string().nullable(),
+      decidedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
+      decidedAt: z.string(),
+    })
+    .nullable()
+    // Older API builds omit it; absent reads as unreviewed.
+    .default(null),
 }) satisfies z.ZodType<EmployeePunch, unknown>;
 
 /** Technical design §6: the punch feed is cursor-paginated, not page-numbered. */

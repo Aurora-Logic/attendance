@@ -14,6 +14,10 @@ import { cn } from '@/lib/utils';
  * a lane is the sort the query already applies. A card is a shadcn Button,
  * so opening one never needs a mouse; moving without one is the list view's
  * promise, kept there (REQ-V-05).
+ *
+ * The look is the grouped-board idiom (Notion's): lanes are soft surfaces,
+ * not boxes — the group's name sits in a tinted chip, the cards are the only
+ * bordered things, rounded and lifted a little on hover.
  */
 
 export interface KanbanLane<T> {
@@ -27,6 +31,8 @@ export interface KanbanLane<T> {
   /** Beyond `items` when the lane was capped. */
   readonly total: number;
   readonly muted?: boolean;
+  /** Colour classes for the header chip ("bg-tint-1/15 text-tint-1"); a quiet grey without. */
+  readonly accent?: string;
 }
 
 interface KanbanBoardProps<T> {
@@ -67,9 +73,9 @@ export function KanbanBoard<T>({
             role="listitem"
             aria-label={`${lane.label}, ${String(lane.total)} item${lane.total === 1 ? '' : 's'}`}
             className={cn(
-              'flex w-72 shrink-0 flex-col border',
-              lane.muted && 'bg-muted/30',
-              over === lane.id && dragging !== null && itemLaneId(dragging) !== lane.id && 'bg-accent/40',
+              'bg-muted/40 flex w-72 shrink-0 flex-col rounded-lg p-1.5',
+              lane.muted && 'bg-muted/20',
+              over === lane.id && dragging !== null && itemLaneId(dragging) !== lane.id && 'ring-ring/40 bg-accent/50 ring-2',
             )}
             onDragOver={(event) => {
               if (dragging === null) return;
@@ -87,11 +93,11 @@ export function KanbanBoard<T>({
               setOver(null);
             }}
           >
-            <header className="flex items-center justify-between gap-2 border-b px-3 py-2">
-              <span className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium">{lane.title}</span>
-              <span className="text-muted-foreground shrink-0 text-xs tabular-nums">{lane.meta ?? lane.total}</span>
+            <header className="flex items-center justify-between gap-2 px-1 pt-0.5 pb-1.5">
+              <span className={cn('flex min-w-0 items-center gap-1.5 truncate rounded-md px-1.5 py-0.5 text-xs font-medium', lane.accent ?? 'bg-muted text-muted-foreground')}>{lane.title}</span>
+              <span className="text-muted-foreground shrink-0 pr-1 text-xs tabular-nums">{lane.meta ?? lane.total}</span>
             </header>
-            <div className="flex min-h-24 flex-col gap-2 p-2">
+            <div className="flex min-h-24 flex-col gap-1.5">
               {lane.items.length === 0 ? (
                 <p className="text-muted-foreground px-1 py-3 text-center text-xs">Nothing here</p>
               ) : null}
@@ -108,7 +114,7 @@ export function KanbanBoard<T>({
                     setDragging(null);
                     setOver(null);
                   }}
-                  className={cn('bg-background border', dragging !== null && itemKey(dragging) === itemKey(item) && 'opacity-50')}
+                  className={cn('bg-background border-border/60 rounded-md border shadow-xs transition-shadow hover:shadow-sm', dragging !== null && itemKey(dragging) === itemKey(item) && 'opacity-50')}
                 >
                   <Button
                     type="button"
@@ -116,7 +122,7 @@ export function KanbanBoard<T>({
                     onClick={() => {
                       onOpen(item);
                     }}
-                    className="h-auto w-full flex-col items-start gap-1 rounded-none px-3 py-2 text-left whitespace-normal"
+                    className="h-auto w-full flex-col items-start gap-1 rounded-md px-3 py-2 text-left whitespace-normal"
                     aria-label={`Open ${itemLabel(item)}`}
                   >
                     {renderItem(item)}

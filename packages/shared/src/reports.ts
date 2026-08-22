@@ -42,15 +42,95 @@ export const REPORT_KEYS = [
   'voucher-reconciliation',
   'customer-statement',
   'credit-cycle',
+  'ageing',
+  'payment-analysis',
   'sales-analysis',
   'pending-dispatch',
   'low-stock',
+  // 14 Tier 1: the projection mirrors and the first analysis (REQ-AE-01, REQ-AG-02).
+  'day-book',
+  'customer-lapse',
+  // 14 Tier 1, the rest (D-46): mirrors, analyses and exceptions from the projection.
+  'ledger-extract',
+  'stock-summary',
+  'negative-stock',
+  'stale-projections',
+  'duplicate-masters',
+  'customer-item-matrix',
+  'purchase-rhythm',
+  'price-variance',
+  'item-velocity',
+  'dead-stock',
+  'movement-analysis',
+  'vendor-item-history',
+  'vendor-price-comparison',
+  'credit-breaches',
+  'stock-ageing',
+  // The approved catalogue (P-02, 21 Aug): concentration, pipeline, dispatch, fill, new-vs-repeat, requirement ageing.
+  'customer-concentration',
+  'order-pipeline',
+  'dispatch-performance',
+  'order-fill-rate',
+  'new-vs-repeat',
+  'requirement-ageing',
+  // Owner, 22 Aug 2026: the second analytics set, each named by the decision it changes.
+  'flag-review-log',
+  'approvals-turnaround',
+  'early-arrival-leaderboard',
+  'on-time-rate',
+  'aov-trend',
+  'partial-shipments',
+  'vendor-lead-time',
+  'stock-out-frequency',
+  'margin-proxy',
+  'sales-heatmap',
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
 
 /** The keys the Tally module's source claims; everything else is attendance's. */
-export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'sales-analysis', 'low-stock'] as const satisfies readonly ReportKey[];
+export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'ageing', 'payment-analysis', 'sales-analysis', 'low-stock', 'day-book', 'customer-lapse'] as const satisfies readonly ReportKey[];
+/** 14 Tier 1 (D-46), served by the analytics source; the same receivables gate as the Tally set. */
+export const ANALYTICS_REPORT_KEYS = [
+  'ledger-extract',
+  'stock-summary',
+  'negative-stock',
+  'stale-projections',
+  'duplicate-masters',
+  'customer-item-matrix',
+  'purchase-rhythm',
+  'price-variance',
+  'item-velocity',
+  'dead-stock',
+  'movement-analysis',
+  'vendor-item-history',
+  'vendor-price-comparison',
+  'credit-breaches',
+  'stock-ageing',
+  'customer-concentration',
+  'order-pipeline',
+  'dispatch-performance',
+  'order-fill-rate',
+  'new-vs-repeat',
+  'requirement-ageing',
+  'aov-trend',
+  'partial-shipments',
+  'vendor-lead-time',
+  'stock-out-frequency',
+  'margin-proxy',
+  'sales-heatmap',
+] as const satisfies readonly ReportKey[];
+/**
+ * Owner, 22 Aug 2026: attendance's own analytics - reviews, approvals, early
+ * arrivals, punctuality - served by the attendance module's analytics source
+ * and gated on the org-wide attendance key rather than on receivables.
+ */
+export const ATTENDANCE_ANALYTICS_REPORT_KEYS = [
+  'flag-review-log',
+  'approvals-turnaround',
+  'early-arrival-leaderboard',
+  'on-time-rate',
+] as const satisfies readonly ReportKey[];
 /** The sales module's reports (12 REQ-AA-30). */
 export const SALES_REPORT_KEYS = ['pending-dispatch'] as const satisfies readonly ReportKey[];
 
@@ -96,9 +176,14 @@ export interface ReportColumnSpec {
   readonly width?: number;
 }
 
+export const REPORT_CATEGORIES = ['Attendance', 'Leave', 'Approvals', 'Books', 'Receivables', 'Customers', 'Inventory', 'Vendors', 'Fulfilment', 'Exceptions'] as const;
+export type ReportCategory = (typeof REPORT_CATEGORIES)[number];
+
 export interface ReportDefinition {
   readonly key: ReportKey;
   readonly label: string;
+  /** REQ-AD-02: the catalogue's grouping; the sidebar of the Reports module lists these. */
+  readonly category: ReportCategory;
   readonly description: string;
   readonly columns: readonly ReportColumnSpec[];
   readonly defaultSort: string;
@@ -142,6 +227,12 @@ export const REPORT_FILTER_NAMES = [
   'partyId',
   /** Phase 6d: REQ-Y-05's dimension — by party, item, item group or month. */
   'groupBy',
+  /** 14 REQ-AE-01: the day book narrows to one voucher type, typed as Tally names it. */
+  'voucherType',
+  /** 14 REQ-AE-02: the ledger extract is for one ledger, named as Tally names it. */
+  'ledgerName',
+  /** 14: the item analyses narrow to one item by name. */
+  'itemName',
 ] as const;
 
 export type ReportFilterName = (typeof REPORT_FILTER_NAMES)[number];
@@ -465,6 +556,49 @@ const CUSTOMER_STATEMENT_COLUMNS: readonly ReportColumnSpec[] = [
  * "Actual overdue" is deliberately absent until bill-wise allocations
  * arrive (P6b): without them, which invoice a receipt settled is a guess.
  */
+/**
+ * REQ-Y-02. One row per open bill, not per party -- that is the whole point.
+ * A party's net balance ages from nothing; a bill has a date, so its age is
+ * arithmetic. The bucket is a column rather than four columns of money because
+ * a bill sits in exactly one, and four columns with three blanks is a crosstab
+ * pretending to be a list.
+ */
+const AGEING_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 26 },
+  { key: 'billName', header: 'Bill', type: 'code', width: 16 },
+  { key: 'billDate', header: 'Bill date', type: 'date', sortField: 'billDate', width: 12 },
+  { key: 'dueDate', header: 'Due', type: 'date', secondary: true, width: 12 },
+  { key: 'ageDays', header: 'Age (days)', type: 'number', sortField: 'ageDays', width: 10 },
+  { key: 'bucket', header: 'Bucket', type: 'status', width: 12 },
+  { key: 'outstanding', header: 'Outstanding', type: 'text', sortField: 'outstanding', width: 14 },
+  { key: 'overdue', header: 'Overdue', type: 'status', width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/**
+ * REQ-Y-04. What a party actually does, against what they agreed to.
+ *
+ * `avgDaysToPay` is observed from settlements that name the bill they settle,
+ * which is why this report could not exist before `bill_allocations`: without
+ * the link, "days to pay" could only be inferred from the order receipts
+ * happened to arrive in, and a customer paying March's bill in July would look
+ * like a customer paying June's on time.
+ *
+ * The requirement says so itself -- with one financial year it is noise -- so
+ * `billsPaid` is on the row. A three-bill average is a number, not a finding.
+ */
+const PAYMENT_ANALYSIS_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 26 },
+  { key: 'creditDays', header: 'Agreed days', type: 'number', width: 12 },
+  { key: 'avgDaysToPay', header: 'Actual days', type: 'number', sortField: 'avgDaysToPay', width: 12 },
+  { key: 'slippage', header: 'Slippage', type: 'number', sortField: 'slippage', width: 10 },
+  { key: 'billsPaid', header: 'Bills settled', type: 'number', secondary: true, width: 12 },
+  { key: 'billsOpen', header: 'Still open', type: 'number', secondary: true, width: 10 },
+  { key: 'oldestOpenDays', header: 'Oldest open', type: 'number', width: 12 },
+  { key: 'onTime', header: 'Pays on time', type: 'status', width: 12 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
 const CREDIT_CYCLE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 28 },
   { key: 'creditLimit', header: 'Credit limit', type: 'text', width: 14 },
@@ -520,9 +654,353 @@ const LOW_STOCK_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
+/**
+ * 14 REQ-AE-01: every voucher for a period — the workhorse mirror. Vyuha
+ * computes nothing; it lists what Tally already said, filterable by type
+ * and party, each row stamped with the sync it is as of (REQ-AD-06).
+ */
+const DAY_BOOK_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'date', header: 'Date', type: 'date', sortField: 'date', width: 12 },
+  { key: 'voucherType', header: 'Type', type: 'text', sortField: 'voucherType', width: 16 },
+  { key: 'voucherNumber', header: 'Number', type: 'code', width: 12 },
+  { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'amount', header: 'Amount', type: 'text', sortField: 'amount', width: 16 },
+  { key: 'narration', header: 'Narration', type: 'text', secondary: true, width: 36 },
+  { key: 'cancelled', header: 'State', type: 'status', secondary: true, width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/**
+ * 14 REQ-AG-02: customers who bought regularly and then stopped. The
+ * expected gap is each customer's own median gap between sales vouchers
+ * (D-36 in `14`): a monthly buyer and an annual buyer lapse at different
+ * speeds. Lapsed past twice the median, at risk past once; ranked by the
+ * last twelve months' revenue — what the silence is costing.
+ */
+const CUSTOMER_LAPSE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'state', header: 'State', type: 'status', width: 10 },
+  { key: 'lastSaleDate', header: 'Last sale', type: 'date', sortField: 'lastSaleDate', width: 12 },
+  { key: 'daysSince', header: 'Days since', type: 'number', sortField: 'daysSince', width: 10 },
+  { key: 'medianGapDays', header: 'Usual gap', type: 'number', width: 10 },
+  { key: 'expectedBy', header: 'Expected by', type: 'date', secondary: true, width: 12 },
+  { key: 'sales12m', header: 'Sales (12m)', type: 'number', secondary: true, width: 10 },
+  { key: 'revenue12m', header: 'Revenue (12m)', type: 'text', sortField: 'revenue12m', width: 16 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AE-02: one ledger's transactions with a running balance, opening from what came before. */
+const LEDGER_EXTRACT_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'date', header: 'Date', type: 'date', sortField: 'date', width: 12 },
+  { key: 'voucherType', header: 'Type', type: 'text', width: 14 },
+  { key: 'voucherNumber', header: 'Number', type: 'code', width: 12 },
+  { key: 'partyName', header: 'Party', type: 'text', secondary: true, width: 24 },
+  { key: 'debit', header: 'Debit', type: 'text', width: 14 },
+  { key: 'credit', header: 'Credit', type: 'text', width: 14 },
+  { key: 'balance', header: 'Balance', type: 'text', width: 16 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AF-01: closing per item, extended with Vyuha's committed and available (REQ-AC-03, AC-04). */
+const STOCK_SUMMARY_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'group', header: 'Group', type: 'text', secondary: true, width: 18 },
+  { key: 'unit', header: 'Unit', type: 'text', secondary: true, width: 8 },
+  { key: 'closingQty', header: 'Closing', type: 'text', sortField: 'closingQty', width: 12 },
+  { key: 'committedQty', header: 'Committed', type: 'text', width: 12 },
+  { key: 'availableQty', header: 'Available', type: 'text', width: 12 },
+  { key: 'costRate', header: 'Cost rate', type: 'text', secondary: true, width: 12 },
+  { key: 'value', header: 'Value at cost', type: 'text', sortField: 'value', width: 16 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AF-07 / AH-01: billed what was never received. The ideal state is empty. */
+const NEGATIVE_STOCK_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 30 },
+  { key: 'group', header: 'Group', type: 'text', secondary: true, width: 18 },
+  { key: 'closingQty', header: 'Closing', type: 'text', sortField: 'closingQty', width: 12 },
+  { key: 'unit', header: 'Unit', type: 'text', width: 8 },
+  { key: 'lastPulledAt', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AH-11: a company whose projection has quietly stopped being the truth. */
+const STALE_PROJECTIONS_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'companyName', header: 'Company', type: 'text', width: 28 },
+  { key: 'connectionState', header: 'Connection', type: 'status', width: 12 },
+  { key: 'lastPulledAt', header: 'Last pull', type: 'instant', width: 20 },
+  { key: 'hoursStale', header: 'Hours stale', type: 'number', sortField: 'hoursStale', width: 10 },
+];
+
+/** 14 REQ-AH-12: near-matching master names. Vyuha flags; the accountant merges in Tally. */
+const DUPLICATE_MASTERS_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'kind', header: 'Master', type: 'text', width: 10 },
+  { key: 'nameA', header: 'Name', type: 'text', sortField: 'nameA', width: 30 },
+  { key: 'nameB', header: 'Looks like', type: 'text', width: 30 },
+  { key: 'reason', header: 'Why flagged', type: 'text', secondary: true, width: 24 },
+];
+
+/** 14 REQ-AG-01/AG-12: who buys what — the matrix as drillable rows, party-first or item-first by sort. */
+const CUSTOMER_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 26 },
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
+  { key: 'invoices', header: 'Invoices', type: 'number', width: 10 },
+  { key: 'quantity', header: 'Quantity', type: 'text', width: 12 },
+  { key: 'value', header: 'Value', type: 'text', sortField: 'value', width: 14 },
+  { key: 'lastDate', header: 'Last sale', type: 'date', sortField: 'lastDate', width: 12 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AG-03: how often each customer buys, and whether the rhythm is slowing. */
+const PURCHASE_RHYTHM_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 26 },
+  { key: 'sales12m', header: 'Sales (12m)', type: 'number', sortField: 'sales12m', width: 10 },
+  { key: 'perMonth', header: 'Per month', type: 'text', width: 10 },
+  { key: 'medianGapDays', header: 'Usual gap', type: 'number', width: 10 },
+  { key: 'lastGapDays', header: 'Last gap', type: 'number', secondary: true, width: 10 },
+  { key: 'daysSince', header: 'Days since', type: 'number', sortField: 'daysSince', width: 10 },
+  { key: 'trend', header: 'Trend', type: 'status', width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AG-04: the same item at different rates, ranked by the spread. */
+const PRICE_VARIANCE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
+  { key: 'buyers', header: 'Buyers', type: 'number', width: 8 },
+  { key: 'minRate', header: 'Lowest', type: 'text', width: 12 },
+  { key: 'minParty', header: 'Who pays least', type: 'text', secondary: true, width: 22 },
+  { key: 'maxRate', header: 'Highest', type: 'text', width: 12 },
+  { key: 'maxParty', header: 'Who pays most', type: 'text', secondary: true, width: 22 },
+  { key: 'avgRate', header: 'Average', type: 'text', secondary: true, width: 12 },
+  { key: 'spreadPct', header: 'Spread', type: 'text', sortField: 'spreadPct', width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AG-13/AG-14: units per month, the trend, and the cover in days that makes it actionable. */
+const ITEM_VELOCITY_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'monthly12', header: 'Per month (12m)', type: 'text', sortField: 'monthly12', width: 14 },
+  { key: 'monthly3', header: 'Per month (3m)', type: 'text', width: 14 },
+  { key: 'trend', header: 'Trend', type: 'status', width: 10 },
+  { key: 'closingQty', header: 'Closing', type: 'text', secondary: true, width: 12 },
+  { key: 'coverDays', header: 'Cover (days)', type: 'number', sortField: 'coverDays', width: 12 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AG-15: stock that stopped moving, ranked by the money locked up. */
+const DEAD_STOCK_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'lastSaleDate', header: 'Last sale', type: 'date', sortField: 'lastSaleDate', width: 12 },
+  { key: 'daysIdle', header: 'Days idle', type: 'number', sortField: 'daysIdle', width: 10 },
+  { key: 'closingQty', header: 'Closing', type: 'text', width: 12 },
+  { key: 'valueLocked', header: 'Value locked', type: 'text', sortField: 'valueLocked', width: 16 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AG-16: inward and outward per item per month. */
+const MOVEMENT_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'inwardQty', header: 'Inward', type: 'text', width: 12 },
+  { key: 'outwardQty', header: 'Outward', type: 'text', width: 12 },
+  { key: 'netQty', header: 'Net', type: 'text', width: 12 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AG-23: what was bought from whom, with the rate's direction. */
+const VENDOR_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'vendorName', header: 'Vendor', type: 'text', sortField: 'vendorName', width: 24 },
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
+  { key: 'purchases', header: 'Purchases', type: 'number', width: 10 },
+  { key: 'quantity', header: 'Quantity', type: 'text', secondary: true, width: 12 },
+  { key: 'lastRate', header: 'Last rate', type: 'text', width: 12 },
+  { key: 'avgRate', header: 'Avg rate', type: 'text', secondary: true, width: 12 },
+  { key: 'lastDate', header: 'Last bought', type: 'date', sortField: 'lastDate', width: 12 },
+  { key: 'rateTrend', header: 'Rate', type: 'status', width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AG-27: the same item across vendors — the report that pays for itself on the first PO. */
+const VENDOR_PRICE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'vendors', header: 'Vendors', type: 'number', width: 8 },
+  { key: 'bestRate', header: 'Best last rate', type: 'text', width: 14 },
+  { key: 'bestVendor', header: 'From', type: 'text', width: 22 },
+  { key: 'worstRate', header: 'Highest last rate', type: 'text', secondary: true, width: 14 },
+  { key: 'worstVendor', header: 'From', type: 'text', secondary: true, width: 22 },
+  { key: 'spreadPct', header: 'Spread', type: 'text', sortField: 'spreadPct', width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AH-04: over the limit now, and how it was released before. */
+const CREDIT_BREACHES_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 26 },
+  { key: 'creditLimit', header: 'Limit', type: 'text', width: 14 },
+  { key: 'exposure', header: 'Exposure', type: 'text', sortField: 'exposure', width: 14 },
+  { key: 'overBy', header: 'Over by', type: 'text', sortField: 'overBy', width: 14 },
+  { key: 'releases90d', header: 'Releases (90d)', type: 'number', secondary: true, width: 12 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** 14 REQ-AF-03/AG-37: closing stock bucketed by inward age (FIFO-assumed, D-46), valued at cost. */
+const STOCK_AGEING_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'closingQty', header: 'Closing', type: 'text', width: 12 },
+  { key: 'bucket0', header: '0–30d', type: 'text', width: 10 },
+  { key: 'bucket31', header: '31–60d', type: 'text', width: 10 },
+  { key: 'bucket61', header: '61–90d', type: 'text', width: 10 },
+  { key: 'bucket90', header: '90d+', type: 'text', width: 10 },
+  { key: 'valueLocked', header: 'Value at cost', type: 'text', sortField: 'valueLocked', width: 16 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** How dependent the business is on its biggest buyers. */
+const CONCENTRATION_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'rank', header: 'Rank', type: 'number', width: 6 },
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'revenue', header: 'Revenue', type: 'text', sortField: 'revenue', width: 16 },
+  { key: 'sharePct', header: 'Share', type: 'text', width: 10 },
+  { key: 'cumulativePct', header: 'Cumulative', type: 'text', width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** Where working days leak: every open order and how long it has sat. */
+const ORDER_PIPELINE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'number', header: 'Order', type: 'code', sortField: 'number', width: 12 },
+  { key: 'customerName', header: 'Customer', type: 'text', sortField: 'customerName', width: 26 },
+  { key: 'stage', header: 'Stage', type: 'status', width: 14 },
+  { key: 'orderDate', header: 'Ordered', type: 'date', sortField: 'orderDate', width: 12 },
+  { key: 'ageDays', header: 'Age (days)', type: 'number', sortField: 'ageDays', width: 10 },
+  { key: 'balanceQty', header: 'Balance qty', type: 'text', width: 12 },
+  { key: 'value', header: 'Value', type: 'text', sortField: 'value', secondary: true, width: 14 },
+];
+
+/** Promise-keeping: how long each dispatch took from the order. */
+const DISPATCH_PERFORMANCE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'number', header: 'Dispatch', type: 'code', width: 12 },
+  { key: 'orderNumber', header: 'Order', type: 'code', secondary: true, width: 12 },
+  { key: 'customerName', header: 'Customer', type: 'text', sortField: 'customerName', width: 24 },
+  { key: 'mode', header: 'Mode', type: 'status', width: 12 },
+  { key: 'dispatchedOn', header: 'Dispatched', type: 'date', sortField: 'dispatchedOn', width: 12 },
+  { key: 'leadDays', header: 'Days from order', type: 'number', sortField: 'leadDays', width: 12 },
+  { key: 'quantity', header: 'Quantity', type: 'text', secondary: true, width: 10 },
+];
+
+/** Who is being short-supplied, and how often. */
+const ORDER_FILL_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 26 },
+  { key: 'orders', header: 'Orders', type: 'number', width: 8 },
+  { key: 'orderedQty', header: 'Ordered', type: 'text', width: 12 },
+  { key: 'dispatchedQty', header: 'Dispatched', type: 'text', width: 12 },
+  { key: 'fillPct', header: 'Fill rate', type: 'text', sortField: 'fillPct', width: 10 },
+  { key: 'shortClosed', header: 'Short-closed', type: 'number', secondary: true, width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** Is growth coming from new names or the same ones. */
+const NEW_REPEAT_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'newParties', header: 'First-time buyers', type: 'number', width: 12 },
+  { key: 'newRevenue', header: 'New revenue', type: 'text', width: 14 },
+  { key: 'repeatRevenue', header: 'Repeat revenue', type: 'text', width: 14 },
+  { key: 'newSharePct', header: 'New share', type: 'text', secondary: true, width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+/** Reorder pressure: how long shortages wait for a PO. */
+const REQUIREMENT_AGEING_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
+  { key: 'openQty', header: 'Open qty', type: 'text', width: 12 },
+  { key: 'source', header: 'Source', type: 'status', width: 10 },
+  { key: 'orderNumber', header: 'For order', type: 'code', secondary: true, width: 12 },
+  { key: 'ageDays', header: 'Waiting (days)', type: 'number', sortField: 'ageDays', width: 12 },
+];
+
+// ------------------------------------------ the second analytics set (22 Aug 2026)
+
+const FLAG_REVIEW_LOG_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'reviewedAt', header: 'Reviewed', type: 'instant', sortField: 'reviewedAt', width: 20 },
+  { key: 'adminName', header: 'By', type: 'text', sortField: 'adminName', width: 22 },
+  { key: 'action', header: 'Action', type: 'text', width: 14 },
+  { key: 'employeeName', header: 'Employee', type: 'text', sortField: 'employeeName', width: 24 },
+  { key: 'attendanceDate', header: 'Day', type: 'date', width: 12 },
+  { key: 'punchType', header: 'Punch', type: 'text', width: 8 },
+  { key: 'note', header: 'Note', type: 'text', secondary: true, width: 40 },
+];
+
+const APPROVALS_TURNAROUND_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'type', header: 'Request type', type: 'text', sortField: 'type', width: 20 },
+  { key: 'decided', header: 'Decided', type: 'number', sortField: 'decided', width: 10 },
+  { key: 'medianHours', header: 'Median hours', type: 'number', sortField: 'medianHours', width: 12 },
+  { key: 'p90Hours', header: 'p90 hours', type: 'number', width: 12 },
+  { key: 'pending', header: 'Pending', type: 'number', width: 10 },
+  { key: 'oldestPendingHours', header: 'Oldest pending (h)', type: 'number', sortField: 'oldestPendingHours', width: 14 },
+];
+
+const EARLY_LEADERBOARD_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'employeeName', header: 'Employee', type: 'text', sortField: 'employeeName', width: 24 },
+  { key: 'department', header: 'Department', type: 'text', secondary: true, width: 18 },
+  { key: 'currentStreak', header: 'Streak', type: 'number', sortField: 'currentStreak', width: 10 },
+  { key: 'earlyDays', header: 'Early days', type: 'number', sortField: 'earlyDays', width: 10 },
+  { key: 'avgEarlyMinutes', header: 'Avg minutes early', type: 'number', width: 14 },
+];
+
+const ON_TIME_RATE_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'department', header: 'Department', type: 'text', sortField: 'department', width: 24 },
+  { key: 'workedDays', header: 'Worked days', type: 'number', sortField: 'workedDays', width: 12 },
+  { key: 'lateDays', header: 'Late days', type: 'number', width: 10 },
+  { key: 'onTimePct', header: 'On time', type: 'text', sortField: 'onTimePct', width: 10 },
+];
+
+const AOV_TREND_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'invoices', header: 'Invoices', type: 'number', width: 10 },
+  { key: 'revenue', header: 'Revenue', type: 'text', width: 16 },
+  { key: 'aov', header: 'Average order value', type: 'text', sortField: 'aov', width: 16 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+const PARTIAL_SHIPMENTS_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'ordersDispatched', header: 'Orders dispatched', type: 'number', width: 12 },
+  { key: 'partialOrders', header: 'Partial', type: 'number', width: 10 },
+  { key: 'partialPct', header: 'Partial share', type: 'text', sortField: 'partialPct', width: 12 },
+];
+
+const VENDOR_LEAD_TIME_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Vendor', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'ordersReceived', header: 'POs received', type: 'number', width: 12 },
+  { key: 'medianDays', header: 'Median days', type: 'number', sortField: 'medianDays', width: 12 },
+  { key: 'p90Days', header: 'p90 days', type: 'number', width: 10 },
+  { key: 'promisedDays', header: 'Promised', type: 'number', width: 10 },
+];
+
+const STOCK_OUT_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'shortages', header: 'Shortages', type: 'number', sortField: 'shortages', width: 10 },
+  { key: 'quantity', header: 'Quantity short', type: 'text', width: 14 },
+];
+
+const MARGIN_PROXY_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
+  { key: 'quantity', header: 'Quantity', type: 'text', width: 12 },
+  { key: 'revenue', header: 'Revenue', type: 'text', sortField: 'revenue', width: 16 },
+  { key: 'cost', header: 'Cost (held)', type: 'text', width: 16 },
+  { key: 'margin', header: 'Margin proxy', type: 'text', sortField: 'margin', width: 16 },
+  { key: 'marginPct', header: 'Margin %', type: 'text', sortField: 'marginPct', width: 10 },
+  { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
+];
+
+const SALES_HEATMAP_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
+  { key: 'value', header: 'Value', type: 'text', sortField: 'value', width: 16 },
+];
+
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   'attendance-register': {
     key: 'attendance-register',
+    category: 'Attendance',
     label: 'Attendance register',
     description: 'One row per employee per day: shift, in, out, hours, status and flags.',
     columns: ATTENDANCE_REGISTER_COLUMNS,
@@ -531,6 +1009,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'daily-muster': {
     key: 'daily-muster',
+    category: 'Attendance',
     label: 'Daily muster',
     description: 'One row per employee for a single date: shift, in, out, hours, status and flags.',
     columns: DAILY_MUSTER_COLUMNS,
@@ -540,6 +1019,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'monthly-muster': {
     key: 'monthly-muster',
+    category: 'Attendance',
     label: 'Monthly muster grid',
     description: 'Employees against the days of one month, with a totals block.',
     columns: MUSTER_GRID_COLUMNS,
@@ -549,6 +1029,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'late-arrivals': {
     key: 'late-arrivals',
+    category: 'Attendance',
     label: 'Late arrivals',
     description: 'Days recorded late, with the minutes, gathered per employee.',
     columns: exceptionColumns({
@@ -562,6 +1043,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'early-exits': {
     key: 'early-exits',
+    category: 'Attendance',
     label: 'Early exits',
     description: 'Days that ended early, with the minutes, gathered per employee.',
     columns: exceptionColumns({
@@ -575,6 +1057,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   absenteeism: {
     key: 'absenteeism',
+    category: 'Attendance',
     label: 'Absenteeism',
     description: 'Absent days and the share of scheduled days they are, by employee and month.',
     columns: ABSENTEEISM_COLUMNS,
@@ -583,6 +1066,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'missing-punch': {
     key: 'missing-punch',
+    category: 'Attendance',
     label: 'Missing punch',
     description: 'Days flagged for a missing punch, and where their correction stands.',
     columns: MISSING_PUNCH_COLUMNS,
@@ -591,6 +1075,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   overtime: {
     key: 'overtime',
+    category: 'Attendance',
     label: 'Overtime',
     description: 'Overtime minutes by employee for the period. Minutes only, never money.',
     columns: exceptionColumns({
@@ -604,6 +1089,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'leave-balance': {
     key: 'leave-balance',
+    category: 'Leave',
     label: 'Leave balance',
     description: 'Balances by employee and leave type for the leave year the period falls in.',
     columns: LEAVE_BALANCE_COLUMNS,
@@ -612,6 +1098,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'leave-ledger': {
     key: 'leave-ledger',
+    category: 'Leave',
     label: 'Leave ledger',
     description: 'Every leave movement posted in the period. Filter to one employee for a history.',
     columns: LEAVE_LEDGER_COLUMNS,
@@ -620,6 +1107,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'leave-availed': {
     key: 'leave-availed',
+    category: 'Leave',
     label: 'Leave availed',
     description: 'Approved leave days falling inside the period, by employee and type.',
     columns: LEAVE_AVAILED_COLUMNS,
@@ -628,6 +1116,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'punch-audit': {
     key: 'punch-audit',
+    category: 'Attendance',
     label: 'Punch audit',
     description: 'The raw punch log with photo, location, device and flags.',
     columns: PUNCH_AUDIT_COLUMNS,
@@ -636,6 +1125,7 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   headcount: {
     key: 'headcount',
+    category: 'Attendance',
     label: 'Headcount',
     description: 'Opening headcount, joiners, leavers and closing headcount by month.',
     columns: HEADCOUNT_COLUMNS,
@@ -644,18 +1134,20 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'voucher-reconciliation': {
     key: 'voucher-reconciliation',
+    category: 'Books',
     label: 'Voucher reconciliation',
     description:
-      'Voucher count and total value per voucher type per month, from the Tally projection — compare against Tally’s own Day Book totals before signing off a backfill (REQ-S-05).',
+      'Voucher count and total value per voucher type per month, from the Tally projection — compare against Tally’s own Day Book totals before signing off a backfill.',
     columns: VOUCHER_RECONCILIATION_COLUMNS,
     defaultSort: 'month',
     filters: ['period'],
   },
   'customer-statement': {
     key: 'customer-statement',
+    category: 'Receivables',
     label: 'Customer statement',
     description:
-      'Every voucher for one party in the period with a running balance, opening from what came before (REQ-Y-01). Choose a party to begin.',
+      'Every voucher for one party in the period with a running balance, opening from what came before. Choose a party to begin.',
     columns: CUSTOMER_STATEMENT_COLUMNS,
     defaultSort: 'date',
     filters: ['partyId', 'period'],
@@ -663,36 +1155,358 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
   },
   'credit-cycle': {
     key: 'credit-cycle',
+    category: 'Receivables',
     label: 'Credit cycle',
     description:
-      'Credit limit and credit days per party against current exposure (REQ-Y-03). Overdue by bill waits for bill-wise allocations.',
+      'Credit limit and credit days per party against current exposure. Overdue by bill waits for bill-wise allocations.',
     columns: CREDIT_CYCLE_COLUMNS,
     defaultSort: '-exposure',
     filters: ['partyId'],
   },
+  ageing: {
+    key: 'ageing',
+    category: 'Receivables',
+    label: 'Ageing',
+    description:
+      'Every open bill, its age and its bucket. Buckets are 0-30, 31-60, 61-90 and over 90 days from the bill date.',
+    columns: AGEING_COLUMNS,
+    defaultSort: '-ageDays',
+    filters: ['partyId'],
+  },
+  'payment-analysis': {
+    key: 'payment-analysis',
+    category: 'Receivables',
+    label: 'Payment analysis',
+    description:
+      'Average days to pay against agreed credit days, per party, from settlements that name the bill they settle.',
+    columns: PAYMENT_ANALYSIS_COLUMNS,
+    defaultSort: '-slippage',
+    filters: ['partyId'],
+  },
   'sales-analysis': {
     key: 'sales-analysis',
+    category: 'Customers',
     label: 'Sales analysis',
-    description: 'Sales value by party, item, item group or month, from invoiced inventory lines (REQ-Y-05).',
+    description: 'Sales value by party, item, item group or month, from invoiced inventory lines.',
     columns: SALES_ANALYSIS_COLUMNS,
     defaultSort: '-value',
     filters: ['groupBy', 'period', 'partyId'],
   },
   'pending-dispatch': {
     key: 'pending-dispatch',
+    category: 'Fulfilment',
     label: 'Pending dispatch',
-    description: 'Every open sales order line with a balance still to dispatch — by party, by age, by item (REQ-AA-30).',
+    description: 'Every open sales order line with a balance still to dispatch — by party, by age, by item.',
     columns: PENDING_DISPATCH_COLUMNS,
     defaultSort: '-ageDays',
     filters: ['partyId'],
   },
   'low-stock': {
     key: 'low-stock',
+    category: 'Inventory',
     label: 'Low stock',
-    description: 'Items at or below their reorder level: Tally closing, committed to open orders, available, on order, and the shortfall (REQ-AC-06).',
+    description: 'Items at or below their reorder level: Tally closing, committed to open orders, available, on order, and the shortfall.',
     columns: LOW_STOCK_COLUMNS,
     defaultSort: '-shortfall',
     filters: [],
+  },
+  'day-book': {
+    key: 'day-book',
+    category: 'Books',
+    label: 'Day book',
+    description: 'Every voucher for the period, from the Tally projection — filter by type or party; Vyuha computes nothing.',
+    columns: DAY_BOOK_COLUMNS,
+    defaultSort: '-date',
+    filters: ['period', 'voucherType', 'partyId'],
+  },
+  'customer-lapse': {
+    key: 'customer-lapse',
+    category: 'Customers',
+    label: 'Customer lapse',
+    description: 'Customers who bought regularly and then stopped — measured against each customer’s own usual gap, ranked by the revenue at risk.',
+    columns: CUSTOMER_LAPSE_COLUMNS,
+    defaultSort: '-revenue12m',
+    filters: [],
+  },
+  'ledger-extract': {
+    key: 'ledger-extract',
+    category: 'Books',
+    label: 'Ledger extract',
+    description: 'Every line for one ledger with a running balance, opening from what came before. Type the ledger as Tally names it.',
+    columns: LEDGER_EXTRACT_COLUMNS,
+    defaultSort: 'date',
+    filters: ['ledgerName', 'period'],
+    requiredFilters: ['ledgerName'],
+  },
+  'stock-summary': {
+    key: 'stock-summary',
+    category: 'Inventory',
+    label: 'Stock summary',
+    description: 'Closing, committed and available per item, valued at the held cost.',
+    columns: STOCK_SUMMARY_COLUMNS,
+    defaultSort: '-value',
+    filters: ['itemName'],
+  },
+  'negative-stock': {
+    key: 'negative-stock',
+    category: 'Inventory',
+    label: 'Negative stock',
+    description: 'Items showing a negative closing in Tally — something was billed that was never received. The ideal state is empty.',
+    columns: NEGATIVE_STOCK_COLUMNS,
+    defaultSort: 'closingQty',
+    filters: [],
+  },
+  'stale-projections': {
+    key: 'stale-projections',
+    category: 'Exceptions',
+    label: 'Stale projections',
+    description: 'Companies whose last successful pull is older than a day — the figures under every other report.',
+    columns: STALE_PROJECTIONS_COLUMNS,
+    defaultSort: '-hoursStale',
+    filters: [],
+  },
+  'duplicate-masters': {
+    key: 'duplicate-masters',
+    category: 'Exceptions',
+    label: 'Duplicate masters',
+    description: 'Party and item names that collapse to the same thing once case, spaces and punctuation are ignored. Vyuha flags; the merge happens in Tally.',
+    columns: DUPLICATE_MASTERS_COLUMNS,
+    defaultSort: 'nameA',
+    filters: [],
+  },
+  'customer-item-matrix': {
+    key: 'customer-item-matrix',
+    category: 'Customers',
+    label: 'Customer × product',
+    description: 'What each customer buys — quantity, value, last sale — one row per customer and item; sort by item to read it the other way.',
+    columns: CUSTOMER_ITEM_COLUMNS,
+    defaultSort: '-value',
+    filters: ['period', 'partyId', 'itemName'],
+  },
+  'purchase-rhythm': {
+    key: 'purchase-rhythm',
+    category: 'Customers',
+    label: 'Purchase rhythm',
+    description: 'Orders per month, the usual gap, the last gap and days since — who to call, before the lapse report has to say so.',
+    columns: PURCHASE_RHYTHM_COLUMNS,
+    defaultSort: '-daysSince',
+    filters: [],
+  },
+  'price-variance': {
+    key: 'price-variance',
+    category: 'Customers',
+    label: 'Customer price variance',
+    description: 'The same item sold at different rates, ranked by the spread — answers "why is this customer paying more" before the customer asks.',
+    columns: PRICE_VARIANCE_COLUMNS,
+    defaultSort: '-spreadPct',
+    filters: ['period', 'itemName'],
+  },
+  'item-velocity': {
+    key: 'item-velocity',
+    category: 'Inventory',
+    label: 'Item velocity',
+    description: 'Units per month over twelve months against the last three, and the stock cover in days that makes the figure actionable.',
+    columns: ITEM_VELOCITY_COLUMNS,
+    defaultSort: '-monthly12',
+    filters: ['itemName'],
+  },
+  'dead-stock': {
+    key: 'dead-stock',
+    category: 'Inventory',
+    label: 'Dead and slow stock',
+    description: 'No sale in ninety days, ranked by the money locked up rather than the quantity.',
+    columns: DEAD_STOCK_COLUMNS,
+    defaultSort: '-valueLocked',
+    filters: ['itemName'],
+  },
+  'movement-analysis': {
+    key: 'movement-analysis',
+    category: 'Inventory',
+    label: 'Movement analysis',
+    description: 'Inward and outward per item per month, from purchase and sales lines.',
+    columns: MOVEMENT_COLUMNS,
+    defaultSort: '-month',
+    filters: ['period', 'itemName'],
+  },
+  'vendor-item-history': {
+    key: 'vendor-item-history',
+    category: 'Vendors',
+    label: 'Vendor × item history',
+    description: 'What was bought from whom — quantity, last and average rate, and which way the rate is moving.',
+    columns: VENDOR_ITEM_COLUMNS,
+    defaultSort: '-lastDate',
+    filters: ['period', 'partyId', 'itemName'],
+  },
+  'vendor-price-comparison': {
+    key: 'vendor-price-comparison',
+    category: 'Vendors',
+    label: 'Vendor price comparison',
+    description: 'The same item across vendors, best and highest last rate with the spread — read it before raising the PO.',
+    columns: VENDOR_PRICE_COLUMNS,
+    defaultSort: '-spreadPct',
+    filters: ['itemName'],
+  },
+  'credit-breaches': {
+    key: 'credit-breaches',
+    category: 'Receivables',
+    label: 'Credit breaches',
+    description: 'Parties over their credit limit now, with how often the block was released in the last ninety days.',
+    columns: CREDIT_BREACHES_COLUMNS,
+    defaultSort: '-overBy',
+    filters: [],
+  },
+  'customer-concentration': {
+    key: 'customer-concentration',
+    category: 'Customers',
+    label: 'Customer concentration',
+    description: 'How much of the period’s revenue the biggest customers carry — share and cumulative share, ranked.',
+    columns: CONCENTRATION_COLUMNS,
+    defaultSort: '-revenue',
+    filters: ['period'],
+  },
+  'order-pipeline': {
+    key: 'order-pipeline',
+    category: 'Fulfilment',
+    label: 'Order pipeline',
+    description: 'Every open sales order by stage — to pack, awaiting invoice, to dispatch — and how long it has sat there.',
+    columns: ORDER_PIPELINE_COLUMNS,
+    defaultSort: '-ageDays',
+    filters: ['partyId'],
+  },
+  'dispatch-performance': {
+    key: 'dispatch-performance',
+    category: 'Fulfilment',
+    label: 'Dispatch performance',
+    description: 'Days from order to each dispatch, local against outstation — the slowest first.',
+    columns: DISPATCH_PERFORMANCE_COLUMNS,
+    defaultSort: '-leadDays',
+    filters: ['period', 'partyId'],
+  },
+  'order-fill-rate': {
+    key: 'order-fill-rate',
+    category: 'Customers',
+    label: 'Order fill rate',
+    description: 'Ordered against dispatched per customer — who is being short-supplied, worst first.',
+    columns: ORDER_FILL_COLUMNS,
+    defaultSort: 'fillPct',
+    filters: ['period'],
+  },
+  'new-vs-repeat': {
+    key: 'new-vs-repeat',
+    category: 'Customers',
+    label: 'New vs repeat revenue',
+    description: 'Each month’s invoicing split between first-time buyers and returning ones.',
+    columns: NEW_REPEAT_COLUMNS,
+    defaultSort: '-month',
+    filters: ['period'],
+  },
+  'requirement-ageing': {
+    key: 'requirement-ageing',
+    category: 'Vendors',
+    label: 'Requirement ageing',
+    description: 'Open shortages and reorders, and how long each has waited for a purchase order.',
+    columns: REQUIREMENT_AGEING_COLUMNS,
+    defaultSort: '-ageDays',
+    filters: [],
+  },
+  'flag-review-log': {
+    key: 'flag-review-log',
+    category: 'Approvals',
+    label: 'Flag review log',
+    description: 'Every action an admin took on a flagged punch — accepted, kept, half day, note — with who, whom and why. Decides whether reviews are even-handed.',
+    columns: FLAG_REVIEW_LOG_COLUMNS,
+    defaultSort: '-reviewedAt',
+    filters: ['period', 'employeeId'],
+  },
+  'approvals-turnaround': {
+    key: 'approvals-turnaround',
+    category: 'Approvals',
+    label: 'Approvals turnaround',
+    description: 'Per request type: how many were decided in the period, the median and p90 hours to a decision, and the oldest still pending. Decides who is sitting on requests.',
+    columns: APPROVALS_TURNAROUND_COLUMNS,
+    defaultSort: '-oldestPendingHours',
+    filters: ['period'],
+  },
+  'early-arrival-leaderboard': {
+    key: 'early-arrival-leaderboard',
+    category: 'Attendance',
+    label: 'Early-arrival leaderboard',
+    description: 'Who keeps beating the shift: the current streak, early days in the period and how early on average. Decides who to recognise.',
+    columns: EARLY_LEADERBOARD_COLUMNS,
+    defaultSort: '-currentStreak',
+    filters: ['period', 'departmentId'],
+  },
+  'on-time-rate': {
+    key: 'on-time-rate',
+    category: 'Attendance',
+    label: 'On-time rate by department',
+    description: 'Worked days that were not late, as a share, per department. Decides where lateness clusters.',
+    columns: ON_TIME_RATE_COLUMNS,
+    defaultSort: 'onTimePct',
+    filters: ['period'],
+  },
+  'aov-trend': {
+    key: 'aov-trend',
+    category: 'Customers',
+    label: 'Average order value',
+    description: 'Revenue per sales invoice, month by month, from the projection. Decides whether pricing or basket size is drifting; compare against last FY.',
+    columns: AOV_TREND_COLUMNS,
+    defaultSort: 'month',
+    filters: ['period'],
+  },
+  'partial-shipments': {
+    key: 'partial-shipments',
+    category: 'Fulfilment',
+    label: 'Partial shipments by customer',
+    description: 'Confirmed orders that needed two or more dispatches, or a short-close, as a share of the orders dispatched at all. Decides whose orders keep going out in pieces.',
+    columns: PARTIAL_SHIPMENTS_COLUMNS,
+    defaultSort: '-partialPct',
+    filters: ['period', 'partyId'],
+  },
+  'vendor-lead-time': {
+    key: 'vendor-lead-time',
+    category: 'Vendors',
+    label: 'Vendor lead time',
+    description: 'Days from the purchase order’s date to its first receipt, median and p90 per vendor, beside the lead time the vendor promised. Decides which promises to stop believing.',
+    columns: VENDOR_LEAD_TIME_COLUMNS,
+    defaultSort: '-medianDays',
+    filters: ['period', 'partyId'],
+  },
+  'stock-out-frequency': {
+    key: 'stock-out-frequency',
+    category: 'Inventory',
+    label: 'Stock-out frequency',
+    description: 'Requirements raised from a shortage, per item per month. Decides which items keep running dry.',
+    columns: STOCK_OUT_COLUMNS,
+    defaultSort: '-shortages',
+    filters: ['period', 'itemName'],
+  },
+  'margin-proxy': {
+    key: 'margin-proxy',
+    category: 'Customers',
+    label: 'Gross margin proxy',
+    description: 'Per item: revenue against the cost held in the projection, and the margin that leaves. A proxy — the held cost is a weighted average, not the lot’s own. Decides what to stop discounting.',
+    columns: MARGIN_PROXY_COLUMNS,
+    defaultSort: '-margin',
+    filters: ['period', 'itemName'],
+  },
+  'sales-heatmap': {
+    key: 'sales-heatmap',
+    category: 'Customers',
+    label: 'Sales heatmap',
+    description: 'Every customer against every month of the period, shaded by value. Decides who went quiet when, at a glance.',
+    columns: SALES_HEATMAP_COLUMNS,
+    defaultSort: 'partyName',
+    filters: ['period'],
+  },
+  'stock-ageing': {
+    key: 'stock-ageing',
+    category: 'Inventory',
+    label: 'Stock ageing',
+    description: 'Closing stock bucketed by how long it has been held, FIFO-assumed from purchase inwards, valued at cost.',
+    columns: STOCK_AGEING_COLUMNS,
+    defaultSort: '-valueLocked',
+    filters: ['itemName'],
   },
 };
 
@@ -704,8 +1518,16 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
  * failure. The Tally group is the first such joiner.
  */
 export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.filter(
-  (key) => !(TALLY_REPORT_KEYS as readonly string[]).includes(key) && !(SALES_REPORT_KEYS as readonly string[]).includes(key),
+  (key) =>
+    !(TALLY_REPORT_KEYS as readonly string[]).includes(key) &&
+    !(SALES_REPORT_KEYS as readonly string[]).includes(key) &&
+    !(ANALYTICS_REPORT_KEYS as readonly string[]).includes(key) &&
+    !(ATTENDANCE_ANALYTICS_REPORT_KEYS as readonly string[]).includes(key),
 ).map((key) => REPORT_DEFINITIONS[key]);
+
+export const ATTENDANCE_ANALYTICS_REPORTS: readonly ReportDefinition[] = ATTENDANCE_ANALYTICS_REPORT_KEYS.map(
+  (key) => REPORT_DEFINITIONS[key],
+);
 
 export const SALES_REPORTS: readonly ReportDefinition[] = SALES_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
 
@@ -714,8 +1536,12 @@ export const TALLY_REPORTS: readonly ReportDefinition[] = TALLY_REPORT_KEYS.map(
   (key) => REPORT_DEFINITIONS[key],
 );
 
+export const ANALYTICS_REPORTS: readonly ReportDefinition[] = ANALYTICS_REPORT_KEYS.map(
+  (key) => REPORT_DEFINITIONS[key],
+);
+
 /** Every module's reports. Grows by concatenation as modules add groups. */
-export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS];
+export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...ANALYTICS_REPORTS];
 
 /** The columns a report shows before anyone touches the F12 chooser. */
 export function defaultVisibleColumns(reportKey: ReportKey): string[] {
@@ -776,6 +1602,9 @@ export const reportFilterSchema = z.object({
   punchType: z.enum(PUNCH_TYPES).optional(),
   partyId: z.uuid().optional(),
   groupBy: z.enum(SALES_ANALYSIS_DIMENSIONS).optional(),
+  voucherType: z.string().trim().min(1).max(60).optional(),
+  ledgerName: z.string().trim().min(1).max(120).optional(),
+  itemName: z.string().trim().min(1).max(120).optional(),
 });
 
 export type ReportFilters = z.infer<typeof reportFilterSchema>;
@@ -943,6 +1772,80 @@ export const EXPORT_STATUS_LABELS: Record<ExportStatus, string> = {
   FAILED: 'Failed',
 };
 
+
+// ------------------------------------------------------- cross-period joins
+
+/**
+ * How a row is matched to its twin in a comparison period, per report.
+ * Mirrors the id extractors in the web's row shapes
+ * (`features/reports/types.ts`) — the screen's delta columns and an exported
+ * file's must join the same rows or the two will disagree. `join` composes
+ * the fields; `first` takes the first present one. Reports not listed join
+ * on their `id` field, which for voucher-grain reports means a different
+ * period never matches — correctly, since those rows have no twin.
+ */
+const ROW_JOIN_KEYS: Partial<Record<ReportKey, { fields: readonly string[]; mode: 'join' | 'first' }>> = {
+  'voucher-reconciliation': { fields: ['month', 'voucherType'], mode: 'join' },
+  'credit-cycle': { fields: ['partyId'], mode: 'first' },
+  'sales-analysis': { fields: ['key', 'label'], mode: 'first' },
+  'day-book': { fields: ['voucherId'], mode: 'first' },
+  'customer-lapse': { fields: ['partyId'], mode: 'first' },
+  'low-stock': { fields: ['stockItemId'], mode: 'first' },
+  'stock-summary': { fields: ['stockItemId'], mode: 'first' },
+  'negative-stock': { fields: ['stockItemId'], mode: 'first' },
+  'stale-projections': { fields: ['connectionId'], mode: 'first' },
+  'purchase-rhythm': { fields: ['partyId'], mode: 'first' },
+  'item-velocity': { fields: ['stockItemId'], mode: 'first' },
+  'dead-stock': { fields: ['stockItemId'], mode: 'first' },
+  'credit-breaches': { fields: ['partyId'], mode: 'first' },
+  'stock-ageing': { fields: ['stockItemId'], mode: 'first' },
+  'customer-concentration': { fields: ['partyId'], mode: 'first' },
+  'order-fill-rate': { fields: ['partyId'], mode: 'first' },
+  'new-vs-repeat': { fields: ['month'], mode: 'first' },
+  'approvals-turnaround': { fields: ['type'], mode: 'first' },
+  'early-arrival-leaderboard': { fields: ['employeeId'], mode: 'first' },
+  'on-time-rate': { fields: ['departmentId'], mode: 'first' },
+  'aov-trend': { fields: ['month'], mode: 'first' },
+  'partial-shipments': { fields: ['partyId'], mode: 'first' },
+  'vendor-lead-time': { fields: ['partyId'], mode: 'first' },
+  'stock-out-frequency': { fields: ['stockItemId', 'month'], mode: 'join' },
+  'margin-proxy': { fields: ['stockItemId'], mode: 'first' },
+  'sales-heatmap': { fields: ['partyId', 'month'], mode: 'join' },
+};
+
+function joinKeyPart(value: unknown): string | null {
+  if (typeof value === 'string' && value !== '') return value;
+  if (typeof value === 'number') return String(value);
+  return null;
+}
+
+export function reportRowJoinKey(reportKey: ReportKey, row: Record<string, unknown>): string | null {
+  const spec = ROW_JOIN_KEYS[reportKey] ?? { fields: ['id'], mode: 'first' as const };
+  if (spec.mode === 'join') {
+    const parts = spec.fields.map((field) => joinKeyPart(row[field]));
+    return parts.every((part): part is string => part !== null) ? parts.join(':') : null;
+  }
+  for (const field of spec.fields) {
+    const part = joinKeyPart(row[field]);
+    if (part !== null) return part;
+  }
+  return null;
+}
+
+/**
+ * Comparison state flowing into a file (data-analyst skill §3). The client
+ * sends the comparison range it is already showing — computed with the same
+ * FY-aware arithmetic as the screen — plus the column the deltas ride on and
+ * the header label, so the file and the screen cannot disagree about either.
+ */
+export const exportCompareSchema = z.object({
+  from: z.iso.date(),
+  to: z.iso.date(),
+  columnKey: z.string().max(64),
+  label: z.string().max(40),
+});
+export type ExportCompare = z.infer<typeof exportCompareSchema>;
+
 export const exportRequestSchema = z.object({
   reportKey: z.enum(REPORT_KEYS),
   filters: exportFilterSchema,
@@ -950,6 +1853,7 @@ export const exportRequestSchema = z.object({
   columns: z.array(z.string().max(64)).max(64).optional(),
   sort: z.string().max(200).optional(),
   format: z.enum(AVAILABLE_EXPORT_FORMATS).default('CSV'),
+  compare: exportCompareSchema.optional(),
 });
 
 export type ExportRequest = z.infer<typeof exportRequestSchema>;
@@ -1656,6 +2560,89 @@ export interface CreditCycleSource {
   readonly asOf: string | null;
 }
 
+/** One open bill (Phase 6d, REQ-Y-02). */
+export interface AgeingSource {
+  readonly partyId: string | null;
+  readonly partyName: string;
+  readonly billName: string;
+  readonly billDate: string | null;
+  readonly dueDate: string | null;
+  readonly ageDays: number;
+  readonly bucket: string;
+  readonly outstanding: string;
+  readonly overdue: boolean;
+  readonly asOf: string | null;
+}
+
+export function ageingCell(row: AgeingSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName':
+      return row.partyName;
+    case 'billName':
+      return row.billName;
+    case 'billDate':
+      return row.billDate;
+    case 'dueDate':
+      return row.dueDate;
+    case 'ageDays':
+      return row.ageDays;
+    case 'bucket':
+      return row.bucket;
+    case 'outstanding':
+      return row.outstanding;
+    case 'overdue':
+      return row.overdue ? 'OVERDUE' : 'WITHIN TERMS';
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
+}
+
+/** One party's payment behaviour (Phase 6d, REQ-Y-04). */
+export interface PaymentAnalysisSource {
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly creditDays: number | null;
+  /** Null when nothing has been settled yet; the screen says so rather than showing 0. */
+  readonly avgDaysToPay: number | null;
+  /** Actual minus agreed. Positive is late. Null when either side is unknown. */
+  readonly slippage: number | null;
+  readonly billsPaid: number;
+  readonly billsOpen: number;
+  readonly oldestOpenDays: number | null;
+  readonly asOf: string | null;
+}
+
+export function paymentAnalysisCell(row: PaymentAnalysisSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName':
+      return row.partyName;
+    case 'creditDays':
+      return row.creditDays;
+    case 'avgDaysToPay':
+      return row.avgDaysToPay;
+    case 'slippage':
+      return row.slippage;
+    case 'billsPaid':
+      return row.billsPaid;
+    case 'billsOpen':
+      return row.billsOpen;
+    case 'oldestOpenDays':
+      return row.oldestOpenDays;
+    case 'onTime':
+      // Unknown is not "on time". A party with nothing settled has not
+      // demonstrated anything, and saying ON TIME would be a claim the data
+      // does not support.
+      if (row.slippage === null) return 'NOT YET KNOWN';
+      return row.slippage <= 0 ? 'ON TIME' : 'LATE';
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
+}
+
 export function creditCycleCell(row: CreditCycleSource, key: string): ReportCellValue {
   switch (key) {
     case 'partyName':
@@ -2010,4 +2997,260 @@ export function isScheduleDue(
   // skipping the day silently.
   const due = schedule.hour * 60 + schedule.minute;
   return local.hour * 60 + local.minute >= due;
+}
+
+/** 14 REQ-AE-01: one voucher, as Tally said it. */
+export interface DayBookSource {
+  readonly voucherId: string;
+  readonly date: string;
+  readonly voucherType: string;
+  readonly voucherNumber: string;
+  readonly partyName: string | null;
+  readonly amount: string;
+  readonly narration: string | null;
+  readonly cancelled: boolean;
+  readonly asOf: string | null;
+}
+
+export function dayBookCell(row: DayBookSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'date':
+      return row.date;
+    case 'voucherType':
+      return row.voucherType;
+    case 'voucherNumber':
+      return row.voucherNumber;
+    case 'partyName':
+      return row.partyName;
+    case 'amount':
+      return row.amount;
+    case 'narration':
+      return row.narration;
+    case 'cancelled':
+      return row.cancelled ? 'CANCELLED' : 'POSTED';
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
+}
+
+/** 14 REQ-AG-02: one customer measured against their own buying rhythm. */
+export interface CustomerLapseSource {
+  readonly partyId: string;
+  readonly partyName: string;
+  /** 'LAPSED' past twice the median gap, 'AT_RISK' past once, else 'ON_RHYTHM'. */
+  readonly state: 'LAPSED' | 'AT_RISK' | 'ON_RHYTHM';
+  readonly lastSaleDate: string;
+  readonly daysSince: number;
+  readonly medianGapDays: number;
+  readonly expectedBy: string;
+  readonly sales12m: number;
+  readonly revenue12m: string;
+  readonly asOf: string | null;
+}
+
+export function customerLapseCell(row: CustomerLapseSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName':
+      return row.partyName;
+    case 'state':
+      return row.state;
+    case 'lastSaleDate':
+      return row.lastSaleDate;
+    case 'daysSince':
+      return row.daysSince;
+    case 'medianGapDays':
+      return row.medianGapDays;
+    case 'expectedBy':
+      return row.expectedBy;
+    case 'sales12m':
+      return row.sales12m;
+    case 'revenue12m':
+      return row.revenue12m;
+    case 'asOf':
+      return row.asOf;
+    default:
+      return null;
+  }
+}
+
+/**
+ * The Tier 1 analytics rows (D-46) are flat records whose keys are their
+ * column keys, so one cell reader serves all fifteen shapes — a bespoke
+ * switch per report would restate each interface a second time.
+ */
+export function recordCell(row: Record<string, unknown>, key: string): ReportCellValue {
+  const value = row[key];
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  // A Date from the driver, most likely; anything else has no honest cell.
+  return value instanceof Date ? value.toISOString() : null;
+}
+
+export interface LedgerExtractSource extends Record<string, unknown> {
+  readonly id: string;
+  readonly date: string;
+  readonly voucherType: string;
+  readonly voucherNumber: string;
+  readonly partyName: string | null;
+  readonly debit: string | null;
+  readonly credit: string | null;
+  readonly balance: string;
+  readonly asOf: string | null;
+}
+
+export interface StockSummarySource extends Record<string, unknown> {
+  readonly stockItemId: string;
+  readonly item: string;
+  readonly group: string | null;
+  readonly unit: string | null;
+  readonly closingQty: string | null;
+  readonly committedQty: string;
+  readonly availableQty: string | null;
+  readonly costRate: string | null;
+  readonly value: string | null;
+  readonly asOf: string | null;
+}
+
+export interface NegativeStockSource extends Record<string, unknown> {
+  readonly stockItemId: string;
+  readonly item: string;
+  readonly group: string | null;
+  readonly closingQty: string;
+  readonly unit: string | null;
+  readonly lastPulledAt: string | null;
+}
+
+export interface StaleProjectionSource extends Record<string, unknown> {
+  readonly connectionId: string;
+  readonly companyName: string;
+  readonly connectionState: string;
+  readonly lastPulledAt: string | null;
+  readonly hoursStale: number | null;
+}
+
+export interface DuplicateMasterSource extends Record<string, unknown> {
+  readonly id: string;
+  readonly kind: 'Party' | 'Item';
+  readonly nameA: string;
+  readonly nameB: string;
+  readonly reason: string;
+}
+
+export interface CustomerItemSource extends Record<string, unknown> {
+  readonly id: string;
+  readonly partyId: string | null;
+  readonly partyName: string;
+  readonly stockItemId: string | null;
+  readonly item: string;
+  readonly invoices: number;
+  readonly quantity: string | null;
+  readonly value: string;
+  readonly lastDate: string;
+  readonly asOf: string | null;
+}
+
+export interface PurchaseRhythmSource extends Record<string, unknown> {
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly sales12m: number;
+  readonly perMonth: string;
+  readonly medianGapDays: number;
+  readonly lastGapDays: number | null;
+  readonly daysSince: number;
+  readonly trend: 'SLOWING' | 'STEADY' | 'QUICKENING';
+  readonly asOf: string | null;
+}
+
+export interface PriceVarianceSource extends Record<string, unknown> {
+  readonly id: string;
+  readonly item: string;
+  readonly buyers: number;
+  readonly minRate: string;
+  readonly minParty: string | null;
+  readonly maxRate: string;
+  readonly maxParty: string | null;
+  readonly avgRate: string;
+  readonly spreadPct: string;
+  readonly asOf: string | null;
+}
+
+export interface ItemVelocitySource extends Record<string, unknown> {
+  readonly stockItemId: string | null;
+  readonly item: string;
+  readonly monthly12: string;
+  readonly monthly3: string;
+  readonly trend: 'RISING' | 'STEADY' | 'FALLING';
+  readonly closingQty: string | null;
+  readonly coverDays: number | null;
+  readonly asOf: string | null;
+}
+
+export interface DeadStockSource extends Record<string, unknown> {
+  readonly stockItemId: string;
+  readonly item: string;
+  readonly lastSaleDate: string | null;
+  readonly daysIdle: number | null;
+  readonly closingQty: string | null;
+  readonly valueLocked: string | null;
+  readonly asOf: string | null;
+}
+
+export interface MovementSource extends Record<string, unknown> {
+  readonly id: string;
+  readonly month: string;
+  readonly item: string;
+  readonly inwardQty: string;
+  readonly outwardQty: string;
+  readonly netQty: string;
+  readonly asOf: string | null;
+}
+
+export interface VendorItemSource extends Record<string, unknown> {
+  readonly id: string;
+  readonly vendorName: string;
+  readonly partyId: string | null;
+  readonly item: string;
+  readonly purchases: number;
+  readonly quantity: string | null;
+  readonly lastRate: string;
+  readonly avgRate: string;
+  readonly lastDate: string;
+  readonly rateTrend: 'RISING' | 'STEADY' | 'FALLING';
+  readonly asOf: string | null;
+}
+
+export interface VendorPriceSource extends Record<string, unknown> {
+  readonly id: string;
+  readonly item: string;
+  readonly vendors: number;
+  readonly bestRate: string;
+  readonly bestVendor: string | null;
+  readonly worstRate: string;
+  readonly worstVendor: string | null;
+  readonly spreadPct: string;
+  readonly asOf: string | null;
+}
+
+export interface CreditBreachSource extends Record<string, unknown> {
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly creditLimit: string | null;
+  readonly exposure: string;
+  readonly overBy: string;
+  readonly releases90d: number;
+  readonly asOf: string | null;
+}
+
+export interface StockAgeingSource extends Record<string, unknown> {
+  readonly stockItemId: string;
+  readonly item: string;
+  readonly closingQty: string;
+  readonly bucket0: string;
+  readonly bucket31: string;
+  readonly bucket61: string;
+  readonly bucket90: string;
+  readonly valueLocked: string | null;
+  readonly asOf: string | null;
 }

@@ -3,7 +3,9 @@ import type { DateRange } from 'react-day-picker';
 import { BooksIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { flagClasses, flagLabel } from '@/features/attendance/status';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
+import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,7 +32,11 @@ import {
 // are there only because that directory was locked while several screens were
 // being built in parallel. Reusing them beats a second copy of the same
 // composition, which is exactly what CLAUDE.md §3 asks for.
-import { DateField, DateRangeField, MonthField } from '@/features/attendance/pickers';
+import { DateField, DateRangeField, MonthField, type RangePreset } from '@/features/attendance/pickers';
+import { subDays } from 'date-fns';
+
+import { fromDateParam } from '@/features/attendance/format';
+import { periodForGranularity } from '@/lib/period-compare';
 
 import { monthRange, type PeriodMode } from './period';
 
@@ -63,6 +69,12 @@ export interface ReportFilterState {
   readonly partyId: string | null;
   /** Phase 6d: REQ-Y-05's dimension. */
   readonly groupBy: string | null;
+  /** 14 REQ-AE-01: the day book's voucher-type narrowing. */
+  readonly voucherType: string | null;
+  /** 14 REQ-AE-02: the ledger the extract is for. */
+  readonly ledgerName: string | null;
+  /** 14: the item analyses narrow by item name. */
+  readonly itemName: string | null;
 }
 
 interface Option {
@@ -106,7 +118,7 @@ function OptionSelect({
         onValueChange(next === null || next === ALL ? null : next);
       }}
     >
-      <SelectTrigger aria-label={label} className="pointer-coarse:h-11 w-full sm:w-44">
+      <SelectTrigger aria-label={label} className="w-full sm:w-44">
         <SelectValue>
           {(current: string) =>
             options.find((option) => option.id === current)?.name ?? placeholder
@@ -165,6 +177,48 @@ export function ReportFilterBar({
         </div>
       ) : null}
 
+      {shows('voucherType') ? (
+        <div className="w-full sm:w-44">
+          <SearchField
+            id="report-voucher-type"
+            label="Filter by voucher type"
+            placeholder="Voucher type"
+            value={value.voucherType ?? ''}
+            onValueChange={(next) => {
+              onChange({ voucherType: next.trim() === '' ? null : next });
+            }}
+          />
+        </div>
+      ) : null}
+
+      {shows('ledgerName') ? (
+        <div className="w-full sm:w-56">
+          <SearchField
+            id="report-ledger-name"
+            label="Ledger name"
+            placeholder="Ledger, as Tally names it"
+            value={value.ledgerName ?? ''}
+            onValueChange={(next) => {
+              onChange({ ledgerName: next.trim() === '' ? null : next });
+            }}
+          />
+        </div>
+      ) : null}
+
+      {shows('itemName') ? (
+        <div className="w-full sm:w-48">
+          <SearchField
+            id="report-item-name"
+            label="Filter by item"
+            placeholder="Item name"
+            value={value.itemName ?? ''}
+            onValueChange={(next) => {
+              onChange({ itemName: next.trim() === '' ? null : next });
+            }}
+          />
+        </div>
+      ) : null}
+
       {shows('groupBy') ? (
         <Select
           value={value.groupBy ?? 'party'}
@@ -172,7 +226,7 @@ export function ReportFilterBar({
             onChange({ groupBy: next === null || next === 'party' ? null : next });
           }}
         >
-          <SelectTrigger aria-label="Group by" className="pointer-coarse:h-11 w-full sm:w-40">
+          <SelectTrigger aria-label="Group by" className="w-full sm:w-40">
             <SelectValue>{(current: SalesAnalysisDimension) => SALES_ANALYSIS_DIMENSION_LABELS[current]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -226,7 +280,7 @@ export function ReportFilterBar({
             onChange({ status: next === null || next === ALL ? null : next });
           }}
         >
-          <SelectTrigger aria-label="Filter by status" className="pointer-coarse:h-11 w-full sm:w-40">
+          <SelectTrigger aria-label="Filter by status" className="w-full sm:w-40">
             <SelectValue>
               {(current: string) => (current === ALL ? 'All statuses' : humaniseEnum(current))}
             </SelectValue>
@@ -251,9 +305,14 @@ export function ReportFilterBar({
             onChange({ flags: next === null || next === ALL ? null : next });
           }}
         >
-          <SelectTrigger aria-label="Filter by flag" className="pointer-coarse:h-11 w-full sm:w-40">
+          <SelectTrigger aria-label="Filter by flag" className="w-full sm:w-40">
             <SelectValue>
-              {(current: string) => (current === ALL ? 'All flags' : humaniseEnum(current))}
+              {(current: string) => (
+                <span className="inline-flex items-center gap-1.5 [&_svg]:size-3.5">
+                  <ACTION_ICONS.flag aria-hidden />
+                  {current === ALL ? 'All flags' : humaniseEnum(current)}
+                </span>
+              )}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -261,7 +320,8 @@ export function ReportFilterBar({
               <SelectItem value={ALL}>All flags</SelectItem>
               {ATTENDANCE_FLAGS.map((flag) => (
                 <SelectItem key={flag} value={flag}>
-                  {humaniseEnum(flag)}
+                  <ACTION_ICONS.flag aria-hidden className={flagClasses(flag).text} />
+                  {flagLabel(flag)}
                 </SelectItem>
               ))}
             </SelectGroup>
@@ -278,7 +338,7 @@ export function ReportFilterBar({
         >
           <SelectTrigger
             aria-label="Filter by direction"
-            className="pointer-coarse:h-11 w-full sm:w-36"
+            className="w-full sm:w-36"
           >
             <SelectValue>
               {(current: string) => (current === ALL ? 'In and out' : humaniseEnum(current))}
@@ -373,6 +433,43 @@ function PeriodField({
       onOpenChange={onOpenChange}
       className="w-full sm:w-auto"
       hint={hint}
+      presets={PERIOD_PRESETS}
     />
   );
+}
+
+/** REQ-AD-19's presets in its order; the financial year runs April to March (REQ-AD-20). */
+const PERIOD_PRESETS: readonly RangePreset[] = [
+  { label: 'Today', range: () => ({ from: new Date(), to: new Date() }) },
+  { label: 'Yesterday', range: () => ({ from: subDays(new Date(), 1), to: subDays(new Date(), 1) }) },
+  { label: 'Last 7 days', range: () => ({ from: subDays(new Date(), 6), to: new Date() }) },
+  { label: 'This month', range: () => fromStrings(periodForGranularity('month', todayString())) },
+  { label: 'Last month', range: () => lastCalendarMonth() },
+  { label: 'Last 30 days', range: () => ({ from: subDays(new Date(), 29), to: new Date() }) },
+  { label: 'This quarter', range: () => fromStrings(periodForGranularity('quarter', todayString())) },
+  { label: 'Last quarter', range: () => previousOf('quarter') },
+  { label: 'This FY', range: () => fromStrings(periodForGranularity('year', todayString())) },
+  { label: 'Last FY', range: () => previousOf('year') },
+];
+
+function todayString(): string {
+  return new Date().toLocaleDateString('en-CA');
+}
+
+function fromStrings(range: { from: string; to: string }): DateRange {
+  return { from: fromDateParam(range.from) ?? new Date(), to: fromDateParam(range.to) ?? new Date() };
+}
+
+/** The whole previous FY period (quarter or year), full months rather than to-date. */
+function previousOf(granularity: 'quarter' | 'year'): DateRange {
+  const current = periodForGranularity(granularity, todayString());
+  const startDate = fromDateParam(current.from) ?? new Date();
+  const endOfPrevious = subDays(startDate, 1);
+  const previous = periodForGranularity(granularity, endOfPrevious.toLocaleDateString('en-CA'));
+  return { from: fromDateParam(previous.from) ?? endOfPrevious, to: endOfPrevious };
+}
+
+function lastCalendarMonth(): DateRange {
+  const now = new Date();
+  return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
 }

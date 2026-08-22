@@ -10,6 +10,7 @@ import {
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { SectionHeading } from '@/components/shared/section-heading';
+import { MfaResetButton } from '@/features/auth/mfa-reset-button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -161,7 +162,7 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
     <section className="flex flex-col gap-3">
       <SectionHeading
         title="Access and roles"
-        note="REQ-B-07. A role is a named bundle of permissions, and it attaches to the login account rather than to the employee record."
+        note="A role is a named bundle of permissions, and it attaches to the login account rather than to the employee record."
       />
 
       {access.isPending ? <AccessSkeleton /> : null}
@@ -184,7 +185,7 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
             </EmptyMedia>
             <EmptyTitle>{name} has no login account</EmptyTitle>
             <EmptyDescription>
-              An employee record and a login are separate things (REQ-B-02). Click below to provide login credentials or send an invite link.
+              An employee record and a login are separate things. Click below to provide login credentials or send an invite link.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -221,16 +222,19 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
               </dd>
             </dl>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setManageCredentialsOpen(true);
-              }}
-            >
-              <KeyIcon data-icon="inline-start" />
-              Manage credentials / password
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {account.mfaEnabled ? <MfaResetButton userId={account.id} employeeId={access.data.employeeId} name={name} /> : null}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setManageCredentialsOpen(true);
+                }}
+              >
+                <KeyIcon data-icon="inline-start" />
+                Manage credentials / password
+              </Button>
+            </div>
           </div>
 
           {account.status === 'SUSPENDED' ? (
@@ -277,7 +281,7 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="pointer-coarse:min-h-11 shrink-0"
+                        className="shrink-0"
                         aria-label={`Remove ${role.name} from ${name}`}
                         disabled={revoke.isPending}
                         onClick={() => {
@@ -335,7 +339,6 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
                 icon={<ShieldCheckIcon />}
               />
               <Button
-                className="pointer-coarse:h-11"
                 disabled={granting === null || assign.isPending}
                 onClick={() => {
                   assign.reset();

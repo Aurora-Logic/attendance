@@ -1,0 +1,1 @@
+ALTER TYPE "public"."dispatch_mode" ADD VALUE 'customer_collects';

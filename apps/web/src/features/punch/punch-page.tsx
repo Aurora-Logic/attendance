@@ -42,6 +42,9 @@ import { QueuePanel } from './queue-panel';
 import { HALF_DAY_PARTS, type HalfDayPart, type PunchDraft, type PunchResult } from './types';
 import { useCamera } from './use-camera';
 import { POOR_ACCURACY_M, useGeolocation } from './use-geolocation';
+import { useConfetti } from '@/components/shared/confetti';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
+
 import { useOnline } from './use-online';
 import { useAcceptConsent, usePunch, useToday } from './use-punch';
 import { usePunchQueue } from './use-punch-queue';
@@ -193,6 +196,13 @@ function Confirmation({
                 : 'The stamped photo is stored against this punch.'
               : 'The punch endpoint is not connected yet, so nothing was sent and nothing was saved. This is what the confirmation will look like.'}
           </p>
+          {recorded && result.earlyArrival ? (
+            <p className="text-xs font-medium">
+              {result.earlyStreak > 1
+                ? `Early again - that is ${String(result.earlyStreak)} working days in a row.`
+                : 'In ahead of the shift. A streak starts here.'}
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -219,7 +229,10 @@ function Confirmation({
           ) : null}
           {result.flags.length > 0 ? (
             <div className="flex flex-col gap-1">
-              <dt className="text-muted-foreground">Flags</dt>
+              <dt className="text-muted-foreground flex items-center gap-1 [&_svg]:size-3.5">
+                <ACTION_ICONS.flag aria-hidden />
+                Flags
+              </dt>
               <dd>
                 <AttendanceFlags flags={result.flags} />
               </dd>
@@ -296,6 +309,9 @@ export function PunchPage() {
   const location = useGeolocation();
   const online = useOnline();
   const punch = usePunch();
+  // Owner, 21 Aug 2026: an early IN gets a moment of confetti. Fired on the
+  // accepted receipt, never on a replay, and never when motion is reduced.
+  const confetti = useConfetti();
 
   const [halfDay, setHalfDay] = useState<HalfDayPart | null>(null);
   const [reason, setReason] = useState('');
@@ -320,21 +336,22 @@ export function PunchPage() {
     };
   }, [photoUrl]);
 
+  // Owner, 21 Aug 2026: an out-of-window punch is recorded and flagged for
+  // an admin to decide in Approvals; nothing here blocks it or asks why.
   const outsideWindow = today ? !today.withinWindow : false;
-  const blockedByWindow = outsideWindow && today?.windowBehaviour === 'BLOCK';
   const locationMissing =
     location.state === 'denied' ||
     location.state === 'unavailable' ||
     location.state === 'timed-out';
 
-  // REQ-D-06 and REQ-D-08a are the two places a typed reason is mandatory.
-  const reasonRequired =
-    (outsideWindow && today?.windowBehaviour === 'ALLOW_WITH_REASON') || locationMissing;
-  const reasonOk = !reasonRequired || reason.trim().length >= MIN_REASON_LENGTH;
+  // No punch needs a typed reason any more: out-of-window is flagged for
+  // review and a missing location is refused by the server, so the reason
+  // field is an offer, never a gate.
+  const reasonOk = true;
   // Red only once something insufficient has been typed. An untouched field
   // painted red reads as a broken form (the leave form states the same rule);
   // until then the disabled button's helper line already says what is missing.
-  const reasonInvalid = reasonRequired && reason.trim().length > 0 && !reasonOk;
+  const reasonInvalid = false;
 
   // REQ-M-03: the notice is shown on the first punch and acceptance recorded.
   const consentNeeded = today ? !today.consentAccepted : false;
@@ -352,7 +369,7 @@ export function PunchPage() {
     today !== undefined &&
     camera.state === 'ready' &&
     camera.hasFrame &&
-    !blockedByWindow &&
+    location.state === 'ready' &&
     reasonOk &&
     consentOk &&
     !punch.isPending;
@@ -405,6 +422,7 @@ export function PunchPage() {
       onSuccess: (accepted) => {
         setResult(accepted);
         setRecorded(true);
+        if (accepted.type === 'IN' && accepted.earlyArrival && !accepted.replayed) confetti.fire();
         setPhotoUrl(accepted.photoThumbUrl ?? URL.createObjectURL(photo));
         setReason('');
         setHalfDay(null);
@@ -592,6 +610,7 @@ export function PunchPage() {
 
   return (
     <>
+      {confetti.canvas}
       <PageHeader description="Punch in and out. A live photo is required every time." />
 
       <div className="flex flex-col gap-4">
@@ -616,7 +635,7 @@ export function PunchPage() {
             <AlertTitle>This device's clock is wrong</AlertTitle>
             <AlertDescription>
               It differs from the server by more than five minutes. The punch will still be
-              recorded against the server time and flagged for review (REQ-D-05).
+              recorded against the server time and flagged for review.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -691,13 +710,13 @@ export function PunchPage() {
                           }`
                         : null}
                       {location.state === 'denied'
-                        ? 'Location is blocked. The punch is still allowed, with a reason, and is flagged for approval.'
+                        ? 'Location is blocked. A punch needs your position, so allow location access for this site and retry.'
                         : null}
                       {location.state === 'unavailable'
-                        ? 'This device cannot report a location. The punch is still allowed, with a reason.'
+                        ? 'This device cannot report a location, and a punch needs one. Punch from a phone or a device with location.'
                         : null}
                       {location.state === 'timed-out'
-                        ? 'Locating timed out. The punch is still allowed, with a reason.'
+                        ? 'Locating timed out. A punch needs your position; retry once you have a clearer view of the sky.'
                         : null}
                     </p>
                     {locationMissing || location.state === 'timed-out' ? (
@@ -767,13 +786,12 @@ export function PunchPage() {
                     </>
                   ) : null}
 
-                  {/* REQ-D-06 / REQ-D-08a. Shown only when it is actually
-                      required, so it never reads as an optional note box. */}
-                  {reasonRequired ? (
+                  {/* Owner, 21 Aug 2026: an out-of-window punch is flagged
+                      for an admin to decide in Approvals. The note is an
+                      offer to that reader, never a gate on the punch. */}
+                  {outsideWindow ? (
                     <Field data-invalid={reasonInvalid ? true : undefined}>
-                      <FieldLabel htmlFor="punch-reason">
-                        {outsideWindow ? 'Why are you punching outside the window?' : 'Why is your location unavailable?'}
-                      </FieldLabel>
+                      <FieldLabel htmlFor="punch-reason">Note for the reviewer (optional)</FieldLabel>
                       <Textarea
                         id="punch-reason"
                         aria-invalid={reasonInvalid ? true : undefined}
@@ -837,18 +855,7 @@ export function PunchPage() {
               </Form>
             </div>
 
-            {blockedByWindow ? (
-              <Alert variant="destructive">
-                <WarningCircleIcon />
-                <AlertTitle>The punch window is closed</AlertTitle>
-                <AlertDescription>
-                  {today.shift
-                    ? `${today.shift.name} accepts punches between ${shiftWindow}.`
-                    : 'No shift is scheduled for you today.'}{' '}
-                  Raise a regularization instead.
-                </AlertDescription>
-              </Alert>
-            ) : null}
+
 
             {captureError ? (
               <Alert variant="destructive">
@@ -927,11 +934,11 @@ export function PunchPage() {
                         // saying so is the difference between waiting and
                         // going looking for a permission setting.
                         'Waiting for the camera preview.'
-                      : blockedByWindow
-                        ? 'The window for this shift has closed.'
+                      : location.state !== 'ready'
+                        ? 'Waiting for your location. A punch needs one.'
                         : !consentOk
                           ? 'Accept the photo and location notice to continue.'
-                          : `Type a reason of at least ${String(MIN_REASON_LENGTH)} characters.`}
+                          : 'Punching is not available right now.'}
                 </p>
               ) : null}
             </div>

@@ -250,6 +250,7 @@ const SOURCE_LABELS: Record<PunchSource, string> = {
   MOBILE: 'Mobile',
   WEB: 'Web',
   OFFLINE_SYNC: 'Offline sync',
+  ADMIN_ENTRY: 'Admin entry',
 };
 
 /**

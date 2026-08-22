@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
+import { FulfilmentTabs } from './fulfilment-tabs';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { RowActions, type RowAction } from '@/components/shared/row-actions';
@@ -117,6 +118,7 @@ export function AwaitingInvoicePage() {
     return (
       <>
         <PageHeader description="Packed and waiting for the accountant, and invoices with no order behind them." />
+        <FulfilmentTabs current="invoice" />
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -369,12 +371,12 @@ function LinkInvoiceForm({ voucher, canLink, onClose }: { voucher: UnlinkedInvoi
         )}
       </FieldGroup>
       <ResponsiveDialogActions>
-        <Button variant="outline" className="pointer-coarse:min-h-11" onClick={onClose}>
+        <Button variant="outline" onClick={onClose}>
           <ACTION_ICONS.cancel data-icon="inline-start" />
           {canLink && voucher.candidateOrders.length > 0 ? 'Cancel' : 'Close'}
         </Button>
         {canLink && voucher.candidateOrders.length > 0 ? (
-          <Button className="pointer-coarse:min-h-11" disabled={order === null || link.isPending} onClick={submit}>
+          <Button disabled={order === null || link.isPending} onClick={submit}>
             {link.isPending ? <Spinner data-icon="inline-start" /> : <LinkIcon data-icon="inline-start" />}
             {link.isPending ? 'Linking' : 'Link'}
           </Button>

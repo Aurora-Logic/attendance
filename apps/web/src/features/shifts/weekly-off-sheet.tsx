@@ -158,7 +158,6 @@ function WeeklyOffSheetBody({
             <FieldLabel htmlFor="weekly-off-name">Name</FieldLabel>
             <Input
               id="weekly-off-name"
-              className="pointer-coarse:h-11"
               value={name}
               onChange={(event) => {
                 setName(event.target.value);
@@ -214,7 +213,7 @@ function WeeklyOffSheetBody({
             />
           </Field>
           <FieldDescription>
-            REQ-C-03&apos;s alternate-Saturday rule. This is not the same as ticking Saturday
+            The alternate-Saturday rule. This is not the same as ticking Saturday
             above, which makes every Saturday off.
           </FieldDescription>
 

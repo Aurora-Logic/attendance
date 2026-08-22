@@ -350,7 +350,7 @@ function RoleEditorBody({
           if (!next) setConfirming(null);
         }}
         title={`Delete ${role?.name ?? ''}?`}
-        description="The role goes to the recycle bin. Nothing is hard-deleted (REQ-M-04)."
+        description="The role goes to the recycle bin. Nothing is hard-deleted."
         consequences={[
           'It disappears from the role list and from the assignment picker.',
           'It is refused while any active account still holds it, and the refusal names them.',

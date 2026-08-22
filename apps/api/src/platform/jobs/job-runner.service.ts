@@ -11,6 +11,7 @@ import { env } from '../common/env.js';
 import { AppError, describeError } from '../common/errors.js';
 import { StartupError } from '../common/startup-error.js';
 import { bullConnectionOptions } from './bull-connection.js';
+import { FallbackJobRunner } from './fallback-job-runner.service.js';
 import { JobRegistry, type JobResult } from './job-handler.js';
 import {
   DEFAULT_JOB_OPTIONS,
@@ -63,7 +64,10 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
   private readonly queues = new Map<QueueName, Queue>();
   private readonly workers = new Map<QueueName, Worker>();
 
-  constructor(private readonly registry: JobRegistry) {}
+  constructor(
+    private readonly registry: JobRegistry,
+    private readonly fallback: FallbackJobRunner,
+  ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     if (!env.JOBS_WORKER_ENABLED) {
@@ -76,14 +80,17 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
     try {
       await this.installSchedules();
     } catch (error: unknown) {
-      if (env.NODE_ENV === 'development') {
-        this.logger.warn({
-          msg: 'Could not connect to Redis to install job schedules. Background job schedulers are disabled for this session.',
-          reason: describeError(error),
-        });
-        return;
-      }
-      throw error;
+      // JOBS_REQUIRE_REDIS is opt-in, for a deployment that has installed
+      // Redis and wants a misconfigured REDIS_URL there to be a loud boot
+      // failure rather than a silent switch to the Postgres fallback.
+      if (env.JOBS_REQUIRE_REDIS) throw error;
+
+      this.logger.warn({
+        msg: 'Could not connect to Redis; background jobs are running from the Postgres fallback until Redis is reachable.',
+        reason: describeError(error),
+      });
+      await this.fallback.activate();
+      return; // No live BullMQ to consume from.
     }
 
     this.startWorkers();
@@ -138,6 +145,10 @@ export class JobRunner implements OnApplicationBootstrap, OnApplicationShutdown 
     payload: JobPayloads[TName],
     options: EnqueueOptions = {},
   ): Promise<string> {
+    // Known-down since boot: go straight to Postgres rather than paying
+    // ENQUEUE_TIMEOUT_MS on a BullMQ connection that isn't there at all.
+    if (this.fallback.isActive()) return this.fallback.enqueue(jobName, payload, options);
+
     // No worker-flag short-circuit here, deliberately: JOBS_WORKER_ENABLED
     // means "this process does not consume", never "this process does not
     // enqueue". The API under test enqueues real jobs into a real Redis with

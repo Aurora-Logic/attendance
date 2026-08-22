@@ -128,7 +128,7 @@ function InvoiceSheetBody({ invoice, onClose }: { invoice: Estimate; onClose: ()
               <AlertTitle>Tally rejected it</AlertTitle>
               <AlertDescription>
                 <p className="font-mono text-xs">{invoice.lastError}</p>
-                <p className="mt-1">Tally&rsquo;s own words (REQ-T-01). Fix the cause there, then push again.</p>
+                <p className="mt-1">Tally&rsquo;s own words. Fix the cause there, then push again.</p>
               </AlertDescription>
             </Alert>
           ) : null}

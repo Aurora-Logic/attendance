@@ -76,7 +76,7 @@ export function DeleteHolidayDialog({
           <AlertDialogDescription>
             {holiday === null
               ? ''
-              : `${formatDate(holiday.date)}, a ${format(parseISO(holiday.date), 'EEEE')}, leaves ${calendarName}. Everybody on this calendar works that day unless it is a weekly off, and the attendance days it covered are recomputed (REQ-H-04).`}
+              : `${formatDate(holiday.date)}, a ${format(parseISO(holiday.date), 'EEEE')}, leaves ${calendarName}. Everybody on this calendar works that day unless it is a weekly off, and the attendance days it covered are recomputed.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
 

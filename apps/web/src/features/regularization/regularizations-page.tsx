@@ -37,9 +37,10 @@ import {
   type RegularizationRequest,
 } from '@vyuha/shared';
 
+import { DraftCompletionCard } from './draft-completion-card';
 import { OnDutyForm } from './on-duty-form';
 import { RegularizationForm } from './regularization-form';
-import { REQUEST_STATUS_LABELS, REQUEST_STATUS_VARIANT } from './types';
+import { isUncompletedDraft, REQUEST_STATUS_LABELS, REQUEST_STATUS_VARIANT } from './types';
 import {
   useOnDutyRequests,
   useRegularizationPolicy,
@@ -252,7 +253,13 @@ export function RegularizationsPage() {
   const historyQuery = useRegularizations(params, permissionsKnown);
   const onDutyQuery = useOnDutyRequests(params, permissionsKnown);
 
-  const history = historyQuery.data?.data ?? [];
+  const allHistory = historyQuery.data?.data ?? [];
+  // Drafts `attendance.regularization_auto_file` raised for this employee and
+  // nobody has finished yet: the server only ever sends them to the employee
+  // they are about, so every row here needs this person's input, not a
+  // history table's read-only row.
+  const drafts = allHistory.filter(isUncompletedDraft);
+  const history = allHistory.filter((row) => !isUncompletedDraft(row));
   const onDuty = onDutyQuery.data?.data ?? [];
 
   function changeTab(next: string) {
@@ -288,6 +295,21 @@ export function RegularizationsPage() {
           }
         >
           <TabsContent value="corrections" className="flex flex-col gap-6">
+            {drafts.length > 0 ? (
+              <section className="flex flex-col gap-4">
+                <SectionHeading
+                  title="Needs your input"
+                  note="Raised automatically because a punch fell outside the shift window. Add why and send it on, or it will keep waiting here."
+                />
+                <div className="flex flex-col gap-3">
+                  {drafts.map((draft) => (
+                    <DraftCompletionCard key={draft.id} draft={draft} />
+                  ))}
+                </div>
+                <Separator />
+              </section>
+            ) : null}
+
             <section className="flex flex-col gap-4">
               <SectionHeading
                 title="Correct a day"

@@ -79,7 +79,7 @@ const DIRECTIONS: readonly { value: AdjustmentDirection; label: string }[] = [
   { value: 'REMOVE', label: 'Remove days' },
 ];
 
-const LEAVE_YEAR_START_MONTH = 3; // April, zero-based (REQ-G-04).
+const LEAVE_YEAR_START_MONTH = 3; // April, zero-based.
 
 function currentLeaveYear(): number {
   const now = new Date();
@@ -275,7 +275,7 @@ function AdjustmentBody({ onClose }: { onClose: () => void }) {
                 if (next !== null) setYear(Number(next));
               }}
             >
-              <SelectTrigger id="adjust-year" aria-label="Leave year" className="pointer-coarse:h-11 w-full">
+              <SelectTrigger id="adjust-year" aria-label="Leave year" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -290,7 +290,7 @@ function AdjustmentBody({ onClose }: { onClose: () => void }) {
             </Select>
             <FieldDescription>
               Named by the calendar year the leave year opens in. The year starts in April
-              (REQ-G-04), so a correction dated February belongs to the year before.
+, so a correction dated February belongs to the year before.
             </FieldDescription>
           </Field>
 

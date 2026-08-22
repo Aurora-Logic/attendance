@@ -1,4 +1,20 @@
-import { DEVICE_BINDING_MODES, PUNCH_WINDOW_BEHAVIOURS } from '@vyuha/shared';
+import {
+  DEFAULT_APPEARANCE,
+  DEFAULT_LOCALE,
+  DEFAULT_MFA_POLICY,
+  DEFAULT_RETENTION,
+  DEFAULT_SESSION_HOURS,
+  DEVICE_BINDING_MODES,
+  MFA_POLICIES,
+  SESSION_HOURS_MAX,
+  SESSION_HOURS_MIN,
+  appearanceSchema,
+  localeSchema,
+  retentionSchema,
+  type Appearance,
+  type RetentionPolicy,
+  type WorkspaceLocale,
+} from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -61,11 +77,6 @@ export interface SettingDescriptor {
  * that they were edited together.
  */
 export const ATTENDANCE_SETTINGS = {
-  punchWindowBehaviour: {
-    key: 'attendance.punch_window_behaviour',
-    help: 'What happens to a punch outside the shift window (REQ-D-06).',
-    enforcedBy: 'Punch',
-  },
   geofenceBehaviour: {
     key: 'attendance.geofence_behaviour',
     help: 'What happens to a punch outside the location radius (REQ-D-08).',
@@ -77,6 +88,19 @@ export const ATTENDANCE_SETTINGS = {
     key: 'attendance.device_binding_mode',
     help: 'Whether punching from a new device warns, blocks, or is ignored (REQ-B-08).',
     enforcedBy: 'Punch',
+  },
+  // Owner, 21 Aug 2026: early arrival is recognised (confetti at the punch,
+  // a streak on the profile) when the first IN beats shift start by this many
+  // minutes; the toggle switches the whole recognition off.
+  earlyArrivalEnabled: {
+    key: 'attendance.early_arrival_enabled',
+    help: 'Whether an early arrival is celebrated and counted toward a streak.',
+    enforcedBy: 'Day engine',
+  },
+  earlyArrivalThresholdMinutes: {
+    key: 'attendance.early_arrival_threshold_minutes',
+    help: 'How many minutes before shift start counts as early.',
+    enforcedBy: 'Day engine',
   },
   maxWorkMinutes: {
     key: 'attendance.max_work_minutes',
@@ -97,6 +121,11 @@ export const ATTENDANCE_SETTINGS = {
     // Counted over the calendar month the request is *made* in, not the month
     // being corrected. Zero switches the feature off without taking the
     // permission away from four roles.
+    enforcedBy: 'Regularization',
+  },
+  regularizationAutoFile: {
+    key: 'attendance.regularization_auto_file',
+    help: 'Automatically file a correction request when a punch is late or outside the shift window, so the employee only has to add a reason instead of starting the form themselves. Off leaves raising a correction to the employee, as today.',
     enforcedBy: 'Regularization',
   },
   autoEscalationDays: {
@@ -131,7 +160,6 @@ export const PHOTO_SETTINGS = {
  * feature would misbehave rather than merely be configured oddly.
  */
 export const attendancePolicySchema = z.object({
-  punchWindowBehaviour: z.enum(PUNCH_WINDOW_BEHAVIOURS),
   geofenceBehaviour: z.enum(GEOFENCE_BEHAVIOURS),
   deviceBindingMode: z.enum(DEVICE_BINDING_MODES),
   // The day engine's own guard is `positive().max(24h)`; 60 minutes is the
@@ -141,6 +169,9 @@ export const attendancePolicySchema = z.object({
   // Zero is a legitimate policy: regularization switched off without removing
   // the permission from four roles.
   regularizationMaxPerMonth: z.number().int().min(0).max(31),
+  regularizationAutoFile: z.boolean(),
+  earlyArrivalEnabled: z.boolean(),
+  earlyArrivalThresholdMinutes: z.number().int().min(5).max(240),
   autoEscalationDays: z.number().int().min(1).max(30),
 });
 
@@ -183,8 +214,6 @@ export type PhotoPolicy = z.infer<typeof photoPolicyObject>;
  * default from the one in force is worse than no screen.
  */
 export const DEFAULT_ATTENDANCE_POLICY: AttendancePolicy = {
-  // 05-decisions: out-of-window punches are allowed with a typed reason.
-  punchWindowBehaviour: 'ALLOW_WITH_REASON',
   // REQ-D-08 and 05-decisions: hard block.
   geofenceBehaviour: 'BLOCK',
   // REQ-B-08: warn.
@@ -194,6 +223,12 @@ export const DEFAULT_ATTENDANCE_POLICY: AttendancePolicy = {
   // REQ-F-02: 7 days back, 3 a month.
   regularizationWindowDays: 7,
   regularizationMaxPerMonth: 3,
+  // Off: raising a correction is left to the employee unless an organisation
+  // opts in.
+  regularizationAutoFile: false,
+  // Owner, 21 Aug 2026: on, fifteen minutes.
+  earlyArrivalEnabled: true,
+  earlyArrivalThresholdMinutes: 15,
   // REQ-G-09.
   autoEscalationDays: 3,
 };
@@ -206,10 +241,81 @@ export const DEFAULT_PHOTO_POLICY: PhotoPolicy = {
   maxBytes: 150 * KB,
 };
 
+/**
+ * REQ-B-09. Owner, 22 Aug 2026: two-step sign-in is required for Admin and
+ * Accounts unless Settings says otherwise; anybody may turn it on.
+ */
+export const SECURITY_SETTINGS = {
+  mfaPolicy: {
+    key: 'security.mfa_policy',
+    help: 'Which roles must sign in with an authenticator app (REQ-B-09).',
+    enforcedBy: 'Sign-in',
+  },
+  // Owner, 22 Aug 2026: the refresh window per organisation, and whether
+  // the cookie outlives the browser. Read by SessionService at sign-in and
+  // at every rotation, so a change takes effect from the next request.
+  sessionHours: {
+    key: 'security.session_hours',
+    help: 'How long a sign-in lasts, renewed by use.',
+    enforcedBy: 'Sign-in',
+  },
+  endSessionOnClose: {
+    key: 'security.end_session_on_close',
+    help: 'Whether closing the browser ends the sign-in.',
+    enforcedBy: 'Sign-in',
+  },
+} as const satisfies Record<string, SettingDescriptor>;
+
+export const securityPolicySchema = z.object({
+  mfaPolicy: z.enum(MFA_POLICIES),
+  sessionHours: z.number().int().min(SESSION_HOURS_MIN).max(SESSION_HOURS_MAX),
+  endSessionOnClose: z.boolean(),
+});
+export type SecurityPolicy = z.infer<typeof securityPolicySchema>;
+export const DEFAULT_SECURITY_POLICY: SecurityPolicy = { mfaPolicy: DEFAULT_MFA_POLICY, sessionHours: DEFAULT_SESSION_HOURS, endSessionOnClose: false };
+
+/** How every figure is written; rides with the branding read so every client agrees. */
+export const LOCALE_SETTINGS = {
+  numberFormat: { key: 'locale.number_format', help: 'Lakh-and-crore or thousands grouping.', enforcedBy: 'Every figure' },
+  currencySymbol: { key: 'locale.currency_symbol', help: 'The symbol before an amount.', enforcedBy: 'Every figure' },
+} as const satisfies Record<string, SettingDescriptor>;
+export const localePolicySchema = localeSchema;
+export type LocalePolicy = WorkspaceLocale;
+export const DEFAULT_LOCALE_POLICY: LocalePolicy = DEFAULT_LOCALE;
+
+/** How long what the system keeps is kept; punch photos have their own row under attendance. */
+export const RETENTION_SETTINGS = {
+  exportsDays: { key: 'retention.exports_days', help: 'Days a download stays in the tray.', enforcedBy: 'Exports' },
+} as const satisfies Record<string, SettingDescriptor>;
+export const retentionPolicySchema = retentionSchema;
+export type RetentionPolicyRow = RetentionPolicy;
+export const DEFAULT_RETENTION_POLICY: RetentionPolicy = DEFAULT_RETENTION;
+
+/**
+ * Owner, 22 Aug 2026: the accent and the base are the workspace's, light
+ * and dark each person's. Read by every signed-in client through the
+ * branding endpoint, which is how the shell colours itself before the
+ * settings screen is ever opened.
+ */
+export const APPEARANCE_SETTINGS = {
+  accentHue: { key: 'appearance.accent_hue', help: 'The accent hue, 0-360, at the theme\'s fixed lightness.', enforcedBy: 'Shell' },
+  accentChroma: { key: 'appearance.accent_chroma', help: 'How saturated the accent is.', enforcedBy: 'Shell' },
+  base: { key: 'appearance.base', help: 'The neutral ramp: stone, zinc, neutral, gray or slate -- the five shadcn ships.', enforcedBy: 'Shell' },
+  density: { key: 'appearance.density', help: 'Comfortable or compact spacing; type size does not change.', enforcedBy: 'Shell' },
+} as const satisfies Record<string, SettingDescriptor>;
+
+export const appearancePolicySchema = appearanceSchema;
+export type AppearancePolicy = Appearance;
+export const DEFAULT_APPEARANCE_POLICY: AppearancePolicy = DEFAULT_APPEARANCE;
+
 /** Every key this module is allowed to write, in one flat set. */
 export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(ATTENDANCE_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(PHOTO_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(SECURITY_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(APPEARANCE_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(LOCALE_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(RETENTION_SETTINGS).map((descriptor) => descriptor.key),
 ]);
 
 /**

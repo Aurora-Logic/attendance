@@ -1,7 +1,12 @@
 import { z } from 'zod';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
-import { attendancePolicySchema, photoPolicyObject } from './settings.catalogue.js';
+import { attendancePolicySchema, photoPolicyObject,
+  securityPolicySchema,
+  appearancePolicySchema,
+  localePolicySchema,
+  retentionPolicySchema,
+} from './settings.catalogue.js';
 
 /**
  * The `PUT /settings` body (REQ-L-01, REQ-L-02, REQ-L-03).
@@ -63,13 +68,21 @@ export const updateSettingsSchema = z
     organisation: orgProfilePatchSchema,
     attendance: attendancePolicySchema.partial(),
     photo: photoPolicyObject.partial(),
+    security: securityPolicySchema.partial(),
+    appearance: appearancePolicySchema.partial(),
+    locale: localePolicySchema.partial(),
+    retention: retentionPolicySchema.partial(),
   })
   .partial()
   .refine(
     (value) =>
       value.organisation !== undefined ||
       value.attendance !== undefined ||
-      value.photo !== undefined,
+      value.photo !== undefined ||
+      value.security !== undefined ||
+      value.appearance !== undefined ||
+      value.locale !== undefined ||
+      value.retention !== undefined,
     // An empty body would otherwise succeed, write nothing, and leave an audit
     // row claiming a settings change with an empty diff.
     { message: 'Send at least one settings group to change.' },

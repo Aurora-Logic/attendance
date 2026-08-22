@@ -114,7 +114,7 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
     <div className="flex flex-col gap-4 border p-4">
       <SectionHeading
         title="Office location"
-        note="REQ-D-08. The centre and radius that decide where a punch from a phone is accepted."
+        note="The centre and radius that decide where a punch from a phone is accepted."
       />
 
       {query.isPending ? <PanelSkeleton /> : null}
@@ -205,7 +205,6 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
               <FieldLabel htmlFor="office-maps-link">Paste a Google Maps link</FieldLabel>
               <Input
                 id="office-maps-link"
-                className="pointer-coarse:h-11"
                 placeholder="https://www.google.com/maps/@19.0759837,72.8776559,17z"
                 disabled={!canManage}
                 value={link}
@@ -256,7 +255,7 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                 min={-90}
                 max={90}
                 disabled={!canManage}
-                className="pointer-coarse:h-11 tabular-nums"
+                className="tabular-nums"
                 value={draft.latitude}
                 onChange={(event) => {
                   office.edit({ latitude: event.target.value });
@@ -275,7 +274,7 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                 min={-180}
                 max={180}
                 disabled={!canManage}
-                className="pointer-coarse:h-11 tabular-nums"
+                className="tabular-nums"
                 value={draft.longitude}
                 onChange={(event) => {
                   office.edit({ longitude: event.target.value });
@@ -298,7 +297,7 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                 // accepts a number nothing will ever read is worse than one
                 // that says so.
                 disabled={!canManage || noCentre}
-                className="pointer-coarse:h-11 tabular-nums md:max-w-xs"
+                className="tabular-nums md:max-w-xs"
                 value={draft.radiusM}
                 onChange={(event) => {
                   office.edit({ radiusM: event.target.value });
@@ -379,8 +378,8 @@ function AllowlistNote({ location }: { location: LocationSummary }) {
       <h3 className="text-sm font-medium">Office IP allowlist</h3>
       <p className="text-muted-foreground max-w-prose text-xs">
         {count === 0
-          ? `Not enforced. No addresses are listed for ${location.name}, so a punch from a browser is not restricted by network (REQ-D-09) — it is accepted and flagged to say the check was off. Geofencing above is the control that decides where a punch may come from.`
-          : `Enforced. ${String(count)} address${count === 1 ? '' : 'es'} listed, so a punch from a browser at ${location.name} is accepted only from ${count === 1 ? 'it' : 'them'} (REQ-D-09).`}{' '}
+          ? `Not enforced. No addresses are listed for ${location.name}, so a punch from a browser is not restricted by network — it is accepted and flagged to say the check was off. Geofencing above is the control that decides where a punch may come from.`
+          : `Enforced. ${String(count)} address${count === 1 ? '' : 'es'} listed, so a punch from a browser at ${location.name} is accepted only from ${count === 1 ? 'it' : 'them'}.`}{' '}
         It is set per location under Organisation → Locations, not here.
       </p>
     </div>

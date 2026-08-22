@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { ArrowsClockwiseIcon, BooksIcon, CheckIcon, LockKeyOpenIcon, PackageIcon, PencilSimpleIcon, ProhibitIcon, ReceiptIcon, TruckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon } from '@phosphor-icons/react';
+import { ArrowsClockwiseIcon, BooksIcon, CheckIcon, LockKeyOpenIcon, PackageIcon, PencilSimpleIcon, PrinterIcon, ProhibitIcon, ReceiptIcon, TruckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon, HandGrabbingIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
+import { PersonChip } from '@/components/shared/person';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
@@ -33,9 +34,11 @@ import { DISPATCH_MODE_LABELS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SYNC_S
 import { DispatchDialog } from './dispatch-dialog';
 import { DocumentLinesEditor, type StockItemOption } from './document-lines-editor';
 import { FulfilmentBadge } from './fulfilment-badge';
+import { fulfilmentProgress } from './fulfilment-progress';
+import { FulfilmentSteps } from './fulfilment-steps';
 import { InvoiceDialog } from './invoice-dialog';
 import { formatMoney } from './money';
-import { PackDialog } from './pack-dialog';
+import { PickPackDialog } from './pick-pack-dialog';
 import { ORDER_INVOICE_METHOD_LABELS, WAITING_ON_STATE_LABELS, lineBalances, trimZeros, type Estimate, type EstimateDraft, type SalesLine } from './types';
 import { creditBlockOf } from './credit-block';
 import { useAlterSalesOrder, useSalesOrderAction, useSaveSalesOrder } from './use-estimates';
@@ -103,8 +106,9 @@ const QUANTITY_COLUMNS: RecordColumn<SalesLine>[] = [
     key: 'toPack',
     header: 'To pack',
     cell: (line) => {
-      const toPack = lineBalances(line).toPack;
-      return toPack > 0 ? <span className="font-medium">{trimZeros(toPack.toFixed(3))}</span> : EMPTY_VALUE;
+      const { toPick, toPack } = lineBalances(line);
+      if (toPack > 0) return <span className="font-medium">{trimZeros(toPack.toFixed(3))}</span>;
+      return toPick > 0 ? <span className="text-muted-foreground">{trimZeros(toPick.toFixed(3))} to pick</span> : EMPTY_VALUE;
     },
     numeric: true,
   },
@@ -175,6 +179,8 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
   const fulfilling = confirmed && record.shortClosedAt === null;
   const balances = record === null ? [] : record.lines.map(lineBalances);
   const canPack = canCreate && fulfilling && balances.some((b) => b.toPack > 0);
+  // D-48: the owner's flow is pick, then pack; one button, named for the step that is next.
+  const canPick = canCreate && fulfilling && balances.some((b) => b.toPick > 0);
   const canInvoice = canCreate && confirmed && record.partyId !== null && balances.some((b) => b.toInvoice > 0);
   const canDispatch = canCreate && fulfilling && balances.some((b) => b.toDispatch > 0);
   const canShortClose = canAlter && fulfilling && record.fulfilment !== 'closed';
@@ -224,7 +230,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
                     : `${saved.number} confirmed`,
             description:
               saved.status === 'PENDING_APPROVAL'
-                ? 'The discount is past the threshold; a Sales manager decides it in the Approvals inbox (REQ-W-08).'
+                ? 'The discount is past the threshold; a Sales manager decides it in the Approvals inbox.'
                 : action !== 'cancel' && saved.syncState === 'NOT_PUSHED'
                   ? 'No agent connection can carry it yet; push it when one is issued.'
                   : undefined,
@@ -265,7 +271,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
                 : isDraft
                   ? 'A draft: edit freely, then confirm to queue it for Tally.'
                   : draft.status === 'PENDING_APPROVAL'
-                    ? 'Awaiting approval: the discount is past the threshold. Decide it here or in the Approvals inbox (REQ-W-08).'
+                    ? 'Awaiting approval: the discount is past the threshold. Decide it here or in the Approvals inbox.'
                     : `${SALES_DOCUMENT_STATUS_LABELS[draft.status]}.`}
         </SheetDescription>
       </SheetHeader>
@@ -291,7 +297,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
                   {creditBlock.position.creditDays === null ? '' : ` (${String(creditBlock.position.creditDays)} days)`}.
                 </p>
                 <p className="mt-1">
-                  {canOverrideCredit ? 'You hold sales.credit.override: release it with a reason, which is audited (REQ-W-09).' : `Releasing it needs ${creditBlock.requiredPermission}; ask a holder to confirm it with a reason.`}
+                  {canOverrideCredit ? 'You hold sales.credit.override: release it with a reason, which is audited.' : `Releasing it needs ${creditBlock.requiredPermission}; ask a holder to confirm it with a reason.`}
                 </p>
               </AlertDescription>
               {canOverrideCredit ? (
@@ -311,7 +317,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
               <AlertTitle>Tally rejected it</AlertTitle>
               <AlertDescription>
                 <p className="font-mono text-xs">{record.lastError}</p>
-                <p className="mt-1">Tally&rsquo;s own words (REQ-T-01). Fix the cause there or here, then push again.</p>
+                <p className="mt-1">Tally&rsquo;s own words. Fix the cause there or here, then push again.</p>
               </AlertDescription>
             </Alert>
           ) : null}
@@ -334,7 +340,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
                 label="Tally party"
                 placeholder="Choose the party"
                 searchPlaceholder="Search parties"
-                emptyMessage="No party matches. A prospect must become a party in Tally first (REQ-U-03)."
+                emptyMessage="No party matches. A prospect must become a party in Tally first."
                 icon={<BooksIcon className="text-muted-foreground" />}
                 options={partyOptions}
                 loading={parties.isPending}
@@ -374,7 +380,14 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
             dirty={dirty}
           />
 
-          {confirmed ? <FulfilmentSections record={record} packs={packs} dispatches={dispatches} /> : null}
+          {confirmed ? (
+            <FulfilmentSections
+              record={record}
+              packs={packs}
+              dispatches={dispatches}
+              verbs={canCreate && !altering ? { onPack: () => { setDialog('pack'); }, onInvoice: () => { setDialog('invoice'); }, onDispatch: () => { setDialog('dispatch'); } } : null}
+            />
+          ) : null}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
@@ -394,21 +407,19 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
               <Input
                 id="order-customer-email"
                 inputMode="email"
-                className="pointer-coarse:h-11"
                 aria-invalid={emailProblem !== null || undefined}
                 disabled={!isDraft}
                 placeholder={isNew ? 'From the party master when blank' : undefined}
                 value={draft.customerEmail}
                 onChange={(e) => { setDraft((c) => ({ ...c, customerEmail: e.target.value })); }}
               />
-              {emailProblem === null ? <FieldDescription>Where dispatch notifications go; the party master&rsquo;s by default (REQ-AA-28).</FieldDescription> : <FieldError>{emailProblem}</FieldError>}
+              {emailProblem === null ? <FieldDescription>Where dispatch notifications go; the party master&rsquo;s by default.</FieldDescription> : <FieldError>{emailProblem}</FieldError>}
             </Field>
             <Field>
               <FieldLabel htmlFor="order-customer-whatsapp">Customer WhatsApp</FieldLabel>
               <Input
                 id="order-customer-whatsapp"
                 inputMode="tel"
-                className="pointer-coarse:h-11"
                 aria-invalid={whatsappProblem !== null || undefined}
                 disabled={!isDraft}
                 placeholder={isNew ? 'From the party master when blank' : undefined}
@@ -463,10 +474,10 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
             Short close
           </Button>
         ) : null}
-        {canPack && !altering ? (
+        {(canPack || canPick) && !altering ? (
           <Button variant="outline" disabled={busy} onClick={() => { setDialog('pack'); }}>
-            <PackageIcon data-icon="inline-start" />
-            Pack
+            {canPack ? <PackageIcon data-icon="inline-start" /> : <HandGrabbingIcon data-icon="inline-start" />}
+            {canPack ? 'Pack' : 'Pick'}
           </Button>
         ) : null}
         {canInvoice && !altering ? (
@@ -500,7 +511,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
           if (!next) setDialog(null);
         }}
         title={`Release ${initial.number ?? 'this order'} past the credit limit?`}
-        description="The order confirms and queues for Tally although the party is over its limit. The position and your reason are recorded (REQ-W-09)."
+        description="The order confirms and queues for Tally although the party is over its limit. The position and your reason are recorded."
         consequences={
           creditBlock === null
             ? []
@@ -520,7 +531,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
 
       {record === null ? null : (
         <>
-          <PackDialog open={dialog === 'pack'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} />
+          <PickPackDialog open={dialog === 'pack'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} />
           <InvoiceDialog open={dialog === 'invoice'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} />
           <DispatchDialog open={dialog === 'dispatch'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} />
           <ReasonDialog
@@ -532,7 +543,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
               }
             }}
             title={`Short-close ${record.number}?`}
-            description="The balance that has not left is written off (REQ-AA-05). It comes off the pick queue and its shortage requirements close."
+            description="The balance that has not left is written off. It comes off the pick queue and its shortage requirements close."
             consequences={[
               'What is packed, invoiced or dispatched stays as it is.',
               'The order no longer returns to the pick queue.',
@@ -570,9 +581,31 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
  * the order (REQ-AA-12, D-38) and the pack records with the pickers'
  * comments (REQ-AA-08, AA-09). Every dispatch is one screen away (REQ-AA-31).
  */
-export function FulfilmentSections({ record, packs, dispatches }: { record: Estimate; packs: ReturnType<typeof usePackRecords>; dispatches: ReturnType<typeof useDispatches> }) {
+export function FulfilmentSections({
+  record,
+  packs,
+  dispatches,
+  verbs,
+}: {
+  record: Estimate;
+  packs: ReturnType<typeof usePackRecords>;
+  dispatches: ReturnType<typeof useDispatches>;
+  /** The four-step bar's verbs (owner, 22 Aug): absent when the reader may not act. */
+  verbs: { onPack: () => void; onInvoice: () => void; onDispatch: () => void } | null;
+}) {
+  const packList = packs.data ?? [];
+  const progress = fulfilmentProgress(record, packList, dispatches.data?.data ?? []);
+  const latestPack = packList.length === 0 ? null : (packList[packList.length - 1] ?? null);
   return (
     <>
+      <FulfilmentSteps
+        progress={progress}
+        latestPack={latestPack}
+        canAct={verbs !== null}
+        onPack={verbs?.onPack ?? (() => undefined)}
+        onInvoice={verbs?.onInvoice ?? (() => undefined)}
+        onDispatch={verbs?.onDispatch ?? (() => undefined)}
+      />
       <div className="flex flex-col gap-2">
         <SectionHeading title="Quantities" note="Every stage moves quantity from one column to the next; the balance is what the pick queue still owes." />
         {record.shortClosedAt !== null ? (
@@ -588,16 +621,17 @@ export function FulfilmentSections({ record, packs, dispatches }: { record: Esti
           rowKey={(line) => line.id}
           mobilePrimary={(line) => `${String(line.lineNo)}. ${line.description}`}
           mobileStatus={(line) => {
-            const toPack = lineBalances(line).toPack;
-            return toPack > 0 ? <Badge variant="outline">{trimZeros(toPack.toFixed(3))} to pack</Badge> : <Badge variant="outline">Packed</Badge>;
+            const { toPick, toPack } = lineBalances(line);
+            if (toPack > 0) return <Badge variant="outline">{trimZeros(toPack.toFixed(3))} to pack</Badge>;
+            return toPick > 0 ? <Badge variant="outline">{trimZeros(toPick.toFixed(3))} to pick</Badge> : <Badge variant="outline">Packed</Badge>;
           }}
-          mobileSupporting={(line) => `Ordered ${trimZeros(line.quantity)} · Packed ${trimZeros(line.packedQty)} · Invoiced ${trimZeros(line.invoicedQty)} · Dispatched ${trimZeros(line.dispatchedQty)}`}
+          mobileSupporting={(line) => `Ordered ${trimZeros(line.quantity)} · Picked ${trimZeros(line.pickedQty)} · Packed ${trimZeros(line.packedQty)} · Invoiced ${trimZeros(line.invoicedQty)} · Dispatched ${trimZeros(line.dispatchedQty)}`}
         />
       </div>
 
       {record.waitingOn.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <SectionHeading title="Waiting on" note="REQ-X-26: what a short pack is waiting for, and the purchase order that will bring it — so sales can say when the rest comes." />
+          <SectionHeading title="Waiting on" note="What a short pack is waiting for, and the purchase order that will bring it — so sales can say when the rest comes." />
           <ul className="divide-y border">
             {record.waitingOn.map((req) => {
               const short = Math.max(0, Number(req.quantity) - Number(req.receivedQty));
@@ -638,7 +672,7 @@ export function FulfilmentSections({ record, packs, dispatches }: { record: Esti
       <div className="flex flex-col gap-2">
         <SectionHeading title="Invoices" note="Raised in Tally and linked on the pull, or raised here (D-38)." />
         {record.invoices.length === 0 ? (
-          <p className="text-muted-foreground text-xs">None yet. Dispatch waits until an invoice covers the quantity (REQ-AA-14).</p>
+          <p className="text-muted-foreground text-xs">None yet. Dispatch waits until an invoice covers the quantity.</p>
         ) : (
           <ul className="divide-y border">
             {record.invoices.map((invoice) => (
@@ -666,7 +700,7 @@ export function FulfilmentSections({ record, packs, dispatches }: { record: Esti
       <div className="flex flex-col gap-2">
         <SectionHeading
           title="Dispatches"
-          note="Every dispatch against this order, with its date, mode, LR and quantities (REQ-AA-31)."
+          note="Every dispatch against this order, with its date, mode, LR and quantities."
           action={
             <Link to={`/sales/dispatches?order=${record.id}`} className="text-xs underline-offset-4 hover:underline">
               Open on the board
@@ -715,17 +749,28 @@ export function FulfilmentSections({ record, packs, dispatches }: { record: Esti
         {packs.isSuccess && packs.data.length > 0 ? (
           <ul className="divide-y border">
             {packs.data.map((pack) => (
-              <li key={pack.id} className="flex flex-col gap-1 px-3 py-2">
+              <li key={pack.id} className="flex flex-col gap-2 px-3 py-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <span className="text-xs">
-                    <Link to={`/sales/packs/${pack.id}`} className="font-medium underline-offset-4 hover:underline" title="The packing slip">
-                      {pack.packedByName ?? 'Someone'}
-                    </Link>
+                    <PersonChip name={pack.packedByName ?? 'Someone'} tiny />
                     <span className="text-muted-foreground"> · {formatRelativeAge(pack.packedAt)} · {String(pack.boxCount)} box{pack.boxCount === 1 ? '' : 'es'}</span>
                   </span>
                   <span className="text-muted-foreground text-xs tabular-nums">
                     {pack.lines.map((l) => `${trimZeros(l.quantity)} × ${l.description}`).join(', ')}
                   </span>
+                </div>
+                {/* D-47: the slip is the thing a packer needs next, so it is a
+                    named action here, not a hover title on a name. Print opens
+                    the sheets - one per box - straight into the print dialog. */}
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" nativeButton={false} render={<Link to={`/sales/packs/${pack.id}`} />}>
+                    <PackageIcon data-icon="inline-start" />
+                    Packing slip
+                  </Button>
+                  <Button variant="outline" size="sm" nativeButton={false} render={<a href={`/print/packs/${pack.id}`} target="_blank" rel="noreferrer" />}>
+                    <PrinterIcon data-icon="inline-start" />
+                    Print slips
+                  </Button>
                 </div>
                 {pack.comment ? <p className="text-xs">{pack.comment}</p> : null}
                 {pack.lines.filter((l) => l.comment !== null).map((l) => (

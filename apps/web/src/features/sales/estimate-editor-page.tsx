@@ -19,6 +19,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useCompanyOptions } from '@/features/crm/use-crm';
 import { DocumentEditor } from '@/features/documents/document-editor';
 import { useDesignDraft } from '@/features/documents/use-design-draft';
+import { useDraftBackup } from '@/features/documents/use-draft-backup';
 import { PaperField, type PaperEditing, type PaperLine, type PaperModel } from '@/features/documents/paper';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
@@ -112,6 +113,16 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
     setDraft(next);
     setBase(next);
   };
+  // Crash insurance for a new document: the unsaved draft mirrors into
+  // sessionStorage and comes back if the tab reloads mid-typing.
+  const backup = useDraftBackup('estimate', draft, record === null);
+
+  const [backupOffered, setBackupOffered] = useState(false);
+  if (!backupOffered && backup.restored !== null && record === null && JSON.stringify(backup.restored) !== JSON.stringify(draft)) {
+    setBackupOffered(true);
+    setDraft(backup.restored);
+  }
+
   const [confirmDelete, setConfirmDelete] = useState(false);
   const save = useSaveEstimate();
   const setStatus = useSetEstimateStatus();
@@ -220,7 +231,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
                 label="Tally party"
                 placeholder="Tally party"
                 searchPlaceholder="Search parties"
-                emptyMessage="No party matches. A prospect is a CRM company until it buys (REQ-U-03)."
+                emptyMessage="No party matches. A prospect is a CRM company until it buys."
                 icon={<BooksIcon className="text-muted-foreground" />}
                 options={partyOptions}
                 loading={parties.isPending}
@@ -259,6 +270,12 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
         validUntil: (
           <DateField label="Valid until" value={draft.validUntil ? fromDateParam(draft.validUntil) : addDays(new Date(), 30)} onValueChange={(next) => { setDraft((current) => ({ ...current, validUntil: toDateParam(next) })); }} yearsBack={0} yearsForward={2} className="paper-field h-auto min-h-0 px-0 py-0 shadow-none" />
         ),
+        setDate: (iso) => {
+          setDraft((current) => ({ ...current, date: iso }));
+        },
+        setValidUntil: (iso) => {
+          setDraft((current) => ({ ...current, validUntil: iso }));
+        },
         itemPicker: (line) => {
           const draftLine = draft.lines.find((l) => l.key === line.key);
           return canSeeParties ? (
@@ -312,6 +329,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
     save.mutate(effectiveDraft, {
       onSuccess: (saved) => {
         toast.add({ type: 'success', title: isNew ? `${saved.number} raised` : `${saved.number} saved`, description: `${saved.customerName} · ${formatMoney(saved.grandTotal)}` });
+        backup.clear();
         if (isNew) void navigate(`/sales/estimates/${saved.id}`, { replace: true });
         else adopt(estimateToDraft(saved));
       },
@@ -348,7 +366,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
           <>
             {record !== null && transitions.length > 0 && !dirty ? (
               <Select value={record.status} onValueChange={(value: string | null) => { if (value !== null && isEstimateStatus(value) && value !== record.status) move(value); }}>
-                <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Status" disabled={busy}>
+                <SelectTrigger className="w-40" aria-label="Status" disabled={busy}>
                   <SelectValue>{(value: string) => (isEstimateStatus(value) ? SALES_DOCUMENT_STATUS_LABELS[value] : value)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>

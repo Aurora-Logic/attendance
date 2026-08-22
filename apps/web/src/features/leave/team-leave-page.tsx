@@ -11,6 +11,7 @@ import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
+import { PersonChip } from '@/components/shared/person';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -97,7 +98,7 @@ const COLUMNS: RecordColumn<LeaveCalendarEntry>[] = [
   {
     key: 'employee',
     header: 'Employee',
-    cell: (row) => <span className="font-medium">{row.employee.name}</span>,
+    cell: (row) => <PersonChip name={row.employee.name} className="font-medium" />,
   },
   {
     key: 'date',
@@ -302,7 +303,7 @@ export function TeamLeavePage() {
           >
             <SelectTrigger
               aria-label="Filter by department"
-              className="pointer-coarse:h-11 w-full sm:w-56"
+              className="w-full sm:w-56"
             >
               <SelectValue>
                 {(value: string) =>
@@ -328,7 +329,6 @@ export function TeamLeavePage() {
             variant="outline"
             size="icon"
             aria-label="Previous month"
-            className="pointer-coarse:size-11"
             onClick={() => {
               setMonth(addMonths(month, -1));
             }}
@@ -349,7 +349,6 @@ export function TeamLeavePage() {
             variant="outline"
             size="icon"
             aria-label="Next month"
-            className="pointer-coarse:size-11"
             onClick={() => {
               setMonth(addMonths(month, 1));
             }}

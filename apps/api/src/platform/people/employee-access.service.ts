@@ -14,6 +14,7 @@ import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { employees, roles, userRoles, users } from '../db/schema/index.js';
 import { orgContextOf, type Principal } from '../rbac/principal.js';
 import { RbacAdminService } from '../rbac/rbac-admin.service.js';
+import { PrincipalService } from '../rbac/principal.service.js';
 import { EmployeeAccessRepository } from './employee-access.repository.js';
 
 export interface SetCredentialsInput {
@@ -47,6 +48,7 @@ export class EmployeeAccessService {
   constructor(
     @InjectDatabase() private readonly db: Database,
     private readonly rbacAdmin: RbacAdminService,
+    private readonly principals: PrincipalService,
     private readonly auditContext: AuditContext,
   ) {}
 
@@ -64,6 +66,21 @@ export class EmployeeAccessService {
     const repository = this.repository(principal);
     const employee = await this.requireEmployee(repository, employeeId);
     const existingAccount = await repository.findAccount(employeeId);
+    // The same guard the role routes use: a crafted roleId from another
+    // organisation 404s here rather than being written into user_roles.
+    const role = input.roleId === undefined ? null : await this.requireRole(repository, input.roleId);
+    // Resetting a password is taking the account over. Nobody may take over
+    // an account that can do more than they can - that would turn any
+    // roles.manage holder into every administrator.
+    if (existingAccount !== null) {
+      const target = await this.principals.loadGrants(existingAccount.id, principal.orgId);
+      const beyond = [...target.permissions].filter((key) => !principal.permissions.has(key));
+      if (beyond.length > 0) {
+        throw AppError.forbidden(
+          'You cannot reset the credentials of an account that holds permissions you do not.',
+        );
+      }
+    }
     const passwordHash = await hashPassword(input.password);
     const targetEmail = input.email.toLowerCase().trim();
 
@@ -105,7 +122,7 @@ export class EmployeeAccessService {
           .where(and(eq(employees.id, employeeId), isNull(employees.workEmail)));
 
         // Assign specified role or default Employee role
-        let roleIdToAssign = input.roleId;
+        let roleIdToAssign = role?.id;
         if (roleIdToAssign === undefined) {
           const defaultRole = await tx
             .select({ id: roles.id })
@@ -151,8 +168,8 @@ export class EmployeeAccessService {
         })
         .where(eq(users.id, existingAccount.id));
 
-      if (input.roleId !== undefined) {
-        await this.rbacAdmin.assignRoleToUser(principal.orgId, existingAccount.id, input.roleId);
+      if (role !== null) {
+        await this.rbacAdmin.assignRoleToUser(principal.orgId, existingAccount.id, role.id);
       }
 
       this.auditContext.record({

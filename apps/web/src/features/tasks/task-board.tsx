@@ -1,7 +1,7 @@
-import { CheckCircleIcon } from '@phosphor-icons/react';
+import { CheckCircleIcon, CircleDashedIcon, LinkSimpleIcon } from '@phosphor-icons/react';
 
+import { PersonChip } from '@/components/shared/person';
 import { KanbanBoard } from '@/components/shared/kanban-board';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { TASK_PRIORITY_LABELS } from '@vyuha/shared';
 
@@ -11,7 +11,20 @@ import type { BoardResponse, Task } from './types';
 /**
  * REQ-V-03: the same query as the list, in lanes; a drag moves a task
  * between them and is a PATCH like any other status change (REQ-V-06).
+ * The lanes wear the deal board's dress: a tint per column, cycled by
+ * position, in the header chip; the done column is always green.
  */
+
+const COLUMN_HUES = [
+  'bg-tint-1/15 text-tint-1',
+  'bg-tint-2/15 text-tint-2',
+  'bg-tint-3/15 text-tint-3',
+  'bg-tint-4/15 text-tint-4',
+  'bg-tint-5/15 text-tint-5',
+  'bg-tint-6/15 text-tint-6',
+] as const;
+const DONE_HUE = 'bg-success/15 text-success';
+const PRIORITY_CHIP = 'bg-destructive/10 text-destructive rounded-none px-1 py-px text-[0.6875rem] font-medium';
 export function TaskBoard({
   board,
   onOpen,
@@ -26,13 +39,14 @@ export function TaskBoard({
   return (
     <KanbanBoard
       ariaLabel="Task board"
-      lanes={board.lanes.map(({ column, tasks, total }) => ({
+      lanes={board.lanes.map(({ column, tasks, total }, index) => ({
         id: column.id,
         label: column.name,
+        accent: column.isDone ? DONE_HUE : (COLUMN_HUES[index % COLUMN_HUES.length] ?? COLUMN_HUES[0]),
         title: (
           <>
-            {column.isDone ? <CheckCircleIcon className="text-muted-foreground shrink-0" /> : null}
-            {column.name}
+            {column.isDone ? <CheckCircleIcon className="shrink-0" /> : <CircleDashedIcon className="shrink-0" />}
+            <span className="truncate">{column.name}</span>
           </>
         ),
         items: tasks,
@@ -45,11 +59,16 @@ export function TaskBoard({
       renderItem={(task) => (
         <>
           <span className={cn('font-medium', task.isClosed && 'text-muted-foreground line-through')}>{task.title}</span>
-          <span className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-normal">
-            {task.priority === 'HIGH' ? <Badge variant="outline">{TASK_PRIORITY_LABELS.HIGH}</Badge> : null}
+          <span className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-normal">
+            {task.priority === 'HIGH' ? <span className={PRIORITY_CHIP}>{TASK_PRIORITY_LABELS.HIGH}</span> : null}
             <DueDate value={task.dueDate} closed={task.isClosed} />
-            {task.assigneeName === null ? null : <span>{task.assigneeName}</span>}
-            {task.subjectLabel === null ? null : <span className="truncate">on {task.subjectLabel}</span>}
+            {task.assigneeName === null ? null : <PersonChip name={task.assigneeName} tiny />}
+            {task.subjectLabel === null ? null : (
+              <span className="flex min-w-0 items-center gap-1">
+                <LinkSimpleIcon className="shrink-0" />
+                <span className="truncate">{task.subjectLabel}</span>
+              </span>
+            )}
           </span>
         </>
       )}

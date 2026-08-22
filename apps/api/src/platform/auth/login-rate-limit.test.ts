@@ -1,10 +1,14 @@
 import { uuidv7 } from '@vyuha/shared';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { Redis } from 'ioredis';
+import { Pool } from 'pg';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { env } from '../common/env.js';
 import { AppError } from '../common/errors.js';
 import { redisTarget } from '../redis/redis.provider.js';
-import { LoginRateLimiter, loginRateLimitKey } from './login-rate-limit.service.js';
+import { LoginRateLimiter, loginRateLimitKey, type LoginAttemptClaim } from './login-rate-limit.service.js';
+import { RateLimitDbFallback } from './rate-limit-db-fallback.service.js';
 
 /**
  * Against real Redis, and three properties the implementation cannot fake: the
@@ -29,6 +33,12 @@ const clientOptions = { host: target.host, port: target.port, maxRetriesPerReque
 
 const clients: Redis[] = [];
 
+// Plain construction, not DI, matching how the Redis clients above are made:
+// one real Postgres pool the DB-fallback path can be exercised against.
+const pool = new Pool({ connectionString: env.DATABASE_URL });
+const db = drizzle(pool);
+const dbFallback = new RateLimitDbFallback(db);
+
 function newLimiter(): LoginRateLimiter {
   const client = new Redis(clientOptions);
   client.on('error', () => {
@@ -36,7 +46,13 @@ function newLimiter(): LoginRateLimiter {
     // take the test runner down instead.
   });
   clients.push(client);
-  return new LoginRateLimiter(client);
+  return new LoginRateLimiter(client, dbFallback);
+}
+
+/** Narrows a claim to the Redis-backed variant, for tests that inspect the sorted set directly. */
+function redisMember(claim: LoginAttemptClaim | null): string {
+  if (claim?.backend !== 'redis') throw new Error('expected a Redis-backed claim');
+  return claim.member;
 }
 
 let limiter: LoginRateLimiter;
@@ -55,6 +71,7 @@ afterAll(async () => {
   if (keys.length > 0) await cleanup.del(...keys);
   await cleanup.quit();
   await Promise.all(clients.map((client) => client.quit().catch(() => client.disconnect())));
+  await pool.end();
 });
 
 async function code(run: () => Promise<unknown>): Promise<string> {
@@ -167,7 +184,7 @@ describe('per-IP failed login budget', () => {
     const members = await inspector.zrange(loginRateLimitKey(ip), '0', '-1');
     await inspector.quit();
 
-    expect(members).toEqual([kept?.member]);
+    expect(members).toEqual([redisMember(kept)]);
   });
 
   it('slides: failures older than the window stop counting', async () => {
@@ -237,10 +254,10 @@ describe('per-IP failed login budget', () => {
     await expect(limiter.clear(null)).resolves.toBeUndefined();
   });
 
-  it('fails open, not closed, when Redis cannot be reached', async () => {
-    // Port 1: nothing listens, so every command errors. Failing closed here
-    // would mean a Redis outage stops the whole company signing in, while the
-    // per-account lockout in Postgres is untouched either way.
+  it('falls back to Postgres, not open, when Redis cannot be reached', async () => {
+    // Port 1: nothing listens, so every command errors. A dead cache must not
+    // mean nobody is rate-limited at all -- the Postgres fallback keeps the
+    // same cap in force, and only a failure of *that* would truly fail open.
     const offline = new Redis({
       ...clientOptions,
       host: '127.0.0.1',
@@ -251,10 +268,13 @@ describe('per-IP failed login budget', () => {
     offline.on('error', () => {
       // Expected; the assertions below are the report.
     });
-    const stranded = new LoginRateLimiter(offline);
+    const stranded = new LoginRateLimiter(offline, dbFallback);
+    const strandedIp = `198.51.100.7-${uuidv7()}`;
 
-    await expect(stranded.claimAttempt('198.51.100.7')).resolves.toBeNull();
-    await expect(stranded.release({ ip: '198.51.100.7', member: 'x', scope: 'login' })).resolves.toBeUndefined();
+    const claim = await stranded.claimAttempt(strandedIp);
+    expect(claim?.backend).toBe('db');
+    await expect(stranded.release(claim)).resolves.toBeUndefined();
+    await expect(stranded.clear(strandedIp)).resolves.toBeUndefined();
 
     offline.disconnect();
   });

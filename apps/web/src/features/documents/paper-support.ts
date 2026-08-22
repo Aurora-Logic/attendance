@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from 'react';
 
 import type { DocumentDetails } from '@vyuha/shared';
+import type { PrintedDocumentType } from '@vyuha/shared';
 
 import type { PaperEditing, PaperLine } from './paper';
 
@@ -47,3 +48,5 @@ export const DETAIL_LABELS: Record<keyof DocumentDetails, string> = {
   ackDate: 'Ack date',
 };
 
+/** The two goods papers drawn by PackingSlipPaper: the slip on the box, and the delivery note that travels with it (D-47, owner). */
+export const SLIP_PAPER_TYPES: readonly PrintedDocumentType[] = ['PACKING_SLIP', 'DELIVERY_NOTE'];

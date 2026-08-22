@@ -1,41 +1,45 @@
 import {
   AddressBookIcon,
+  ArchiveIcon,
   BooksIcon,
+  BuildingsIcon,
   CalendarBlankIcon,
   CalendarDotsIcon,
   ChartBarIcon,
+  ChartLineUpIcon,
   CheckSquareIcon,
+  ClipboardIcon,
   ClipboardTextIcon,
   ClockCounterClockwiseIcon,
   ClockIcon,
   DownloadSimpleIcon,
   FileTextIcon,
   FingerprintIcon,
-  ClipboardIcon,
-  BarcodeIcon,
-  ReceiptXIcon,
-  TruckIcon,
-  ShoppingCartIcon,
-  ListChecksIcon,
-  ArchiveIcon,
+  GaugeIcon,
   GearIcon,
   HandshakeIcon,
   type Icon,
+  ListChecksIcon,
   LockIcon,
   PackageIcon,
   PlugIcon,
   ReceiptIcon,
-  TagIcon,
-  BuildingsIcon,
-  ChartLineUpIcon,
   ScrollIcon,
-  TrashIcon,
   ShieldCheckIcon,
+  ShoppingCartIcon,
   SquaresFourIcon,
+  TagIcon,
+  TrashIcon,
+  TrayIcon,
   TreePalmIcon,
+  ScanIcon,
   UmbrellaIcon,
   UsersIcon,
   UsersThreeIcon,
+  BarcodeIcon,
+  CheckCircleIcon,
+  ReceiptXIcon,
+  TruckIcon,
 } from '@phosphor-icons/react';
 
 import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
@@ -77,6 +81,8 @@ export interface ModuleDef {
   icon: Icon;
   /** Where `Ctrl+G` lands when this module is chosen. */
   home: string;
+  /** The phone bottom bar's default four, in order, when nobody has customised it: the screens held in a hand on the floor, not the office's. Absent = the module's first four. */
+  readonly phoneBar?: readonly string[];
   /** Undefined means every signed-in account sees it. */
   permission?: PermissionKey;
   groups: NavGroup[];
@@ -92,8 +98,10 @@ export interface ModuleDef {
  * approvals inbox serve every module and neither belongs inside one of them.
  */
 export const NAV_GROUPS: NavGroup[] = [
+  // Regrouped at the owner's ask (21 Aug): what is mine, what is my team's,
+  // and the people themselves — instead of one eight-item "Work".
   {
-    label: 'Work',
+    label: 'Me',
     items: [
       { to: '/', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
       {
@@ -122,6 +130,11 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 2,
         reqs: 'REQ-G-03, G-06',
       },
+    ],
+  },
+  {
+    label: 'Team',
+    items: [
       {
         to: '/approvals',
         label: 'Approvals',
@@ -168,7 +181,7 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'Records',
+    label: 'People',
     items: [
       {
         to: '/employees',
@@ -178,11 +191,6 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 1,
         reqs: 'REQ-A-03, A-06',
       },
-    ],
-  },
-  {
-    label: 'Reports',
-    items: [
       {
         to: '/analytics',
         label: 'Analytics',
@@ -195,18 +203,9 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 4,
         reqs: 'REQ-K-01, REQ-J-01',
       },
-      {
-        to: '/reports',
-        label: 'Reports',
-        icon: ChartBarIcon,
-        permission: PERMISSIONS.REPORT_VIEW,
-        phase: 3,
-        reqs: 'REQ-J-01',
-      },
     ],
   },
 ];
-
 
 /**
  * The destinations REQ-O-02 pulls out of every module sidebar.
@@ -498,6 +497,8 @@ export const MODULES: ModuleDef[] = [
     label: 'Sales',
     icon: FileTextIcon,
     home: '/sales/estimates',
+    // Owner, 22 Aug: the phone is the floor's device - the process is what it carries.
+    phoneBar: ['/sales/pick-queue', '/sales/packed', '/sales/scan', '/sales/dispatches'],
     permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
     groups: [
       {
@@ -533,6 +534,10 @@ export const MODULES: ModuleDef[] = [
       {
         label: 'Fulfilment',
         items: [
+          // Owner, 22 Aug 2026: each stage is its own entry -- "we don't need
+          // one Fulfilment option" -- and Delivered is among them so it can be
+          // found. The strip on each screen (features/sales/fulfilment-tabs)
+          // still says where you are and what waits.
           {
             to: '/sales/pick-queue',
             label: 'Pick queue',
@@ -540,7 +545,16 @@ export const MODULES: ModuleDef[] = [
             icon: BarcodeIcon,
             permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
             phase: 8,
-            reqs: 'REQ-AA-05, REQ-AA-06, REQ-AA-07',
+            reqs: 'REQ-AA-05, REQ-AA-06, REQ-AA-07, D-48',
+          },
+          {
+            to: '/sales/packed',
+            label: 'Packed',
+            shortLabel: 'Packed',
+            icon: PackageIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'D-47',
           },
           {
             to: '/sales/awaiting-invoice',
@@ -554,10 +568,29 @@ export const MODULES: ModuleDef[] = [
           {
             to: '/sales/dispatches',
             label: 'Dispatches',
+            shortLabel: 'Shipped',
             icon: TruckIcon,
             permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
             phase: 8,
             reqs: 'REQ-AA-17, REQ-AA-21, REQ-AA-24',
+          },
+          {
+            to: '/sales/delivered',
+            label: 'Delivered',
+            shortLabel: 'Delivered',
+            icon: CheckCircleIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'D-47',
+          },
+          {
+            to: '/sales/scan',
+            label: 'Scan a slip',
+            shortLabel: 'Scan',
+            icon: ScanIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_CREATE,
+            phase: 8,
+            reqs: 'D-47',
           },
         ],
       },
@@ -599,6 +632,116 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
             phase: 8,
             reqs: 'REQ-X-10, REQ-X-11, REQ-X-12',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: ChartBarIcon,
+    home: '/reports',
+    permission: PERMISSIONS.REPORT_VIEW,
+    // REQ-AD-03: the catalogue is the destination and search is the menu —
+    // sixty reports cannot live in a sidebar, so the sidebar lists the
+    // categories, each a filtered view of the one catalogue.
+    groups: [
+      {
+        label: 'Overview',
+        items: [
+          {
+            to: '/reports/dashboard',
+            label: 'Dashboard',
+            icon: GaugeIcon,
+            permission: PERMISSIONS.RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AI',
+          },
+        ],
+      },
+      {
+        label: 'Catalogue',
+        items: [
+          {
+            to: '/reports',
+            label: 'All reports',
+            shortLabel: 'Reports',
+            icon: ChartBarIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 3,
+            reqs: 'REQ-J-01, REQ-AD-03',
+          },
+          {
+            to: '/reports?category=Books',
+            label: 'Books',
+            icon: BooksIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AE',
+          },
+          {
+            to: '/reports?category=Customers',
+            label: 'Customers',
+            icon: UsersThreeIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AG',
+          },
+          {
+            to: '/reports?category=Inventory',
+            label: 'Inventory',
+            icon: PackageIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AF',
+          },
+          {
+            to: '/reports?category=Vendors',
+            label: 'Vendors',
+            icon: ArchiveIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AG',
+          },
+          {
+            to: '/reports?category=Exceptions',
+            label: 'Exceptions',
+            icon: ScrollIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AH',
+          },
+          {
+            to: '/reports?category=Attendance',
+            label: 'Attendance',
+            icon: CalendarDotsIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 3,
+            reqs: 'REQ-J-01',
+          },
+          {
+            to: '/reports?category=Approvals',
+            label: 'Approvals',
+            icon: TrayIcon,
+            // The catalogue hides what the reader may not open; the link is
+            // gated like every other category so the tour and the nav agree.
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: 'B-05, B-06',
+          },
+        ],
+      },
+      {
+        label: 'Output',
+        items: [
+          {
+            to: '/downloads',
+            label: 'Downloads',
+            icon: DownloadSimpleIcon,
+            permission: PERMISSIONS.REPORT_EXPORT,
+            phase: 3,
+            reqs: 'REQ-J-03',
           },
         ],
       },
@@ -704,6 +847,8 @@ const OFF_NAV_LABELS: Record<string, string> = {
 const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }[] = [
   { pattern: /^\/employees\/[^/]+$/u, parent: '/employees', label: 'Employee' },
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
+  { pattern: /^\/masters\/parties\/[^/]+$/u, parent: '/masters/parties', label: 'Party' },
+  { pattern: /^\/masters\/items\/[^/]+$/u, parent: '/masters/items', label: 'Stock item' },
   { pattern: /^\/crm\/contacts\/[^/]+$/u, parent: '/crm/contacts', label: 'Contact' },
   { pattern: /^\/crm\/companies\/[^/]+$/u, parent: '/crm/companies', label: 'Company' },
   { pattern: /^\/tasks\/[^/]+$/u, parent: '/tasks', label: 'Task' },
@@ -712,6 +857,7 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/sales\/orders\/[^/]+$/u, parent: '/sales/orders', label: 'Sales order' },
   { pattern: /^\/sales\/invoices\/[^/]+$/u, parent: '/sales/invoices', label: 'Invoice' },
   { pattern: /^\/sales\/pick-queue\/[^/]+$/u, parent: '/sales/pick-queue', label: 'Pack' },
+  { pattern: /^\/sales\/packs\/[^/]+$/u, parent: '/sales/packed', label: 'Packing slip' },
   { pattern: /^\/sales\/dispatches\/[^/]+$/u, parent: '/sales/dispatches', label: 'Dispatch' },
   { pattern: /^\/purchase\/orders\/[^/]+$/u, parent: '/purchase/orders', label: 'Purchase order' },
   { pattern: /^\/purchase\/grns\/[^/]+$/u, parent: '/purchase/grns', label: 'Goods receipt' },

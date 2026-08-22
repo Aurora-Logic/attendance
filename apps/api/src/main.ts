@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { Express } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
@@ -30,8 +31,14 @@ async function bootstrap(): Promise<void> {
   // emitted in Nest's format and then everything else in JSON.
   // rawBody: the OpsTally webhook verifies an HMAC over the exact bytes it
   // was sent, so the parsed body is not enough — see SyncWebhookController.
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true, rawBody: true });
   app.useLogger(app.get(Logger));
+
+  // Express/body-parser's default JSON cap is 100kb — fine for ordinary API
+  // calls, but a 500-record OpsTally stock.snapshot/voucher.snapshot chunk
+  // (full resync) blows past that easily. Respects the rawBody option above,
+  // so the OpsTally webhook's HMAC verification is unaffected.
+  app.useBodyParser('json', { limit: '15mb' });
 
   // OPEN-QUESTIONS P0-11. Behind a reverse proxy, `req.ip` is the proxy's
   // socket address until Express is told how many hops to trust -- and then

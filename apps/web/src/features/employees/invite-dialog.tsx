@@ -263,7 +263,7 @@ function InviteBody({ employee, onClose }: { employee: EmployeeListItem; onClose
           </div>
 
           <Button variant="outline" className="w-full gap-2" onClick={handleCopyCreds}>
-            {copiedCreds ? <CheckIcon className="text-emerald-500" /> : <CopyIcon />}
+            {copiedCreds ? <CheckIcon className="text-success" /> : <CopyIcon />}
             {copiedCreds ? 'Copied to clipboard!' : 'Copy Email & Password'}
           </Button>
         </div>

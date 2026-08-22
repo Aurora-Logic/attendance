@@ -128,7 +128,7 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
       {
         onSuccess: (saved) => {
           if (saved.status === 'PENDING_APPROVAL') {
-            toast.add({ type: 'success', title: `${saved.number} awaiting approval`, description: `${formatMoney(saved.grandTotal)} is above the approval threshold: a holder of purchase.document.approve decides it in the Approvals inbox (REQ-X-16).` });
+            toast.add({ type: 'success', title: `${saved.number} awaiting approval`, description: `${formatMoney(saved.grandTotal)} is above the approval threshold: a holder of purchase.document.approve decides it in the Approvals inbox.` });
           } else {
             toast.add({
               type: 'success',
@@ -194,7 +194,7 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
               <AlertTitle>Tally rejected it</AlertTitle>
               <AlertDescription>
                 <p className="font-mono text-xs">{record.lastError}</p>
-                <p className="mt-1">Tally&rsquo;s own words (REQ-T-01). Fix the cause there or here, then push again.</p>
+                <p className="mt-1">Tally&rsquo;s own words. Fix the cause there or here, then push again.</p>
               </AlertDescription>
             </Alert>
           ) : null}
@@ -217,13 +217,13 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
             <Alert>
               <ProhibitIcon />
               <AlertTitle>Short-closed {formatRelativeAge(record.shortClosedAt)}</AlertTitle>
-              <AlertDescription>{record.shortCloseReason ?? 'The vendor will not supply the balance.'} What was not received went back to the queue (REQ-X-23).</AlertDescription>
+              <AlertDescription>{record.shortCloseReason ?? 'The vendor will not supply the balance.'} What was not received went back to the queue.</AlertDescription>
             </Alert>
           ) : null}
 
           {isDraft && record?.approvalRequired && !canApprove ? (
             <FieldDescription>
-              At {formatMoney(record.grandTotal)} this order is above the approval threshold: confirming sends it to the Approvals inbox rather than to Tally (REQ-X-16).
+              At {formatMoney(record.grandTotal)} this order is above the approval threshold: confirming sends it to the Approvals inbox rather than to Tally.
             </FieldDescription>
           ) : null}
 
@@ -303,14 +303,13 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
                 type="email"
                 inputMode="email"
                 autoComplete="off"
-                className="pointer-coarse:h-11"
                 disabled={!editable}
                 value={draft.vendorEmail}
                 onChange={(e) => {
                   setDraft((c) => ({ ...c, vendorEmail: e.target.value }));
                 }}
               />
-              <FieldDescription>Where the vendor&rsquo;s copy goes; sent by hand and marked here until the channel lands (REQ-X-18).</FieldDescription>
+              <FieldDescription>Where the vendor&rsquo;s copy goes; sent by hand and marked here until the channel lands.</FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="po-vendor-whatsapp">Vendor WhatsApp</FieldLabel>
@@ -319,7 +318,7 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
                 type="tel"
                 inputMode="tel"
                 autoComplete="off"
-                className="pointer-coarse:h-11 tabular-nums"
+                className="tabular-nums"
                 placeholder="+91 98765 43210"
                 disabled={!editable}
                 value={draft.vendorWhatsapp}
@@ -355,7 +354,7 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
 
           {itemLines.length > 0 ? (
             <div className="flex flex-col gap-2">
-              <SectionHeading title="Item facts" note="What is on hand, on order, and what this vendor charged before (REQ-X-14, REQ-X-24)." />
+              <SectionHeading title="Item facts" note="What is on hand, on order, and what this vendor charged before." />
               <div className="flex flex-wrap gap-2">
                 {[...new Map(itemLines.map((line) => [line.stockItemId, line])).values()].map((line) => (
                   <Button
@@ -505,7 +504,7 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
           }
         }}
         title={`Short-close ${initial.number ?? 'this order'}?`}
-        description="The vendor will not supply the balance (REQ-X-23). Nothing more can be received against it."
+        description="The vendor will not supply the balance. Nothing more can be received against it."
         consequences={[`${formatQty(String(owed))} still owed goes back to the queue as open requirements.`, 'The reason is recorded and audited.']}
         prompt="Why will the balance not come?"
         confirmLabel="Short close"
@@ -562,7 +561,7 @@ export function VendorCopy({ order, canMark }: { order: PurchaseOrder; canMark: 
 
   return (
     <div className="flex flex-col gap-2">
-      <SectionHeading title="Vendor copy" note="Composed by the server for each channel on record. Send it by hand, then mark it sent (REQ-X-18)." />
+      <SectionHeading title="Vendor copy" note="Composed by the server for each channel on record. Send it by hand, then mark it sent." />
       {mark.isError ? (
         <Alert variant="destructive">
           <WarningCircleIcon />
@@ -626,7 +625,7 @@ export function VendorCopy({ order, canMark }: { order: PurchaseOrder; canMark: 
 export function ReceiptLines({ order }: { order: PurchaseOrder }) {
   return (
     <div className="flex flex-col gap-2">
-      <SectionHeading title="Lines" note="Ordered, received, rejected and still owed. Rejected goods stay off stock and keep the line open (REQ-X-21)." />
+      <SectionHeading title="Lines" note="Ordered, received, rejected and still owed. Rejected goods stay off stock and keep the line open." />
       <ol className="flex flex-col divide-y border">
         {order.lines.map((line) => {
           const balance = lineBalance(line);

@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { SettingsModule } from '../settings/settings.module.js';
 
 import { ExportService } from './export.service.js';
 import { ReportController } from './report.controller.js';
@@ -20,6 +21,7 @@ import { ScheduleService } from './schedule.service.js';
  */
 @Global()
 @Module({
+  imports: [SettingsModule],
   controllers: [ReportController],
   providers: [
     ReportSourceRegistry,

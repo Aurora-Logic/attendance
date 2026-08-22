@@ -66,6 +66,9 @@ export interface AttendanceDay {
    */
   otMinutes: number;
   lateMinutes: number;
+  /** Owner, 21 Aug 2026: the early-arrival recognition, carried on every day row. */
+  earlyArrival: boolean;
+  earlyStreak: number;
   /**
    * REQ-J-01 lists Late Arrivals and Early Exits as a mirrored pair of reports,
    * and the wire row has carried this since the contract was written. It was
@@ -123,6 +126,9 @@ const dayWireSchema: z.ZodType<DayWire> = z.object({
   otMinutes: z.number().optional(),
   lateMinutes: z.number(),
   earlyExitMinutes: z.number(),
+  earlyArrivalMinutes: z.number(),
+  earlyArrival: z.boolean(),
+  earlyStreak: z.number(),
   flags: z.array(z.string()),
   isManualOverride: z.boolean(),
   locked: z.boolean(),
@@ -146,6 +152,8 @@ function toAttendanceDay(row: DayWire): AttendanceDay {
     otMinutes: row.otMinutes ?? 0,
     lateMinutes: row.lateMinutes,
     earlyExitMinutes: row.earlyExitMinutes,
+    earlyArrival: row.earlyArrival,
+    earlyStreak: row.earlyStreak,
     status: row.status,
     flags: row.flags,
   };

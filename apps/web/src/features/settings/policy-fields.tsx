@@ -6,6 +6,8 @@ import {
   FieldLabel,
 } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { DurationField } from '@/features/attendance/pickers';
 import {
   Select,
   SelectContent,
@@ -88,7 +90,7 @@ export function PolicyNumberField({
         min={min}
         max={max}
         disabled={disabled}
-        className="pointer-coarse:h-11 tabular-nums"
+        className="tabular-nums"
         value={String(value)}
         onChange={(event) => {
           const next = Number(event.target.value);
@@ -139,7 +141,7 @@ export function PolicyChoiceField<T extends string>({
           if (next !== null) onValueChange(next as T);
         }}
       >
-        <SelectTrigger id={id} aria-label={label} className="pointer-coarse:h-11 w-full">
+        <SelectTrigger id={id} aria-label={label} className="w-full">
           <SelectValue>
             {(current: string) =>
               options.find((option) => option.value === current)?.label ?? current
@@ -159,6 +161,64 @@ export function PolicyChoiceField<T extends string>({
       {help ? <FieldDescription>{help}</FieldDescription> : null}
       <EnforcementNote by={enforcedBy} />
       {children}
+    </Field>
+  );
+}
+
+/** An on/off policy: a Switch, labelled, with the same enforcement note as its neighbours. */
+export function PolicyToggleField({
+  id,
+  label,
+  help,
+  value,
+  enforcedBy,
+  disabled,
+  onValueChange,
+}: {
+  id: string;
+  label: string;
+  help?: string;
+  value: boolean;
+  enforcedBy: string | null | undefined;
+  disabled?: boolean;
+  onValueChange: (value: boolean) => void;
+}) {
+  return (
+    <Field data-disabled={disabled ? '' : undefined}>
+      <div className="flex items-center justify-between gap-3">
+        <FieldLabel htmlFor={id}>{label}</FieldLabel>
+        <Switch id={id} checked={value} disabled={disabled} onCheckedChange={onValueChange} />
+      </div>
+      {help ? <FieldDescription>{help}</FieldDescription> : null}
+      <EnforcementNote by={enforcedBy} />
+    </Field>
+  );
+}
+
+/** A policy duration, picked in hours and minutes rather than typed (owner, 21 Aug 2026). */
+export function PolicyDurationField({
+  id,
+  label,
+  help,
+  value,
+  enforcedBy,
+  disabled,
+  onValueChange,
+}: {
+  id: string;
+  label: string;
+  help?: string;
+  value: number;
+  enforcedBy: string | null | undefined;
+  disabled?: boolean;
+  onValueChange: (minutes: number) => void;
+}) {
+  return (
+    <Field data-disabled={disabled ? '' : undefined}>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <DurationField id={id} label={label} value={value} disabled={disabled} onValueChange={onValueChange} />
+      {help ? <FieldDescription>{help}</FieldDescription> : null}
+      <EnforcementNote by={enforcedBy} />
     </Field>
   );
 }

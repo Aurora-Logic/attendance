@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { env } from '../../../platform/common/env.js';
 import { files } from '../../../platform/db/schema/index.js';
-import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import { ApiHarness, FIXTURE_OFFICE, scopedEmail } from '../../../test-support/api-harness.js';
 import { localDateIn } from '../day-engine/calendar-date.js';
 import { punches, shiftAssignments, shifts } from '../schema/index.js';
 
@@ -83,6 +83,9 @@ function preparePunch(token: string, key: string): () => Promise<Attempt> {
       clientTime: new Date().toISOString(),
       source: 'MOBILE',
       consentAccepted: true,
+      latitude: FIXTURE_OFFICE.latitude,
+      longitude: FIXTURE_OFFICE.longitude,
+      gpsAccuracyM: 8,
     }),
   );
 
@@ -148,8 +151,9 @@ async function tallyPhotos(employeeId: string): Promise<PhotoTally> {
 
   const referenced = new Set<string>();
   for (const row of referencedRows) {
-    referenced.add(row.photoFileId);
-    referenced.add(row.thumbnailFileId);
+    // Admin entries carry no photograph (21 Aug 2026); nothing to reference.
+    if (row.photoFileId !== null) referenced.add(row.photoFileId);
+    if (row.thumbnailFileId !== null) referenced.add(row.thumbnailFileId);
   }
 
   let objects = 0;

@@ -82,6 +82,10 @@ export const attendanceDays = pgTable(
     status: attendanceStatusEnum('status').notNull(),
     lateMinutes: integer('late_minutes').notNull().default(0),
     earlyExitMinutes: integer('early_exit_minutes').notNull().default(0),
+    /** Owner, 21 Aug 2026: the early-arrival recognition. Minutes before start, the verdict, and the running streak. */
+    earlyArrivalMinutes: integer('early_arrival_minutes').notNull().default(0),
+    earlyArrival: boolean('early_arrival').notNull().default(false),
+    earlyStreak: integer('early_streak').notNull().default(0),
 
     /** REQ-E-04. Independent of status; a day may carry several. */
     flags: text('flags')

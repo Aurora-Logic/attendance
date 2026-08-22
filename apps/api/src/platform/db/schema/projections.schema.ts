@@ -233,3 +233,84 @@ export const voucherLines = pgTable(
     index('voucher_lines_item_idx').on(t.stockItemId),
   ],
 );
+
+/**
+ * Tally's bill-wise details: which bill each amount is against (09 §3.1,
+ * "Bill-wise outstanding | Tally | pull").
+ *
+ * This is the row that makes ageing real. Without it, "outstanding" can only
+ * be a party's net balance, which ages from nothing -- the oldest unpaid
+ * *invoice* is invisible inside a single figure, and a customer who pays every
+ * new bill while an old one rots looks current. With it, an outstanding is a
+ * named bill with a date, and 0-30 / 31-60 / 61-90 / 90+ is arithmetic rather
+ * than a guess (REQ-Y-02).
+ *
+ * It is also where days-to-pay comes from (REQ-Y-04): a settlement carries the
+ * bill it settles, so the gap between the two dates is observed rather than
+ * inferred from the order payments happen to arrive in.
+ *
+ * A projection like the rest: `connection_id`, no application write path, and
+ * truncatable -- only the sync writer touches it.
+ */
+export const billAllocations = pgTable(
+  'bill_allocations',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => integrationConnections.id, { onDelete: 'restrict' }),
+    /**
+     * The voucher this allocation was read from -- cascade, because an
+     * allocation has no meaning once its voucher is gone and a re-pull
+     * rewrites both together.
+     */
+    voucherId: uuid('voucher_id')
+      .notNull()
+      .references(() => vouchers.id, { onDelete: 'cascade' }),
+    partyId: uuid('party_id').references(() => parties.id, { onDelete: 'set null' }),
+    /** Verbatim, because it is the party's own reference and the join key. */
+    partyName: text('party_name').notNull().default(''),
+    /**
+     * Tally's bill reference -- the invoice number as the customer knows it.
+     * Not unique on its own: two companies raise "001", and Tally allows the
+     * same name under different parties.
+     */
+    billName: text('bill_name').notNull(),
+    /**
+     * How this row relates to the bill. Tally's own four:
+     *   `new`        this voucher raises the bill
+     *   `against`    this voucher settles some of it
+     *   `advance`    money taken before a bill exists
+     *   `on_account` money with no bill named at all
+     * Kept as text for the reason `voucher_type` is: the vocabulary is Tally's
+     * and an enum would need a migration the day it grows one.
+     */
+    refType: text('ref_type').notNull(),
+    /** The bill's own date, which is what ages. Null on `on_account`. */
+    billDate: date('bill_date'),
+    /** Tally's credit period on this bill, when the company sets one. */
+    dueDate: date('due_date'),
+    /**
+     * Signed against the party: positive is owed to us, negative is settled.
+     * Summing every row for a bill gives what is still outstanding on it, so
+     * ageing needs no separate "paid" flag to fall out of step with.
+     */
+    amount: numeric('amount').notNull(),
+    lastPulledAt: timestamp('last_pulled_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Ageing and the statement both read every open bill for one party,
+    // oldest first.
+    index('bill_allocations_party_idx').on(t.orgId, t.partyId, t.billDate),
+    // Summing a bill means gathering its rows: the raise and every settlement
+    // against it.
+    index('bill_allocations_bill_idx').on(t.orgId, t.partyName, t.billName),
+    // A re-pull rewrites a voucher's allocations as a set.
+    index('bill_allocations_voucher_idx').on(t.voucherId),
+  ],
+);

@@ -138,7 +138,6 @@ function HolidaySheetBody({ initial, onClose }: { initial: HolidayDraft; onClose
             <Input
               id="holiday-name"
               autoFocus
-              className="pointer-coarse:h-11"
               value={draft.name}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));
@@ -172,7 +171,7 @@ function HolidaySheetBody({ initial, onClose }: { initial: HolidayDraft; onClose
             />
           </Field>
           <FieldDescription>
-            REQ-H-03: a restricted day is a holiday only for the employees who elect it, and each
+            A restricted day is a holiday only for the employees who elect it, and each
             election spends one of the calendar&rsquo;s allowance.
           </FieldDescription>
         </FieldGroup>

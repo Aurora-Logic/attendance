@@ -117,6 +117,8 @@ export const salesDocumentLines = pgTable(
      * REQ-AA-01/AA-04: quantities are the state, and the chain is a database
      * constraint, not code. `quantity` is the ordered quantity.
      */
+    // D-48: the chain is ordered → picked → packed → invoiced → dispatched.
+    pickedQty: numeric('picked_qty', { precision: 16, scale: 3 }).notNull().default('0'),
     packedQty: numeric('packed_qty', { precision: 16, scale: 3 }).notNull().default('0'),
     invoicedQty: numeric('invoiced_qty', { precision: 16, scale: 3 }).notNull().default('0'),
     dispatchedQty: numeric('dispatched_qty', { precision: 16, scale: 3 }).notNull().default('0'),
@@ -124,7 +126,8 @@ export const salesDocumentLines = pgTable(
   },
   (t) => [
     uniqueIndex('sales_document_lines_doc_line_uq').on(t.documentId, t.lineNo),
-    check('sales_document_lines_packed_le_ordered', sql`packed_qty >= 0 AND packed_qty <= quantity`),
+    check('sales_document_lines_picked_le_ordered', sql`picked_qty >= 0 AND picked_qty <= quantity`),
+    check('sales_document_lines_packed_le_picked', sql`packed_qty >= 0 AND packed_qty <= picked_qty`),
     check('sales_document_lines_invoiced_le_packed', sql`invoiced_qty >= 0 AND invoiced_qty <= packed_qty`),
     check('sales_document_lines_dispatched_le_invoiced', sql`dispatched_qty >= 0 AND dispatched_qty <= invoiced_qty`),
     // REQ-W-02: what was quoted for this item, by document.
@@ -218,7 +221,36 @@ export const salesOrderInvoices = pgTable(
   (t) => [uniqueIndex('sales_order_invoices_voucher_uq').on(t.voucherId), uniqueIndex('sales_order_invoices_invoice_uq').on(t.invoiceDocumentId), index('sales_order_invoices_document_idx').on(t.documentId)],
 );
 
-export const dispatchModeEnum = pgEnum('dispatch_mode', ['local_auto', 'local_own_vehicle', 'outstation']);
+/** D-48: a picking session — who took how much off the shelf, before it is packed. Mirrors pack_records. */
+export const pickRecords = pgTable(
+  'pick_records',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id').notNull().references(() => organizations.id, { onDelete: 'restrict' }),
+    documentId: uuid('document_id').notNull().references(() => salesDocuments.id, { onDelete: 'restrict' }),
+    pickedBy: uuid('picked_by').references(() => employees.id, { onDelete: 'restrict' }),
+    pickedAt: timestamp('picked_at', { withTimezone: true }).notNull().defaultNow(),
+    comment: text('comment'),
+    ...standardColumns(),
+  },
+  (t) => [index('pick_records_org_document_idx').on(t.orgId, t.documentId)],
+);
+
+export const pickRecordLines = pgTable(
+  'pick_record_lines',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id').notNull().references(() => organizations.id, { onDelete: 'restrict' }),
+    pickRecordId: uuid('pick_record_id').notNull().references(() => pickRecords.id, { onDelete: 'cascade' }),
+    lineId: uuid('line_id').notNull().references(() => salesDocumentLines.id, { onDelete: 'restrict' }),
+    quantity: numeric('quantity', { precision: 16, scale: 3 }).notNull(),
+    comment: text('comment'),
+    ...standardColumns(),
+  },
+  (t) => [index('pick_record_lines_pick_idx').on(t.pickRecordId), check('pick_record_lines_qty_positive', sql`quantity > 0`)],
+);
+
+export const dispatchModeEnum = pgEnum('dispatch_mode', ['local_auto', 'local_own_vehicle', 'outstation', 'customer_collects']);
 
 /** REQ-AA-16: a dispatch is its own record; one order may have many. Pushes as a Delivery Note (REQ-AA-22). */
 export const dispatches = pgTable(
@@ -242,6 +274,12 @@ export const dispatches = pgTable(
     driverName: text('driver_name'),
     expectedDeliveryDate: date('expected_delivery_date', { mode: 'string' }),
     notes: text('notes'),
+    // D-47: the door step. Null until somebody marks it delivered; the
+    // receiver's name and the photograph are the proof (attachment kind 'delivery').
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    deliveredBy: uuid('delivered_by'),
+    receivedBy: text('received_by'),
+    deliveryNote: text('delivery_note'),
     syncState: documentSyncStateEnum('sync_state').notNull().default('NOT_PUSHED'),
     remoteGuid: text('remote_guid'),
     remoteVoucherNumber: text('remote_voucher_number'),
@@ -308,6 +346,8 @@ export const dispatchNotifications = pgTable(
       .notNull()
       .references(() => dispatches.id, { onDelete: 'cascade' }),
     channel: text('channel').notNull(),
+    /** D-47: which moment the message is about — 'dispatched' or 'delivered'. */
+    event: text('event').notNull().default('dispatched'),
     recipient: text('recipient'),
     status: text('status').notNull(),
     composedText: text('composed_text').notNull(),
