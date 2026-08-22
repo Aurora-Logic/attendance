@@ -405,13 +405,6 @@ export function ReportsDashboardV2() {
           pending={breaches.isPending}
         />
         <Kpi
-          label="Owed past thirty days"
-          value={formatMoney(owed.overdue)}
-          hint={`Of ${formatMoney(owed.total)} outstanding in total`}
-          report="ageing"
-          pending={ageing.isPending}
-        />
-        <Kpi
           label="Revenue going quiet"
           value={formatMoney(quietRevenue)}
           hint="Last twelve months from lapsed and at-risk customers"
@@ -421,9 +414,16 @@ export function ReportsDashboardV2() {
         <Kpi
           label="Dead stock value"
           value={formatMoney(deadValue)}
-          hint={`${String(lowStock.data?.meta.total ?? 0)} more items at or under reorder`}
+          hint={`${formatCount(dead.data?.meta.total ?? 0)} items with no sale in ninety days`}
           report="dead-stock"
           pending={dead.isPending}
+        />
+        <Kpi
+          label="Below reorder level"
+          value={formatCount(lowStock.data?.meta.total ?? 0)}
+          hint="Items at or under reorder, net of open purchase orders"
+          report="low-stock"
+          pending={lowStock.isPending}
         />
       </div>
 
