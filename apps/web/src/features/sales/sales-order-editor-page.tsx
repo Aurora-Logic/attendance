@@ -14,6 +14,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
+import { BrokenPromiseNote } from '@/features/collections/broken-promise-note';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -401,6 +402,8 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
         extras={
           record !== null ? (
             <div className="flex flex-col gap-4">
+              {/* 15 REQ-AJ-10 / D-54: the promise flag sits with the limit and never blocks. */}
+              <BrokenPromiseNote partyId={record.partyId} />
               {creditBlock !== null ? (
                 <Alert variant="destructive">
                   <WarningCircleIcon />

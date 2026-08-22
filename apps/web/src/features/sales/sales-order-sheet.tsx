@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
+import { BrokenPromiseNote } from '@/features/collections/broken-promise-note';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
@@ -288,6 +289,8 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
             </Alert>
           ) : null}
 
+          {/* 15 REQ-AJ-10 / D-54: the promise flag sits with the limit and never blocks. */}
+          <BrokenPromiseNote partyId={record?.partyId ?? null} />
           {creditBlock !== null ? (
             <Alert variant="destructive">
               <WarningCircleIcon />

@@ -160,6 +160,15 @@ export const sendReminderSchema = z.object({
 });
 export type SendReminderInput = z.infer<typeof sendReminderSchema>;
 
+/** REQ-AJ-01: the bills a promise can name, as the ageing report reads them. */
+export interface OpenBillView {
+  readonly billName: string;
+  readonly billDate: string | null;
+  readonly dueDate: string | null;
+  readonly outstanding: string;
+  readonly overdue: boolean;
+}
+
 export interface ReminderNoticeView {
   readonly id: string;
   readonly partyId: string;

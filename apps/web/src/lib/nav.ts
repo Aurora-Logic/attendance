@@ -409,6 +409,23 @@ export const MODULES: ModuleDef[] = [
         items: [
           {
 
+            to: '/collections',
+
+            label: 'Collections',
+
+            shortLabel: 'Collect',
+
+            icon: HandshakeIcon,
+
+            permission: PERMISSIONS.COLLECTIONS_VIEW_SELF,
+
+            phase: 8,
+
+            reqs: 'docs/15 REQ-AJ-01…13',
+
+          },
+          {
+
             to: '/masters/duplicates',
 
             label: 'Duplicates',

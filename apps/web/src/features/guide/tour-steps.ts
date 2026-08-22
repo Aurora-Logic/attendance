@@ -426,6 +426,14 @@ const TRADING_INTROS: GuideStep[] = [
     body: "Vyuha's own price lists: versioned, approved into force, and the floor on every sales line. The simulator beside them answers \"why this rate\" for any party and item.",
   },
   {
+    id: 'screen.collections',
+    route: '/collections',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.COLLECTIONS_VIEW_SELF,
+    title: 'Collections',
+    body: 'Who owes what, how much of it is late, and what each customer promised. A promise is never marked kept here: the receipts Tally sends decide it, and a broken one flags the credit check without blocking an order.',
+  },
+  {
     id: 'screen.masters-duplicates',
     route: '/masters/duplicates',
     anchor: ANCHORS.screenHeader,

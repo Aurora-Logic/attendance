@@ -53,6 +53,7 @@ import { PriceListsPage } from '@/features/pricing/price-lists-page';
 import { StockItemsPage } from '@/features/masters/stock-items-page';
 import { StockItemPage } from '@/features/masters/item-page';
 import { PartyPage } from '@/features/masters/party-page';
+import { CollectionsPage } from '@/features/collections/collections-page';
 import { DuplicatesPage } from '@/features/masters/duplicates-page';
 import { VouchersPage } from '@/features/masters/vouchers-page';
 import { VoucherPaperPage } from '@/features/masters/voucher-paper-page';
@@ -157,6 +158,7 @@ export default function App() {
               <Route path="masters/price-lists" element={<PriceListsPage />} />
               <Route path="masters/price-lists/new" element={<PriceListPage />} />
               <Route path="masters/price-lists/:id" element={<PriceListPage />} />
+              <Route path="collections" element={<CollectionsPage />} />
               <Route path="masters/duplicates" element={<DuplicatesPage />} />
               <Route path="masters/vouchers" element={<VouchersPage />} />
               <Route path="masters/vouchers/:id" element={<VouchersPage />} />
