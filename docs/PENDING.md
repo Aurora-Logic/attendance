@@ -32,6 +32,11 @@ Purchase going live). Updated as work lands.
 | P-23 | Code splitting | Owner's review 22 Aug: the web build is one ~3 MB chunk (805 kB gzip) over 63 routes, `React.lazy` unused. Split per module route at least; measure first-load on a phone | Web | No | Not started |
 | P-24 | Org scoping as enforcement | Owner's review 22 Aug: 14 of 30 repositories do not extend `ScopedRepository`; 131 hand-written `sql` blocks carry no literal `org_id` (mostly fragments that receive it). No leak found; the invariant is convention. Owner decided 22 Aug: an ESLint rule that fails any repository class not extending `ScopedRepository` and any raw `sql` block in a repository without an `org_id` parameter; migrate the 14 repositories over. The build fails, not the reviewer | Platform | Decided: lint rule + migration | Not started |
 | P-25 | Cross-org isolation coverage | Owner's review 22 Aug: 12 test files cover isolation for 283 routes. Add a per-module isolation test that walks every route as a second org | QA | No | Not started |
+| P-26 | Packing slip A5/A4 + barcode | One slip per box, Box i of N, ship-to large, write-in LR/transporter/vehicle, Code 128 of the slip number; per-org Documents setting, default A5 (D-47) | Documents | Decided | Not started |
+| P-27 | Dispatch life | packed → shipped → delivered with shipped_at / delivered_at / received_by / proof photo; POST /dispatches/:id/ship and /deliver; audit; order timeline (D-47) | Sales | Decided | Not started |
+| P-28 | Scan to ship | Camera screen (native BarcodeDetector; approved reader fallback for iPhone), found-sheet, Ship and Deliver forms, mobile-first (D-47) | Sales | Decided: dependency approved | Not started |
+| P-29 | Customer mails E1–E4 | From the org mailbox: shipped (LR, barcode), delivered (photo), ready to collect, invoice; only when the party has an email; recorded in dispatch_notifications (D-47) | Platform | Decided: all four | Not started |
+| P-30 | WhatsApp click-to-send | Done-screen opens wa.me with the composed message; marked sent on return; Meta API deferred (D-47) | Sales | Decided | Not started |
 
 Notes:
 - "2,033 existing tests" in the brief: the suite is now 461 web + 1830 api + 41 shared ≈ 2,332; all green as of the last push.
