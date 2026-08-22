@@ -184,6 +184,9 @@ export const creditPositionSchema = z.object({
   exposure: z.string(),
   openOrders: z.string(),
   headroom: z.string().nullable(),
+  // 15 REQ-AJ-10: a flag beside the limit; absent on older fixtures.
+  brokenPromises: z.number().default(0),
+  brokenPromiseAmount: z.string().default('0.00'),
 });
 export type CreditPosition = z.infer<typeof creditPositionSchema>;
 export const creditBlockSchema = z.object({ position: creditPositionSchema, requiredPermission: z.string(), orderTotal: z.string() });

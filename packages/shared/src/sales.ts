@@ -460,6 +460,9 @@ export interface CreditPosition {
   /** Confirmed, undispatched Vyuha orders not yet in Tally as invoices — committed money, the way stock is committed. */
   readonly openOrders: string;
   readonly headroom: string | null;
+  /** 15 REQ-AJ-10 / D-54: promises this party did not keep. A flag beside the limit, never a second way to be blocked. */
+  readonly brokenPromises: number;
+  readonly brokenPromiseAmount: string;
 }
 
 export const convertEstimateSchema = z.object({

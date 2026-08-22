@@ -27,6 +27,7 @@ import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database, type Transaction } from '../../../platform/db/db.provider.js';
 import { ApprovalService } from '../../../platform/approvals/approval.service.js';
+import { CollectionsService } from '../../../platform/collections/collections.service.js';
 import type { ApprovalSubjectDecision, ApprovalSubjectSettlement } from '../../../platform/approvals/approval-subject.registry.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
@@ -71,6 +72,7 @@ export class SalesOrderService implements OnModuleInit {
     private readonly pushQueue: PushQueueService,
     private readonly requirements: RequirementsService,
     private readonly approvals: ApprovalService,
+    private readonly collections: CollectionsService,
   ) {}
 
   onModuleInit(): void {
@@ -546,6 +548,10 @@ export class SalesOrderService implements OnModuleInit {
     const r = rows.rows[0];
     if (r === undefined) return null;
     const limit = r.credit_limit === null ? null : Number(r.credit_limit);
+    // 15 REQ-AJ-10 / D-54: a broken promise is shown beside the limit and never added to it.
+    // Blocking on both would give one customer two ways to be stopped, and the
+    // override key would get handed out to relieve it.
+    const promises = await this.collections.brokenPromises(orgId, partyId);
     return {
       partyId: r.id,
       partyName: r.name,
@@ -554,6 +560,8 @@ export class SalesOrderService implements OnModuleInit {
       exposure: r.exposure,
       openOrders: r.open_orders,
       headroom: limit === null || !Number.isFinite(limit) ? null : (limit - Number(r.exposure) - Number(r.open_orders)).toFixed(2),
+      brokenPromises: promises.count,
+      brokenPromiseAmount: promises.amount,
     };
   }
 

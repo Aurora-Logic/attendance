@@ -33,3 +33,4 @@ export * from './notifications.js';
 export * from './voucher-paper.js';
 export * from './pricing.js';
 export * from './duplicates.js';
+export * from './collections.js';

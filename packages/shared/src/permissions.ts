@@ -98,6 +98,10 @@ export const PERMISSIONS = {
   // 15 REQ-AO-14: duplicates are seen by one key and decided by another.
   DUPLICATES_VIEW: 'duplicates.view',
   DUPLICATES_MANAGE: 'duplicates.manage',
+  // 15 REQ-AJ-11: my parties, everyone's parties, and the right to record intent.
+  COLLECTIONS_VIEW_SELF: 'collections.view.self',
+  COLLECTIONS_VIEW_ALL: 'collections.view.all',
+  COLLECTIONS_MANAGE: 'collections.manage',
 
   /** 08 §2.2 / 13. Purchase and Accounts roles arrive with their phases; Admin holds these meanwhile. */
   PURCHASE_DOCUMENT_VIEW: 'purchase.document.view',
@@ -157,6 +161,9 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'pricing.approve': 'Approve a price list into force',
   'duplicates.view': 'See likely duplicate masters and the clusters behind them',
   'duplicates.manage': 'Dismiss a duplicate cluster or mark it sent to Tally',
+  'collections.view.self': 'See the collections work for the parties assigned to me',
+  'collections.view.all': 'See every collector’s parties, promises and targets',
+  'collections.manage': 'Take a promise to pay, assign a collector, send a reminder',
   'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
   'purchase.document.create': 'Raise purchase orders and record receipts',
   'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
@@ -272,6 +279,9 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.PRICING_MANAGE,
   PERMISSIONS.DUPLICATES_VIEW,
   PERMISSIONS.DUPLICATES_MANAGE,
+  PERMISSIONS.COLLECTIONS_VIEW_SELF,
+  PERMISSIONS.COLLECTIONS_VIEW_ALL,
+  PERMISSIONS.COLLECTIONS_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 /** 08 §2.2, the Purchase column: the procurement queue, POs and receipts, tasks, and the masters. */
@@ -303,6 +313,9 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.REPORTS_MARGIN_VIEW,
   PERMISSIONS.DUPLICATES_VIEW,
   PERMISSIONS.DUPLICATES_MANAGE,
+  PERMISSIONS.COLLECTIONS_VIEW_SELF,
+  PERMISSIONS.COLLECTIONS_VIEW_ALL,
+  PERMISSIONS.COLLECTIONS_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {

@@ -485,6 +485,11 @@ export class ApiHarness {
     // CRM records own an employee (`owner_id`, RESTRICT), so they go before
     // the employees do — same reasoning, same raw SQL.
     // Fulfilment and procurement rows point at documents, lines and stock items.
+    // 15 Area AJ: a collector assignment holds an employee (RESTRICT) and a
+    // party, and a promise holds both; all three go before either does.
+    await this.db.execute(sql`DELETE FROM reminder_notices WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM promises_to_pay WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM collector_assignments WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_notifications WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_attachments WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_lines WHERE org_id = ${this.orgId}`);

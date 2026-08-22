@@ -57,6 +57,9 @@ export const REPORT_KEYS = [
   'stale-projections',
   'duplicate-masters',
   'duplicate-clusters',
+  // 15 Area AJ: the two reports collections exists for.
+  'promised-vs-collected',
+  'broken-promises',
   'customer-item-matrix',
   'purchase-rhythm',
   'price-variance',
@@ -135,6 +138,9 @@ export const ATTENDANCE_ANALYTICS_REPORT_KEYS = [
 ] as const satisfies readonly ReportKey[];
 /** The sales module's reports (12 REQ-AA-30). */
 export const SALES_REPORT_KEYS = ['pending-dispatch'] as const satisfies readonly ReportKey[];
+
+/** 15 REQ-AJ-08/09: promised against collected, and the promises nothing came against. */
+export const COLLECTIONS_REPORT_KEYS = ['promised-vs-collected', 'broken-promises'] as const satisfies readonly ReportKey[];
 
 export function isReportKey(value: string): value is ReportKey {
   return (REPORT_KEYS as readonly string[]).includes(value);
@@ -735,6 +741,31 @@ const STALE_PROJECTIONS_COLUMNS: readonly ReportColumnSpec[] = [
 
 /** 14 REQ-AH-12: near-matching master names. Vyuha flags; the accountant merges in Tally. */
 /** 15 REQ-AO-15: open clusters by entity type and confidence band, and the outstanding behind the party ones. */
+const PROMISED_VS_COLLECTED_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'collectorName', header: 'Collector', type: 'text', sortField: 'collectorName', width: 20 },
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'promises', header: 'Promises', type: 'number', width: 10 },
+  { key: 'promised', header: 'Promised', type: 'number', sortField: 'promised', width: 14 },
+  { key: 'received', header: 'Received', type: 'number', width: 14 },
+  { key: 'keptPct', header: 'Kept %', type: 'number', width: 10 },
+  { key: 'kept', header: 'Kept', type: 'number', width: 8, secondary: true },
+  { key: 'partlyKept', header: 'Partly', type: 'number', width: 8, secondary: true },
+  { key: 'broken', header: 'Broken', type: 'number', width: 8 },
+  { key: 'open', header: 'Open', type: 'number', width: 8, secondary: true },
+];
+
+const BROKEN_PROMISES_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'promisedDate', header: 'Promised for', type: 'date', width: 14 },
+  { key: 'daysLate', header: 'Days late', type: 'number', sortField: 'daysLate', width: 10 },
+  { key: 'amount', header: 'Promised', type: 'number', width: 14 },
+  { key: 'received', header: 'Received', type: 'number', width: 14 },
+  { key: 'shortfall', header: 'Shortfall', type: 'number', width: 14 },
+  { key: 'collectorName', header: 'Collector', type: 'text', width: 20, secondary: true },
+  { key: 'takenByName', header: 'Taken by', type: 'text', width: 20, secondary: true },
+  { key: 'bills', header: 'Against bills', type: 'text', width: 24, secondary: true },
+];
+
 const DUPLICATE_CLUSTERS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'kind', header: 'Master', type: 'text', width: 12 },
   { key: 'band', header: 'Confidence', type: 'text', sortField: 'band', width: 16 },
@@ -1277,6 +1308,24 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: '-hoursStale',
     filters: [],
   },
+  'promised-vs-collected': {
+    key: 'promised-vs-collected',
+    category: 'Receivables',
+    label: 'Promised against collected',
+    description: 'Every promise to pay in the period beside what actually arrived against the named bills. A promise is never marked kept by hand: the receipts Tally sends decide it.',
+    columns: PROMISED_VS_COLLECTED_COLUMNS,
+    defaultSort: '-promised',
+    filters: ['period', 'partyId', 'employeeId'],
+  },
+  'broken-promises': {
+    key: 'broken-promises',
+    category: 'Exceptions',
+    label: 'Broken promises',
+    description: 'Promises past their date with nothing, or not enough, received against the bills they named. Ranked by what is short. A broken promise flags the credit check; it never blocks an order.',
+    columns: BROKEN_PROMISES_COLUMNS,
+    defaultSort: '-shortfall',
+    filters: ['period', 'partyId', 'employeeId'],
+  },
   'duplicate-clusters': {
     key: 'duplicate-clusters',
     category: 'Exceptions',
@@ -1542,6 +1591,7 @@ export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.filte
   (key) =>
     !(TALLY_REPORT_KEYS as readonly string[]).includes(key) &&
     !(SALES_REPORT_KEYS as readonly string[]).includes(key) &&
+    !(COLLECTIONS_REPORT_KEYS as readonly string[]).includes(key) &&
     !(ANALYTICS_REPORT_KEYS as readonly string[]).includes(key) &&
     !(ATTENDANCE_ANALYTICS_REPORT_KEYS as readonly string[]).includes(key),
 ).map((key) => REPORT_DEFINITIONS[key]);
@@ -1551,6 +1601,8 @@ export const ATTENDANCE_ANALYTICS_REPORTS: readonly ReportDefinition[] = ATTENDA
 );
 
 export const SALES_REPORTS: readonly ReportDefinition[] = SALES_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
+
+export const COLLECTIONS_REPORTS: readonly ReportDefinition[] = COLLECTIONS_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
 
 /** The Tally module's reports (Phase 6c onward). */
 export const TALLY_REPORTS: readonly ReportDefinition[] = TALLY_REPORT_KEYS.map(
@@ -1562,7 +1614,7 @@ export const ANALYTICS_REPORTS: readonly ReportDefinition[] = ANALYTICS_REPORT_K
 );
 
 /** Every module's reports. Grows by concatenation as modules add groups. */
-export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...ANALYTICS_REPORTS];
+export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...COLLECTIONS_REPORTS, ...ANALYTICS_REPORTS];
 
 /** The columns a report shows before anyone touches the F12 chooser. */
 export function defaultVisibleColumns(reportKey: ReportKey): string[] {
@@ -2717,6 +2769,67 @@ export function salesAnalysisCell(row: SalesAnalysisSource, key: string): Report
       return row.asOf;
     default:
       return null;
+  }
+}
+
+export interface PromisedVsCollectedSource {
+  readonly id: string;
+  readonly collectorId: string | null;
+  readonly collectorName: string | null;
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly promises: number;
+  readonly promised: string;
+  readonly received: string;
+  readonly keptPct: number;
+  readonly kept: number;
+  readonly partlyKept: number;
+  readonly broken: number;
+  readonly open: number;
+}
+
+export function promisedVsCollectedCell(row: PromisedVsCollectedSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'collectorName': return row.collectorName ?? 'Unassigned';
+    case 'partyName': return row.partyName;
+    case 'promises': return row.promises;
+    case 'promised': return row.promised;
+    case 'received': return row.received;
+    case 'keptPct': return row.keptPct;
+    case 'kept': return row.kept;
+    case 'partlyKept': return row.partlyKept;
+    case 'broken': return row.broken;
+    case 'open': return row.open;
+    default: return null;
+  }
+}
+
+export interface BrokenPromiseSource {
+  readonly id: string;
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly collectorName: string | null;
+  readonly amount: string;
+  readonly received: string;
+  readonly shortfall: string;
+  readonly promisedDate: string;
+  readonly daysLate: number;
+  readonly takenByName: string | null;
+  readonly bills: string | null;
+}
+
+export function brokenPromiseCell(row: BrokenPromiseSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName': return row.partyName;
+    case 'promisedDate': return row.promisedDate;
+    case 'daysLate': return row.daysLate;
+    case 'amount': return row.amount;
+    case 'received': return row.received;
+    case 'shortfall': return row.shortfall;
+    case 'collectorName': return row.collectorName ?? 'Unassigned';
+    case 'takenByName': return row.takenByName;
+    case 'bills': return row.bills;
+    default: return null;
   }
 }
 
