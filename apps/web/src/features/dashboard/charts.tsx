@@ -72,14 +72,17 @@ const MAX_DATE_TICKS = 5;
  * half outside the plot and was clipped by the panel. The margin moves the
  * last column in far enough for its own label.
  */
-const AXIS_MARGIN = { left: 0, right: 16, top: 4 } as const;
+/* `top` is room for the value on a bar cap or a line end. At 4px the
+   tallest mark had its label sliced off by the plot edge -- the marks
+   that most need reading were the ones cut in half. */
+const AXIS_MARGIN = { left: 0, right: 16, top: 20 } as const;
 
 /**
  * The line chart needs more of it. A band axis keeps half a column of padding
  * at each end; a line axis puts its last point on the edge itself, so the same
  * 16px left "13 Aug" hanging 3px outside the plot.
  */
-const LINE_MARGIN = { left: 0, right: 24, top: 8 } as const;
+const LINE_MARGIN = { left: 0, right: 24, top: 20 } as const;
 
 /**
  * The axis label colour, set here rather than inherited.

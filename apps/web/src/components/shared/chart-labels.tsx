@@ -121,6 +121,31 @@ export function endpointLabel<T extends object>(
 }
 
 /**
+ * Every bar's value, at its tip -- the horizontal-layout twin of `valueCaps`.
+ *
+ * `dataviz` states them as two rules because they are two geometries: "Bars to
+ * value at the tip. Columns to value on the cap." A horizontal bar grows
+ * rightwards, so `position: top` puts the number above the bar rather than
+ * after it, where it either collides with the bar above or falls outside the
+ * plot and is never drawn at all.
+ *
+ * The chart needs right margin to receive it -- a tip label on the longest bar
+ * sits past the end of the axis, and without room it is clipped.
+ */
+export function valueTips(
+  dataKey: string,
+  format: (value: number) => string = compactCount,
+): Partial<ComponentProps<typeof LabelList>> {
+  return {
+    ...SHARED,
+    position: 'right',
+    offset: 8,
+    dataKey,
+    formatter: (value: unknown) => (typeof value === 'number' ? format(value) : ''),
+  };
+}
+
+/**
  * The stack's total, on the cap of the whole column.
  *
  * Interior stacked segments get no inline label, and that is not a shortcut.

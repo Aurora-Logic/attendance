@@ -1,4 +1,4 @@
-import { compactCount, compactIndian, stackTotal, valueCaps } from '@/components/shared/chart-labels';
+import { compactCount, compactIndian, stackTotal, valueCaps, valueTips } from '@/components/shared/chart-labels';
 import { Bar, BarChart, CartesianGrid, Label, Line, LineChart, Pie, PieChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, Scatter, ScatterChart, XAxis, YAxis, LabelList } from 'recharts';
 
 import { SectionHeading } from '@/components/shared/section-heading';
@@ -57,7 +57,36 @@ const LAPSE_CONFIG = {
 } satisfies ChartConfig;
 
 /** Room for the last label; ticks are centred under their category. */
-const AXIS_MARGIN = { left: 0, right: 16, top: 4 } as const;
+/*
+ * `top` leaves room for the value that sits on a bar's cap. At the old 4px the
+ * tallest column's label was clipped by the plot edge -- the bars that most
+ * need reading were the ones whose number was cut in half.
+ *
+ * `bottom` leaves room for angled category names; see ANGLED_CATEGORY.
+ */
+const AXIS_MARGIN = { left: 0, right: 16, top: 20, bottom: 4 } as const;
+const AXIS_MARGIN_ANGLED = { left: 0, right: 16, top: 20, bottom: 28 } as const;
+
+/**
+ * Long category names, set at an angle instead of overlapping.
+ *
+ * Eight item names across half a page gives each about 55px, and
+ * "MCCB 100A 3P 36kA" is nowhere near that -- horizontal they ran into each
+ * other and became one smear. Angled, each name gets the full diagonal and
+ * stays readable. `interval={0}` is kept deliberately: every bar keeps its
+ * name, which is the point of the chart. Truncation is tighter than the
+ * default because the diagonal is not unlimited either.
+ */
+const ANGLED_CATEGORY = {
+  angle: -35,
+  textAnchor: 'end',
+  height: 56,
+  interval: 0,
+} as const;
+
+function truncateTight(label: string): string {
+  return label.length > 12 ? `${label.slice(0, 11)}…` : label;
+}
 
 function truncate(label: string): string {
   return label.length > 14 ? `${label.slice(0, 13)}…` : label;
@@ -123,9 +152,11 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
                 <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} maxBarSize={44} {...motion} >
                   <LabelList {...valueCaps('value', compactIndian)} />
                 </Bar>
-                {compare !== undefined ? <Bar dataKey="compare" fill="var(--color-compare)" fillOpacity={0.55} radius={[4, 4, 0, 0]} maxBarSize={44} {...motion} >
-          <LabelList {...valueCaps('compare', compactCount)} />
-        </Bar> : null}
+                {compare !== undefined ? (
+                  <Bar dataKey="compare" fill="var(--color-compare)" fillOpacity={0.55} radius={[4, 4, 0, 0]} maxBarSize={44} {...motion}>
+                    <LabelList {...valueCaps('compare', compactIndian)} />
+                  </Bar>
+                ) : null}
               </BarChart>
             </ChartContainer>
           </Frame>
@@ -162,9 +193,9 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       return (
         <Frame title="The pace, year against quarter" insight={insight}>
           <ChartContainer config={VELOCITY_CONFIG} className="h-56 w-full">
-            <BarChart data={[...points]} margin={AXIS_MARGIN}>
+            <BarChart data={[...points]} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
-              <XAxis dataKey="item" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
+              <XAxis dataKey="item" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
               <YAxis tickLine={false} axisLine={false} width={48} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
@@ -185,9 +216,9 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       return (
         <Frame title="How long the shelf has held it" insight={insight}>
           <ChartContainer config={AGEING_CONFIG} className="h-56 w-full">
-            <BarChart data={[...points]} margin={AXIS_MARGIN}>
+            <BarChart data={[...points]} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
-              <XAxis dataKey="item" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
+              <XAxis dataKey="item" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
               <YAxis tickLine={false} axisLine={false} width={48} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
@@ -329,15 +360,21 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
   return (
     <Frame title={`Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`} insight={null}>
       <ChartContainer config={config} className="h-64 w-full">
-        <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24, top: 4 }}>
+        <BarChart data={data} layout="vertical" margin={{ left: 8, right: 56, top: 4 }}>
           <CartesianGrid horizontal={false} />
-          <XAxis type="number" tickLine={false} axisLine={false} />
-          <YAxis type="category" dataKey="category" tickLine={false} axisLine={false} width={120} tickFormatter={truncate} interval={0} />
+          <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={compactIndian} />
+          {/* Tighter than the 14-char default and a wider gutter: at 120px a
+              fourteen-character name wrapped onto a second line, so every long
+              customer read as two stacked fragments. One line, or it is not a
+              tick label. */}
+          <YAxis type="category" dataKey="category" tickLine={false} axisLine={false} width={140} tickFormatter={truncateTight} interval={0} />
           <ChartTooltip content={<ChartTooltipContent />} />
           {series.series.length > 1 || withPrev ? <ChartLegend content={<ChartLegendContent />} /> : null}
-          {withPrev ? <Bar dataKey="compare" fill="var(--color-compare)" radius={[0, 4, 4, 0]} maxBarSize={18} fillOpacity={0.55} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} >
-          <LabelList {...valueCaps('compare', compactCount)} />
-        </Bar> : null}
+          {withPrev ? (
+            <Bar dataKey="compare" fill="var(--color-compare)" radius={[0, 4, 4, 0]} maxBarSize={18} fillOpacity={0.55} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
+              <LabelList {...valueTips('compare')} />
+            </Bar>
+          ) : null}
           {series.series.map((s) => (
             <Bar
               key={s.key}
@@ -357,7 +394,9 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
                   rowId: typeof payload.__rowId === 'string' && payload.__rowId !== '' ? payload.__rowId : null,
                 });
               }}
-            />
+            >
+              <LabelList {...valueTips(s.key)} />
+            </Bar>
           ))}
         </BarChart>
       </ChartContainer>

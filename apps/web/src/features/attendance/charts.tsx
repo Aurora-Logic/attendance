@@ -119,7 +119,10 @@ const MAX_DATE_TICKS = 5;
  * the panel; the right margin moves the last column in far enough for its own
  * label.
  */
-const AXIS_MARGIN = { left: 0, right: 16, top: 4 } as const;
+/* `top` is room for the value on a bar cap or a line end. At 4px the
+   tallest mark had its label sliced off by the plot edge -- the marks
+   that most need reading were the ones cut in half. */
+const AXIS_MARGIN = { left: 0, right: 16, top: 20 } as const;
 
 /**
  * The axis label colour, set here rather than inherited.

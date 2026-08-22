@@ -1,4 +1,4 @@
-import { compactCount, compactIndian, endpointLabel, stackTotal, valueCaps } from '@/components/shared/chart-labels';
+import { compactCount, compactIndian, endpointLabel, stackTotal, valueCaps, valueTips } from '@/components/shared/chart-labels';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis, LabelList } from 'recharts';
 
 import {
@@ -93,8 +93,11 @@ const NAME_TICK = { className: 'fill-muted-foreground', width: 400 } as const;
  * the right margin exists so a centred last tick has room for its own label
  * instead of hanging outside the panel at 360px.
  */
-const AXIS_MARGIN = { left: 0, right: 16, top: 4 } as const;
-const LINE_MARGIN = { left: 0, right: 24, top: 8 } as const;
+/* `top` is room for the value on a bar cap or a line end. At 4px the
+   tallest mark had its label sliced off by the plot edge -- the marks
+   that most need reading were the ones cut in half. */
+const AXIS_MARGIN = { left: 0, right: 16, top: 20 } as const;
+const LINE_MARGIN = { left: 0, right: 24, top: 20 } as const;
 /** A horizontal bar's value label sits to the right of the bar; leave it room. */
 const ROW_MARGIN = { left: 0, right: 36, top: 4, bottom: 4 } as const;
 
@@ -392,7 +395,7 @@ export function RepeatLateChart({ points, animate }: ChartProps<PersonPoint>) {
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
         >
-          <LabelList {...valueCaps('value', compactIndian)} />
+          <LabelList {...valueTips('value', compactIndian)} />
         </Bar>
       </BarChart>
     </ChartContainer>
@@ -448,7 +451,7 @@ export function OvertimeChart({ points, animate }: ChartProps<PersonPoint>) {
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
         >
-          <LabelList {...valueCaps('value', compactIndian)} />
+          <LabelList {...valueTips('value', compactIndian)} />
         </Bar>
       </BarChart>
     </ChartContainer>
@@ -609,7 +612,7 @@ export function FlagVolumeChart({ points, animate }: ChartProps<FlagPoint>) {
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
         >
-          <LabelList {...valueCaps('punches', compactCount)} />
+          <LabelList {...valueTips('punches', compactCount)} />
         </Bar>
       </BarChart>
     </ChartContainer>
