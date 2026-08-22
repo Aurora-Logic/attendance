@@ -4,6 +4,7 @@ import { ArrowRightIcon, BooksIcon, BuildingsIcon, TrashIcon, WarningCircleIcon 
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Badge } from '@/components/ui/badge';
@@ -139,10 +140,11 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
   const editable = canCreate && draft.status === 'DRAFT';
   const dirty = JSON.stringify(draft) !== JSON.stringify(base);
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
+  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
   const itemOptions = (items.data?.data ?? []).map((i) => ({
     id: i.id,
+    ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}),
     label: i.name,
     hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
     unit: i.unit,

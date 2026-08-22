@@ -1,3 +1,4 @@
+import { duplicateFlagSchema } from '@/components/shared/duplicate-flag';
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { z } from 'zod';
 
@@ -23,6 +24,8 @@ export const partySchema = z.object({
   openingBalance: z.string().nullable(),
   absentInTally: z.boolean(),
   lastPulledAt: z.string(),
+  // 15 REQ-AO-06: set when the record sits in an open duplicate cluster.
+  duplicate: duplicateFlagSchema.nullable().default(null),
 });
 
 export type Party = z.infer<typeof partySchema>;

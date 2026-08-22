@@ -6,11 +6,11 @@ import { apiRequest } from '@/lib/api/client';
 
 /** Area AN: Vyuha's price lists, their versions and approval, and the rate they resolve. */
 
-const ROOT = ['pricing'] as const;
+const PRICING_KEY = ['pricing'] as const;
 
 function useInvalidatePricing(): () => Promise<void> {
   const client = useQueryClient();
-  return () => client.invalidateQueries({ queryKey: ROOT });
+  return () => client.invalidateQueries({ queryKey: PRICING_KEY });
 }
 
 export function usePriceLists(query: PriceListsQuery, options: { enabled?: boolean } = {}): UseQueryResult<Paginated<PriceListSummary>, Error> {
@@ -20,7 +20,7 @@ export function usePriceLists(query: PriceListsQuery, options: { enabled?: boole
   const key = params.toString();
   return useQuery({
     enabled: options.enabled ?? true,
-    queryKey: [...ROOT, 'lists', key],
+    queryKey: [...PRICING_KEY, 'lists', key],
     queryFn: ({ signal }) => apiRequest<Paginated<PriceListSummary>>(`/pricing/lists?${key}`, { signal }),
     placeholderData: keepPreviousData,
   });
@@ -29,7 +29,7 @@ export function usePriceLists(query: PriceListsQuery, options: { enabled?: boole
 export function usePriceList(id: string | null): UseQueryResult<PriceListDetail, Error> {
   return useQuery({
     enabled: id !== null,
-    queryKey: [...ROOT, 'list', id ?? ''],
+    queryKey: [...PRICING_KEY, 'list', id ?? ''],
     queryFn: ({ signal }) => apiRequest<PriceListDetail>(`/pricing/lists/${id ?? ''}`, { signal }),
   });
 }
@@ -37,7 +37,7 @@ export function usePriceList(id: string | null): UseQueryResult<PriceListDetail,
 export function usePriceListDiff(id: string | null): UseQueryResult<PriceListDiff, Error> {
   return useQuery({
     enabled: id !== null,
-    queryKey: [...ROOT, 'list', id ?? '', 'diff'],
+    queryKey: [...PRICING_KEY, 'list', id ?? '', 'diff'],
     queryFn: ({ signal }) => apiRequest<PriceListDiff>(`/pricing/lists/${id ?? ''}/diff`, { signal }),
   });
 }
@@ -71,7 +71,7 @@ export function useRateSimulation(query: Omit<Partial<RateSimulationQuery>, 'sto
   const key = params.toString();
   return useQuery({
     enabled: (options.enabled ?? true) && query.stockItemId !== null && query.stockItemId !== '',
-    queryKey: [...ROOT, 'simulate', key],
+    queryKey: [...PRICING_KEY, 'simulate', key],
     queryFn: ({ signal }) => apiRequest<RateSimulation>(`/pricing/simulate?${key}`, { signal }),
     staleTime: 30_000,
   });

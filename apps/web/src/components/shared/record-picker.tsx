@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { CaretUpDownIcon, CheckIcon, XIcon } from '@phosphor-icons/react';
+import { CaretUpDownIcon, CheckIcon, XIcon, WarningDiamondIcon } from '@phosphor-icons/react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -41,6 +41,8 @@ import { cn } from '@/lib/utils';
 
 export interface PickerOption {
   id: string;
+  /** 15 REQ-AO-09: why to look twice before choosing (a likely duplicate), shown before it is chosen. */
+  warning?: string;
   /** The line the reader searches and reads. */
   label: string;
   /** A code or a qualifier, shown dimmed at the end of the row. */
@@ -94,6 +96,7 @@ export function RecordPicker({
     >
       <span className="flex min-w-0 items-center gap-2">
         {icon}
+        {value?.warning !== undefined ? <WarningDiamondIcon weight="fill" className="text-destructive shrink-0" aria-label={value.warning} /> : null}
         <span className={cn('truncate', value === null && 'text-muted-foreground')}>
           {value === null ? placeholder : value.label}
         </span>
@@ -145,6 +148,11 @@ export function RecordPicker({
                     className={cn('shrink-0', value?.id === option.id ? '' : 'invisible')}
                   />
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  {option.warning === undefined ? null : (
+                    <span title={option.warning} className="text-destructive flex shrink-0">
+                      <WarningDiamondIcon weight="fill" aria-label={option.warning} />
+                    </span>
+                  )}
                   {option.hint === undefined ? null : (
                     <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
                       {option.hint}

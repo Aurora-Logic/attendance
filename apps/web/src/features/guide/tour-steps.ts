@@ -426,6 +426,14 @@ const TRADING_INTROS: GuideStep[] = [
     body: "Vyuha's own price lists: versioned, approved into force, and the floor on every sales line. The simulator beside them answers \"why this rate\" for any party and item.",
   },
   {
+    id: 'screen.masters-duplicates',
+    route: '/masters/duplicates',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.DUPLICATES_VIEW,
+    title: 'Duplicates',
+    body: 'Parties and items Tally holds twice, found after each pull and ranked by what they split. Mark a cluster sent to Tally or genuinely different; the merge itself happens in Tally.',
+  },
+  {
     id: 'screen.masters-vouchers',
     route: '/masters/vouchers',
     anchor: ANCHORS.screenHeader,

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
+import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -85,10 +86,11 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
   const isNew = initial.id === undefined;
   const editable = draft.status === 'DRAFT';
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
+  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
   const itemOptions: StockItemOption[] = (items.data?.data ?? []).map((i) => ({
     id: i.id,
+    ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}),
     label: i.name,
     hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
     unit: i.unit,

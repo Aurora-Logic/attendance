@@ -39,6 +39,7 @@ import {
   CheckCircleIcon,
   ReceiptXIcon,
   TruckIcon,
+  CopyIcon,
 } from '@phosphor-icons/react';
 
 import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
@@ -406,6 +407,23 @@ export const MODULES: ModuleDef[] = [
       {
         label: 'Books',
         items: [
+          {
+
+            to: '/masters/duplicates',
+
+            label: 'Duplicates',
+
+            shortLabel: 'Dupes',
+
+            icon: CopyIcon,
+
+            permission: PERMISSIONS.DUPLICATES_VIEW,
+
+            phase: 9,
+
+            reqs: 'docs/15 REQ-AO-10',
+
+          },
           {
             to: '/masters/vouchers',
             label: 'Vouchers',

@@ -175,13 +175,13 @@ describe('guided tour length', () => {
     Employee: { desktop: 10, phone: 9 },
     Operations: { desktop: 18, phone: 17 },
     HR: { desktop: 23, phone: 22 },
-    Admin: { desktop: 49, phone: 48 },
+    Admin: { desktop: 50, phone: 49 },
     // The CRM roles hold no attendance keys (D-15: they sit beside Employee),
     // so the tour they get is the shell plus whatever the masters key unlocks.
     Sales: { desktop: 23, phone: 22 },
-    'Sales manager': { desktop: 26, phone: 25 },
+    'Sales manager': { desktop: 27, phone: 26 },
     Purchase: { desktop: 14, phone: 13 },
-    Accounts: { desktop: 25, phone: 24 },
+    Accounts: { desktop: 26, phone: 25 },
   };
 
   for (const [role, expected] of Object.entries(EXPECTED) as [
