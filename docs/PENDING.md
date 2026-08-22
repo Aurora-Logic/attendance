@@ -87,6 +87,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-23 | Sleek, specifically | Trigger-rendered Buttons were falling into the floor (render props replace data-slot); the floor now keys on `data-own-target`; Preview centred by transform, not zoom; column rows, navigation tiles and module chips slimmed | Done |
 | B-24 | Reports page redesign (emil-design-eng) | The report's name is the title and the switcher; one control bar on a desk, one row on a phone; the switcher is instant and grouped; catalogue cards in the house style; every press answers | Done |
 | B-25 | Punch is the primary action | Link-rendered Buttons leave the floor (`a[href]:not([data-own-target])`); the dashboard's Punch is solid with the fingerprint glyph the nav uses | Done |
+| B-26 | Where you are, marked | The module switcher is the sidebar's head (glyph tile, heavier name, second line); the active sidebar row carries a dot on its left edge; the active bottom-bar tab carries one under its label | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
