@@ -173,6 +173,7 @@ export function GoToPalette() {
 
   return (
     <CommandDialog
+      instant
       open={open}
       onOpenChange={(next) => {
         setOpen(next);

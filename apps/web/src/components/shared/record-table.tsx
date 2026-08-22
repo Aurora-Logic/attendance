@@ -143,7 +143,7 @@ export function RecordTable<T>({
             {rows.map((row) => (
               <TableRow
                 key={rowKey(row)}
-                className={cn(onRowActivate && 'cursor-pointer')}
+                className={cn(onRowActivate && 'cursor-pointer active:bg-muted')}
                 tabIndex={onRowActivate ? 0 : undefined}
                 onClick={onRowActivate ? () => { onRowActivate(row); } : undefined}
                 onKeyDown={
@@ -213,7 +213,7 @@ export function RecordTable<T>({
                     }
                   : undefined
               }
-              className={cn('min-h-11 rounded-none', onRowActivate && 'cursor-pointer')}
+              className={cn('min-h-11 rounded-none', onRowActivate && 'cursor-pointer hover:bg-muted/50 active:bg-muted')}
             >
               <ItemContent className="min-w-0 gap-0.5">
                 <ItemTitle className="truncate">{mobilePrimary(row)}</ItemTitle>

@@ -152,6 +152,14 @@
        decelerate in, the way a real object does. Currently only the guided
        tour's cutout, which slides from one control to the next. */
     --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+    /* Tailwind's stock spinner turns once a second. A faster spin makes the
+       same wait feel shorter, which is the only lever a spinner has. */
+    --animate-spin: spin 0.6s linear infinite;
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
     --font-heading: var(--font-sans);
     --font-sans: 'Inter Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);

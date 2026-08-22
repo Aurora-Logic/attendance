@@ -148,7 +148,7 @@ export function NotificationList({
             // Item. Space is added because this row behaves as a button rather
             // than as a table row, and a button that ignores Space is a button
             // half the keyboard users of this product will think is broken.
-            className="hover:bg-accent/50 min-h-11 cursor-pointer text-left"
+            className="hover:bg-accent/50 active:bg-accent min-h-11 cursor-pointer text-left"
             tabIndex={0}
             onClick={() => {
               onActivate(notification);

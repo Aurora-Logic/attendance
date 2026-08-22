@@ -75,6 +75,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-14 | Sales heatmap | Customer × month grid, the matrix's dense-grid form | Done |
 | B-15 | Attendance block on the Reports dashboard | On-time radial, open flags, oldest pending approval, top streaks | Done — shown to dashboard viewers who also hold attendance.view.all (the dashboard itself stays a receivables surface) |
 | B-16 | Screen audit | Source-level pass over every route (Chrome stays off by owner instruction), both skills' violation classes probed in bulk; see the findings table below | Done |
+| B-17 | Motion audit (emil-design-eng) | Every animated primitive and every pressable surface read against the decision framework; see the B-17 table below | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -85,5 +86,19 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | Profile page had loading and empty states but no error state | An Empty with the message and Try again | Every screen carries all three states (CLAUDE.md §4) |
 | Flag, request-type, status, source and document glyphs were picked per screen | Registries (`ACTION_ICONS`, `entity-icons.ts`) read everywhere | Unseen consistency compounds (emil); one table cannot drift |
 
-Checked and clean: no `transition-all`, no `ease-in`, no hover-only affordances, no animation over 300ms, every sheet pins its edges with a `min-h-0` scroll region (the calculator keypad has no scrolling body by design), every list page has loading/empty/error states, every dropdown with more than three rows on a phone arrives as a bottom sheet (the Views menu sits mid-toolbar and stays a dropdown), icon buttons all carry labels (the one-line probe's hits were multi-line props). Accepted: editor and paper pages carry no PageHeader because the paper is the page; the patterns showcase lists sample rows and needs no empty state.
+Checked and clean: no `ease-in`, no hover-only affordances, no animation over 300ms, every sheet pins its edges with a `min-h-0` scroll region (the calculator keypad has no scrolling body by design), every list page has loading/empty/error states, every dropdown with more than three rows on a phone arrives as a bottom sheet (the Views menu sits mid-toolbar and stays a dropdown), icon buttons all carry labels (the one-line probe's hits were multi-line props). Accepted: editor and paper pages carry no PageHeader because the paper is the page; the patterns showcase lists sample rows and needs no empty state.
 
+### B-17 findings (emil-design-eng motion pass), 22 Aug 2026
+
+The B-16 line claimed "no `transition-all`"; that grep had skipped `components/ui`, where six primitives carried it. Corrected here.
+
+| Before | After | Why |
+| --- | --- | --- |
+| Button press was `translate-y-px`, and `translate` was not in the transition list, so the press snapped | `scale-[0.97]` on `:active`, `scale` added to the transition list (150ms) | A pressable element answers the press with a scale; the release eases back instead of jumping |
+| Go To palette arrived through the dialog's 200ms fade-and-zoom | `instant` on `DialogContent` / `CommandDialog`, set by the palette: overlay and popup at `duration-0` | Never animate a keyboard-initiated surface used dozens of times a day; the motion reads as lag, not polish |
+| Tooltips animated on every hover, even when one was already open | `data-instant:duration-0` on the popup | Once a tooltip is open, its neighbours open instantly; the toolbar feels faster without losing the first-hover delay |
+| `transition-all` on tabs, badge, toggle, switch, progress | The properties that change: `[color,background-color,border-color,box-shadow]`; `transition-transform` on the progress bar | `all` transitions layout properties the browser has to measure, and hides what was meant to move |
+| Spinner at Tailwind's 1s per turn | `--animate-spin: spin 0.6s` in the theme | A faster spin makes the same wait feel shorter; perception is the spinner's only lever |
+| Activatable table rows, mobile record cards, notification rows and administration tiles had hover but no press state | `active:bg-muted` / `active:bg-accent` alongside the hover | Touch devices have no hover; the press is the only feedback a thumb gets |
+
+Accepted as they stand: dialogs at 200ms in / 150ms out on the strong ease-out with a centred origin (modals are not anchored); sheets at 380ms in / 250ms out on the drawer curve, as CSS transitions so a second tap mid-motion retargets; dropdown, select and popover at 100ms from `--transform-origin`; toasts enter and leave along the same edge on transitions; charts draw once in 300ms and never again; the sidebar animates `width` because the content beside it has to reflow either way, and it is 200ms linear as shadcn ships it; tooltip delay stays 0 (a house decision; raising it is listed under the proposals).
