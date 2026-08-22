@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 
+import { DocumentsModule } from '../documents/documents.module.js';
+
 import { MastersController } from './masters.controller.js';
 import { LifecycleAnalyticsService } from './lifecycle-analytics.service.js';
 import { LifecycleService } from './lifecycle.service.js';
@@ -16,6 +18,8 @@ import { VoucherGoToSource } from './voucher-goto.source.js';
  * and this module is what lets every other consumer say "I only read".
  */
 @Module({
+  // Read-only still: the documents module lends the voucher export its sheet writer and the design settings.
+  imports: [DocumentsModule],
   controllers: [MastersController],
   providers: [MastersService, LifecycleService, LifecycleAnalyticsService, PartyGoToSource, VoucherGoToSource, TallyReportSource, AnalyticsReportSource, ExceptionSweepHandler],
   exports: [MastersService],

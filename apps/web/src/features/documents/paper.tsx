@@ -76,6 +76,11 @@ export interface PaperParty {
   readonly stateCode: string;
 }
 
+/** The sheet's heading: its own when it has one, the type's otherwise. */
+function paperTitle(model: Pick<PaperModel, 'type' | 'title'>): string {
+  return model.title ?? PRINTED_DOCUMENT_TITLES[model.type];
+}
+
 export interface PaperModel {
   readonly type: PrintedDocumentType;
   readonly number: string | null;
@@ -93,6 +98,8 @@ export interface PaperModel {
   readonly totals: PaperTotals;
   readonly notes: string;
   readonly terms: string;
+  /** What the sheet is called when not the type's own title: a Tally voucher prints as "Receipt Voucher" on the invoice paper. */
+  readonly title?: string | null;
   /** "Original for Recipient" and the like, on an invoice's copies. */
   readonly copyLabel?: string | null;
   /** D-47: what the packing slip knows that other papers do not — set only by the pack record. */
@@ -225,7 +232,7 @@ export function DocumentPaper(props: DocumentPaperProps) {
       data-scale={design.fontScale}
       data-mode={editing !== undefined ? 'edit' : 'print'}
       data-template={design.templateId}
-      aria-label={`${PRINTED_DOCUMENT_TITLES[model.type]} ${model.number ?? 'draft'}`}
+      aria-label={`${paperTitle(model)} ${model.number ?? 'draft'}`}
     >
       {design.templateId === 'tally' ? <TallyLayout {...props} /> : <LetterheadLayout {...props} />}
     </article>
@@ -276,7 +283,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
           {logoUrl !== null && design.logoPlacement === 'left' ? <img src={logoUrl} alt="" className="max-h-14 max-w-[40mm] object-contain" /> : null}
         </div>
         <div className="text-center">
-          <div className="text-[1.5em] font-bold">{PRINTED_DOCUMENT_TITLES[model.type]}</div>
+          <div className="text-[1.5em] font-bold">{paperTitle(model)}</div>
           {model.copyLabel ? <div className="text-[0.85em] font-medium">({model.copyLabel})</div> : null}
         </div>
         <div className="flex flex-col items-end gap-1 text-right">
@@ -361,7 +368,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
         </div>
         <div className="grid grid-cols-2 border-l border-neutral-800 content-start">
           <div className={cn('flex flex-col gap-0.5 px-2 py-1', BOX, '-mt-px -ml-px')}>
-            <span className="text-[0.85em] text-neutral-600">{PRINTED_DOCUMENT_TITLES[model.type]} No.</span>
+            <span className="text-[0.85em] text-neutral-600">{paperTitle(model)} No.</span>
             <span className="min-h-[1.4em] text-[0.95em] font-bold">{model.number ?? 'Draft'}</span>
           </div>
           <div className={cn('flex flex-col gap-0.5 px-2 py-1', BOX, '-mt-px -ml-px')}>
@@ -815,7 +822,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
         <header className={t.header}>
           <div className="flex flex-col gap-3">
             <div className={cn('flex items-start gap-4', design.logoPlacement === 'right' && 'flex-row-reverse text-right')}>{logo}</div>
-            <div className={t.title}>{PRINTED_DOCUMENT_TITLES[model.type]}</div>
+            <div className={t.title}>{paperTitle(model)}</div>
             {model.copyLabel ? <div className="text-[0.85em] font-medium uppercase tracking-wide opacity-80">{model.copyLabel}</div> : null}
           </div>
           {business}

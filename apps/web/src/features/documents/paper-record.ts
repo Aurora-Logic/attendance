@@ -1,6 +1,6 @@
 import type { PurchaseOrder, Grn } from '@/features/purchase/types';
 import type { Dispatch, Estimate, PackRecord } from '@/features/sales/types';
-import { DISPATCH_MODE_LABELS, PURCHASE_ORDER_STATUS_LABELS, SALES_DOCUMENT_STATUS_LABELS, SYNC_STATE_LABELS, type PrintedDocumentType } from '@vyuha/shared';
+import { DISPATCH_MODE_LABELS, PURCHASE_ORDER_STATUS_LABELS, SALES_DOCUMENT_STATUS_LABELS, SYNC_STATE_LABELS, voucherPaper, type PrintedDocumentType, type VoucherDetailView } from '@vyuha/shared';
 
 import type { PaperModel, PaperSlipFacts } from './paper';
 
@@ -32,6 +32,8 @@ export interface PaperRecord {
   readonly terms: string | null;
   /** D-47: present on a packing slip only; the party's phone joins it in paperModelOf. */
   readonly slip?: Omit<PaperSlipFacts, 'phone'>;
+  /** A heading of its own, when the type's will not do (a Tally voucher). */
+  readonly title?: string | null;
 }
 
 interface PartyFacts {
@@ -62,6 +64,7 @@ export function paperModelOf(type: PrintedDocumentType, record: PaperRecord, par
     totals: { subtotal: record.subtotal, discountTotal: record.discountTotal, taxTotal: record.taxTotal, grandTotal: record.grandTotal, preview: false },
     notes: record.notes ?? '',
     terms: record.terms ?? '',
+    ...(record.title === undefined || record.title === null ? {} : { title: record.title }),
     ...(record.slip === undefined ? {} : { slip: { ...record.slip, phone: party?.phone ?? null } }),
   };
 }
@@ -185,3 +188,36 @@ export function grnAsPaper(grn: Grn, po: PurchaseOrder): PaperRecord {
     terms: null,
   };
 }
+
+/**
+ * A Tally voucher on the organisation's paper (owner, 22 Aug 2026). The
+ * reading -- goods as lines, tax ledgers as the tax total, a receipt's
+ * ledgers marked Dr and Cr -- is the shared one the Excel export uses.
+ */
+export function voucherAsPaper(voucher: VoucherDetailView): { type: PrintedDocumentType; record: PaperRecord } {
+  const paper = voucherPaper(voucher);
+  return {
+    type: paper.type,
+    record: {
+      number: voucher.voucherNumber || paper.title,
+      statusLabel: voucher.isCancelled ? 'Cancelled' : 'From Tally',
+      date: voucher.date,
+      validUntil: null,
+      partyId: voucher.partyId,
+      customerName: voucher.partyName,
+      placeOfSupply: null,
+      shipTo: null,
+      details: null,
+      reference: `Tally ${voucher.voucherType}${voucher.voucherNumber ? ` ${voucher.voucherNumber}` : ''}`,
+      lines: paper.lines.map((line) => ({ ...line, hsnCode: null, discountPct: '0', taxPct: '0', taxAmount: '0' })),
+      subtotal: paper.subtotal,
+      discountTotal: paper.discountTotal,
+      taxTotal: paper.taxTotal,
+      grandTotal: paper.grandTotal,
+      notes: voucher.narration || null,
+      terms: null,
+      title: paper.title,
+    },
+  };
+}
+

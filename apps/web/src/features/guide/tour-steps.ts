@@ -434,6 +434,14 @@ const TRADING_INTROS: GuideStep[] = [
     body: 'Everything backfilled from Tally, across every financial year in scope. This is the history the rest of the module reads from.',
   },
   {
+    id: 'screen.masters-voucher-paper',
+    routePattern: '/masters/vouchers/:id/paper',
+    anchor: ANCHORS.screenDocument,
+    permission: PERMISSIONS.RECEIVABLES_VIEW,
+    title: 'The voucher on paper',
+    body: "Tally's figures on this organisation's own design: fit to the screen, PDF through the print dialog, Excel. Nothing here writes back to Tally.",
+  },
+  {
     id: 'screen.crm-contacts',
     route: '/crm/contacts',
     anchor: ANCHORS.screenHeader,

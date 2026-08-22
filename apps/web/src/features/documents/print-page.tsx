@@ -17,7 +17,9 @@ import { INVOICE_COPIES, INVOICE_COPY_LABELS, type InvoiceCopy, type PrintedDocu
 import { PackingSlipPaper } from './packing-slip-paper';
 import { SLIP_PAPER_TYPES } from './paper-support';
 import { DocumentPaper } from './paper';
-import { dispatchAsPaper, grnAsPaper, packAsPaper, paperModelOf, purchaseOrderAsPaper, salesDocumentAsPaper, type PaperRecord } from './paper-record';
+import { useVoucher } from '@/features/masters/use-vouchers';
+
+import { dispatchAsPaper, grnAsPaper, packAsPaper, paperModelOf, purchaseOrderAsPaper, salesDocumentAsPaper, voucherAsPaper, type PaperRecord } from './paper-record';
 import { useDocumentSettings, useFooterLogoUrls } from './use-document-settings';
 
 /**
@@ -34,23 +36,28 @@ const KINDS: Record<string, PrintedDocumentType> = { estimates: 'ESTIMATE', orde
 export function DocumentPrintPage() {
   const params = useParams<{ kind: string; id: string }>();
   const [searchParams] = useSearchParams();
-  const type = KINDS[params.kind ?? ''] ?? null;
   const id = params.id ?? null;
+  // A Tally voucher borrows a paper by its type; which one is known once the voucher is read.
+  const isVoucher = params.kind === 'vouchers';
+  const voucher = useVoucher(isVoucher ? id : null);
+  const voucherPaperRecord = isVoucher && voucher.data !== undefined ? voucherAsPaper(voucher.data) : null;
+  const type = isVoucher ? (voucherPaperRecord?.type ?? 'INVOICE') : (KINDS[params.kind ?? ''] ?? null);
   const settings = useDocumentSettings();
   const branding = useBranding();
   // One hook per kind, all mounted; only the matching one asks. The goods papers read their order as well.
-  const estimate = useEstimate(type === 'ESTIMATE' ? id : null);
-  const order = useSalesOrder(type === 'SALES_ORDER' ? id : null);
-  const invoice = useInvoice(type === 'INVOICE' ? id : null);
-  const dispatch = useDispatch(type === 'DELIVERY_NOTE' ? id : null);
-  const pack = usePackRecord(type === 'PACKING_SLIP' ? id : null);
-  const purchaseOrder = usePurchaseOrder(type === 'PURCHASE_ORDER' ? id : null);
-  const grn = useGrn(type === 'RECEIPT_NOTE' ? id : null);
+  const estimate = useEstimate(!isVoucher && type === 'ESTIMATE' ? id : null);
+  const order = useSalesOrder(!isVoucher && type === 'SALES_ORDER' ? id : null);
+  const invoice = useInvoice(!isVoucher && type === 'INVOICE' ? id : null);
+  const dispatch = useDispatch(!isVoucher && type === 'DELIVERY_NOTE' ? id : null);
+  const pack = usePackRecord(!isVoucher && type === 'PACKING_SLIP' ? id : null);
+  const purchaseOrder = usePurchaseOrder(!isVoucher && type === 'PURCHASE_ORDER' ? id : null);
+  const grn = useGrn(!isVoucher && type === 'RECEIPT_NOTE' ? id : null);
   const sourceOrder = useSalesOrder(type === 'DELIVERY_NOTE' ? (dispatch.data?.documentId ?? null) : type === 'PACKING_SLIP' ? (pack.data?.documentId ?? null) : null);
   const sourcePo = usePurchaseOrder(type === 'RECEIPT_NOTE' ? (grn.data?.purchaseOrderId ?? null) : null);
   const query = type === 'SALES_ORDER' ? order : type === 'INVOICE' ? invoice : type === 'DELIVERY_NOTE' ? dispatch : type === 'PACKING_SLIP' ? pack : type === 'PURCHASE_ORDER' ? purchaseOrder : type === 'RECEIPT_NOTE' ? grn : estimate;
-  const record: PaperRecord | undefined =
-    type === 'PURCHASE_ORDER'
+  const record: PaperRecord | undefined = isVoucher
+    ? voucherPaperRecord?.record
+    : type === 'PURCHASE_ORDER'
       ? purchaseOrder.data === undefined
         ? undefined
         : purchaseOrderAsPaper(purchaseOrder.data)

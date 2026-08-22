@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import {
   PERMISSIONS,
@@ -21,9 +22,15 @@ import {
   type VoucherDetailView,
   type VoucherView,
   type ItemLifecycle,
-  type PartyLifecycle, lifecycleAnalyticsQuerySchema, type ItemAnalytics, type PartyAnalytics } from '@vyuha/shared';
+  type PartyLifecycle, lifecycleAnalyticsQuerySchema, type ItemAnalytics, type PartyAnalytics, voucherPaper } from '@vyuha/shared';
+
+import type { Response } from 'express';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
+import { InjectDatabase, type Database } from '../db/db.provider.js';
+import { sendDocumentXlsx } from '../documents/document-export.js';
+import { DocumentSettingsService } from '../documents/document-settings.service.js';
+import { DocumentXlsxService } from '../documents/document-xlsx.service.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
 import { LifecycleAnalyticsService } from './lifecycle-analytics.service.js';
@@ -51,6 +58,9 @@ export class MastersController {
   constructor(private readonly masters: MastersService,
     private readonly lifecycle: LifecycleService,
     private readonly analytics: LifecycleAnalyticsService,
+    @InjectDatabase() private readonly db: Database,
+    private readonly documentSettings: DocumentSettingsService,
+    private readonly xlsx: DocumentXlsxService,
   ) {}
 
   @Get('parties')
@@ -137,6 +147,28 @@ export class MastersController {
     @Query() query: VoucherListQueryDto,
   ): Promise<Paginated<VoucherView>> {
     return this.masters.listVouchers(principal, query);
+  }
+
+  /** A Tally voucher as a workbook on the organisation's own paper (owner, 22 Aug 2026); the print route draws the same reading. */
+  @Get('vouchers/:id/export.xlsx')
+  @RequirePermission(PERMISSIONS.RECEIVABLES_VIEW)
+  async voucherXlsx(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response): Promise<void> {
+    const voucher = await this.masters.findVoucher(principal, id);
+    const paper = voucherPaper(voucher);
+    await sendDocumentXlsx(res, { db: this.db, settings: this.documentSettings, xlsx: this.xlsx }, principal.orgId, paper.type, {
+      number: voucher.voucherNumber || paper.title,
+      date: voucher.date,
+      status: voucher.isCancelled ? 'Cancelled' : 'From Tally',
+      customerName: voucher.partyName,
+      reference: `Tally ${voucher.voucherType}${voucher.voucherNumber ? ` ${voucher.voucherNumber}` : ''}`,
+      lines: paper.lines.map((line) => ({ description: line.description, quantity: line.quantity, unit: line.unit, rate: line.rate, discountPct: '0', taxPct: '0', amount: line.amount, taxAmount: '0' })),
+      subtotal: paper.subtotal,
+      discountTotal: paper.discountTotal,
+      taxTotal: paper.taxTotal,
+      grandTotal: paper.grandTotal,
+      notes: voucher.narration || null,
+      terms: null,
+    });
   }
 
   @Get('vouchers/:id')
