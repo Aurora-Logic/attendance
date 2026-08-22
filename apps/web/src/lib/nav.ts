@@ -794,6 +794,8 @@ const OFF_NAV_LABELS: Record<string, string> = {
 const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }[] = [
   { pattern: /^\/employees\/[^/]+$/u, parent: '/employees', label: 'Employee' },
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
+  { pattern: /^\/masters\/parties\/[^/]+$/u, parent: '/masters/parties', label: 'Party' },
+  { pattern: /^\/masters\/items\/[^/]+$/u, parent: '/masters/items', label: 'Stock item' },
   { pattern: /^\/crm\/contacts\/[^/]+$/u, parent: '/crm/contacts', label: 'Contact' },
   { pattern: /^\/crm\/companies\/[^/]+$/u, parent: '/crm/companies', label: 'Company' },
   { pattern: /^\/tasks\/[^/]+$/u, parent: '/tasks', label: 'Task' },
@@ -802,7 +804,12 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/sales\/orders\/[^/]+$/u, parent: '/sales/orders', label: 'Sales order' },
   { pattern: /^\/sales\/invoices\/[^/]+$/u, parent: '/sales/invoices', label: 'Invoice' },
   { pattern: /^\/sales\/pick-queue\/[^/]+$/u, parent: '/sales/pick-queue', label: 'Pack' },
-  { pattern: /^\/sales\/dispatches\/[^/]+$/u, parent: '/sales/dispatches', label: 'Dispatch' },
+  // B-37: the stages hang off the one Fulfilment entry; their routes stayed.
+  { pattern: /^\/sales\/packed$/u, parent: '/sales/pick-queue', label: 'Packed' },
+  { pattern: /^\/sales\/packs\/[^/]+$/u, parent: '/sales/pick-queue', label: 'Packing slip' },
+  { pattern: /^\/sales\/awaiting-invoice$/u, parent: '/sales/pick-queue', label: 'Awaiting invoice' },
+  { pattern: /^\/sales\/dispatches$/u, parent: '/sales/pick-queue', label: 'Dispatches' },
+  { pattern: /^\/sales\/dispatches\/[^/]+$/u, parent: '/sales/pick-queue', label: 'Dispatch' },
   { pattern: /^\/purchase\/orders\/[^/]+$/u, parent: '/purchase/orders', label: 'Purchase order' },
   { pattern: /^\/purchase\/grns\/[^/]+$/u, parent: '/purchase/grns', label: 'Goods receipt' },
 ];

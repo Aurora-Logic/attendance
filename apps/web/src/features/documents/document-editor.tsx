@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { type CSSProperties, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeftIcon, ArrowsInIcon, DotsThreeVerticalIcon, EyeIcon, FileXlsIcon, ListIcon, PaintBrushIcon, PencilSimpleIcon, PrinterIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
@@ -44,9 +44,10 @@ const A4_WIDTH_PX = 794;
  * centred zoomed box and a zoomed centring container. A transform never
  * changes layout, so the sheet is centred with left-1/2 and a -50%
  * translate in every engine; what the transform leaves behind is layout
- * height, which each step gives back as a negative bottom margin sized to
- * the A4 sheet (a longer sheet leaves some room below, never overlaps).
- * Steps are close together at the small end, where a phone lives.
+ * height, which the stage gives back by sizing the sheet's box to the
+ * measured sheet times the step (owner, 22 Aug 2026: a margin sized to A4
+ * pulled the caption up behind the shorter packing slip). Steps are close
+ * together at the small end, where a phone lives.
  */
 const ZOOMS = [
   { value: 0.4, className: 'scale-[0.4] mb-[calc(297mm*-0.6)]' },
@@ -104,6 +105,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [fit, setFit] = useState(true);
   const [zoomIndex, setZoomIndex] = useState(ZOOMS.length - 1);
+  const [sheetHeight, setSheetHeight] = useState<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const paperRef = useRef<HTMLDivElement>(null);
   const saveSettings = useSaveDocumentSettings();
@@ -129,9 +131,9 @@ export function DocumentEditor(props: DocumentEditorProps) {
     const measure = () => {
       const availableHeight = stage.clientHeight - 32;
       const availableWidth = stage.clientWidth - (isMobile ? 24 : 32);
-      const current = ZOOMS[zoomIndex]?.value ?? 1;
-      const rect = paper.getBoundingClientRect();
-      const naturalHeight = rect.height / current;
+      // offsetHeight is the layout height, which the transform leaves alone.
+      const naturalHeight = paper.offsetHeight;
+      setSheetHeight((prev) => (prev === naturalHeight ? prev : naturalHeight));
       // The sheet is 210mm wide unless the stage has squashed it, so the width is known rather than measured.
       const naturalWidth = A4_WIDTH_PX;
       if (naturalHeight === 0 || availableWidth <= 0) return;
@@ -150,6 +152,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(stage);
+    observer.observe(paper);
     return () => {
       observer.disconnect();
     };
@@ -262,7 +265,11 @@ export function DocumentEditor(props: DocumentEditorProps) {
           ) : (
             // overflow-x-clip: the sheet keeps its 210mm layout width under the
             // transform, which would otherwise give the stage a sideways scroll.
-            <div className="overflow-x-clip">
+            <div
+              className={cn('overflow-x-clip', zoom.value < 1 && sheetHeight !== null && 'h-[calc(var(--sheet-height)*var(--sheet-scale))]')}
+              // Measured values reach CSS as custom properties, the way the toggle group passes its gap.
+              style={{ '--sheet-height': `${String(sheetHeight ?? 0)}px`, '--sheet-scale': String(zoom.value) } as CSSProperties}
+            >
               <div ref={paperRef} className={cn('relative left-1/2 w-[210mm] origin-top -translate-x-1/2', zoom.className)}>
                 {SLIP_PAPER_TYPES.includes(docType) ? (
                   // D-47: the goods papers have their own paper; the slip previews box 1 of N.
