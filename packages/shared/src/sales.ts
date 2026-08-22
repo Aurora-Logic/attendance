@@ -641,12 +641,26 @@ export interface DispatchLineView {
 
 export interface DispatchAttachmentView {
   readonly fileId: string;
-  readonly kind: 'box' | 'lr';
+  /** D-47: 'delivery' is the photograph at the door. */
+  readonly kind: 'box' | 'lr' | 'delivery';
 }
+
+/** D-47: the door step — who took the goods, with an optional note; the photograph rides as a multipart part. */
+export const deliverDispatchSchema = z.object({
+  receivedBy: z.string().trim().min(1, 'Who received it?').max(120),
+  note: z.string().trim().max(1000).nullish(),
+});
+export type DeliverDispatchInput = z.infer<typeof deliverDispatchSchema>;
+
+export const DISPATCH_STATUSES = ['shipped', 'delivered'] as const;
+export type DispatchStatus = (typeof DISPATCH_STATUSES)[number];
+export const DISPATCH_STATUS_LABELS: Record<DispatchStatus, string> = { shipped: 'On its way', delivered: 'Delivered' };
 
 export interface DispatchNotificationView {
   readonly id: string;
   readonly channel: 'email' | 'whatsapp';
+  /** D-47: the moment the message is about. Absent on a purchase order's notices, which have one moment only. */
+  readonly event?: 'dispatched' | 'delivered';
   readonly recipient: string | null;
   /** `pending` until somebody sends it by hand (`manual`, REQ-AA-26); `sent`; `failed`. */
   readonly status: 'pending' | 'sent' | 'failed';
@@ -672,6 +686,12 @@ export interface DispatchView {
   readonly driverName: string | null;
   readonly expectedDeliveryDate: string | null;
   readonly notes: string | null;
+  /** D-47: shipped until the door step marks it delivered. */
+  readonly status: DispatchStatus;
+  readonly deliveredAt: string | null;
+  readonly deliveredByName: string | null;
+  readonly receivedBy: string | null;
+  readonly deliveryNote: string | null;
   readonly syncState: DocumentSyncState;
   readonly remoteGuid: string | null;
   readonly remoteVoucherNumber: string | null;

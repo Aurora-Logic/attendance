@@ -6,6 +6,7 @@ import {
   pageSlice,
   paginated,
   type CreateDispatchInput,
+  type DeliverDispatchInput,
   type DispatchListQuery,
   type DispatchView,
   type Paginated,
@@ -156,8 +157,8 @@ export class DispatchService implements OnModuleInit {
       const text = this.compose(order, number, input, byId);
       for (const [channel, recipient] of [['email', email], ['whatsapp', whatsapp]] as const) {
         await tx.execute(sql`
-          INSERT INTO dispatch_notifications (org_id, dispatch_id, channel, recipient, status, composed_text, created_by, updated_by)
-          VALUES (${ctx.orgId}, ${id}, ${channel}, ${recipient ?? null}, 'pending', ${text}, ${ctx.actorUserId}, ${ctx.actorUserId})
+          INSERT INTO dispatch_notifications (org_id, dispatch_id, channel, event, recipient, status, composed_text, created_by, updated_by)
+          VALUES (${ctx.orgId}, ${id}, ${channel}, 'dispatched', ${recipient ?? null}, 'pending', ${text}, ${ctx.actorUserId}, ${ctx.actorUserId})
         `);
       }
       return id;
@@ -177,6 +178,63 @@ export class DispatchService implements OnModuleInit {
   }
 
   /** REQ-AA-26: the person sent it (or could not); the record says so. */
+  /**
+   * D-47: the door step. Marks the dispatch delivered with who received it
+   * and the photograph taken there, then composes the delivered notice for
+   * the same recipients the dispatch notice had. Once; a second call is a
+   * conflict, not a silent overwrite of the proof.
+   */
+  async deliver(principal: Principal, dispatchId: string, input: DeliverDispatchInput, photos: readonly Buffer[]): Promise<DispatchView> {
+    const existing = await this.view(principal.orgId, dispatchId);
+    if (existing === null) throw AppError.notFound('Dispatch', dispatchId);
+    await this.order(principal, existing.documentId);
+    if (existing.deliveredAt !== null) throw AppError.conflict(`${existing.number} was already marked delivered.`);
+    if (photos.length === 0) {
+      throw AppError.validation('A delivery needs its photograph.', { fields: [{ path: 'photo', message: 'a photograph at the door is required' }] });
+    }
+    const ctx = orgContextOf(principal);
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`
+        UPDATE dispatches SET delivered_at = now(), delivered_by = ${ctx.actorUserId}, received_by = ${input.receivedBy}, delivery_note = ${input.note ?? null}, updated_at = now(), updated_by = ${ctx.actorUserId}
+         WHERE id = ${dispatchId} AND org_id = ${ctx.orgId}
+      `);
+      for (const bytes of photos) {
+        const stored = await this.files.storeImage({ orgId: ctx.orgId, uploadedBy: ctx.actorUserId, purpose: 'DISPATCH_PHOTO', bytes, pathSegments: [dispatchId] });
+        await tx.execute(sql`INSERT INTO dispatch_attachments (org_id, dispatch_id, file_id, kind, created_by, updated_by) VALUES (${ctx.orgId}, ${dispatchId}, ${stored.id}, 'delivery', ${ctx.actorUserId}, ${ctx.actorUserId})`);
+      }
+      const text = this.composeDelivered(existing, input.receivedBy);
+      for (const channel of ['email', 'whatsapp'] as const) {
+        const recipient = existing.notifications.find((n) => n.channel === channel)?.recipient ?? null;
+        await tx.execute(sql`
+          INSERT INTO dispatch_notifications (org_id, dispatch_id, channel, event, recipient, status, composed_text, created_by, updated_by)
+          VALUES (${ctx.orgId}, ${dispatchId}, ${channel}, 'delivered', ${recipient}, 'pending', ${text}, ${ctx.actorUserId}, ${ctx.actorUserId})
+        `);
+      }
+    });
+    this.auditContext.record({
+      action: 'sales.dispatch.delivered',
+      entityType: 'dispatch',
+      entityId: dispatchId,
+      before: { deliveredAt: null },
+      after: { receivedBy: input.receivedBy, note: input.note ?? null, photos: photos.length },
+    });
+    const view = await this.view(principal.orgId, dispatchId);
+    if (view === null) throw new Error('Dispatch vanished after delivery.');
+    return view;
+  }
+
+  private composeDelivered(dispatch: DispatchView, receivedBy: string): string {
+    const lines = dispatch.lines.map((line) => `- ${line.description}: ${line.quantity}${line.unit ? ` ${line.unit}` : ''}`);
+    return [
+      `Dear ${dispatch.customerName},`,
+      `Your order ${dispatch.orderNumber} (${dispatch.number}) has been delivered and received by ${receivedBy}.`,
+      '',
+      ...lines,
+      '',
+      'If anything is short or damaged, please reply within two working days quoting the dispatch number.',
+    ].join('\n');
+  }
+
   async markNotification(principal: Principal, dispatchId: string, notificationId: string, status: 'sent' | 'failed', error: string | null): Promise<DispatchView> {
     const dispatch = await this.find(principal, dispatchId);
     const rows = await this.db.execute<{ id: string }>(sql`
@@ -292,16 +350,19 @@ export class DispatchService implements OnModuleInit {
       id: string; number: string; document_id: string; order_number: string; customer_name: string; mode: DispatchView['mode']; dispatched_by: string | null; dispatched_by_name: string | null;
       dispatched_at: Date; lr_number: string | null; transporter_name: string | null; transporter_contact: string | null; vehicle_number: string | null; driver_name: string | null;
       expected_delivery_date: string | null; notes: string | null; sync_state: DispatchView['syncState']; remote_guid: string | null; remote_voucher_number: string | null; last_error: string | null;
+      delivered_at: Date | null; delivered_by_name: string | null; received_by: string | null; delivery_note: string | null;
       lines: DispatchView['lines']; attachments: DispatchView['attachments']; notifications: DispatchView['notifications'];
     }>(sql`
       SELECT x.id, x.number, x.document_id, d.number AS order_number, d.customer_name, x.mode, x.dispatched_by,
              CASE WHEN e.id IS NULL THEN NULL ELSE concat_ws(' ', e.first_name, e.last_name) END AS dispatched_by_name,
              x.dispatched_at, x.lr_number, x.transporter_name, x.transporter_contact, x.vehicle_number, x.driver_name, x.expected_delivery_date, x.notes,
              x.sync_state, x.remote_guid, x.remote_voucher_number, x.last_error,
+             x.delivered_at, x.received_by, x.delivery_note,
+             (SELECT concat_ws(' ', de.first_name, de.last_name) FROM users du LEFT JOIN employees de ON de.id = du.employee_id WHERE du.id = x.delivered_by) AS delivered_by_name,
              COALESCE((SELECT json_agg(json_build_object('lineId', dl.line_id, 'description', l.description, 'quantity', dl.quantity::text, 'unit', l.unit) ORDER BY l.line_no)
                          FROM dispatch_lines dl JOIN sales_document_lines l ON l.id = dl.line_id WHERE dl.dispatch_id = x.id), '[]'::json) AS lines,
              COALESCE((SELECT json_agg(json_build_object('fileId', a.file_id, 'kind', a.kind) ORDER BY a.created_at) FROM dispatch_attachments a WHERE a.dispatch_id = x.id AND a.deleted_at IS NULL), '[]'::json) AS attachments,
-             COALESCE((SELECT json_agg(json_build_object('id', n.id, 'channel', n.channel, 'recipient', n.recipient, 'status', n.status, 'composedText', n.composed_text, 'sentAt', n.sent_at, 'error', n.error) ORDER BY n.channel)
+             COALESCE((SELECT json_agg(json_build_object('id', n.id, 'channel', n.channel, 'event', n.event, 'recipient', n.recipient, 'status', n.status, 'composedText', n.composed_text, 'sentAt', n.sent_at, 'error', n.error) ORDER BY n.created_at, n.channel)
                          FROM dispatch_notifications n WHERE n.dispatch_id = x.id AND n.deleted_at IS NULL), '[]'::json) AS notifications
         FROM dispatches x JOIN sales_documents d ON d.id = x.document_id LEFT JOIN employees e ON e.id = x.dispatched_by
        WHERE x.org_id = ${orgId} AND x.id = ${id} AND x.deleted_at IS NULL
@@ -325,6 +386,11 @@ export class DispatchService implements OnModuleInit {
       driverName: r.driver_name,
       expectedDeliveryDate: r.expected_delivery_date,
       notes: r.notes,
+      status: r.delivered_at === null ? 'shipped' : 'delivered',
+      deliveredAt: r.delivered_at === null ? null : new Date(r.delivered_at).toISOString(),
+      deliveredByName: r.delivered_by_name === null || r.delivered_by_name === '' ? null : r.delivered_by_name,
+      receivedBy: r.received_by,
+      deliveryNote: r.delivery_note,
       syncState: r.sync_state,
       remoteGuid: r.remote_guid,
       remoteVoucherNumber: r.remote_voucher_number,

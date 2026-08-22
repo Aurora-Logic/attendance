@@ -165,6 +165,26 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
     return pack;
   }
 
+  /**
+   * D-47: the slip's number is the order number and the last four characters
+   * of the pack id ("SO-0007/AB12"), because that is what the paper prints
+   * and the phone scans. The suffix alone is not unique; with the order it is.
+   */
+  async findPackBySlip(principal: Principal, slipNumber: string): Promise<PackRecordView> {
+    const match = /^(.+)\/([0-9A-Fa-f]{4})$/u.exec(slipNumber.trim());
+    if (match === null) throw AppError.notFound('Packing slip', slipNumber);
+    const [, orderNumber = '', suffix = ''] = match;
+    const rows = await this.packRecords(
+      principal,
+      sql`p.document_id = (SELECT id FROM sales_documents WHERE org_id = ${principal.orgId} AND number = ${orderNumber} AND deleted_at IS NULL LIMIT 1)
+          AND upper(right(p.id::text, 4)) = ${suffix.toUpperCase()}`,
+    );
+    const pack = rows[0];
+    if (pack === undefined) throw AppError.notFound('Packing slip', slipNumber);
+    await this.order(principal, pack.documentId);
+    return pack;
+  }
+
   private async packRecords(principal: Principal, where: SQL): Promise<PackRecordView[]> {
     const rows = await this.db.execute<{
       id: string; document_id: string; box_count: number; packed_by: string | null; packed_by_name: string | null; packed_at: Date; comment: string | null;

@@ -519,6 +519,43 @@ describe('dispatch (12 §3.4, §3.5)', () => {
     expect(board.body.data.map((d) => d.number)).toEqual(['DN-0001']);
   });
 
+  it('the door step (D-47): delivered once, with who received it and the photograph; the delivered notice joins the dispatch notice', async () => {
+    const board = await harness.get<Paginated<DispatchView>>('/sales/dispatches?mode=outstation', { token: salesToken });
+    const id = board.body.data[0]?.id ?? '';
+    expect(board.body.data[0]?.status).toBe('shipped');
+
+    const noPhoto = await multipart<ErrorBody>(`/sales/dispatches/${id}/deliver`, salesToken, { receivedBy: 'Rakesh Shah' });
+    expect(noPhoto.status).toBe(400);
+
+    const delivered = await multipart<DispatchView>(`/sales/dispatches/${id}/deliver`, salesToken, { receivedBy: 'Rakesh Shah', note: 'Left at the counter' }, [{ field: 'photo', bytes: jpeg }]);
+    expect(delivered.status).toBe(200);
+    expect(delivered.body.status).toBe('delivered');
+    expect(delivered.body.receivedBy).toBe('Rakesh Shah');
+    expect(delivered.body.deliveryNote).toBe('Left at the counter');
+    expect(delivered.body.deliveredAt).not.toBeNull();
+    expect(delivered.body.attachments.map((a) => a.kind).sort()).toEqual(['box', 'delivery', 'lr']);
+    const deliveredNotices = delivered.body.notifications.filter((n) => n.event === 'delivered');
+    expect(deliveredNotices.map((n) => [n.channel, n.recipient, n.status])).toEqual([['email', null, 'pending'], ['whatsapp', '9811122333', 'pending']]);
+    expect(deliveredNotices[0]?.composedText).toContain('received by Rakesh Shah');
+    expect(await harness.waitForAuditAction('sales.dispatch.delivered')).toBe(true);
+
+    const again = await multipart<ErrorBody>(`/sales/dispatches/${id}/deliver`, salesToken, { receivedBy: 'Someone else' }, [{ field: 'photo', bytes: jpeg }]);
+    expect(again.status).toBe(409);
+  });
+
+  it('a scanned slip resolves to its pack by order number and the last four of the pack id (D-47)', async () => {
+    const packs = await harness.get<PackRecordView[]>(`/sales/orders/${orderIdD}/packs`, { token: salesToken });
+    const pack = packs.body[0];
+    expect(pack).toBeDefined();
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdD}`, { token: salesToken });
+    const slip = `${order.body.number}/${(pack?.id ?? '').slice(-4).toUpperCase()}`;
+    const found = await harness.get<PackRecordView>(`/sales/packs/by-slip/${encodeURIComponent(slip)}`, { token: salesToken });
+    expect(found.status).toBe(200);
+    expect(found.body.id).toBe(pack?.id);
+    const unknown = await harness.get<ErrorBody>(`/sales/packs/by-slip/${encodeURIComponent(`${order.body.number}/ZZZZ`)}`, { token: salesToken });
+    expect(unknown.status).toBe(404);
+  });
+
   it('a local auto dispatch of the remaining invoiced 2 needs no LR and no photographs; the second dispatch shows in the order history', async () => {
     const created = await multipart<DispatchView>(`/sales/orders/${orderIdD}/dispatches`, salesToken, { mode: 'local_auto', lines: [{ lineId: lineIdD, quantity: '2' }] });
     expect(created.status).toBe(201);

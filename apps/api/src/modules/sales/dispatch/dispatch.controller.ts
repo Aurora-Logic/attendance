@@ -4,6 +4,7 @@ import {
   DISPATCH_MODE_LABELS,
   PERMISSIONS,
   createDispatchSchema,
+  deliverDispatchSchema,
   dispatchListQuerySchema,
   markNotificationSentSchema,
   type DispatchView,
@@ -117,6 +118,29 @@ export class DispatchController {
     }
     const input = createDispatchSchema.parse(raw ?? {});
     return this.dispatches.create(principal, id, input, { box: buffersOf(files?.box), lr: buffersOf(files?.lr) });
+  }
+
+  /** D-47: the door step — who received it, with the photograph taken there. */
+  @Post('dispatches/:id/deliver')
+  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_CREATE)
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileFieldsInterceptor([{ name: 'photo', maxCount: 3 }], { limits: { fileSize: MAX_PHOTO_BYTES, files: 3, fields: 4 } }))
+  deliver(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { payload?: unknown },
+    @UploadedFiles() files: { photo?: unknown } | undefined,
+  ): Promise<DispatchView> {
+    let raw: unknown = body.payload;
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        throw AppError.validation('payload must be JSON.', { fields: [{ path: 'payload', message: 'not JSON' }] });
+      }
+    }
+    const input = deliverDispatchSchema.parse(raw ?? {});
+    return this.dispatches.deliver(principal, id, input, buffersOf(files?.photo));
   }
 
   @Post('dispatches/:id/notifications/:notificationId')

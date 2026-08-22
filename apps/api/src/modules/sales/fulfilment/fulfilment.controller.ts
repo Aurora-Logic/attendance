@@ -62,6 +62,13 @@ export class FulfilmentController {
   }
 
   /** One pack record: the packing slip's page. */
+  /** D-47: what a scanned slip resolves to. Declared before packs/:id so the literal wins. */
+  @Get('packs/by-slip/:number')
+  @RequirePermission(...VIEW)
+  findPackBySlip(@CurrentUser() principal: Principal, @Param('number') number: string): Promise<PackRecordView> {
+    return this.fulfilment.findPackBySlip(principal, decodeURIComponent(number));
+  }
+
   @Get('packs/:id')
   @RequirePermission(...VIEW)
   findPack(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PackRecordView> {

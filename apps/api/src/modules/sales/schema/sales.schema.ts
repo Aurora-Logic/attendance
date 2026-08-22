@@ -242,6 +242,12 @@ export const dispatches = pgTable(
     driverName: text('driver_name'),
     expectedDeliveryDate: date('expected_delivery_date', { mode: 'string' }),
     notes: text('notes'),
+    // D-47: the door step. Null until somebody marks it delivered; the
+    // receiver's name and the photograph are the proof (attachment kind 'delivery').
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    deliveredBy: uuid('delivered_by'),
+    receivedBy: text('received_by'),
+    deliveryNote: text('delivery_note'),
     syncState: documentSyncStateEnum('sync_state').notNull().default('NOT_PUSHED'),
     remoteGuid: text('remote_guid'),
     remoteVoucherNumber: text('remote_voucher_number'),
@@ -308,6 +314,8 @@ export const dispatchNotifications = pgTable(
       .notNull()
       .references(() => dispatches.id, { onDelete: 'cascade' }),
     channel: text('channel').notNull(),
+    /** D-47: which moment the message is about — 'dispatched' or 'delivered'. */
+    event: text('event').notNull().default('dispatched'),
     recipient: text('recipient'),
     status: text('status').notNull(),
     composedText: text('composed_text').notNull(),
