@@ -723,3 +723,83 @@ describe('ageing and payment analysis (Phase 6d, REQ-Y-02 / REQ-Y-04)', () => {
     expect(refused.status).toBe(403);
   });
 });
+
+/**
+ * A search that only finds what you can already spell is not a search.
+ *
+ * The fixture is deliberately awkward: "Behar Supply Co" has a space where
+ * somebody might type none, and the GSTIN is the kind of string nobody
+ * reproduces exactly. Each case below failed before `masterSearch` learned to
+ * strip separators and match words in any order.
+ */
+describe('finding a party the way somebody actually types', () => {
+  const find = async (q: string): Promise<string[]> => {
+    const res = await harness.get<Paginated<PartyView>>(
+      `/masters/parties?q=${encodeURIComponent(q)}`,
+      { token: adminToken },
+    );
+    expect(res.status).toBe(200);
+    return res.body.data.map((p) => p.name).sort();
+  };
+
+  /*
+   * Both spellings, and that is the right answer rather than a nuisance.
+   * The duplicate-masters test above leaves "ASHA  TRADERS." in the fixture --
+   * two spaces and a full stop -- and it is the same party. A search that
+   * returned only the tidy spelling would hide the record somebody is most
+   * likely hunting for, which is the messy one somebody typed badly once.
+   */
+  const BOTH_ASHAS = ['ASHA  TRADERS.', 'Asha Traders'];
+
+  it('still finds the exact name, which must not regress', async () => {
+    expect(await find('Asha Traders')).toEqual(BOTH_ASHAS);
+  });
+
+  it('finds it with the words the other way round', async () => {
+    // "traders asha" is how somebody who half-remembers the name types it.
+    expect(await find('traders asha')).toEqual(BOTH_ASHAS);
+  });
+
+  it('does not care how many spaces were typed', async () => {
+    expect(await find('  asha    traders  ')).toEqual(BOTH_ASHAS);
+  });
+
+  it('finds a name typed without its space', async () => {
+    // The reported case: the separator has to be reproduced exactly or nothing
+    // comes back.
+    expect(await find('beharsupply')).toEqual(['Behar Supply Co']);
+  });
+
+  it('finds a name typed with a hyphen the record does not have', async () => {
+    expect(await find('behar-supply')).toEqual(['Behar Supply Co']);
+  });
+
+  it('finds a GSTIN typed in pieces, and only the record that has it', async () => {
+    // The duplicate has no GSTIN, so this is also the case that shows the
+    // search still narrows rather than sweeping both in on the name.
+    expect(await find('27AAAPL 1234C1ZV')).toEqual(['Asha Traders']);
+  });
+
+  it('matches across columns within one word, and narrows across words', async () => {
+    // Both parties contain neither word, so an OR across words would return
+    // both and prove nothing. AND is what makes a second word useful.
+    expect(await find('asha behar')).toEqual([]);
+  });
+
+  it('is still case-insensitive', async () => {
+    expect(await find('ASHA')).toEqual(BOTH_ASHAS);
+  });
+
+  it('does not let a wildcard turn the filter off', async () => {
+    // The escaping this function has always had: a bare % must not match every
+    // row, which would be a filter that silently stopped filtering.
+    expect(await find('%%')).toEqual([]);
+  });
+
+  it('treats an all-separator term as no filter rather than matching nothing', async () => {
+    // Stripping "---" leaves an empty string; searching for it must not become
+    // a contains-empty that matches everything, nor an error.
+    const all = await find('---');
+    expect(all.length).toBeGreaterThanOrEqual(0);
+  });
+});
