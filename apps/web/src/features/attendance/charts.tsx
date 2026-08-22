@@ -166,45 +166,6 @@ function minutesValue(value: unknown): string {
 }
 
 /**
- * The surface a chart sits on: one border, a caption, and the plot.
- *
- * The caption is inside the border rather than above it because the section
- * already has a heading, and a second heading outside would read as a second
- * section. It is text, not a card header — nothing here nests a surface in a
- * surface (CLAUDE.md §3 rule 3).
- *
- * Exported so the Analytics screen puts its charts on exactly this surface
- * rather than inventing a second one. It lives here rather than in
- * `components/shared` only because that directory is shared between agents
- * mid-flight; it is general and belongs there.
- */
-export function ChartPanel({
-  caption,
-  note,
-  icon,
-  children,
-}: {
-  caption: string;
-  note?: string;
-  /** The glyph the panel's subject wears elsewhere (the flag), so the caption agrees with the rows. */
-  icon?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-2 border p-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h3 className="flex items-center gap-1 text-xs font-medium [&_svg]:size-3.5">
-          {icon ? <span aria-hidden className="text-muted-foreground">{icon}</span> : null}
-          {caption}
-        </h3>
-        {note ? <p className="text-muted-foreground text-[0.6875rem] tabular-nums">{note}</p> : null}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-/**
  * How many people were in each band, day by day.
  *
  * On Team Attendance this is the fortnight behind the muster: the table says

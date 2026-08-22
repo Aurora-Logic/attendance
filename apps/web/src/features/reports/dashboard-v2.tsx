@@ -380,8 +380,10 @@ export function ReportsDashboardV2() {
         />
       </div>
 
-      {/* The six figures the screen is opened for, above everything drawn. */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+      {/* Three across, not six. Six in a row made a wall of figures nobody
+          reads left to right, and each tile was too narrow for a rupee amount
+          without wrapping. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Kpi
           label="Invoiced this period"
           value={formatMoney(invoiced.total)}

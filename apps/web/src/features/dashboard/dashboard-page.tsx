@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ArrowRightIcon, DatabaseIcon, InfoIcon } from '@phosphor-icons/react';
 import { subDays } from 'date-fns';
 import { Link } from 'react-router';
@@ -6,6 +6,7 @@ import { Link } from 'react-router';
 import { PERMISSIONS } from '@vyuha/shared';
 import type { DateRange } from 'react-day-picker';
 
+import { ChartCard } from '@/components/shared/chart-card';
 import { PageHeader } from '@/components/shared/page-header';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -14,7 +15,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
@@ -94,47 +94,6 @@ function Figure({ label, value, hint, pending }: { label: string; value: string;
       <CardContent className="p-0">
         <p className="text-muted-foreground text-[11px] leading-tight">{hint}</p>
       </CardContent>
-    </Card>
-  );
-}
-
-/** One question, one picture, one sentence. */
-function ChartCard({
-  title,
-  description,
-  insight,
-  pending,
-  empty,
-  emptyNote,
-  wide,
-  children,
-}: {
-  title: string;
-  description: string;
-  insight: string | null;
-  pending: boolean;
-  empty: boolean;
-  emptyNote: string;
-  wide?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <Card className={wide === true ? 'lg:col-span-2' : undefined}>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      {/* Never `flex` on this: ChartContainer measures itself through a
-          Recharts ResponsiveContainer, and a flex child with no basis
-          resolves to zero width. */}
-      <CardContent>
-        {pending ? <Skeleton className="aspect-video w-full" /> : null}
-        {!pending && empty ? <p className="text-muted-foreground py-8 text-sm">{emptyNote}</p> : null}
-        {!pending && !empty ? children : null}
-      </CardContent>
-      <CardFooter className="text-sm">
-        {insight === null ? null : <p className="leading-none font-medium">{insight}</p>}
-      </CardFooter>
     </Card>
   );
 }
@@ -285,7 +244,8 @@ export function DashboardPage() {
             </Button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+          {/* Three across, matching the reports dashboard. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Figure label="At work today" value={formatCount(atWorkToday)} hint="Present, half day or on duty" pending={orgToday.isPending} />
             <Figure label="On leave today" value={formatCount(orgTodayTotals.leave)} hint="Approved leave for today" pending={orgToday.isPending} />
             <Figure label="Absent today" value={formatCount(orgTodayTotals.absent)} hint="Due in, with no punch" pending={orgToday.isPending} />
