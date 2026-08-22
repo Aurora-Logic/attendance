@@ -716,6 +716,13 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   'credit-breaches': analyticsShape('partyId', 'partyName'),
   'stock-ageing': analyticsShape('stockItemId', 'item'),
   'customer-concentration': analyticsShape('partyId', 'partyName'),
+  // Owner, 22 Aug 2026: the Pareto family. The name is the id too — an item
+  // name is what the projection groups by, and a party name is unique enough
+  // within one organisation to key a table row. `band` is the row's status.
+  'item-revenue-concentration': analyticsShape('id', 'name', 'band'),
+  'item-quantity-concentration': analyticsShape('id', 'name', 'band'),
+  'vendor-spend-concentration': analyticsShape('id', 'name', 'band'),
+  'receivables-concentration': analyticsShape('id', 'name', 'band'),
   'order-pipeline': analyticsShape('id', 'number', 'stage'),
   'dispatch-performance': analyticsShape('id', 'number', 'mode'),
   'order-fill-rate': analyticsShape('partyId', 'partyName'),

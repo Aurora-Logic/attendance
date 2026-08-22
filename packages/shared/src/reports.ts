@@ -60,6 +60,11 @@ export const REPORT_KEYS = [
   // 15 Area AJ: the two reports collections exists for.
   'promised-vs-collected',
   'broken-promises',
+  // Owner, 22 Aug 2026: Pareto — how few of them make up half of it.
+  'item-revenue-concentration',
+  'item-quantity-concentration',
+  'vendor-spend-concentration',
+  'receivables-concentration',
   // 15 REQ-AK-10: what comes back, by item, by customer, and by reason.
   'return-rate-by-item',
   'return-rate-by-customer',
@@ -100,6 +105,13 @@ export type ReportKey = (typeof REPORT_KEYS)[number];
 export const TALLY_REPORT_KEYS = ['voucher-reconciliation', 'customer-statement', 'credit-cycle', 'ageing', 'payment-analysis', 'sales-analysis', 'low-stock', 'day-book', 'customer-lapse'] as const satisfies readonly ReportKey[];
 /** 14 Tier 1 (D-46), served by the analytics source; the same receivables gate as the Tally set. */
 export const ANALYTICS_REPORT_KEYS = [
+  // Owner, 22 Aug 2026: the Pareto family — how few make up half. The
+  // customer-revenue case is `customer-concentration`, which already existed
+  // and gained the band rather than being duplicated.
+  'item-revenue-concentration',
+  'item-quantity-concentration',
+  'vendor-spend-concentration',
+  'receivables-concentration',
   'ledger-extract',
   'stock-summary',
   'negative-stock',
@@ -773,6 +785,23 @@ const BROKEN_PROMISES_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'bills', header: 'Against bills', type: 'text', width: 24, secondary: true },
 ];
 
+/**
+ * Every Pareto reads the same way, so they share one shape: the rank, the
+ * thing, what it is worth, its own share, and the running total that answers
+ * "how far down the list is half of it".
+ */
+const PARETO_COLUMNS: readonly ReportColumnSpec[] = [
+  // Rank is the only sortable field, and deliberately: the running column is
+  // only true in rank order, so offering "sort by name" would offer a table
+  // whose cumulative per cent wanders up and down the page.
+  { key: 'rank', header: 'Rank', type: 'number', sortField: 'rank', width: 6 },
+  { key: 'name', header: 'Name', type: 'text', width: 34 },
+  { key: 'value', header: 'Value', type: 'text', width: 16 },
+  { key: 'sharePct', header: 'Share', type: 'text', width: 10 },
+  { key: 'cumulativePct', header: 'Cumulative', type: 'text', width: 12 },
+  { key: 'band', header: 'Band', type: 'status', width: 14 },
+];
+
 const RETURN_RATE_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'itemName', header: 'Item', type: 'text', sortField: 'itemName', width: 30 },
   { key: 'returnedQty', header: 'Returned', type: 'number', sortField: 'returnedQty', width: 12 },
@@ -943,6 +972,9 @@ const CONCENTRATION_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'revenue', header: 'Revenue', type: 'text', sortField: 'revenue', width: 16 },
   { key: 'sharePct', header: 'Share', type: 'text', width: 10 },
   { key: 'cumulativePct', header: 'Cumulative', type: 'text', width: 10 },
+  // Which third of the curve this row is in, computed where the running total
+  // is rather than in the reader's head.
+  { key: 'band', header: 'Band', type: 'status', width: 14 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -1365,6 +1397,42 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     columns: BROKEN_PROMISES_COLUMNS,
     defaultSort: '-shortfall',
     filters: ['period', 'partyId', 'employeeId'],
+  },
+  'item-revenue-concentration': {
+    key: 'item-revenue-concentration',
+    category: 'Inventory',
+    label: 'Item revenue concentration (Pareto)',
+    description: 'Which items earn the money. The tail is the catalogue you are carrying stock for and being paid little to hold; the head is what must never be out of stock.',
+    columns: PARETO_COLUMNS,
+    defaultSort: 'rank',
+    filters: ['period', 'itemName'],
+  },
+  'item-quantity-concentration': {
+    key: 'item-quantity-concentration',
+    category: 'Inventory',
+    label: 'Item volume concentration (Pareto)',
+    description: 'Which items move, by quantity rather than value — the pickers\' list, not the accountant\'s. An item high here and low on the revenue Pareto is cheap and busy: it belongs near the packing bench.',
+    columns: PARETO_COLUMNS,
+    defaultSort: 'rank',
+    filters: ['period', 'itemName'],
+  },
+  'vendor-spend-concentration': {
+    key: 'vendor-spend-concentration',
+    category: 'Vendors',
+    label: 'Vendor spend concentration (Pareto)',
+    description: 'Where the purchase money goes. Read as exposure rather than as performance: a vendor holding half the spend is half the supply chain, and the running column says how few of them that is.',
+    columns: PARETO_COLUMNS,
+    defaultSort: 'rank',
+    filters: ['period'],
+  },
+  'receivables-concentration': {
+    key: 'receivables-concentration',
+    category: 'Receivables',
+    label: 'Receivables concentration (Pareto)',
+    description: 'Who is holding the money. The head of this list is where a day of collection effort is worth most; it is deliberately not the same list as revenue concentration, and the difference between the two is worth a look.',
+    columns: PARETO_COLUMNS,
+    defaultSort: 'rank',
+    filters: [],
   },
   'return-rate-by-item': {
     key: 'return-rate-by-item',
@@ -2902,6 +2970,37 @@ export function brokenPromiseCell(row: BrokenPromiseSource, key: string): Report
     default: return null;
   }
 }
+
+/**
+ * One row of any Pareto. `band` is computed where the running total is, not
+ * in the reader's head: a row is in the half when everything above it came
+ * to less than half.
+ */
+export interface ParetoSource {
+  readonly id: string;
+  readonly rank: number;
+  readonly name: string;
+  readonly value: string;
+  readonly sharePct: number;
+  readonly cumulativePct: number;
+  readonly band: string;
+}
+
+export function paretoCell(row: ParetoSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'rank': return row.rank;
+    case 'name': return row.name;
+    case 'value': return row.value;
+    case 'sharePct': return row.sharePct;
+    case 'cumulativePct': return row.cumulativePct;
+    case 'band': return row.band;
+    default: return null;
+  }
+}
+
+/** The three groups every Pareto sorts its rows into. */
+export const PARETO_BANDS = ['Top 50%', 'Next 30%', 'Tail'] as const;
+export type ParetoBand = (typeof PARETO_BANDS)[number];
 
 /** 15 REQ-AK-10: one row per item, per customer, per reason. */
 export interface ReturnRateItemSource {

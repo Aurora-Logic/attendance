@@ -54,6 +54,26 @@ function orderBy(sort: string | undefined, fields: Record<string, string>, fallb
   return sql.raw(fallback);
 }
 
+
+/**
+ * The half of a Pareto that never changes: rank by value, take each row's
+ * share, run the total down the list, and name the band. Written once because
+ * five reports differing in their `totals` CTE should not differ in how they
+ * are read.
+ */
+const PARETO_SELECT = sql`
+  SELECT name AS id,
+         row_number() OVER (ORDER BY value DESC, name)::int AS rank,
+         name,
+         round(value, 2)::text AS value,
+         round(value * 100.0 / sum(value) OVER (), 1)::text AS "sharePct",
+         round(sum(value) OVER (ORDER BY value DESC, name) * 100.0 / sum(value) OVER (), 1)::text AS "cumulativePct",
+         CASE WHEN (sum(value) OVER (ORDER BY value DESC, name) - value) < sum(value) OVER () * 0.5 THEN 'Top 50%'
+              WHEN (sum(value) OVER (ORDER BY value DESC, name) - value) < sum(value) OVER () * 0.8 THEN 'Next 30%'
+              ELSE 'Tail' END AS band
+    FROM totals
+`;
+
 @Injectable()
 export class AnalyticsReportSource implements ReportSource, OnModuleInit {
   readonly keys: readonly ReportKey[] = ANALYTICS_REPORT_KEYS;
@@ -429,8 +449,84 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
           SELECT row_number() OVER (ORDER BY revenue DESC)::int AS rank,
                  party_id AS "partyId", party_name AS "partyName", revenue::text AS revenue,
                  round(revenue * 100.0 / sum(revenue) OVER (), 1)::text AS "sharePct",
-                 round(sum(revenue) OVER (ORDER BY revenue DESC) * 100.0 / sum(revenue) OVER (), 1)::text AS "cumulativePct"
+                 round(sum(revenue) OVER (ORDER BY revenue DESC) * 100.0 / sum(revenue) OVER (), 1)::text AS "cumulativePct",
+                 -- A row is in the half when everything ABOVE it came to less
+                 -- than half: the row that crosses the line belongs to the
+                 -- group it completes, not to the one after it.
+                 CASE WHEN (sum(revenue) OVER (ORDER BY revenue DESC) - revenue) < sum(revenue) OVER () * 0.5 THEN 'Top 50%'
+                      WHEN (sum(revenue) OVER (ORDER BY revenue DESC) - revenue) < sum(revenue) OVER () * 0.8 THEN 'Next 30%'
+                      ELSE 'Tail' END AS band
             FROM revenue
+        `;
+      /**
+       * Owner, 22 Aug 2026: Pareto, four ways. One shape each time -- rank the
+       * thing, take its share, run the total down the list, and say which
+       * third of the curve the row is in. The customer-revenue case is
+       * `customer-concentration` above; these are the ones it does not cover.
+       *
+       * Zero and negative totals are dropped before ranking. A customer whose
+       * credit notes exceeded their invoices is not a small contributor to
+       * revenue, and leaving them in makes every share above 100%.
+       */
+      case 'item-revenue-concentration':
+        return sql`
+          WITH totals AS (
+            SELECT vl.stock_item_name AS name,
+                   sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(vl.amount) ELSE abs(vl.amount) END) AS value
+              FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+             WHERE v.org_id = ${orgId} AND v.voucher_type IN ('Sales', 'Credit Note') AND NOT v.is_cancelled
+               AND vl.kind = 'inventory' AND vl.stock_item_name IS NOT NULL
+               ${this.periodClause(f, 'v.voucher_date')}
+               ${f.itemName === undefined ? sql`` : sql`AND vl.stock_item_name ILIKE ${`%${f.itemName}%`}`}
+             GROUP BY vl.stock_item_name
+            HAVING sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -abs(vl.amount) ELSE abs(vl.amount) END) > 0
+          )
+          ${PARETO_SELECT}
+        `;
+      case 'item-quantity-concentration':
+        return sql`
+          WITH totals AS (
+            SELECT vl.stock_item_name AS name,
+                   sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -1 ELSE 1 END
+                       * abs(coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0))) AS value
+              FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+             WHERE v.org_id = ${orgId} AND v.voucher_type IN ('Sales', 'Credit Note') AND NOT v.is_cancelled
+               AND vl.kind = 'inventory' AND vl.stock_item_name IS NOT NULL
+               ${this.periodClause(f, 'v.voucher_date')}
+               ${f.itemName === undefined ? sql`` : sql`AND vl.stock_item_name ILIKE ${`%${f.itemName}%`}`}
+             GROUP BY vl.stock_item_name
+            HAVING sum(CASE WHEN v.voucher_type = 'Credit Note' THEN -1 ELSE 1 END
+                       * abs(coalesce(substring(vl.billed_qty FROM '^\s*-?[0-9]+\.?[0-9]*')::numeric, 0))) > 0
+          )
+          ${PARETO_SELECT}
+        `;
+      case 'vendor-spend-concentration':
+        return sql`
+          WITH totals AS (
+            SELECT max(party_name) AS name,
+                   sum(CASE WHEN voucher_type = 'Debit Note' THEN -amount ELSE amount END) AS value
+              FROM vouchers
+             WHERE org_id = ${orgId} AND voucher_type IN ('Purchase', 'Debit Note') AND NOT is_cancelled AND party_id IS NOT NULL
+               ${this.periodClause(f, 'voucher_date')}
+             GROUP BY party_id
+            HAVING sum(CASE WHEN voucher_type = 'Debit Note' THEN -amount ELSE amount END) > 0
+          )
+          ${PARETO_SELECT}
+        `;
+      case 'receivables-concentration':
+        // No period: what is owed is owed now. Filtering it by a date range
+        // would answer a question nobody collecting money is asking.
+        return sql`
+          WITH totals AS (
+            SELECT max(party_name) AS name,
+                   sum(CASE WHEN voucher_type IN ('Receipt', 'Credit Note') THEN -amount ELSE amount END) AS value
+              FROM vouchers
+             WHERE org_id = ${orgId} AND voucher_type IN ('Sales', 'Receipt', 'Credit Note', 'Debit Note')
+               AND NOT is_cancelled AND party_id IS NOT NULL
+             GROUP BY party_id
+            HAVING sum(CASE WHEN voucher_type IN ('Receipt', 'Credit Note') THEN -amount ELSE amount END) > 0
+          )
+          ${PARETO_SELECT}
         `;
       case 'order-pipeline':
         // One row per confirmed order with quantity still to dispatch; the
@@ -699,13 +795,19 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
 
 /** Sortable fields per report, whitelisted into fragments. */
 const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
+  // A Pareto sorts by rank and nothing else; the running total is only true
+  // in that order.
+  'item-revenue-concentration': { rank: 'rank' },
+  'item-quantity-concentration': { rank: 'rank' },
+  'vendor-spend-concentration': { rank: 'rank' },
+  'receivables-concentration': { rank: 'rank' },
   'aov-trend': { month: 'month', aov: 'aov::numeric' },
   'partial-shipments': { partyName: '"partyName"', partialPct: '"partialPct"::numeric' },
   'vendor-lead-time': { partyName: '"partyName"', medianDays: '"medianDays"' },
   'stock-out-frequency': { item: 'item', month: 'month', shortages: 'shortages' },
   'margin-proxy': { item: 'item', revenue: 'revenue::numeric', margin: 'margin::numeric', marginPct: '"marginPct"::numeric' },
   'sales-heatmap': { partyName: '"partyName"', month: 'month', value: 'value::numeric' },
-  'customer-concentration': { partyName: '"partyName"', revenue: 'revenue::numeric' },
+  'customer-concentration': { rank: 'rank', partyName: '"partyName"', revenue: 'revenue::numeric' },
   'order-pipeline': { number: '"number"', customerName: '"customerName"', orderDate: '"orderDate"', ageDays: '"ageDays"', value: 'value::numeric' },
   'dispatch-performance': { customerName: '"customerName"', dispatchedOn: '"dispatchedOn"', leadDays: '"leadDays"' },
   'order-fill-rate': { partyName: '"partyName"', fillPct: '"fillPct"::numeric' },
@@ -729,6 +831,10 @@ const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
 };
 
 const DEFAULT_ORDER: Partial<Record<ReportKey, string>> = {
+  'item-revenue-concentration': 'rank ASC',
+  'item-quantity-concentration': 'rank ASC',
+  'vendor-spend-concentration': 'rank ASC',
+  'receivables-concentration': 'rank ASC',
   'aov-trend': 'month ASC',
   'partial-shipments': '"partialPct"::numeric DESC, "partyName" ASC',
   'vendor-lead-time': '"medianDays" DESC NULLS LAST, "partyName" ASC',

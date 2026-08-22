@@ -1,5 +1,5 @@
 import { compactCount, compactIndian, stackTotal, valueCaps, valueTips } from '@/components/shared/chart-labels';
-import { Bar, BarChart, CartesianGrid, Label, Line, LineChart, Pie, PieChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, Scatter, ScatterChart, XAxis, YAxis, LabelList } from 'recharts';
+import { Bar, BarChart, CartesianGrid, ComposedChart, Label, Line, LineChart, Pie, PieChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, ReferenceLine, Scatter, ScatterChart, XAxis, YAxis, LabelList } from 'recharts';
 
 import { SectionHeading } from '@/components/shared/section-heading';
 import { CHART_INTRO_MS } from '@/components/shared/use-chart-motion';
@@ -13,7 +13,6 @@ import { pieSliceLabel } from './pie-label';
 import type { ReportDefinition, ReportKey } from '@vyuha/shared';
 
 import {
-  type ChartRow,
   ageingSeries,
   formSeries,
   genericSeries,
@@ -21,9 +20,12 @@ import {
   heatmapStep,
   lapseSeries,
   movementSeries,
+  paretoInsight,
+  paretoSeries,
   resolveChartForm,
   salesAnalysisSeries,
   shareSeries,
+  type ChartRow,
   velocitySeries,
 } from './report-series';
 
@@ -462,6 +464,39 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
   const points = formSeries(spec, rows);
   if (points.length === 0) return null;
   const headers = new Map(definition.columns.map((c) => [c.key, c.header]));
+
+  if (spec.form === 'pareto') {
+    const points = paretoSeries(rows, spec.category);
+    if (points.length === 0) return null;
+    const noun = spec.noun ?? 'rows';
+    const measure = spec.measure ?? 'total';
+    const config = {
+      sharePct: { label: 'Share', color: 'var(--chart-1)' },
+      cumulativePct: { label: 'Running total', color: 'var(--chart-2)' },
+    } satisfies ChartConfig;
+    return (
+      <Frame title="Concentration" insight={paretoInsight(points, noun, measure)}>
+        <ChartContainer config={config} className="h-80 w-full overflow-hidden">
+          {/* One axis, in per cent, for both series. A Pareto is classically
+              drawn with value on the left and per cent on the right; two
+              scales on one chart is the mistake this product does not make,
+              and the money is in the table beside it. */}
+          <ComposedChart data={[...points]} margin={{ left: 0, right: 16, top: 8 }}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="category" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={16} tickFormatter={(value: string) => (value.length > 14 ? `${value.slice(0, 13)}…` : value)} />
+            <YAxis tickLine={false} axisLine={false} width={40} domain={[0, 100]} tickFormatter={(value: number) => `${String(value)}%`} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <ChartLegend content={<ChartLegendContent />} />
+            {/* The two lines a reader actually looks for. */}
+            <ReferenceLine y={50} stroke="var(--muted-foreground)" strokeDasharray="3 3" strokeOpacity={0.6} />
+            <ReferenceLine y={80} stroke="var(--muted-foreground)" strokeDasharray="3 3" strokeOpacity={0.6} />
+            <Bar dataKey="sharePct" fill="var(--color-sharePct)" radius={[4, 4, 0, 0]} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+            <Line dataKey="cumulativePct" stroke="var(--color-cumulativePct)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+          </ComposedChart>
+        </ChartContainer>
+      </Frame>
+    );
+  }
 
   if (spec.form === 'line') {
     const config = Object.fromEntries([
