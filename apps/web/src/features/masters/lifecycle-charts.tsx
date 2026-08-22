@@ -34,6 +34,7 @@ export function TrendChart({
   labels,
   compareLabel,
   format,
+  axisFormat,
   ready,
 }: {
   title: string;
@@ -42,6 +43,14 @@ export function TrendChart({
   labels: { a: string; b: string };
   compareLabel: string | null;
   format: (value: number) => string;
+  /**
+   * The axis tick, when it is not a plain count.
+   *
+   * `format` writes the exact figure into the tooltip and is far too long for
+   * a tick; the axis had its own compact formatter and no way to be told the
+   * series was money, so a rupee axis read "12.5L" with no symbol on it.
+   */
+  axisFormat?: (value: number) => string;
   ready: boolean;
 }) {
   const animate = useChartIntro(ready);
@@ -57,7 +66,7 @@ export function TrendChart({
         <LineChart accessibilityLayer data={[...points]} margin={AXIS}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
-          <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={(value: number) => compactCount(value)} />
+          <YAxis tickLine={false} axisLine={false} width={56} tickFormatter={(value: number) => (axisFormat ?? compactCount)(value)} />
           <ChartTooltip cursor={false} content={<ChartTooltipContent formatter={(value) => format(Number(value))} />} />
           <Line dataKey="a" type="monotone" stroke="var(--color-a)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
           <Line dataKey="b" type="monotone" stroke="var(--color-b)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />

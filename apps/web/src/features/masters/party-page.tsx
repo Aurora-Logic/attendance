@@ -307,7 +307,7 @@ function CustomerCharts({ a, compareLabel, ready, fulfilment }: { a: PartyAnalyt
     <>
       <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         {trendReadable(trend) ? (
-          <TrendChart title="Billed and collected, by month" note={compareLabel === null ? "From Tally's vouchers." : `From Tally's vouchers. Dashed: ${compareLabel.toLowerCase()}.`} points={trend} labels={{ a: 'Billed', b: 'Collected' }} compareLabel={compareLabel} format={formatMoney} ready={ready} />
+          <TrendChart title="Billed and collected, by month" note={compareLabel === null ? "From Tally's vouchers." : `From Tally's vouchers. Dashed: ${compareLabel.toLowerCase()}.`} points={trend} labels={{ a: 'Billed', b: 'Collected' }} compareLabel={compareLabel} format={formatMoney} axisFormat={formatMoneyShort} ready={ready} />
         ) : (
           <section className="flex flex-col gap-2">
             <SectionHeading title="Billed and collected, by month" note="Not enough months with movement in this period to read a trend." />
