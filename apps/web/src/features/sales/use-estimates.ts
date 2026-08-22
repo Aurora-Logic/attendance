@@ -152,6 +152,8 @@ export function useDeleteEstimate(): UseMutationResult<void, Error, string> {
 
 export interface SalesOrderFilters {
   page: number;
+  /** The list screen's page is 25; the fulfilment board asks for more at once. */
+  pageSize?: number;
   q?: string;
   status?: SalesOrderStatus;
   syncState?: 'NOT_PUSHED' | 'QUEUED' | 'PUSHED' | 'FAILED';
@@ -160,7 +162,7 @@ export interface SalesOrderFilters {
 }
 
 export function useSalesOrders(filters: SalesOrderFilters, options: { enabled?: boolean } = {}): UseQueryResult<EstimatesResponse, Error> {
-  const params = new URLSearchParams({ page: String(filters.page), pageSize: '25' });
+  const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize ?? 25) });
   if (filters.q) params.set('q', filters.q);
   if (filters.status) params.set('status', filters.status);
   if (filters.syncState) params.set('syncState', filters.syncState);

@@ -1,3 +1,23 @@
+import {
+  CheckCircleIcon,
+  CircleDashedIcon,
+  ClockCounterClockwiseIcon,
+  CloudCheckIcon,
+  CloudSlashIcon,
+  HandGrabbingIcon,
+  HourglassMediumIcon,
+  type Icon,
+  MinusCircleIcon,
+  PackageIcon,
+  PaperPlaneTiltIcon,
+  PencilSimpleIcon,
+  ProhibitIcon,
+  ReceiptIcon,
+  SealCheckIcon,
+  TruckIcon,
+  XCircleIcon,
+} from '@phosphor-icons/react';
+
 /**
  * One place that decides a status's colour, so a state reads the same on every
  * screen (CLAUDE.md §3 rule 4: one hierarchy across the whole app). The tone is
@@ -108,3 +128,42 @@ const STATUS_TONE: Record<string, StatusTone> = {
 export function statusTone(state: string): StatusTone {
   return STATUS_TONE[state] ?? 'outline';
 }
+
+/**
+ * The glyph a state wears beside its word, so a status is known by shape as
+ * well as colour — a pencil is a draft, an hourglass waits, a truck is on the
+ * road, a seal is done, a cross is refused. Shape carries the meaning where
+ * colour cannot: to a colour-blind reader, and in a greyscale print.
+ */
+export const STATUS_ICONS: Record<string, Icon> = {
+  DRAFT: PencilSimpleIcon,
+  NOT_PUSHED: CloudSlashIcon,
+  open: CircleDashedIcon,
+
+  QUEUED: HourglassMediumIcon,
+  PENDING_APPROVAL: HourglassMediumIcon,
+  awaiting_invoice: ReceiptIcon,
+
+  SENT: PaperPlaneTiltIcon,
+  CONFIRMED: CheckCircleIcon,
+  ordered: CheckCircleIcon,
+  picking: HandGrabbingIcon,
+  ready_to_dispatch: PackageIcon,
+  partially_dispatched: TruckIcon,
+  partially_received: TruckIcon,
+  shipped: TruckIcon,
+
+  PUSHED: CloudCheckIcon,
+  ACCEPTED: SealCheckIcon,
+  closed: SealCheckIcon,
+  received: PackageIcon,
+  delivered: CheckCircleIcon,
+
+  FAILED: XCircleIcon,
+  REJECTED: XCircleIcon,
+  CANCELLED: ProhibitIcon,
+
+  EXPIRED: ClockCounterClockwiseIcon,
+  short_closed: MinusCircleIcon,
+};
+
