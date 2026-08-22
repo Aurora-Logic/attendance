@@ -180,6 +180,8 @@ export const REPORT_COLUMN_TYPES = [
   'instant',
   'duration',
   'number',
+  /** A money amount, shown grouped with the workspace's currency symbol (₹15,87,620.00); exported as the raw number. */
+  'money',
   'status',
   'flags',
 ] as const;
@@ -539,7 +541,7 @@ const VOUCHER_RECONCILIATION_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'voucherType', header: 'Voucher type', type: 'text', sortField: 'voucherType', width: 18 },
   { key: 'count', header: 'Vouchers', type: 'number', width: 10 },
   { key: 'cancelled', header: 'Cancelled', type: 'number', secondary: true, width: 10 },
-  { key: 'total', header: 'Total value', type: 'text', width: 16 },
+  { key: 'total', header: 'Total value', type: 'money', width: 16 },
   { key: 'lastPulledAt', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -571,9 +573,9 @@ const CUSTOMER_STATEMENT_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'voucherNumber', header: 'Number', type: 'code', width: 16 },
   { key: 'narration', header: 'Narration', type: 'text', secondary: true, width: 30 },
   { key: 'debit', header: 'Debit', type: 'text', width: 14 },
-  { key: 'credit', header: 'Credit', type: 'text', width: 14 },
+  { key: 'credit', header: 'Credit', type: 'money', width: 14 },
   { key: 'unclassified', header: 'Unclassified', type: 'text', secondary: true, width: 14 },
-  { key: 'balance', header: 'Balance', type: 'text', width: 16 },
+  { key: 'balance', header: 'Balance', type: 'money', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -597,7 +599,7 @@ const AGEING_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'dueDate', header: 'Due', type: 'date', secondary: true, width: 12 },
   { key: 'ageDays', header: 'Age (days)', type: 'number', sortField: 'ageDays', width: 10 },
   { key: 'bucket', header: 'Bucket', type: 'status', width: 12 },
-  { key: 'outstanding', header: 'Outstanding', type: 'text', sortField: 'outstanding', width: 14 },
+  { key: 'outstanding', header: 'Outstanding', type: 'money', sortField: 'outstanding', width: 14 },
   { key: 'overdue', header: 'Overdue', type: 'status', width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -628,9 +630,9 @@ const PAYMENT_ANALYSIS_COLUMNS: readonly ReportColumnSpec[] = [
 
 const CREDIT_CYCLE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 28 },
-  { key: 'creditLimit', header: 'Credit limit', type: 'text', width: 14 },
+  { key: 'creditLimit', header: 'Credit limit', type: 'money', width: 14 },
   { key: 'creditDays', header: 'Credit days', type: 'number', width: 10 },
-  { key: 'exposure', header: 'Exposure', type: 'text', sortField: 'exposure', width: 14 },
+  { key: 'exposure', header: 'Exposure', type: 'money', sortField: 'exposure', width: 14 },
   { key: 'headroom', header: 'Headroom', type: 'text', width: 14 },
   { key: 'overLimit', header: 'Over limit', type: 'status', width: 10 },
   { key: 'lastInvoiceDate', header: 'Last invoice', type: 'date', secondary: true, width: 12 },
@@ -649,7 +651,7 @@ const SALES_ANALYSIS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'label', header: 'Group', type: 'text', sortField: 'label', width: 28 },
   { key: 'vouchers', header: 'Invoices', type: 'number', width: 10 },
   { key: 'quantity', header: 'Quantity', type: 'text', secondary: true, width: 12 },
-  { key: 'value', header: 'Value', type: 'text', sortField: 'value', width: 16 },
+  { key: 'value', header: 'Value', type: 'money', sortField: 'value', width: 16 },
   { key: 'share', header: 'Share', type: 'text', secondary: true, width: 8 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -691,7 +693,7 @@ const DAY_BOOK_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'voucherType', header: 'Type', type: 'text', sortField: 'voucherType', width: 16 },
   { key: 'voucherNumber', header: 'Number', type: 'code', width: 12 },
   { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 28 },
-  { key: 'amount', header: 'Amount', type: 'text', sortField: 'amount', width: 16 },
+  { key: 'amount', header: 'Amount', type: 'money', sortField: 'amount', width: 16 },
   { key: 'narration', header: 'Narration', type: 'text', secondary: true, width: 36 },
   { key: 'cancelled', header: 'State', type: 'status', secondary: true, width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
@@ -712,7 +714,7 @@ const CUSTOMER_LAPSE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'medianGapDays', header: 'Usual gap', type: 'number', width: 10 },
   { key: 'expectedBy', header: 'Expected by', type: 'date', secondary: true, width: 12 },
   { key: 'sales12m', header: 'Sales (12m)', type: 'number', secondary: true, width: 10 },
-  { key: 'revenue12m', header: 'Revenue (12m)', type: 'text', sortField: 'revenue12m', width: 16 },
+  { key: 'revenue12m', header: 'Revenue (12m)', type: 'money', sortField: 'revenue12m', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -723,8 +725,8 @@ const LEDGER_EXTRACT_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'voucherNumber', header: 'Number', type: 'code', width: 12 },
   { key: 'partyName', header: 'Party', type: 'text', secondary: true, width: 24 },
   { key: 'debit', header: 'Debit', type: 'text', width: 14 },
-  { key: 'credit', header: 'Credit', type: 'text', width: 14 },
-  { key: 'balance', header: 'Balance', type: 'text', width: 16 },
+  { key: 'credit', header: 'Credit', type: 'money', width: 14 },
+  { key: 'balance', header: 'Balance', type: 'money', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -736,8 +738,8 @@ const STOCK_SUMMARY_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'closingQty', header: 'Closing', type: 'text', sortField: 'closingQty', width: 12 },
   { key: 'committedQty', header: 'Committed', type: 'text', width: 12 },
   { key: 'availableQty', header: 'Available', type: 'text', width: 12 },
-  { key: 'costRate', header: 'Cost rate', type: 'text', secondary: true, width: 12 },
-  { key: 'value', header: 'Value at cost', type: 'text', sortField: 'value', width: 16 },
+  { key: 'costRate', header: 'Cost rate', type: 'money', secondary: true, width: 12 },
+  { key: 'value', header: 'Value at cost', type: 'money', sortField: 'value', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -765,7 +767,7 @@ const PROMISED_VS_COLLECTED_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
   { key: 'promises', header: 'Promises', type: 'number', width: 10 },
   { key: 'promised', header: 'Promised', type: 'number', sortField: 'promised', width: 14 },
-  { key: 'received', header: 'Received', type: 'number', width: 14 },
+  { key: 'received', header: 'Received', type: 'money', width: 14 },
   { key: 'keptPct', header: 'Kept %', type: 'number', width: 10 },
   { key: 'kept', header: 'Kept', type: 'number', width: 8, secondary: true },
   { key: 'partlyKept', header: 'Partly', type: 'number', width: 8, secondary: true },
@@ -777,8 +779,8 @@ const BROKEN_PROMISES_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
   { key: 'promisedDate', header: 'Promised for', type: 'date', width: 14 },
   { key: 'daysLate', header: 'Days late', type: 'number', sortField: 'daysLate', width: 10 },
-  { key: 'amount', header: 'Promised', type: 'number', width: 14 },
-  { key: 'received', header: 'Received', type: 'number', width: 14 },
+  { key: 'amount', header: 'Promised', type: 'money', width: 14 },
+  { key: 'received', header: 'Received', type: 'money', width: 14 },
   { key: 'shortfall', header: 'Shortfall', type: 'number', sortField: 'shortfall', width: 14 },
   { key: 'collectorName', header: 'Collector', type: 'text', width: 20, secondary: true },
   { key: 'takenByName', header: 'Taken by', type: 'text', width: 20, secondary: true },
@@ -841,7 +843,7 @@ const DUPLICATE_CLUSTERS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'clusters', header: 'Open clusters', type: 'number', sortField: 'clusters', width: 12 },
   { key: 'records', header: 'Records', type: 'number', width: 10 },
   { key: 'sentToTally', header: 'Sent to Tally', type: 'number', width: 12, secondary: true },
-  { key: 'outstanding', header: 'Outstanding behind them', type: 'number', sortField: 'outstanding', width: 18 },
+  { key: 'outstanding', header: 'Outstanding behind them', type: 'money', sortField: 'outstanding', width: 18 },
 ];
 
 const DUPLICATE_MASTERS_COLUMNS: readonly ReportColumnSpec[] = [
@@ -857,7 +859,7 @@ const CUSTOMER_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
   { key: 'invoices', header: 'Invoices', type: 'number', width: 10 },
   { key: 'quantity', header: 'Quantity', type: 'text', width: 12 },
-  { key: 'value', header: 'Value', type: 'text', sortField: 'value', width: 14 },
+  { key: 'value', header: 'Value', type: 'money', sortField: 'value', width: 14 },
   { key: 'lastDate', header: 'Last sale', type: 'date', sortField: 'lastDate', width: 12 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -878,11 +880,11 @@ const PURCHASE_RHYTHM_COLUMNS: readonly ReportColumnSpec[] = [
 const PRICE_VARIANCE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
   { key: 'buyers', header: 'Buyers', type: 'number', width: 8 },
-  { key: 'minRate', header: 'Lowest', type: 'text', width: 12 },
+  { key: 'minRate', header: 'Lowest', type: 'money', width: 12 },
   { key: 'minParty', header: 'Who pays least', type: 'text', secondary: true, width: 22 },
-  { key: 'maxRate', header: 'Highest', type: 'text', width: 12 },
+  { key: 'maxRate', header: 'Highest', type: 'money', width: 12 },
   { key: 'maxParty', header: 'Who pays most', type: 'text', secondary: true, width: 22 },
-  { key: 'avgRate', header: 'Average', type: 'text', secondary: true, width: 12 },
+  { key: 'avgRate', header: 'Average', type: 'money', secondary: true, width: 12 },
   { key: 'spreadPct', header: 'Spread', type: 'text', sortField: 'spreadPct', width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -904,7 +906,7 @@ const DEAD_STOCK_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'lastSaleDate', header: 'Last sale', type: 'date', sortField: 'lastSaleDate', width: 12 },
   { key: 'daysIdle', header: 'Days idle', type: 'number', sortField: 'daysIdle', width: 10 },
   { key: 'closingQty', header: 'Closing', type: 'text', width: 12 },
-  { key: 'valueLocked', header: 'Value locked', type: 'text', sortField: 'valueLocked', width: 16 },
+  { key: 'valueLocked', header: 'Value locked', type: 'money', sortField: 'valueLocked', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -924,8 +926,8 @@ const VENDOR_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 26 },
   { key: 'purchases', header: 'Purchases', type: 'number', width: 10 },
   { key: 'quantity', header: 'Quantity', type: 'text', secondary: true, width: 12 },
-  { key: 'lastRate', header: 'Last rate', type: 'text', width: 12 },
-  { key: 'avgRate', header: 'Avg rate', type: 'text', secondary: true, width: 12 },
+  { key: 'lastRate', header: 'Last rate', type: 'money', width: 12 },
+  { key: 'avgRate', header: 'Avg rate', type: 'money', secondary: true, width: 12 },
   { key: 'lastDate', header: 'Last bought', type: 'date', sortField: 'lastDate', width: 12 },
   { key: 'rateTrend', header: 'Rate', type: 'status', width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
@@ -935,9 +937,9 @@ const VENDOR_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
 const VENDOR_PRICE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
   { key: 'vendors', header: 'Vendors', type: 'number', width: 8 },
-  { key: 'bestRate', header: 'Best last rate', type: 'text', width: 14 },
+  { key: 'bestRate', header: 'Best last rate', type: 'money', width: 14 },
   { key: 'bestVendor', header: 'From', type: 'text', width: 22 },
-  { key: 'worstRate', header: 'Highest last rate', type: 'text', secondary: true, width: 14 },
+  { key: 'worstRate', header: 'Highest last rate', type: 'money', secondary: true, width: 14 },
   { key: 'worstVendor', header: 'From', type: 'text', secondary: true, width: 22 },
   { key: 'spreadPct', header: 'Spread', type: 'text', sortField: 'spreadPct', width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
@@ -946,8 +948,8 @@ const VENDOR_PRICE_COLUMNS: readonly ReportColumnSpec[] = [
 /** 14 REQ-AH-04: over the limit now, and how it was released before. */
 const CREDIT_BREACHES_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Party', type: 'text', sortField: 'partyName', width: 26 },
-  { key: 'creditLimit', header: 'Limit', type: 'text', width: 14 },
-  { key: 'exposure', header: 'Exposure', type: 'text', sortField: 'exposure', width: 14 },
+  { key: 'creditLimit', header: 'Limit', type: 'money', width: 14 },
+  { key: 'exposure', header: 'Exposure', type: 'money', sortField: 'exposure', width: 14 },
   { key: 'overBy', header: 'Over by', type: 'text', sortField: 'overBy', width: 14 },
   { key: 'releases90d', header: 'Releases (90d)', type: 'number', secondary: true, width: 12 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
@@ -961,7 +963,7 @@ const STOCK_AGEING_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'bucket31', header: '31–60d', type: 'text', width: 10 },
   { key: 'bucket61', header: '61–90d', type: 'text', width: 10 },
   { key: 'bucket90', header: '90d+', type: 'text', width: 10 },
-  { key: 'valueLocked', header: 'Value at cost', type: 'text', sortField: 'valueLocked', width: 16 },
+  { key: 'valueLocked', header: 'Value at cost', type: 'money', sortField: 'valueLocked', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -969,7 +971,7 @@ const STOCK_AGEING_COLUMNS: readonly ReportColumnSpec[] = [
 const CONCENTRATION_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'rank', header: 'Rank', type: 'number', width: 6 },
   { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
-  { key: 'revenue', header: 'Revenue', type: 'text', sortField: 'revenue', width: 16 },
+  { key: 'revenue', header: 'Revenue', type: 'money', sortField: 'revenue', width: 16 },
   { key: 'sharePct', header: 'Share', type: 'text', width: 10 },
   { key: 'cumulativePct', header: 'Cumulative', type: 'text', width: 10 },
   // Which third of the curve this row is in, computed where the running total
@@ -986,7 +988,7 @@ const ORDER_PIPELINE_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'orderDate', header: 'Ordered', type: 'date', sortField: 'orderDate', width: 12 },
   { key: 'ageDays', header: 'Age (days)', type: 'number', sortField: 'ageDays', width: 10 },
   { key: 'balanceQty', header: 'Balance qty', type: 'text', width: 12 },
-  { key: 'value', header: 'Value', type: 'text', sortField: 'value', secondary: true, width: 14 },
+  { key: 'value', header: 'Value', type: 'money', sortField: 'value', secondary: true, width: 14 },
 ];
 
 /** Promise-keeping: how long each dispatch took from the order. */
@@ -1015,8 +1017,8 @@ const ORDER_FILL_COLUMNS: readonly ReportColumnSpec[] = [
 const NEW_REPEAT_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
   { key: 'newParties', header: 'First-time buyers', type: 'number', width: 12 },
-  { key: 'newRevenue', header: 'New revenue', type: 'text', width: 14 },
-  { key: 'repeatRevenue', header: 'Repeat revenue', type: 'text', width: 14 },
+  { key: 'newRevenue', header: 'New revenue', type: 'money', width: 14 },
+  { key: 'repeatRevenue', header: 'Repeat revenue', type: 'money', width: 14 },
   { key: 'newSharePct', header: 'New share', type: 'text', secondary: true, width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -1069,8 +1071,8 @@ const ON_TIME_RATE_COLUMNS: readonly ReportColumnSpec[] = [
 const AOV_TREND_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
   { key: 'invoices', header: 'Invoices', type: 'number', width: 10 },
-  { key: 'revenue', header: 'Revenue', type: 'text', width: 16 },
-  { key: 'aov', header: 'Average order value', type: 'text', sortField: 'aov', width: 16 },
+  { key: 'revenue', header: 'Revenue', type: 'money', width: 16 },
+  { key: 'aov', header: 'Average order value', type: 'money', sortField: 'aov', width: 16 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
 
@@ -1099,9 +1101,9 @@ const STOCK_OUT_COLUMNS: readonly ReportColumnSpec[] = [
 const MARGIN_PROXY_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'item', header: 'Item', type: 'text', sortField: 'item', width: 28 },
   { key: 'quantity', header: 'Quantity', type: 'text', width: 12 },
-  { key: 'revenue', header: 'Revenue', type: 'text', sortField: 'revenue', width: 16 },
-  { key: 'cost', header: 'Cost (held)', type: 'text', width: 16 },
-  { key: 'margin', header: 'Margin proxy', type: 'text', sortField: 'margin', width: 16 },
+  { key: 'revenue', header: 'Revenue', type: 'money', sortField: 'revenue', width: 16 },
+  { key: 'cost', header: 'Cost (held)', type: 'money', width: 16 },
+  { key: 'margin', header: 'Margin proxy', type: 'money', sortField: 'margin', width: 16 },
   { key: 'marginPct', header: 'Margin %', type: 'text', sortField: 'marginPct', width: 10 },
   { key: 'asOf', header: 'As of', type: 'instant', secondary: true, width: 20 },
 ];
@@ -1109,7 +1111,7 @@ const MARGIN_PROXY_COLUMNS: readonly ReportColumnSpec[] = [
 const SALES_HEATMAP_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
   { key: 'month', header: 'Month', type: 'text', sortField: 'month', width: 10 },
-  { key: 'value', header: 'Value', type: 'text', sortField: 'value', width: 16 },
+  { key: 'value', header: 'Value', type: 'money', sortField: 'value', width: 16 },
 ];
 
 export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
