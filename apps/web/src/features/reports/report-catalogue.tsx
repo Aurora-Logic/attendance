@@ -49,9 +49,12 @@ function ReportTile({ report, onOpen }: { report: ReportDefinition; onOpen: () =
       onClick={onOpen}
       className="group h-auto min-h-[4.5rem] flex-col items-start justify-start gap-1 px-3 py-2.5 text-left whitespace-normal"
     >
-      <span className="flex w-full items-center gap-2 font-medium">
-        <Glyph className="text-muted-foreground shrink-0" />
-        <span className="min-w-0 truncate">{report.label}</span>
+      {/* The title wraps to two lines rather than truncating: at two across
+          on a phone "Attendance register" does not fit one, and a label
+          cut to "Attendance regis…" names nothing (thumb-reach). */}
+      <span className="flex w-full items-start gap-2 font-medium">
+        <Glyph className="text-muted-foreground mt-0.5 shrink-0" />
+        <span className="line-clamp-2 min-w-0 leading-tight">{report.label}</span>
         <ArrowRightIcon className="text-muted-foreground ml-auto hidden shrink-0 opacity-0 transition-opacity group-hover:opacity-100 sm:block" />
       </span>
       <span className="text-muted-foreground line-clamp-2 text-xs font-normal">{report.description}</span>
