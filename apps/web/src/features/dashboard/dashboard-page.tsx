@@ -1,9 +1,10 @@
 import { type ReactNode, useMemo, useRef, useState } from 'react';
-import { ArrowRightIcon, ChartBarIcon, DatabaseIcon, FingerprintIcon, InfoIcon } from '@phosphor-icons/react';
-import { endOfMonth, startOfMonth, subDays } from 'date-fns';
+import { ArrowRightIcon, ChartBarIcon, DatabaseIcon, InfoIcon } from '@phosphor-icons/react';
+import { subDays } from 'date-fns';
 import { Link } from 'react-router';
 
 import { PERMISSIONS } from '@vyuha/shared';
+import type { DateRange } from 'react-day-picker';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { SectionHeading } from '@/components/shared/section-heading';
@@ -19,27 +20,31 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { formatClock, formatDuration, toDateParam } from '@/features/attendance/format';
+import { toDateParam } from '@/features/attendance/format';
+import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
-import { AttendanceStatusBadge } from '@/features/attendance/status-badge';
 import { useShortcut } from '@/lib/keyboard/registry';
-import { useCanViewOvertime } from '@/features/attendance/visibility';
 import { usePermissions } from '@/lib/session/permissions';
-import { useMe } from '@/lib/session/use-session';
 import { cn } from '@/lib/utils';
 
-import { AttendanceTrendChart, ChartSkeleton, LateArrivalsChart, WorkedHoursChart } from './charts';
+import {
+  AttendanceTrendChart,
+  ChartSkeleton,
+  LateArrivalsChart,
+  TeamHoursChart,
+} from './charts';
 import {
   attendanceTrend,
   dateRange,
   hasValues,
   lateArrivals,
-  ownHours,
   shortDate,
+  teamHours,
   summarise,
 } from './series';
+import { DASHBOARD_PRESETS } from '@/features/reports/dashboard-v2.presets';
+
 import { useAttendanceRange } from './use-attendance-range';
 import { useChartIntro } from './use-chart-motion';
 
@@ -65,13 +70,6 @@ import { useChartIntro } from './use-chart-motion';
  * hours chart because the contract does not say whether worked minutes already
  * contain it.
  */
-
-type RangeDays = 7 | 30 | 90;
-const RANGE_OPTIONS: RangeDays[] = [7, 30, 90];
-
-function isRangeDays(value: string | undefined): value is `${RangeDays}` {
-  return value === '7' || value === '30' || value === '90';
-}
 
 /**
  * The one strip pattern this product uses for a row of figures: a bordered
@@ -142,32 +140,7 @@ function StripSkeleton({ caption = false }: { caption?: boolean }) {
 }
 
 /** The one-line "how today went" row, at the height it will be. */
-function TodaySkeleton() {
-  return (
-    <div
-      role="status"
-      aria-busy="true"
-      aria-label="Loading today"
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 border px-3 py-2.5"
-    >
-      <Skeleton aria-hidden className="h-5 w-16" />
-      <Skeleton aria-hidden className="h-3.5 w-16" />
-      <Skeleton aria-hidden className="h-3.5 w-16" />
-      <Skeleton aria-hidden className="h-3.5 w-24" />
-    </div>
-  );
-}
-
 /** A figure and its label, inline, for the row that describes today. */
-function Reading({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="font-medium tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
 /**
  * The surface a chart sits on: one border, a caption, and the plot.
  *
@@ -207,64 +180,45 @@ const PRESS =
   'transition-[color,background-color,border-color,box-shadow,transform,scale] duration-100 ease-out-strong active:scale-[0.97]';
 
 export function DashboardPage() {
-  const me = useMe();
   const granted = usePermissions();
-  const canViewOvertime = useCanViewOvertime();
-  const employeeId = me.data?.user.employeeId ?? null;
 
   const canSeeOthers =
     granted.has(PERMISSIONS.ATTENDANCE_VIEW_ALL) || granted.has(PERMISSIONS.ATTENDANCE_VIEW_TEAM);
 
-  const [rangeDays, setRangeDays] = useState<RangeDays>(30);
+  const [range, setRange] = useState<DateRange>(() => ({
+    from: subDays(new Date(), 29),
+    to: new Date(),
+  }));
   const rangeRef = useRef<HTMLDivElement>(null);
 
-  // PRD §6.4: Alt+F2 changes the period. The toggle group is a composite, so
-  // the honest equivalent of "open the picker" is to put the caret in it and
-  // let the arrow keys do the rest.
+  // PRD section 6.4: Alt+F2 changes the period.
   useShortcut({
     id: 'dashboard.period',
     keys: 'alt+f2',
     label: 'Change period',
     scope: 'screen',
     run: () => {
-      const group = rangeRef.current;
-      const pressed = group?.querySelector<HTMLElement>('[aria-pressed="true"]');
-      (pressed ?? group?.querySelector<HTMLElement>('[data-slot="toggle-group-item"]'))?.focus();
+      rangeRef.current?.querySelector<HTMLElement>('button')?.click();
     },
   });
 
   const now = new Date();
   const today = toDateParam(now);
-  const monthFrom = toDateParam(startOfMonth(now));
-  const monthTo = toDateParam(endOfMonth(now));
-  const rangeFrom = toDateParam(subDays(now, rangeDays - 1));
-
-  // Own month. Today's own row is read out of it rather than fetched again -
-  // one request answers both questions, and the two can never disagree.
-  const mine = useAttendanceRange(
-    { from: monthFrom, to: monthTo, employeeId },
-    { enabled: employeeId !== null },
-  );
+  const rangeFrom = toDateParam(range.from ?? subDays(now, 29));
+  const rangeTo = toDateParam(range.to ?? now);
+  const spanDays = dateRange(rangeFrom, rangeTo).length;
 
   // The organisation's day, and the organisation's period. Two queries rather
   // than one slice of the other: the period can run past what the list
   // endpoint will return in twelve pages, and today's counts must never be
   // computed from a range that came back short.
   const orgToday = useAttendanceRange({ from: today, to: today }, { enabled: canSeeOthers });
-  const orgRange = useAttendanceRange({ from: rangeFrom, to: today }, { enabled: canSeeOthers });
-
-  const myDays = useMemo(() => mine.data?.value.days ?? [], [mine.data]);
-  const myTotals = useMemo(() => summarise(myDays), [myDays]);
-  const myToday = useMemo(() => myDays.find((day) => day.date === today), [myDays, today]);
-  const myHours = useMemo(
-    () => ownHours(myDays, dateRange(monthFrom, today)),
-    [myDays, monthFrom, today],
-  );
+  const orgRange = useAttendanceRange({ from: rangeFrom, to: rangeTo }, { enabled: canSeeOthers });
 
   const orgTodayDays = useMemo(() => orgToday.data?.value.days ?? [], [orgToday.data]);
   const orgTodayTotals = useMemo(() => summarise(orgTodayDays), [orgTodayDays]);
 
-  const rangeDates = useMemo(() => dateRange(rangeFrom, today), [rangeFrom, today]);
+  const rangeDates = useMemo(() => dateRange(rangeFrom, rangeTo), [rangeFrom, rangeTo]);
   const orgRangeDays = useMemo(() => orgRange.data?.value.days ?? [], [orgRange.data]);
   const trendPoints = useMemo(
     () => attendanceTrend(orgRangeDays, rangeDates),
@@ -272,6 +226,10 @@ export function DashboardPage() {
   );
   const latePoints = useMemo(
     () => lateArrivals(orgRangeDays, rangeDates),
+    [orgRangeDays, rangeDates],
+  );
+  const teamHoursPoints = useMemo(
+    () => teamHours(orgRangeDays, rangeDates),
     [orgRangeDays, rangeDates],
   );
   const rangeTotals = useMemo(() => summarise(orgRangeDays), [orgRangeDays]);
@@ -283,8 +241,7 @@ export function DashboardPage() {
     [latePoints],
   );
 
-  // One policy for all three charts: draw once, when the first data lands.
-  const hoursIntro = useChartIntro(mine.isSuccess);
+  // One policy for every chart here: draw once, when the first data lands.
   const rangeIntro = useChartIntro(orgRange.isSuccess);
 
   const rangeComplete = orgRange.data?.value.complete ?? true;
@@ -292,10 +249,10 @@ export function DashboardPage() {
   // non-nullish value, so a personal query that returned real data (sample:
   // false) hid a sampled organisation query behind it, and the screen would
   // have shown invented rows with no notice.
-  const showsSamples = [mine.data, orgToday.data, orgRange.data].some(
-    (result) => result?.sample === true,
-  );
-  const nothingToShow = employeeId === null && !canSeeOthers;
+  const showsSamples = [orgToday.data, orgRange.data].some((result) => result?.sample === true);
+  // Nothing personal is left on this screen, so the only question is whether
+  // this account may look beyond itself.
+  const nothingToShow = !canSeeOthers;
   const atWorkToday = orgTodayTotals.present + orgTodayTotals.halfDay + orgTodayTotals.onDuty;
   const atWorkRange = rangeTotals.present + rangeTotals.halfDay + rangeTotals.onDuty;
 
@@ -320,94 +277,16 @@ export function DashboardPage() {
         <div className="flex flex-col gap-8">
           {showsSamples ? <SampleDataNotice what="attendance day" /> : null}
 
-          {employeeId !== null ? (
-            <section className="flex flex-col gap-3">
-              <SectionHeading
-                title="Today"
-                action={
-                  <Button
-                    size="sm"
-                    nativeButton={false}
-                    render={<Link to="/punch" />}
-                    className={PRESS}
-                  >
-                    <FingerprintIcon data-icon="inline-start" />
-                    Punch
-                  </Button>
-                }
-              />
+          {/*
+            The dashboard is the shared picture, not a personal one.
 
-              {mine.isPending ? <TodaySkeleton /> : null}
-              {mine.isError ? (
-                <QueryErrorAlert
-                  error={mine.error}
-                  subject="your attendance"
-                  onRetry={() => void mine.refetch()}
-                />
-              ) : null}
-
-              {mine.isSuccess ? (
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border px-3 py-2.5">
-                  {myToday ? (
-                    <>
-                      <AttendanceStatusBadge status={myToday.status} />
-                      <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                        <Reading label="In" value={formatClock(myToday.firstIn)} />
-                        <Reading label="Out" value={formatClock(myToday.lastOut)} />
-                        <Reading label="Worked" value={formatDuration(myToday.workedMinutes)} />
-                      </dl>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground text-sm">
-                      No day recorded yet — it appears once you punch.
-                    </span>
-                  )}
-                </div>
-              ) : null}
-            </section>
-          ) : null}
-
-          {employeeId !== null && mine.isSuccess ? (
-            <section className="flex flex-col gap-3">
-              <SectionHeading
-                title="This month, so far"
-                note="Your own days, counted from the first of the month."
-              />
-              {/* The overtime tile is dropped, not blanked, for a viewer the
-                  server withholds overtime from. It rendered an em dash, which
-                  leaks no number but states something false: "you did no
-                  overtime" rather than "this is not yours to see". */}
-              <FigureStrip
-                entries={[
-                  ['Present', String(myTotals.present)],
-                  ['Half day', String(myTotals.halfDay)],
-                  ['On leave', String(myTotals.leave)],
-                  ['Absent', String(myTotals.absent)],
-                  ...(canViewOvertime
-                    ? ([['Overtime', formatDuration(myTotals.otMinutes)]] as [string, string][])
-                    : []),
-                ]}
-              />
-
-              <ChartPanel
-                caption="Hours worked, day by day"
-                note={
-                  myTotals.lateDays > 0
-                    ? `${String(myTotals.lateDays)} late arrival${myTotals.lateDays === 1 ? '' : 's'}`
-                    : undefined
-                }
-              >
-                {hasValues(myHours, ['workedMinutes']) ? (
-                  <WorkedHoursChart points={myHours} animate={hoursIntro} />
-                ) : (
-                  <p className="text-muted-foreground py-6 text-center text-xs">
-                    No hours recorded this month yet.
-                  </p>
-                )}
-              </ChartPanel>
-            </section>
-          ) : null}
-
+            It used to open with Today and This month, so far -- the
+            signed-in person's own status, their own figures and their own
+            worked hours -- above the team sections. Both already exist, in
+            more detail and for any month, on /my-attendance, and the punch
+            itself is a route of its own. A screen that answers "how are we
+            doing" should not lead with one row of it.
+          */}
           {canSeeOthers ? (
             <section className="flex flex-col gap-3">
               <SectionHeading
@@ -463,34 +342,12 @@ export function DashboardPage() {
                 note="Counted from the days the server returned for this period."
                 action={
                   <div ref={rangeRef} className="flex items-center gap-2">
-                    <ToggleGroup
-                      variant="outline"
-                      aria-label="Period"
-                      value={[String(rangeDays)]}
-                      onValueChange={(value) => {
-                        // Base UI hands back an empty array when the pressed
-                        // item is pressed again. There is no "no period".
-                        const next = value[0];
-                        if (isRangeDays(next)) setRangeDays(Number(next) as RangeDays);
-                      }}
-                    >
-                      {RANGE_OPTIONS.map((option) => (
-                        <ToggleGroupItem
-                          key={option}
-                          value={String(option)}
-                          // The 44px floor in index.css does not reach a
-                          // toggle: the vendored shadcn variant keeps the box
-                          // at 32px and grows an invisible ::after hit area
-                          // instead. That satisfies a thumb and fails both
-                          // CLAUDE.md 3.1 as written and the route sweep,
-                          // which measures the element. Same idiom the muster
-                          // toolbar uses for its select.
-                          className={cn(' px-2.5', PRESS)}
-                        >
-                          {String(option)}d
-                        </ToggleGroupItem>
-                      ))}
-                    </ToggleGroup>
+                    <DateRangeField
+                      value={range}
+                      onValueChange={setRange}
+                      label="Period"
+                      presets={DASHBOARD_PRESETS}
+                    />
                     <ShortcutHint keys="alt+f2" className="hidden md:inline-flex" />
                   </div>
                 }
@@ -523,7 +380,7 @@ export function DashboardPage() {
                   <InfoIcon />
                   <AlertTitle>This period is too large to chart</AlertTitle>
                   <AlertDescription>
-                    {`The list endpoint returned ${String(orgRange.data.value.total)} days for these ${String(rangeDays)} days, which is more than this screen reads. Choose a shorter period. Charting the part that arrived would show a real dip where the data simply stopped.`}
+                    {`The list endpoint returned ${String(orgRange.data.value.total)} days for these ${String(spanDays)} days, which is more than this screen reads. Choose a shorter period. Charting the part that arrived would show a real dip where the data simply stopped.`}
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -545,10 +402,27 @@ export function DashboardPage() {
                           <EmptyTitle>Nothing recorded in this period</EmptyTitle>
                           <EmptyDescription>
                             The day engine writes a row for every active employee. If nobody has
-                            punched in these {String(rangeDays)} days, there is nothing to plot.
+                            punched in these {String(spanDays)} days, there is nothing to plot.
                           </EmptyDescription>
                         </EmptyHeader>
                       </Empty>
+                    )}
+                  </ChartPanel>
+
+                  <ChartPanel
+                    caption="Hours worked, day by day"
+                    note={
+                      rangeTotals.rows > 0
+                        ? `${String(atWorkRange)} day${atWorkRange === 1 ? '' : 's'} at work in this period`
+                        : undefined
+                    }
+                  >
+                    {hasValues(teamHoursPoints, ['workedMinutes']) ? (
+                      <TeamHoursChart points={teamHoursPoints} animate={rangeIntro} />
+                    ) : (
+                      <p className="text-muted-foreground py-6 text-center text-xs">
+                        No hours recorded in this period.
+                      </p>
                     )}
                   </ChartPanel>
 
@@ -565,7 +439,7 @@ export function DashboardPage() {
                     ) : (
                       <p className="text-muted-foreground py-6 text-center text-xs">
                         {rangeTotals.rows > 0
-                          ? `Nobody arrived late in these ${String(rangeDays)} days.`
+                          ? `Nobody arrived late in these ${String(spanDays)} days.`
                           : 'No days recorded in this period.'}
                       </p>
                     )}

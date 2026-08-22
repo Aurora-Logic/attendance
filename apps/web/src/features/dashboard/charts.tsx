@@ -21,6 +21,7 @@ import {
   shortDate,
   type HoursPoint,
   type LatePoint,
+  type TeamHoursPoint,
   type TrendPoint,
 } from './series';
 
@@ -60,6 +61,10 @@ const LATE_CONFIG = {
 
 const HOURS_CONFIG = {
   workedMinutes: { label: 'Worked', color: 'var(--success)' },
+} satisfies ChartConfig;
+
+const TEAM_HOURS_CONFIG = {
+  workedMinutes: { label: 'Worked, everyone', color: 'var(--success)' },
 } satisfies ChartConfig;
 
 /** Five dates is what fits at 360px without the labels touching. */
@@ -314,6 +319,70 @@ export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
         />
         {/* Minutes, drawn as hours. Plotting the rounded hours instead would
             make the tooltip disagree with the bar it is describing. */}
+        <Bar
+          dataKey="workedMinutes"
+          fill="var(--color-workedMinutes)"
+          maxBarSize={24}
+          isAnimationActive={animate}
+          animationDuration={CHART_INTRO_MS}
+          animationEasing="ease-out"
+        >
+          <LabelList {...valueCaps('workedMinutes', compactCount)} />
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
+function teamHoursValue(value: unknown, _name: unknown, item: unknown): string {
+  const people = (item as { payload?: { people?: number } } | undefined)?.payload?.people ?? 0;
+  return `${formatDuration(Number(value))} across ${String(people)} ${people === 1 ? 'person' : 'people'}`;
+}
+
+/**
+ * The team's worked hours, day by day.
+ *
+ * The bar is everyone's minutes added together and the tooltip names the
+ * headcount behind it, because the total on its own cannot tell a quiet week
+ * from a short-staffed one.
+ */
+export function TeamHoursChart({ points, animate }: ChartProps<TeamHoursPoint>) {
+  const { domainMax, ticks } = hourTicks(
+    points.reduce((most, point) => Math.max(most, point.workedMinutes), 0),
+  );
+
+  return (
+    <ChartContainer config={TEAM_HOURS_CONFIG} className="aspect-auto h-44 w-full min-w-0 sm:h-48">
+      <BarChart accessibilityLayer data={[...points]} margin={AXIS_MARGIN}>
+        <CartesianGrid vertical={false} />
+        <XAxis
+          dataKey="date"
+          tickLine={false}
+          axisLine={false}
+          tick={TICK}
+          tickMargin={8}
+          interval={0}
+          ticks={axisTicks(points.map((point) => point.date), MAX_DATE_TICKS)}
+          tickFormatter={dateTick}
+        />
+        <YAxis
+          width={32}
+          tickLine={false}
+          axisLine={false}
+          tick={TICK}
+          domain={[0, domainMax]}
+          ticks={ticks}
+          tickFormatter={hoursTick}
+        />
+        <ChartTooltip
+          content={
+            <ChartTooltipContent
+              labelFormatter={fullDate}
+              formatter={teamHoursValue}
+              indicator="dot"
+            />
+          }
+        />
         <Bar
           dataKey="workedMinutes"
           fill="var(--color-workedMinutes)"
