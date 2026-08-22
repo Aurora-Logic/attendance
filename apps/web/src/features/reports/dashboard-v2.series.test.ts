@@ -15,6 +15,7 @@ import {
   revenueAtRisk,
   seasonality,
   stockAgeing,
+  sumColumn,
   topCustomers,
 } from './dashboard-v2.series';
 import type { ReportRowView } from './types';
@@ -348,11 +349,27 @@ describe('invoiceMix', () => {
       row({ label: 'Frequent', vouchers: 10, value: '1000' }),
       row({ label: 'Rare but big', vouchers: 1, value: '900' }),
     ]);
-    expect(series.points).toEqual([
-      { label: 'Frequent', invoices: 10, value: 1000 },
-      { label: 'Rare but big', invoices: 1, value: 900 },
-    ]);
+    // Sorted by invoice count, because the trend line is drawn along that axis.
+    expect(series.points.map((p) => p.label)).toEqual(['Rare but big', 'Frequent']);
     expect(series.insight).toContain('Rare but big writes the largest bills');
+  });
+
+  it('draws the trend from the period average bill, not from each customer', () => {
+    const series = invoiceMix([
+      row({ label: 'A', vouchers: 1, value: '100' }),
+      row({ label: 'B', vouchers: 3, value: '300' }),
+    ]);
+    // 400 over 4 invoices is 100 a bill, so the line is 100 times the count.
+    expect(series.averageBill).toBe(100);
+    expect(series.points.map((p) => p.trend)).toEqual([100, 300]);
+  });
+
+  it('counts who sits above the line', () => {
+    const series = invoiceMix([
+      row({ label: 'Big', vouchers: 1, value: '900' }),
+      row({ label: 'Small', vouchers: 9, value: '900' }),
+    ]);
+    expect(series.insight).toContain('1 of 2 customers sit above the line');
   });
 
   it('drops a customer with no invoices rather than dividing by zero', () => {
@@ -364,7 +381,9 @@ describe('invoiceMix', () => {
   });
 
   it('has no insight with nothing to place', () => {
-    expect(invoiceMix([]).insight).toBeNull();
+    const series = invoiceMix([]);
+    expect(series.insight).toBeNull();
+    expect(series.averageBill).toBe(0);
   });
 });
 
@@ -406,5 +425,19 @@ describe('revenueAndBasket', () => {
 
   it('does not divide by zero on an empty period', () => {
     expect(revenueAndBasket([]).totals).toEqual({ revenue: 0, aov: 0 });
+  });
+});
+
+describe('sumColumn', () => {
+  it('adds a column across the page', () => {
+    expect(sumColumn([row({ exposure: '100.5' }), row({ exposure: '9.5' })], 'exposure')).toBe(110);
+  });
+
+  it('treats a missing or unreadable cell as zero rather than NaN', () => {
+    expect(sumColumn([row({ exposure: null }), row({ other: '5' })], 'exposure')).toBe(0);
+  });
+
+  it('is zero on an empty page', () => {
+    expect(sumColumn([], 'exposure')).toBe(0);
   });
 });

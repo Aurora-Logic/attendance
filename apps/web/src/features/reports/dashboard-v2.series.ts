@@ -488,32 +488,46 @@ export interface MixPoint {
   readonly invoices: number;
   /** What they were worth in total. */
   readonly value: number;
+  /** What that many invoices would be worth at the period's average bill. */
+  readonly trend: number;
+}
+export interface MixSeries extends Series<MixPoint> {
+  /** The period's average bill, which the trend line is drawn from. */
+  readonly averageBill: number;
 }
 
 /**
- * Every customer as one dot: how often they buy against how much they spend.
+ * Every customer as one dot, against the line they would sit on if they
+ * bought at the average.
  *
  * The four corners are four different customers -- frequent and large, rare
  * and large, frequent and small, rare and small -- and each wants a different
- * conversation. A ranked bar chart cannot show that; two axes can.
+ * conversation. The line is what makes the dots mean something: above it is a
+ * customer writing bigger bills than the book average, below it is one buying
+ * often and small. A ranked bar chart cannot show either.
  */
-export function invoiceMix(rows: readonly ReportRowView[]): Series<MixPoint> {
-  const points = rows
+export function invoiceMix(rows: readonly ReportRowView[]): MixSeries {
+  const raw = rows
     .map((row) => ({
       label: text(row, 'label'),
       invoices: num(row, 'vouchers'),
       value: num(row, 'value'),
     }))
-    .filter((p) => p.label !== '' && p.invoices > 0);
+    .filter((p) => p.label !== '' && p.invoices > 0)
+    .sort((a, b) => a.invoices - b.invoices);
 
-  if (points.length === 0) return { points, insight: null };
+  if (raw.length === 0) return { points: [], averageBill: 0, insight: null };
 
-  const averageBill = points.reduce((sum, p) => sum + p.value, 0) / points.reduce((sum, p) => sum + p.invoices, 0);
+  const totalInvoices = sum(raw.map((p) => p.invoices));
+  const averageBill = totalInvoices === 0 ? 0 : sum(raw.map((p) => p.value)) / totalInvoices;
+  const points = raw.map((p) => ({ ...p, trend: Math.round(p.invoices * averageBill) }));
   const best = points.reduce((most, p) => (p.value / p.invoices > most.value / most.invoices ? p : most), points[0] as MixPoint);
+  const above = points.filter((p) => p.value > p.trend).length;
 
   return {
     points,
-    insight: `${best.label} writes the largest bills, at about ${String(Math.round((best.value / best.invoices) / averageBill * 10) / 10)} times the average.`,
+    averageBill,
+    insight: `${best.label} writes the largest bills, at about ${String(Math.round((best.value / best.invoices) / averageBill * 10) / 10)} times the average; ${String(above)} of ${String(points.length)} customers sit above the line.`,
   };
 }
 
@@ -572,4 +586,17 @@ export function revenueAndBasket(rows: readonly ReportRowView[]): BasketSeries {
           ? 'Revenue is up while the average bill is down: more customers, buying less each.'
           : 'Revenue is down while the average bill holds: fewer customers, spending the same.',
   };
+}
+
+// ------------------------------------------------------------- 16. totals
+
+/**
+ * One numeric column added up across a page of rows.
+ *
+ * The headline figures are sums and nothing else, but they were being written
+ * inline at each tile, which is how "receivables exposure" and the credit
+ * chart beneath it came to be computed two different ways on the same screen.
+ */
+export function sumColumn(rows: readonly ReportRowView[], key: string): number {
+  return sum(rows.map((row) => num(row, key)));
 }

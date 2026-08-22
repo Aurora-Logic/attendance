@@ -20,11 +20,10 @@ import {
   RadarChart,
   RadialBar,
   RadialBarChart,
+  ComposedChart,
   Scatter,
-  ScatterChart,
   XAxis,
   YAxis,
-  ZAxis,
 } from 'recharts';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -87,11 +86,82 @@ const PERCENT = (value: unknown): string => (typeof value === 'number' ? `${Stri
  *  narrowed before `monthLabel` will take it. */
 const MONTH_TIP = (label: unknown): string => (typeof label === 'string' ? monthLabel(label) : '');
 
+/**
+ * A name long enough to outrun its bar is cut, not wrapped.
+ *
+ * Recharts wraps an over-long LabelList value onto a second line, which then
+ * renders below the bar it belongs to and is clipped by it -- "Ozar Aerospace
+ * Components" arrived as two half-visible rows.
+ */
+const NAME_MAX = 26;
+const CLIP = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  return value.length <= NAME_MAX ? value : `${value.slice(0, NAME_MAX - 1).trimEnd()}\u2026`;
+};
+
 /** Square, because the theme is. */
 const SHARP = 0;
 /** A bar is a measurement, not a block of colour. */
 const BAR = 16;
-const BAR_THIN = 12;
+/**
+ * A horizontal bar with its name written inside it.
+ *
+ * 12px is thinner than the text, so "Ozar Aerospace Components" wrapped to two
+ * lines and both were clipped by the bar it sat in. The label sets the floor,
+ * not the other way round.
+ */
+const BAR_LABELLED = 26;
+
+/**
+ * A headline figure.
+ *
+ * A Card with a number in it and nothing nested inside -- the six of these sit
+ * in their own grid above the charts, which is the shape the reports dashboard
+ * has always had and the part people read first.
+ */
+function Kpi({
+  label,
+  value,
+  hint,
+  report,
+  query,
+  pending,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  report: ReportKey;
+  query?: string;
+  pending: boolean;
+}) {
+  const navigate = useNavigate();
+  return (
+    <Card
+      className="hover:bg-accent/40 focus-visible:ring-ring cursor-pointer gap-2 py-4 outline-none focus-visible:ring-2"
+      tabIndex={0}
+      role="link"
+      onClick={() => {
+        void navigate(`/reports?report=${report}${query ?? ''}`);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          void navigate(`/reports?report=${report}${query ?? ''}`);
+        }
+      }}
+    >
+      <CardHeader className="gap-1 px-4">
+        <CardDescription className="text-xs">{label}</CardDescription>
+        <CardTitle className="text-2xl tabular-nums">
+          {pending ? <Skeleton className="h-7 w-24" /> : value}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-4">
+        <p className="text-muted-foreground text-xs leading-snug">{hint}</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 function ChartSkeleton() {
   return <Skeleton className="aspect-video w-full" />;
@@ -106,7 +176,6 @@ function ChartCard({
   insight,
   footnote,
   wide,
-  centred,
   children,
 }: {
   title: string;
@@ -117,7 +186,6 @@ function ChartCard({
   insight: string | null;
   footnote?: ReactNode;
   wide?: boolean;
-  centred?: boolean;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
@@ -139,7 +207,12 @@ function ChartCard({
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className={centred === true ? 'flex justify-center' : undefined}>
+      {/* Never `flex` here. ChartContainer measures itself with a Recharts
+          ResponsiveContainer, and a flex child with no basis resolves to zero
+          width -- the pie and the donut rendered as empty cards with a correct
+          header and footer around nothing. `mx-auto` on the container is what
+          centres it. */}
+      <CardContent>
         {state.isPending ? <ChartSkeleton /> : null}
         {state.isError ? (
           <p className="text-muted-foreground py-8 text-sm">
@@ -182,6 +255,7 @@ const SEASON_CONFIG = {
 } satisfies ChartConfig;
 const MIX_CONFIG = {
   value: { label: 'Invoiced', color: 'var(--chart-1)' },
+  trend: { label: 'At the average bill', color: 'var(--chart-4)' },
 } satisfies ChartConfig;
 const BASKET_CONFIG = {
   revenue: { label: 'Revenue', color: 'var(--chart-1)' },
@@ -227,6 +301,9 @@ export function ReportsDashboardV2() {
   const shelf = useReportRows('stock-ageing', page, on);
   const quiet = useReportRows('customer-lapse', page, on);
   const credit = useReportRows('credit-cycle', page, on);
+  const breaches = useReportRows('credit-breaches', page, on);
+  const dead = useReportRows('dead-stock', page, on);
+  const lowStock = useReportRows('low-stock', page, on);
 
   if (!canView) {
     return <PageHeader description="This dashboard needs permission to see receivables." />;
@@ -249,6 +326,12 @@ export function ReportsDashboardV2() {
   const stock = series.stockAgeing(shelf.data?.data ?? []);
   const risk = series.revenueAtRisk(quiet.data?.data ?? []);
   const exposure = series.creditHeadroom(credit.data?.data ?? []);
+
+  // The six headline figures. Sums of the same rows the charts below draw, so
+  // a tile and the chart under it can never disagree.
+  const totalExposure = series.sumColumn(credit.data?.data ?? [], 'exposure');
+  const quietRevenue = series.sumColumn(quiet.data?.data ?? [], 'revenue12m');
+  const deadValue = series.sumColumn(dead.data?.data ?? [], 'valueLocked');
 
   const stateOf = (
     query: { isPending: boolean; isError: boolean },
@@ -288,6 +371,53 @@ export function ReportsDashboardV2() {
           label="Period"
           presets={DASHBOARD_PRESETS}
           className="w-full sm:w-auto"
+        />
+      </div>
+
+      {/* The six figures the screen is opened for, above everything drawn. */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+        <Kpi
+          label="Invoiced this period"
+          value={formatMoney(invoiced.total)}
+          hint={`Across ${String(invoiced.points.length)} month${invoiced.points.length === 1 ? '' : 's'}`}
+          report="sales-analysis"
+          query="&groupBy=month"
+          pending={byMonth.isPending}
+        />
+        <Kpi
+          label="Receivables exposure"
+          value={formatMoney(totalExposure)}
+          hint={`${String(credit.data?.meta.total ?? 0)} debtors, from the credit cycle`}
+          report="credit-cycle"
+          pending={credit.isPending}
+        />
+        <Kpi
+          label="Over the credit limit"
+          value={formatCount(breaches.data?.meta.total ?? 0)}
+          hint="Parties past their limit right now"
+          report="credit-breaches"
+          pending={breaches.isPending}
+        />
+        <Kpi
+          label="Owed past thirty days"
+          value={formatMoney(owed.overdue)}
+          hint={`Of ${formatMoney(owed.total)} outstanding in total`}
+          report="ageing"
+          pending={ageing.isPending}
+        />
+        <Kpi
+          label="Revenue going quiet"
+          value={formatMoney(quietRevenue)}
+          hint="Last twelve months from lapsed and at-risk customers"
+          report="customer-lapse"
+          pending={quiet.isPending}
+        />
+        <Kpi
+          label="Dead stock value"
+          value={formatMoney(deadValue)}
+          hint={`${String(lowStock.data?.meta.total ?? 0)} more items at or under reorder`}
+          report="dead-stock"
+          pending={dead.isPending}
         />
       </div>
 
@@ -397,13 +527,20 @@ export function ReportsDashboardV2() {
           }
         >
           <ChartContainer config={VALUE_CONFIG}>
-            <BarChart accessibilityLayer data={[...customers.points]} layout="vertical" margin={{ right: 56 }}>
+            <BarChart accessibilityLayer data={[...customers.points]} layout="vertical" margin={{ right: 72, left: 4 }}>
               <CartesianGrid horizontal={false} />
               <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} hide />
               <XAxis dataKey="value" type="number" hide />
               <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_THIN}>
-                <LabelList dataKey="label" position="insideLeft" offset={8} className="fill-background" fontSize={11} />
+              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_LABELLED}>
+                <LabelList
+                  dataKey="label"
+                  position="insideLeft"
+                  offset={8}
+                  className="fill-background"
+                  fontSize={11}
+                  formatter={CLIP}
+                />
                 <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={11} formatter={MONEY} />
               </Bar>
             </BarChart>
@@ -417,7 +554,6 @@ export function ReportsDashboardV2() {
           state={stateOf(ageing, agePie)}
           insight={owed.insight}
           footnote={`${formatMoney(owed.total)} outstanding in total`}
-          centred
         >
           <ChartContainer
             config={AGEING_CONFIG}
@@ -438,7 +574,6 @@ export function ReportsDashboardV2() {
           state={stateOf(quiet, riskPie)}
           insight={risk.insight}
           footnote={`${formatMoney(riskTotal)} of last year's revenue sits behind these customers`}
-          centred
         >
           <ChartContainer config={RISK_CONFIG} className="mx-auto aspect-square max-h-[260px]">
             <PieChart>
@@ -502,7 +637,6 @@ export function ReportsDashboardV2() {
           query="&groupBy=month"
           state={stateOf(byMonth, season.points)}
           insight={season.insight}
-          centred
         >
           <ChartContainer config={SEASON_CONFIG} className="mx-auto aspect-square max-h-[280px]">
             <RadarChart data={[...season.points]}>
@@ -525,7 +659,6 @@ export function ReportsDashboardV2() {
           report="order-fill-rate"
           state={stateOf(filling, fillRings)}
           insight={served.insight}
-          centred
         >
           <ChartContainer config={{ value: { label: 'Filled' } }} className="mx-auto aspect-square max-h-[280px]">
             <RadialBarChart data={fillRings} innerRadius={30} outerRadius={130} startAngle={90} endAngle={-270}>
@@ -539,14 +672,18 @@ export function ReportsDashboardV2() {
 
         <ChartCard
           title="How often against how much"
-          description="Scatter. Every customer placed by invoice count and total value"
+          description="Scatter with a trend line. Every customer against what they would be worth at the average bill"
           report="sales-analysis"
           query="&groupBy=party"
           state={stateOf(byParty, scatter.points)}
           insight={scatter.insight}
         >
           <ChartContainer config={MIX_CONFIG}>
-            <ScatterChart accessibilityLayer margin={{ top: 20, left: 4, right: 16, bottom: 12 }}>
+            <ComposedChart
+              accessibilityLayer
+              data={[...scatter.points]}
+              margin={{ top: 20, left: 4, right: 16, bottom: 12 }}
+            >
               <CartesianGrid />
               <XAxis
                 type="number"
@@ -562,13 +699,25 @@ export function ReportsDashboardV2() {
                 name="Value"
                 tickLine={false}
                 axisLine={false}
-                width={52}
+                width={56}
                 tickFormatter={MONEY}
               />
-              <ZAxis type="category" dataKey="label" name="Customer" />
-              <ChartTooltip cursor={{ strokeDasharray: '3 3' }} content={<ChartTooltipContent hideLabel />} />
-              <Scatter data={[...scatter.points]} fill="var(--color-value)" />
-            </ScatterChart>
+              <ChartTooltip cursor={{ strokeDasharray: '3 3' }} content={<ChartTooltipContent />} />
+              <ChartLegend content={<ChartLegendContent />} />
+              {/* The line is what makes the dots mean something: it is what a
+                  customer would be worth at the book's average bill, so above
+                  it is bigger bills and below it is more of them. */}
+              <Line
+                dataKey="trend"
+                type="linear"
+                stroke="var(--color-trend)"
+                strokeWidth={2}
+                strokeDasharray="4 4"
+                dot={false}
+                activeDot={false}
+              />
+              <Scatter dataKey="value" fill="var(--color-value)" />
+            </ComposedChart>
           </ChartContainer>
         </ChartCard>
 
@@ -580,13 +729,20 @@ export function ReportsDashboardV2() {
           insight={slippage.insight}
         >
           <ChartContainer config={SLIPPAGE_CONFIG}>
-            <BarChart accessibilityLayer data={[...slippage.points]} layout="vertical" margin={{ right: 48 }}>
+            <BarChart accessibilityLayer data={[...slippage.points]} layout="vertical" margin={{ right: 72, left: 4 }}>
               <CartesianGrid horizontal={false} />
               <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} hide />
               <XAxis dataKey="value" type="number" hide />
               <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_THIN}>
-                <LabelList dataKey="label" position="insideLeft" offset={8} className="fill-background" fontSize={11} />
+              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_LABELLED}>
+                <LabelList
+                  dataKey="label"
+                  position="insideLeft"
+                  offset={8}
+                  className="fill-background"
+                  fontSize={11}
+                  formatter={CLIP}
+                />
                 <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={11} formatter={COUNT} />
               </Bar>
             </BarChart>
@@ -646,13 +802,20 @@ export function ReportsDashboardV2() {
           insight={exposure.insight}
         >
           <ChartContainer config={HEADROOM_CONFIG}>
-            <BarChart accessibilityLayer data={[...exposure.points]} layout="vertical" margin={{ right: 48 }}>
+            <BarChart accessibilityLayer data={[...exposure.points]} layout="vertical" margin={{ right: 72, left: 4 }}>
               <CartesianGrid horizontal={false} />
               <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} hide />
               <XAxis dataKey="value" type="number" hide />
               <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_THIN}>
-                <LabelList dataKey="label" position="insideLeft" offset={8} className="fill-background" fontSize={11} />
+              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_LABELLED}>
+                <LabelList
+                  dataKey="label"
+                  position="insideLeft"
+                  offset={8}
+                  className="fill-background"
+                  fontSize={11}
+                  formatter={CLIP}
+                />
                 <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={11} formatter={PERCENT} />
               </Bar>
             </BarChart>

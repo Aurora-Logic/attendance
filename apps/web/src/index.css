@@ -361,30 +361,31 @@
     --border: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
     --input: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
     --ring: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
-    /* The chart ramp is built from the accent, but it is five colours, not one
-       hue five times: a dashboard where every series is the same blue makes
-       two lines impossible to tell apart without reading the legend twice.
-       Slot 1 is the accent itself and the rest are turns around the wheel from
-       it, so the set still belongs to the workspace's colour.
+    /* The chart ramp is the chosen accent in five shades -- one hue, stepped
+       from its deepest to its lightest, and nothing else. It briefly rotated
+       hues to make five distinguishable colours, which meant a crimson
+       workspace drew green and teal slices; a shade of the colour you picked
+       is the colour you picked, and a hue 95 degrees from it is not.
+
+       Slot 1 is the strongest and each step after it is lighter, so a
+       single-series chart reaching for --chart-1 gets the full-strength
+       accent rather than a tint.
 
        Chroma is clamped rather than taken raw -- slate's accent is 0.044 and
        five steps of that are five grays, under the 0.10 floor at which a hue
-       stops reading as a hue.
+       stops reading as a hue -- and it eases off toward the light end, which
+       is how a tint behaves rather than a washed-out full-chroma colour.
 
-       Checked, not eyeballed: all eighteen accent presets in both modes
-       against the data-viz validator, 173 of 180 checks pass. The seven that
-       do not are teal and lime accents, where two adjacent slots land on
-       green against red and protanopia collapses the pair. That is legal only
-       with secondary encoding, which every chart here has -- a direct value
-       label on each mark and a legend naming each series -- and it is the
-       price of five distinguishable colours instead of one hue stepped in
-       lightness, which passed everything and looked like one colour. */
-    --chart-c: clamp(0.18, var(--accent-c), 0.24);
-    --chart-1: oklch(0.48 var(--chart-c) var(--accent-h));
-    --chart-2: oklch(0.68 calc(var(--chart-c) * 0.92) calc(var(--accent-h) + 205));
-    --chart-3: oklch(0.54 var(--chart-c) calc(var(--accent-h) + 95));
-    --chart-4: oklch(0.74 calc(var(--chart-c) * 0.88) calc(var(--accent-h) + 250));
-    --chart-5: oklch(0.60 calc(var(--chart-c) * 0.96) calc(var(--accent-h) + 45));
+       Checked, not eyeballed: all eighteen presets in both modes against the
+       data-viz validator's ordinal checks -- monotone lightness, a visible
+       gap between neighbours, chroma floor, and a lightest step that still
+       clears the surface. 180 of 180 pass. */
+    --chart-c: clamp(0.14, var(--accent-c), 0.23);
+    --chart-1: oklch(0.44 var(--chart-c) var(--accent-h));
+    --chart-2: oklch(0.51 calc(var(--chart-c) * 0.98) var(--accent-h));
+    --chart-3: oklch(0.58 calc(var(--chart-c) * 0.92) var(--accent-h));
+    --chart-4: oklch(0.65 calc(var(--chart-c) * 0.84) var(--accent-h));
+    --chart-5: oklch(0.72 calc(var(--chart-c) * 0.74) var(--accent-h));
     /* base-lyra is a square style: its components use rounded-none 63 times and
        never reference this token. It still reaches the Sonner toast, which sets
        --border-radius from it, so leaving it at 0.625rem left the toast as the
@@ -451,14 +452,14 @@
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
-    /* Dark is chosen, not flipped: the same five turns of the wheel, at the
-       lightnesses that keep a mark a mark on a dark ground rather than the
-       light ramp inverted. */
-    --chart-1: oklch(0.56 var(--chart-c) var(--accent-h));
-    --chart-2: oklch(0.66 calc(var(--chart-c) * 0.92) calc(var(--accent-h) + 205));
-    --chart-3: oklch(0.5 var(--chart-c) calc(var(--accent-h) + 95));
-    --chart-4: oklch(0.63 calc(var(--chart-c) * 0.88) calc(var(--accent-h) + 250));
-    --chart-5: oklch(0.59 calc(var(--chart-c) * 0.96) calc(var(--accent-h) + 45));
+    /* Dark is chosen, not flipped: the same hue, but the shades climb away
+       from the surface instead of down into it, and they sit inside the
+       tighter band a dark ground allows. */
+    --chart-1: oklch(0.55 var(--chart-c) var(--accent-h));
+    --chart-2: oklch(0.62 calc(var(--chart-c) * 0.94) var(--accent-h));
+    --chart-3: oklch(0.69 calc(var(--chart-c) * 0.86) var(--accent-h));
+    --chart-4: oklch(0.76 calc(var(--chart-c) * 0.74) var(--accent-h));
+    --chart-5: oklch(0.83 calc(var(--chart-c) * 0.6) var(--accent-h));
     --sidebar: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
     --sidebar-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
     --sidebar-primary: oklch(0.585 calc(var(--accent-c) * 0.97) var(--accent-h));
