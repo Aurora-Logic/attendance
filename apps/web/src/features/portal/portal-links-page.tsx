@@ -6,6 +6,7 @@ import { StatusBadge } from '@/components/shared/status-badge';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { SearchField } from '@/components/shared/search-field';
 
 import { Button } from '@/components/ui/button';
@@ -49,7 +50,10 @@ export function PortalLinksPage() {
   const [partyId, setPartyId] = useState<string | null>(null);
   const [issued, setIssued] = useState<{ url: string; partyName: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [reason, setReason] = useState('');
+  // The reason is asked for the one link being withdrawn, in a dialog, rather
+  // than a shared field in the toolbar — a reason with no link it belongs to
+  // read as a filter, and left the search stranded beside it.
+  const [withdrawing, setWithdrawing] = useState<PortalKeyView | null>(null);
   const [q, setQ] = useState('');
 
   if (!canSee) {
@@ -95,21 +99,8 @@ export function PortalLinksPage() {
           <Button
             variant="outline"
             size="sm"
-            disabled={revoke.isPending || reason.trim().length < 3}
             onClick={() => {
-              revoke.mutate(
-                { id: row.id, reason: reason.trim() },
-                {
-                  onSuccess: () => {
-                    setReason('');
-                    toast.add({ type: 'success', title: `${row.partyName}'s link withdrawn`, description: 'It stopped working at once.' });
-                  },
-                  onError: (error) => {
-                    const copy = actionErrorCopy(error, 'Withdrawing the link');
-                    toast.add({ type: 'error', title: copy.title, description: copy.description });
-                  },
-                },
-              );
+              setWithdrawing(row);
             }}
           >
             <ProhibitIcon data-icon="inline-start" />
@@ -191,22 +182,8 @@ export function PortalLinksPage() {
         </Field>
       )}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="sm:max-w-sm">
         <SearchField id="portal-search" label="Search customers" placeholder="Customer name" value={q} onValueChange={setQ} />
-        {canManage ? (
-          <Field className="sm:w-72">
-            <FieldLabel htmlFor="portal-withdraw-reason">Why withdraw</FieldLabel>
-            <Input
-              id="portal-withdraw-reason"
-              placeholder="The buyer left the company"
-              value={reason}
-              onChange={(event) => {
-                setReason(event.target.value);
-              }}
-            />
-            <FieldDescription>Needed before a link can be withdrawn; it is kept on the record.</FieldDescription>
-          </Field>
-        ) : null}
       </div>
 
       {keys.isError ? (
@@ -243,6 +220,40 @@ export function PortalLinksPage() {
           mobileSupporting={(row) => `Until ${formatDate(row.expiresAt.slice(0, 10))} · ${row.lastUsedAt === null ? 'never opened' : `opened ${String(row.viewCount)} times`}`}
         />
       )}
+
+      <ReasonDialog
+        open={withdrawing !== null}
+        onOpenChange={(open) => {
+          if (!open) setWithdrawing(null);
+        }}
+        title="Withdraw this link"
+        description={withdrawing === null ? '' : `${withdrawing.partyName}'s link stops working the moment you withdraw it.`}
+        prompt="Why withdraw it?"
+        hint="Kept on the record."
+        confirmLabel="Withdraw link"
+        pendingLabel="Withdrawing…"
+        confirmIcon={<ProhibitIcon data-icon="inline-start" />}
+        destructive
+        pending={revoke.isPending}
+        error={revoke.error}
+        onConfirm={(reason) => {
+          if (withdrawing === null) return;
+          const row = withdrawing;
+          revoke.mutate(
+            { id: row.id, reason },
+            {
+              onSuccess: () => {
+                setWithdrawing(null);
+                toast.add({ type: 'success', title: `${row.partyName}'s link withdrawn`, description: 'It stopped working at once.' });
+              },
+              onError: (error) => {
+                const copy = actionErrorCopy(error, 'Withdrawing the link');
+                toast.add({ type: 'error', title: copy.title, description: copy.description });
+              },
+            },
+          );
+        }}
+      />
     </>
   );
 }
