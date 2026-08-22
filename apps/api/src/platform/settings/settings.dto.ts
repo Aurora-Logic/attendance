@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createZodDto } from '../common/zod-validation.pipe.js';
 import { attendancePolicySchema, photoPolicyObject,
   securityPolicySchema,
+  appearancePolicySchema,
 } from './settings.catalogue.js';
 
 /**
@@ -66,6 +67,7 @@ export const updateSettingsSchema = z
     attendance: attendancePolicySchema.partial(),
     photo: photoPolicyObject.partial(),
     security: securityPolicySchema.partial(),
+    appearance: appearancePolicySchema.partial(),
   })
   .partial()
   .refine(
@@ -73,7 +75,8 @@ export const updateSettingsSchema = z
       value.organisation !== undefined ||
       value.attendance !== undefined ||
       value.photo !== undefined ||
-      value.security !== undefined,
+      value.security !== undefined ||
+      value.appearance !== undefined,
     // An empty body would otherwise succeed, write nothing, and leave an audit
     // row claiming a settings change with an empty diff.
     { message: 'Send at least one settings group to change.' },

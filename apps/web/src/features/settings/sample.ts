@@ -36,6 +36,7 @@ export function sampleSettings(): OrgSettings {
     },
     photo: { retentionMonths: 12, minBytes: 80 * KB, maxBytes: 150 * KB },
     security: { mfaPolicy: 'admin_accounts' },
+    appearance: { accentHue: 277, accentChroma: 0.24, base: 'stone', density: 'comfortable' },
     email: {
       transport: 'log',
       host: 'localhost',
@@ -59,6 +60,7 @@ export function sampleSettings(): OrgSettings {
         maxBytes: 'Punch photo pipeline',
       },
       security: { mfaPolicy: 'Sign-in' },
+      appearance: { accentHue: 'Shell', accentChroma: 'Shell', base: 'Shell', density: 'Shell' },
     },
     unreadableKeys: [],
   };

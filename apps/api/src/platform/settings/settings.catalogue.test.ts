@@ -11,6 +11,9 @@ import {
   SECURITY_SETTINGS,
   DEFAULT_SECURITY_POLICY,
   securityPolicySchema,
+  APPEARANCE_SETTINGS,
+  DEFAULT_APPEARANCE_POLICY,
+  appearancePolicySchema,
   WRITABLE_SETTING_KEYS,
   attendancePolicySchema,
   photoPolicySchema,
@@ -52,6 +55,8 @@ describe('the catalogue and its schemas describe the same fields', () => {
     expect(Object.keys(PHOTO_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_PHOTO_POLICY).sort());
     expect(Object.keys(SECURITY_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_SECURITY_POLICY).sort());
     expect(securityPolicySchema.safeParse(DEFAULT_SECURITY_POLICY).success).toBe(true);
+    expect(Object.keys(APPEARANCE_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_APPEARANCE_POLICY).sort());
+    expect(appearancePolicySchema.safeParse(DEFAULT_APPEARANCE_POLICY).success).toBe(true);
   });
 });
 
@@ -74,7 +79,7 @@ describe('defaults', () => {
 });
 
 describe('keys', () => {
-  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS)];
+  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS)];
 
   it('are unique', () => {
     const keys = all.map((descriptor) => descriptor.key);

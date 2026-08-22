@@ -24,6 +24,10 @@ import {
   SECURITY_SETTINGS,
   securityPolicySchema,
   type SecurityPolicy,
+  APPEARANCE_SETTINGS,
+  DEFAULT_APPEARANCE_POLICY,
+  appearancePolicySchema,
+  type AppearancePolicy,
 } from './settings.catalogue.js';
 import type { UpdateSettingsInput } from './settings.dto.js';
 import { SettingsRepository, type OrgProfilePatch, type OrgProfileRow } from './settings.repository.js';
@@ -55,6 +59,8 @@ export interface OrgSettingsView {
   readonly photo: PhotoPolicy;
   /** REQ-B-09: who must sign in with an authenticator. */
   readonly security: SecurityPolicy;
+  /** The workspace's accent, base and density. */
+  readonly appearance: AppearancePolicy;
   readonly email: EmailSettingsView;
   /**
    * What reads each policy field today, or null when nothing does. The screen
@@ -64,6 +70,7 @@ export interface OrgSettingsView {
     readonly attendance: Readonly<Record<string, SettingConsumer>>;
     readonly photo: Readonly<Record<string, SettingConsumer>>;
     readonly security: Readonly<Record<string, SettingConsumer>>;
+    readonly appearance: Readonly<Record<string, SettingConsumer>>;
   };
   /**
    * Stored rows that no longer satisfy their schema. The screen shows the
@@ -134,10 +141,16 @@ export class SettingsService {
     const profile = await this.requireProfile(this.repository(principal));
     const link = await this.signLogo(principal, profile.logoKey);
 
+    // The accent and base ride with the logo: every signed-in client reads
+    // this, and the shell colours itself from it before any screen mounts.
+    const rows = await this.repository(principal).readValues();
+    const appearance = resolveGroup(appearancePolicySchema, APPEARANCE_SETTINGS, DEFAULT_APPEARANCE_POLICY, rows);
+
     return {
       name: profile.name,
       logoUrl: link?.url ?? null,
       logoUrlExpiresInSeconds: link?.expiresInSeconds ?? null,
+      appearance: appearance.value,
     };
   }
 
@@ -308,19 +321,22 @@ export class SettingsService {
     );
     const photo = resolveGroup(photoPolicySchema, PHOTO_SETTINGS, DEFAULT_PHOTO_POLICY, rows);
     const security = resolveGroup(securityPolicySchema, SECURITY_SETTINGS, DEFAULT_SECURITY_POLICY, rows);
+    const appearance = resolveGroup(appearancePolicySchema, APPEARANCE_SETTINGS, DEFAULT_APPEARANCE_POLICY, rows);
 
     return {
       organisation,
       attendance: attendance.value,
       photo: photo.value,
       security: security.value,
+      appearance: appearance.value,
       email: emailView(),
       enforcement: {
         attendance: enforcementOf(ATTENDANCE_SETTINGS),
         photo: enforcementOf(PHOTO_SETTINGS),
         security: enforcementOf(SECURITY_SETTINGS),
+        appearance: enforcementOf(APPEARANCE_SETTINGS),
       },
-      unreadableKeys: [...attendance.unreadable, ...photo.unreadable, ...security.unreadable],
+      unreadableKeys: [...attendance.unreadable, ...photo.unreadable, ...security.unreadable, ...appearance.unreadable],
     };
   }
 
@@ -381,6 +397,18 @@ export class SettingsService {
       for (const [field, descriptor] of Object.entries(SECURITY_SETTINGS)) {
         if (!(field in input.security)) continue;
         values.set(descriptor.key, merged[field as keyof SecurityPolicy]);
+      }
+    }
+
+    if (input.appearance !== undefined) {
+      const merged = parseMerged(
+        appearancePolicySchema,
+        { ...current.appearance, ...input.appearance },
+        'appearance',
+      );
+      for (const [field, descriptor] of Object.entries(APPEARANCE_SETTINGS)) {
+        if (!(field in input.appearance)) continue;
+        values.set(descriptor.key, merged[field as keyof AppearancePolicy]);
       }
     }
 

@@ -9,8 +9,7 @@ import {
   FileTextIcon,
   MoonIcon,
   PaperPlaneTiltIcon,
-  WarningCircleIcon,
-} from '@phosphor-icons/react';
+  WarningCircleIcon, PaintBrushIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
@@ -51,6 +50,7 @@ import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS } fr
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
 import { OfficeLocationPanel } from './office-location-panel';
+import { AppearancePanel } from './appearance-panel';
 import { PolicyChoiceField, PolicyDurationField, PolicyNumberField, PolicyToggleField } from './policy-fields';
 import {
   DATE_FORMATS,
@@ -64,7 +64,7 @@ import {
   type OrgProfile,
   type OrgSettings,
   type PhotoPolicy,
-  type SettingsPatch, type SecurityPolicy } from './types';
+  type SettingsPatch, type SecurityPolicy, type Appearance } from './types';
 import { useAccessWindowDraft, useSaveAccessWindow } from './use-access-window';
 import { useOfficeGeofence, useSaveGeofence } from './use-office-location';
 import { useSaveSettings, useSettings, useTestEmail } from './use-settings';
@@ -94,6 +94,7 @@ interface Draft {
   attendance: AttendancePolicy;
   photo: PhotoPolicy;
   security: SecurityPolicy;
+  appearance: Appearance;
 }
 
 function draftOf(settings: OrgSettings): Draft {
@@ -102,6 +103,7 @@ function draftOf(settings: OrgSettings): Draft {
     attendance: settings.attendance,
     photo: settings.photo,
     security: settings.security,
+    appearance: settings.appearance,
   };
 }
 
@@ -131,6 +133,7 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
   if (!sameGroup(draft.attendance, saved.attendance)) patch.attendance = draft.attendance;
   if (!sameGroup(draft.photo, saved.photo)) patch.photo = draft.photo;
   if (!sameGroup(draft.security, saved.security)) patch.security = draft.security;
+  if (!sameGroup(draft.appearance, saved.appearance)) patch.appearance = draft.appearance;
 
   return patch;
 }
@@ -279,6 +282,9 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
   function patchAttendance(next: Partial<AttendancePolicy>) {
     setDraft((current) => ({ ...current, attendance: { ...current.attendance, ...next } }));
   }
+  function patchAppearance(next: Partial<Appearance>) {
+    setDraft((current) => (current === null ? current : { ...current, appearance: { ...current.appearance, ...next } }));
+  }
   function patchSecurity(next: Partial<SecurityPolicy>) {
     setDraft((current) => (current === null ? current : { ...current, security: { ...current.security, ...next } }));
   }
@@ -374,6 +380,10 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           <TabsTrigger value="organisation" className="px-3">
             <BuildingsIcon data-icon="inline-start" />
             Organisation
+          </TabsTrigger>
+          <TabsTrigger value="appearance" className="px-3">
+            <PaintBrushIcon data-icon="inline-start" />
+            Appearance
           </TabsTrigger>
           <TabsTrigger value="office" className="px-3">
             <MapPinAreaIcon data-icon="inline-start" />
@@ -486,6 +496,15 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
               />
             </FieldGroup>
           </div>
+        </TabsContent>
+
+        <TabsContent value="appearance">
+          <AppearancePanel
+            value={draft.appearance}
+            saved={saved.appearance}
+            enforcedBy={saved.enforcement.appearance.accentHue}
+            onChange={patchAppearance}
+          />
         </TabsContent>
 
         <TabsContent value="office">

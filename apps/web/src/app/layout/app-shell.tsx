@@ -21,6 +21,7 @@ import { HeaderTooltip } from '@/components/shared/header-tooltip';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
 import { useTheme } from '@/components/theme-provider';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AppearanceEffect } from '@/components/shared/appearance-effect';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -545,6 +546,7 @@ export function AppShell() {
 
   return (
     <SidebarProvider>
+      <AppearanceEffect />
       {/* First focusable element in the document, and it has to be: it used to
           sit inside SidebarInset, which renders after the sidebar, so the first
           Tab landed on the organisation brand and a keyboard user still had to

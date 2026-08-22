@@ -97,6 +97,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-28 | Terms, privacy, consent | The product line under sign-in is gone; a consent line under Sign in and Set password links the Terms and Conditions and the Privacy Policy; both are public pages at `/legal/terms` and `/legal/privacy`, readable before sign-in | Done; wording is a draft for counsel (OPEN-QUESTIONS) |
 | B-29 | Two-step sign-in (REQ-B-09) | Authenticator app after the password: enrolment with QR and first code, ten recovery codes, thirty-day remembered browsers, five-minute challenges spent by five wrong codes, an Admin reset, a policy setting (Admin and Accounts by default) that makes a named role enrol before any screen | Done |
 | B-30 | Consent line, legal pages, identity tints | The consent sentence reads as one quiet line with hairline links; the legal pages are a composed reading layout (contents rail, 65ch measure, numbered sections, first-paint rise); eight `--tint-*` tokens in both modes replace raw Tailwind palettes on people, deal stages and task columns | Done (1 of 4 in the appearance brief) |
+| B-31 | Appearance: accent, base, density per workspace | Four variables the theme derives itself from; eight accent presets plus any hue, three bases, two densities; applied by the shell from the branding read; a Settings tab whose preview is the page itself | Done (2 of 4 in the appearance brief) |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -283,3 +284,15 @@ Not done, and said so in OPEN-QUESTIONS: a used TOTP code is accepted again insi
 | People avatars, deal stages and task columns coloured with raw Tailwind palettes (`bg-sky-100 text-sky-700 dark:...`), each file its own list | Eight `--tint-1..8` tokens in light and dark, exposed as `bg-tint-n/15 text-tint-n`; won/done on `--success`, lost/overdue on `--destructive` | One palette the theme owns, so the coming accent picker and a rebrand leave them coherent; dark mode is a token, not a per-class afterthought (dataviz: categorical in fixed order) |
 
 Left as they are, on purpose: the document design rail's paper accent swatches (the paper's own printed palette, not the app's), and the QR square's white (a camera reads it). Typecheck could not be run on the whole web package at commit time: the other session had uncommitted edits in the chart files that fail it; this increment's files pass eslint, the 535 web tests and a direct Vite build.
+
+### B-31 (appearance brief, part 2: the colour picker), 22 Aug 2026
+
+Owner's picks: presets plus a custom hue, per workspace, with density, number format, session length and retention as the globals to add (the last three are part 4).
+
+| Before | After | Why |
+| --- | --- | --- |
+| Fifty-odd literal oklch values across light and dark; the accent was indigo in five places | `--accent-h`, `--accent-c`, `--base-h`, `--base-k` on the root; every primary derives from the first two at the lightness the theme was measured at, every neutral from the last two; `[data-base]` and `[data-density]` blocks | A custom accent keeps the contrast the shipped one had; a base reads as one surface; nothing else in the product names a hue |
+| No way to change it | `appearance.*` settings (catalogue, view, patch), carried on the branding read every client already polls; `AppearanceEffect` in the shell sets the four variables and two attributes on `<html>` -- variables, not styles | The shell colours itself before any screen mounts; the one JavaScript-set style in the product sets tokens, not colours |
+| -- | Settings -> Appearance: eight accent swatches in fixed order (static classes), a hue slider (shadcn Slider, installed through the registry) for any other, three base swatches, two densities, As shipped; the page is the preview, the saved appearance returns on leaving | A hex field can choose a colour the text cannot sit on; a hue at fixed lightness cannot |
+
+Density scales Tailwind's `--spacing` by a fifth; type keeps its size and the 44px touch floor is in px. Tests: catalogue agreement for the group, the settings endpoint suite (55), `applyAppearance` in jsdom, 540 web tests. Browser gate not run (owner instruction); verified through the emitted CSS. The whole-package typecheck is blocked by the other session's uncommitted chart edits; this increment's files typecheck.

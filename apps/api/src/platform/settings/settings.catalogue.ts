@@ -1,4 +1,4 @@
-import { DEFAULT_MFA_POLICY, DEVICE_BINDING_MODES, MFA_POLICIES } from '@vyuha/shared';
+import { DEFAULT_APPEARANCE, DEFAULT_MFA_POLICY, DEVICE_BINDING_MODES, MFA_POLICIES, appearanceSchema, type Appearance } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -211,11 +211,29 @@ export const securityPolicySchema = z.object({
 export type SecurityPolicy = z.infer<typeof securityPolicySchema>;
 export const DEFAULT_SECURITY_POLICY: SecurityPolicy = { mfaPolicy: DEFAULT_MFA_POLICY };
 
+/**
+ * Owner, 22 Aug 2026: the accent and the base are the workspace's, light
+ * and dark each person's. Read by every signed-in client through the
+ * branding endpoint, which is how the shell colours itself before the
+ * settings screen is ever opened.
+ */
+export const APPEARANCE_SETTINGS = {
+  accentHue: { key: 'appearance.accent_hue', help: 'The accent hue, 0-360, at the theme\'s fixed lightness.', enforcedBy: 'Shell' },
+  accentChroma: { key: 'appearance.accent_chroma', help: 'How saturated the accent is.', enforcedBy: 'Shell' },
+  base: { key: 'appearance.base', help: 'The temperature of the neutrals: stone, cool or warm.', enforcedBy: 'Shell' },
+  density: { key: 'appearance.density', help: 'Comfortable or compact spacing; type size does not change.', enforcedBy: 'Shell' },
+} as const satisfies Record<string, SettingDescriptor>;
+
+export const appearancePolicySchema = appearanceSchema;
+export type AppearancePolicy = Appearance;
+export const DEFAULT_APPEARANCE_POLICY: AppearancePolicy = DEFAULT_APPEARANCE;
+
 /** Every key this module is allowed to write, in one flat set. */
 export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(ATTENDANCE_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(PHOTO_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(SECURITY_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(APPEARANCE_SETTINGS).map((descriptor) => descriptor.key),
 ]);
 
 /**

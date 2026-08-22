@@ -249,21 +249,49 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * Workspace appearance (owner, 22 Aug 2026). The accent is one hue and one
+ * chroma at the lightness the theme was measured at, so a custom accent
+ * keeps the contrast the shipped indigo had; every neutral shares one hue
+ * and a chroma multiplier, so the base reads stone, cool or warm as one
+ * surface. The shell sets these four from the organisation's setting
+ * (appearance-effect.tsx); nothing else in the product names a hue.
+ */
+:root {
+    --accent-h: 277;
+    --accent-c: 0.24;
+    --base-h: 49;
+    --base-k: 1;
+}
+[data-base='cool'] {
+    --base-h: 264;
+    --base-k: 2.5;
+}
+[data-base='warm'] {
+    --base-h: 70;
+    --base-k: 2.5;
+}
+/* Density scales every spacing utility through Tailwind's --spacing; type
+   stays its size, and the 44px touch floor is in px and stays too. */
+[data-density='compact'] {
+    --spacing: 0.2rem;
+}
+
 :root {
     --background: oklch(1 0 0);
-    --foreground: oklch(0.147 0.004 49.25);
+    --foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.147 0.004 49.25);
+    --card-foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.147 0.004 49.25);
-    --primary: oklch(0.457 0.24 277.023);
-    --primary-foreground: oklch(0.962 0.018 272.314);
-    --secondary: oklch(0.967 0.001 286.375);
-    --secondary-foreground: oklch(0.21 0.006 285.885);
-    --muted: oklch(0.97 0.001 106.424);
-    --muted-foreground: oklch(0.553 0.013 58.071);
-    --accent: oklch(0.97 0.001 106.424);
-    --accent-foreground: oklch(0.216 0.006 56.043);
+    --popover-foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
+    --primary: oklch(0.457 var(--accent-c) var(--accent-h));
+    --primary-foreground: oklch(0.962 0.018 var(--accent-h));
+    --secondary: oklch(0.967 calc(0.001 * var(--base-k)) var(--base-h));
+    --secondary-foreground: oklch(0.21 calc(0.006 * var(--base-k)) var(--base-h));
+    --muted: oklch(0.97 calc(0.001 * var(--base-k)) var(--base-h));
+    --muted-foreground: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
+    --accent: oklch(0.97 calc(0.001 * var(--base-k)) var(--base-h));
+    --accent-foreground: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
     --destructive: oklch(0.577 0.245 27.325);
     /* The same red as a *fill* rather than as ink, for the one place the PRD
        names a colour: REQ-K-05's unread badge is white text on a red dot.
@@ -306,9 +334,9 @@
     --tint-6: oklch(0.5 0.17 275);
     --tint-7: oklch(0.5 0.14 155);
     --tint-8: oklch(0.52 0.18 15);
-    --border: oklch(0.923 0.003 48.717);
-    --input: oklch(0.923 0.003 48.717);
-    --ring: oklch(0.709 0.01 56.259);
+    --border: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
+    --input: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
+    --ring: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
     --chart-1: oklch(0.81 0.117 11.638);
     --chart-2: oklch(0.645 0.246 16.439);
     --chart-3: oklch(0.586 0.253 17.585);
@@ -319,31 +347,31 @@
        --border-radius from it, so leaving it at 0.625rem left the toast as the
        only rounded surface in the app. */
     --radius: 0;
-    --sidebar: oklch(0.985 0.001 106.423);
-    --sidebar-foreground: oklch(0.147 0.004 49.25);
-    --sidebar-primary: oklch(0.511 0.262 276.966);
-    --sidebar-primary-foreground: oklch(0.962 0.018 272.314);
-    --sidebar-accent: oklch(0.97 0.001 106.424);
-    --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
-    --sidebar-border: oklch(0.923 0.003 48.717);
-    --sidebar-ring: oklch(0.709 0.01 56.259);
+    --sidebar: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
+    --sidebar-foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
+    --sidebar-primary: oklch(0.511 calc(var(--accent-c) * 1.09) var(--accent-h));
+    --sidebar-primary-foreground: oklch(0.962 0.018 var(--accent-h));
+    --sidebar-accent: oklch(0.97 calc(0.001 * var(--base-k)) var(--base-h));
+    --sidebar-accent-foreground: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
+    --sidebar-border: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
+    --sidebar-ring: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
 }
 
 .dark {
     --background: oklch(0.147 0.004 49.25);
-    --foreground: oklch(0.985 0.001 106.423);
+    --foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
     --card: oklch(0.216 0.006 56.043);
-    --card-foreground: oklch(0.985 0.001 106.423);
+    --card-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
     --popover: oklch(0.216 0.006 56.043);
-    --popover-foreground: oklch(0.985 0.001 106.423);
-    --primary: oklch(0.398 0.195 277.366);
-    --primary-foreground: oklch(0.962 0.018 272.314);
-    --secondary: oklch(0.274 0.006 286.033);
+    --popover-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
+    --primary: oklch(0.398 calc(var(--accent-c) * 0.81) var(--accent-h));
+    --primary-foreground: oklch(0.962 0.018 var(--accent-h));
+    --secondary: oklch(0.274 calc(0.006 * var(--base-k)) var(--base-h));
     --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.268 0.007 34.298);
-    --muted-foreground: oklch(0.709 0.01 56.259);
-    --accent: oklch(0.268 0.007 34.298);
-    --accent-foreground: oklch(0.985 0.001 106.423);
+    --muted: oklch(0.268 calc(0.007 * var(--base-k)) var(--base-h));
+    --muted-foreground: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
+    --accent: oklch(0.268 calc(0.007 * var(--base-k)) var(--base-h));
+    --accent-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
     --destructive: oklch(0.704 0.191 22.216);
     /* Deliberately *not* lifted with --destructive above: see the note in the
        light block. A badge is a filled shape carrying white text, so lifting
@@ -379,20 +407,20 @@
     --tint-8: oklch(0.8 0.14 15);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.553 0.013 58.071);
+    --ring: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
     --chart-1: oklch(0.81 0.117 11.638);
     --chart-2: oklch(0.645 0.246 16.439);
     --chart-3: oklch(0.586 0.253 17.585);
     --chart-4: oklch(0.514 0.222 16.935);
     --chart-5: oklch(0.455 0.188 13.697);
-    --sidebar: oklch(0.216 0.006 56.043);
-    --sidebar-foreground: oklch(0.985 0.001 106.423);
-    --sidebar-primary: oklch(0.585 0.233 277.117);
-    --sidebar-primary-foreground: oklch(0.962 0.018 272.314);
-    --sidebar-accent: oklch(0.268 0.007 34.298);
-    --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
+    --sidebar: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
+    --sidebar-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
+    --sidebar-primary: oklch(0.585 calc(var(--accent-c) * 0.97) var(--accent-h));
+    --sidebar-primary-foreground: oklch(0.962 0.018 var(--accent-h));
+    --sidebar-accent: oklch(0.268 calc(0.007 * var(--base-k)) var(--base-h));
+    --sidebar-accent-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.553 0.013 58.071);
+    --sidebar-ring: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
 }
 
 @layer base {
