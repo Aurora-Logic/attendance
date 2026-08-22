@@ -31,7 +31,7 @@ export interface KanbanLane<T> {
   /** Beyond `items` when the lane was capped. */
   readonly total: number;
   readonly muted?: boolean;
-  /** Colour classes for the header chip ("bg-sky-100 text-sky-700 …"); a quiet grey without. */
+  /** Colour classes for the header chip ("bg-tint-1/15 text-tint-1"); a quiet grey without. */
   readonly accent?: string;
 }
 

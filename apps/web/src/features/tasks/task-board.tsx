@@ -16,15 +16,15 @@ import type { BoardResponse, Task } from './types';
  */
 
 const COLUMN_HUES = [
-  'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
-  'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
-  'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
-  'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300',
-  'bg-pink-100 text-pink-700 dark:bg-pink-500/15 dark:text-pink-300',
-  'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300',
+  'bg-tint-1/15 text-tint-1',
+  'bg-tint-2/15 text-tint-2',
+  'bg-tint-3/15 text-tint-3',
+  'bg-tint-4/15 text-tint-4',
+  'bg-tint-5/15 text-tint-5',
+  'bg-tint-6/15 text-tint-6',
 ] as const;
-const DONE_HUE = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300';
-const PRIORITY_CHIP = 'rounded bg-rose-100 px-1 py-px text-[0.6875rem] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300';
+const DONE_HUE = 'bg-success/15 text-success';
+const PRIORITY_CHIP = 'bg-destructive/10 text-destructive rounded-none px-1 py-px text-[0.6875rem] font-medium';
 export function TaskBoard({
   board,
   onOpen,

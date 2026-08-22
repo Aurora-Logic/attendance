@@ -77,6 +77,9 @@ export function MfaEnrolment({ onDone }: { onDone: () => void }) {
       ) : null}
 
       <div className="flex flex-col items-start gap-4 sm:flex-row">
+        {/* The square is white on purpose, in both themes: a QR is read by a
+            camera, and a dark surface behind it halves the contrast the scan
+            depends on. */}
         {qr === null ? (
           <Skeleton className="size-48 shrink-0" aria-label="Preparing the square to scan" />
         ) : (

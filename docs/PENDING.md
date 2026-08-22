@@ -96,6 +96,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-27 | Login page, presence without a new layout | One `AuthShell` for sign-in and set-password: typographic wordmark, Welcome back hierarchy, product line, a first-paint rise, a submit label that arrives through a blur | Done (owner picked this direction over a split screen) |
 | B-28 | Terms, privacy, consent | The product line under sign-in is gone; a consent line under Sign in and Set password links the Terms and Conditions and the Privacy Policy; both are public pages at `/legal/terms` and `/legal/privacy`, readable before sign-in | Done; wording is a draft for counsel (OPEN-QUESTIONS) |
 | B-29 | Two-step sign-in (REQ-B-09) | Authenticator app after the password: enrolment with QR and first code, ten recovery codes, thirty-day remembered browsers, five-minute challenges spent by five wrong codes, an Admin reset, a policy setting (Admin and Accounts by default) that makes a named role enrol before any screen | Done |
+| B-30 | Consent line, legal pages, identity tints | The consent sentence reads as one quiet line with hairline links; the legal pages are a composed reading layout (contents rail, 65ch measure, numbered sections, first-paint rise); eight `--tint-*` tokens in both modes replace raw Tailwind palettes on people, deal stages and task columns | Done (1 of 4 in the appearance brief) |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -272,3 +273,13 @@ What was built, as one vertical slice on the REQ-B-09 scaffold (`users.totp_secr
 - **Tests**: four endpoint tests over real HTTP (default policy on /me; enrol, challenge, wrong code, right code with trust, replay refused, trusted password-only sign-in, recovery code once, five wrong spends the challenge, Admin reset on the trail; policy as a setting; disable needs a code and a never-enrolled account is told so), the catalogue test, a jsdom test of the code step.
 
 Not done, and said so in OPEN-QUESTIONS: a used TOTP code is accepted again inside its ninety-second window (no last-step column); no SMS or email fallback, by the owner's choice of an authenticator.
+
+### B-30 (owner's appearance brief, part 1: consent, legal, light/dark), 22 Aug 2026
+
+| Before | After | Why |
+| --- | --- | --- |
+| Consent line: foreground links with a thick default underline, "the ... and the ..." | One muted sentence; links in the same ink with a hairline that darkens on hover; balanced wrapping | A link in running text is not a button (apple-design); the sentence is read, not pressed |
+| Legal page: one column of text, no way to find a section | Composed parts (frame, header with eyebrow and date, a numbered contents rail that sticks on a wide screen, the body at a 65-character measure and relaxed leading, the foot) | Reading, not scanning: measure, leading and a map (apple typography; composition-patterns: explicit parts over switches) |
+| People avatars, deal stages and task columns coloured with raw Tailwind palettes (`bg-sky-100 text-sky-700 dark:...`), each file its own list | Eight `--tint-1..8` tokens in light and dark, exposed as `bg-tint-n/15 text-tint-n`; won/done on `--success`, lost/overdue on `--destructive` | One palette the theme owns, so the coming accent picker and a rebrand leave them coherent; dark mode is a token, not a per-class afterthought (dataviz: categorical in fixed order) |
+
+Left as they are, on purpose: the document design rail's paper accent swatches (the paper's own printed palette, not the app's), and the QR square's white (a camera reads it). Typecheck could not be run on the whole web package at commit time: the other session had uncommitted edits in the chart files that fail it; this increment's files pass eslint, the 535 web tests and a direct Vite build.

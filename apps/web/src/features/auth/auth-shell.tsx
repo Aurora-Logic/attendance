@@ -38,17 +38,19 @@ export function AuthShell({ title, lead, children }: { title: string; lead: stri
  */
 export function LegalConsent({ verb }: { verb: string }) {
   return (
-    <p className="text-muted-foreground text-center text-xs">
-      By {verb} you agree to the{' '}
-      <Link to="/legal/terms" className="text-foreground underline underline-offset-4">
-        Terms and Conditions
-      </Link>{' '}
-      and the{' '}
-      <Link to="/legal/privacy" className="text-foreground underline underline-offset-4">
-        Privacy Policy
-      </Link>
-      .
+    <p className="text-muted-foreground text-center text-xs/relaxed text-balance">
+      By {verb} you agree to the <LegalLink to="/legal/terms">Terms and Conditions</LegalLink> and{' '}
+      <LegalLink to="/legal/privacy">Privacy Policy</LegalLink>.
     </p>
+  );
+}
+
+/** A link inside running text: the same ink as the sentence, a hairline that darkens on hover, never a second weight. */
+function LegalLink({ to, children }: { to: string; children: ReactNode }) {
+  return (
+    <Link to={to} className="decoration-muted-foreground/40 hover:text-foreground hover:decoration-foreground underline underline-offset-[3px] transition-colors">
+      {children}
+    </Link>
   );
 }
 

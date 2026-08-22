@@ -48,15 +48,15 @@ const STATUS_LABELS: Record<DealStatusFilter, string> = { open: 'Open', won: 'Wo
  * green, lost always rose. Full literal classes, for Tailwind.
  */
 const STAGE_HUES = [
-  'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
-  'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
-  'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
-  'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300',
-  'bg-pink-100 text-pink-700 dark:bg-pink-500/15 dark:text-pink-300',
-  'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300',
+  'bg-tint-1/15 text-tint-1',
+  'bg-tint-2/15 text-tint-2',
+  'bg-tint-3/15 text-tint-3',
+  'bg-tint-4/15 text-tint-4',
+  'bg-tint-5/15 text-tint-5',
+  'bg-tint-6/15 text-tint-6',
 ] as const;
-const WON_HUE = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300';
-const LOST_HUE = 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300';
+const WON_HUE = 'bg-success/15 text-success';
+const LOST_HUE = 'bg-destructive/10 text-destructive';
 
 /** Won a seal, lost a cross; an open stage a circle filling with its probability. */
 function stageIcon(stage: { isWon: boolean; isLost: boolean; probability: number }, className: string) {

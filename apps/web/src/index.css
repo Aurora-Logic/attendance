@@ -186,6 +186,14 @@
     --font-heading: var(--font-sans);
     --font-sans: 'Inter Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
+    --color-tint-1: var(--tint-1);
+    --color-tint-2: var(--tint-2);
+    --color-tint-3: var(--tint-3);
+    --color-tint-4: var(--tint-4);
+    --color-tint-5: var(--tint-5);
+    --color-tint-6: var(--tint-6);
+    --color-tint-7: var(--tint-7);
+    --color-tint-8: var(--tint-8);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-accent: var(--sidebar-accent);
@@ -286,6 +294,18 @@
     --flag-no-location: oklch(0.58 0.17 40);
     --flag-mock-location: oklch(0.58 0.17 350);
     --flag-clock-skew: oklch(0.58 0.17 220);
+    /* Eight identity tints for things that are many of a kind -- kanban
+       columns, deal stages, the people avatars -- assigned in fixed order
+       and never cycled (dataviz). Ink colours; surfaces take them at /15.
+       They are not the accent: a rebrand moves the accent and leaves these. */
+    --tint-1: oklch(0.5 0.15 235);
+    --tint-2: oklch(0.5 0.15 295);
+    --tint-3: oklch(0.52 0.15 70);
+    --tint-4: oklch(0.5 0.13 180);
+    --tint-5: oklch(0.52 0.17 345);
+    --tint-6: oklch(0.5 0.17 275);
+    --tint-7: oklch(0.5 0.14 155);
+    --tint-8: oklch(0.52 0.18 15);
     --border: oklch(0.923 0.003 48.717);
     --input: oklch(0.923 0.003 48.717);
     --ring: oklch(0.709 0.01 56.259);
@@ -349,6 +369,14 @@
     --flag-no-location: oklch(0.74 0.16 40);
     --flag-mock-location: oklch(0.74 0.16 350);
     --flag-clock-skew: oklch(0.74 0.16 220);
+    --tint-1: oklch(0.8 0.12 235);
+    --tint-2: oklch(0.8 0.12 295);
+    --tint-3: oklch(0.82 0.13 70);
+    --tint-4: oklch(0.8 0.11 180);
+    --tint-5: oklch(0.8 0.13 345);
+    --tint-6: oklch(0.8 0.13 275);
+    --tint-7: oklch(0.8 0.12 155);
+    --tint-8: oklch(0.8 0.14 15);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.553 0.013 58.071);
