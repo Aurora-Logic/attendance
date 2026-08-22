@@ -230,6 +230,16 @@ export const envSchema = z
     JOBS_WORKER_ENABLED: optionalFlag(true),
 
     /**
+     * Opt-in only. When Redis is unreachable at boot, `JobRunner` falls back
+     * to running scheduled and enqueued jobs from Postgres instead of
+     * refusing to start -- the right default for a deployment that has not
+     * installed Redis yet. Set this once Redis is a real, required part of
+     * the deployment, so a misconfigured `REDIS_URL` there is a loud boot
+     * failure again rather than a silent switch to the fallback.
+     */
+    JOBS_REQUIRE_REDIS: optionalFlag(false),
+
+    /**
      * The Redis key namespace BullMQ puts every queue under.
      *
      * `bull` is BullMQ's own default, so leaving this unset changes nothing.
