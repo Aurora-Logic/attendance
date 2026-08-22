@@ -254,6 +254,10 @@ export class ApiHarness {
         loginRateLimitKey(ip),
         loginRateLimitKey(ip, 'agent'),
         loginRateLimitKey(ip, 'webhook'),
+        // 15 REQ-AL-05: the portal's window is fifteen minutes long and
+        // loopback is one address, so a suite run twice within it inherits
+        // the first run's refusals and starts already throttled.
+        loginRateLimitKey(ip, 'portal'),
       ]),
     );
   }
@@ -490,6 +494,10 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM reminder_notices WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM promises_to_pay WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM collector_assignments WHERE org_id = ${this.orgId}`);
+    // 15 Area AL: a portal key holds a party (RESTRICT), and the access log
+    // holds the key, so both go before anything clears the projection.
+    await this.db.execute(sql`DELETE FROM portal_access_log WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM portal_link_keys WHERE org_id = ${this.orgId}`);
     // 15 Area AK: a return holds an employee (RESTRICT), a dispatch and the
     // document lines it came off, so it goes before every one of them.
     await this.db.execute(sql`DELETE FROM sales_return_credit_notes WHERE org_id = ${this.orgId}`);

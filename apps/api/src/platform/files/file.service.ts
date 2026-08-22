@@ -449,6 +449,37 @@ export class FileService {
     return { url, expiresInSeconds: ttlSeconds };
   }
 
+  /**
+   * 15 REQ-AL-08: a short-lived link for a reader who has no principal.
+   *
+   * The customer portal has no user and no permissions, so `signedUrlFor`'s
+   * check cannot apply. Two things stand in its place, and both are here
+   * rather than at the call site so that a second caller cannot forget them:
+   * the file must belong to the named organisation, and its purpose must be
+   * a dispatch photograph. The *ownership* check — that this file hangs off
+   * a dispatch of the reader's own party — belongs to `PortalRepository`,
+   * which is the only thing that knows which party is reading; this method
+   * refuses to be the place that decides it, and the caller passes a file id
+   * it has already proved.
+   *
+   * The link is the standard short expiry. A durable object-storage URL is
+   * never handed out, which is the whole of REQ-AL-08.
+   */
+  async signedUrlForPortal(orgId: string, fileId: string): Promise<SignedFileUrl> {
+    const rows = await this.db.execute<{ storage_key: string; purpose: FilePurpose; expires_at: Date | string | null; purged_at: Date | string | null }>(
+      sql`SELECT storage_key, purpose, expires_at, purged_at FROM files WHERE id = ${fileId} AND org_id = ${orgId} AND deleted_at IS NULL`,
+    );
+    const file = rows.rows[0];
+    if (file === undefined || file.purged_at !== null) throw AppError.notFound('File', fileId);
+    if (file.purpose !== 'DISPATCH_PHOTO') throw AppError.notFound('File', fileId);
+    if (file.expires_at !== null && new Date(file.expires_at).getTime() <= Date.now()) throw AppError.notFound('File', fileId);
+
+    const ttlSeconds = env.S3_SIGNED_URL_TTL_SECONDS;
+    const url = await this.objects.signedUrl(BUCKET_BY_PURPOSE[file.purpose], file.storage_key, ttlSeconds);
+    this.logger.log({ msg: 'Signed URL issued to a portal reader', fileId, purpose: file.purpose, orgId, ttlSeconds });
+    return { url, expiresInSeconds: ttlSeconds };
+  }
+
   // ------------------------------------------------------------- retention
 
   /**

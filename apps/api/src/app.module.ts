@@ -38,6 +38,7 @@ import { SyncModule } from './platform/sync/sync.module.js';
 import { TasksModule } from './platform/tasks/tasks.module.js';
 import { DocumentsModule } from './platform/documents/documents.module.js';
 import { CollectionsModule } from './platform/collections/collections.module.js';
+import { PortalModule } from './platform/portal/portal.module.js';
 import { PricingModule } from './platform/pricing/pricing.module.js';
 import { StorageModule } from './platform/storage/storage.module.js';
 
@@ -92,6 +93,7 @@ import { StorageModule } from './platform/storage/storage.module.js';
     PricingModule,
     // Area AJ: after TasksModule (its party subject registers into that registry) and MastersModule.
     CollectionsModule,
+    PortalModule,
     IntegrationModule,
     HealthModule,
     HelpModule,

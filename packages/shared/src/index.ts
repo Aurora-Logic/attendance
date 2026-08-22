@@ -35,3 +35,4 @@ export * from './pricing.js';
 export * from './duplicates.js';
 export * from './collections.js';
 export * from './returns.js';
+export * from './portal.js';

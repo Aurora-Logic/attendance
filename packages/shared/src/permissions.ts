@@ -106,6 +106,8 @@ export const PERMISSIONS = {
   RETURNS_VIEW: 'returns.view',
   RETURNS_MANAGE: 'returns.manage',
   RETURNS_DISPOSITION: 'returns.disposition',
+  // 15 REQ-AL-03/AL-07: issuing a customer's portal link, and withdrawing it.
+  PORTAL_MANAGE: 'portal.manage',
 
   /** 08 §2.2 / 13. Purchase and Accounts roles arrive with their phases; Admin holds these meanwhile. */
   PURCHASE_DOCUMENT_VIEW: 'purchase.document.view',
@@ -171,6 +173,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'returns.view': 'See sales returns and what they are waiting on',
   'returns.manage': 'Receive a return, link its credit note, raise a replacement',
   'returns.disposition': 'Decide a returned line is scrap rather than restock',
+  'portal.manage': 'Issue a customer portal link and withdraw one',
   'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
   'purchase.document.create': 'Raise purchase orders and record receipts',
   'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
@@ -333,6 +336,7 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.RETURNS_VIEW,
   PERMISSIONS.RETURNS_MANAGE,
   PERMISSIONS.RETURNS_DISPOSITION,
+  PERMISSIONS.PORTAL_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {
