@@ -1,8 +1,7 @@
-import type { DocumentDesign, DocumentProfile } from '@vyuha/shared';
+import { code128, type DocumentDesign, type DocumentProfile } from '@vyuha/shared';
 
 import { cn } from '@/lib/utils';
 
-import { code128 } from './barcode';
 import type { PaperModel } from './paper';
 
 /**

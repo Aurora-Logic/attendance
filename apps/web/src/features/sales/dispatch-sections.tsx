@@ -65,6 +65,31 @@ export function DispatchNotifications({ dispatch }: { dispatch: Dispatch }) {
             <Textarea readOnly rows={6} aria-label={`${notification.channel} message`} className="font-mono" value={notification.composedText} />
             <div className="flex flex-wrap items-center justify-end gap-2">
               <CopyButton text={notification.composedText} label={`${notification.channel} message`} />
+              {/* D-47: click-to-send. Opens the conversation with the message typed;
+                  the person taps send there, and coming back marks it sent here. */}
+              {notification.channel === 'whatsapp' && notification.status === 'pending' && notification.recipient && canAct ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={mark.isPending}
+                  onClick={() => {
+                    const digits = (notification.recipient ?? '').replace(/\D/gu, '');
+                    const number = digits.length === 10 ? `91${digits}` : digits;
+                    window.open(`https://wa.me/${number}?text=${encodeURIComponent(notification.composedText)}`, '_blank', 'noopener');
+                    mark.mutate(
+                      { dispatchId: dispatch.id, notificationId: notification.id, status: 'sent' },
+                      {
+                        onSuccess: () => {
+                          toast.add({ type: 'success', title: 'WhatsApp opened', description: `Marked sent against ${dispatch.number}; undo by marking it failed if the message did not go.` });
+                        },
+                      },
+                    );
+                  }}
+                >
+                  <WhatsappLogoIcon data-icon="inline-start" />
+                  Send on WhatsApp
+                </Button>
+              ) : null}
               {notification.status === 'pending' && canAct ? (
                 <Button
                   size="sm"

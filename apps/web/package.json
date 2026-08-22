@@ -23,6 +23,7 @@
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-table": "^9.1.2",
     "@vyuha/shared": "workspace:*",
+    "@zxing/browser": "0.2.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

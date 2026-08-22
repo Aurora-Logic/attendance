@@ -19,6 +19,7 @@ import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database, type Transaction } from '../../../platform/db/db.provider.js';
 import { FileService } from '../../../platform/files/file.service.js';
+import { CustomerNoticeService } from './customer-notice.service.js';
 import { orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
 import { ScopeService } from '../../../platform/rbac/scope.service.js';
 import { PushOutcomeRegistry, type PushMirror, type PushOutcome } from '../../../platform/sync/push-outcome.registry.js';
@@ -50,6 +51,7 @@ export class DispatchService implements OnModuleInit {
     private readonly auditContext: AuditContext,
     private readonly scopes: ScopeService,
     private readonly files: FileService,
+    private readonly notices: CustomerNoticeService,
     private readonly pushQueue: PushQueueService,
     private readonly pushOutcomes: PushOutcomeRegistry,
   ) {}
@@ -174,7 +176,9 @@ export class DispatchService implements OnModuleInit {
     });
     const view = await this.view(principal.orgId, dispatchId);
     if (view === null) throw new Error('Dispatch vanished after insert.');
-    return view;
+    // D-47: the email goes by itself; the view is re-read so the caller sees sent or failed.
+    await this.notices.send(principal.orgId, view, 'dispatched', null);
+    return (await this.view(principal.orgId, dispatchId)) ?? view;
   }
 
   /** REQ-AA-26: the person sent it (or could not); the record says so. */
@@ -220,7 +224,8 @@ export class DispatchService implements OnModuleInit {
     });
     const view = await this.view(principal.orgId, dispatchId);
     if (view === null) throw new Error('Dispatch vanished after delivery.');
-    return view;
+    await this.notices.send(principal.orgId, view, 'delivered', null);
+    return (await this.view(principal.orgId, dispatchId)) ?? view;
   }
 
   private composeDelivered(dispatch: DispatchView, receivedBy: string): string {

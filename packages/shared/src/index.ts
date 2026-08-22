@@ -1,6 +1,7 @@
 export * from './approval-keys.js';
 export * from './approvals.js';
 export * from './attendance.js';
+export * from './appearance.js';
 export * from './auth.js';
 export * from './consent.js';
 export * from './crm.js';
@@ -20,6 +21,7 @@ export * from './regularization.js';
 export * from './reports.js';
 export * from './sales.js';
 export * from './documents.js';
+export * from './barcode.js';
 export * from './purchase.js';
 export * from './shifts.js';
 export * from './sync.js';

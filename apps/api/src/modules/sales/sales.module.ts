@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 
+import { CustomerNoticeService } from './dispatch/customer-notice.service.js';
+
 import { EstimateGoToSource } from './estimates/estimate-goto.source.js';
 import { EstimateController } from './estimates/estimate.controller.js';
 import { EstimateService } from './estimates/estimate.service.js';
@@ -25,6 +27,6 @@ import { InvoiceService } from './invoices/invoice.service.js';
 @Module({
   imports: [ApprovalModule],
   controllers: [EstimateController, SalesOrderController, FulfilmentController, DispatchController, InvoiceController],
-  providers: [EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, SalesReportSource, InvoiceService, SalesOrderApprovalHandler, SalesOrderGoToSource, InvoiceGoToSource, DispatchGoToSource],
+  providers: [CustomerNoticeService, EstimateService, EstimateGoToSource, SalesOrderService, FulfilmentService, DispatchService, SalesReportSource, InvoiceService, SalesOrderApprovalHandler, SalesOrderGoToSource, InvoiceGoToSource, DispatchGoToSource],
 })
 export class SalesModule {}
