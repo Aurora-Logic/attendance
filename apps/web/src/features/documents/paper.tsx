@@ -95,6 +95,16 @@ export interface PaperModel {
   readonly terms: string;
   /** "Original for Recipient" and the like, on an invoice's copies. */
   readonly copyLabel?: string | null;
+  /** D-47: what the packing slip knows that other papers do not — set only by the pack record. */
+  readonly slip?: PaperSlipFacts;
+}
+
+export interface PaperSlipFacts {
+  readonly boxCount: number;
+  readonly packedAt: string;
+  readonly packedByName: string | null;
+  /** The consignee's phone from the parties master, for the loader and the transporter. */
+  readonly phone: string | null;
 }
 
 /** What the page hands the paper when it is the editor. Absent = print. */

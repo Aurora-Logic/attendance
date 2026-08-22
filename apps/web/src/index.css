@@ -462,7 +462,25 @@
   .print-hidden { display: none !important; }
   .a4-paper { width: 210mm; min-height: 297mm; margin: 0; box-shadow: none !important; border: 0 !important; break-after: page; }
   .a4-paper:last-child { break-after: auto; }
+  .slip-paper { margin: 0; box-shadow: none !important; border: 0 !important; break-after: page; }
+  .slip-paper:last-child { break-after: auto; }
 }
+
+/*
+ * The packing slip (D-47): one sheet per box, A5 by default so it goes on a
+ * carton face, A4 for a pallet. Black on white because it prints on stickers
+ * and thermal paper; the design's accent is not used. The print page sets
+ * @page to the same size, so the dialog offers the sheet the slip was drawn for.
+ */
+.slip-paper {
+  color: #111;
+  background: #fff;
+  width: min(148mm, 100%);
+  min-height: 210mm;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+.slip-paper[data-size='A4'] { width: min(210mm, 100%); min-height: 297mm; }
+.slip-paper .tabular-nums { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; font-variant-numeric: tabular-nums; }
 
 /*
  * Scrollbars, product-wide: thin, rounded, translucent — furniture, not

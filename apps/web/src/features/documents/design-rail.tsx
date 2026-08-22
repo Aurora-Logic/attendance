@@ -128,6 +128,22 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               </ToggleGroup>
             </Field>
 
+            {docType === 'PACKING_SLIP' ? (
+              <Field>
+                <FieldLabel htmlFor="design-paper-size">Paper size</FieldLabel>
+                {/* D-47: the slip alone has a size; the other papers are A4. */}
+                <Select value={design.paperSize} onValueChange={(value: string | null) => { if (value === 'A4' || value === 'A5') setDesign({ paperSize: value }); }}>
+                  <SelectTrigger id="design-paper-size" className="w-full" aria-label="Paper size">
+                    <SelectValue>{(value: string) => (value === 'A5' ? 'A5 — sticker, one per carton' : 'A4 — sheet, for pallets')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="A5">A5 — sticker, one per carton</SelectItem>
+                    <SelectItem value="A4">A4 — sheet, for pallets</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-3">
               <Field>
                 <FieldLabel htmlFor="design-logo">Logo</FieldLabel>

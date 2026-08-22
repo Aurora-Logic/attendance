@@ -124,8 +124,11 @@ export const documentDesignSchema = z.object({
   footerNote: shortText(300),
   /** Prefills a new document's terms; the document may still say its own. */
   defaultTerms: shortText(4000),
+  /** D-47: the packing slip prints on A5 by default — the sticker that fits a carton face; A4 for pallets. Other papers stay A4. */
+  paperSize: z.enum(['A4', 'A5']).default('A4'),
 });
 export type DocumentDesign = z.infer<typeof documentDesignSchema>;
+export type PaperSize = DocumentDesign['paperSize'];
 
 export const documentSettingsSchema = z.object({
   profile: documentProfileSchema,
@@ -134,6 +137,7 @@ export const documentSettingsSchema = z.object({
 export type DocumentSettings = z.infer<typeof documentSettingsSchema>;
 
 export const DEFAULT_DOCUMENT_DESIGN: DocumentDesign = {
+  paperSize: 'A4',
   templateId: 'tally',
   accent: 'ink',
   fontFamily: 'sans',
@@ -188,7 +192,7 @@ export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
     SALES_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, footerNote: 'This is a Computer Generated Sales Order' },
     INVOICE: { ...DEFAULT_DOCUMENT_DESIGN, showBank: true },
     DELIVERY_NOTE: { ...GOODS_DESIGN, footerNote: 'This is a Computer Generated Delivery Note' },
-    PACKING_SLIP: { ...GOODS_DESIGN, showHsn: false, showDetailsGrid: false, footerNote: 'This is a Computer Generated Packing Slip' },
+    PACKING_SLIP: { ...GOODS_DESIGN, showHsn: false, showDetailsGrid: false, footerNote: 'This is a Computer Generated Packing Slip', paperSize: 'A5' },
     PURCHASE_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, showDiscount: false, showDeclaration: false, footerNote: 'This is a Computer Generated Purchase Order' },
     RECEIPT_NOTE: { ...GOODS_DESIGN, showShipTo: false, footerNote: 'This is a Computer Generated Goods Receipt Note' },
   },

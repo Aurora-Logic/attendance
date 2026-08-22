@@ -14,6 +14,7 @@ import { useInvoice } from '@/features/sales/use-invoices';
 import { useBranding } from '@/lib/branding/use-branding';
 import { INVOICE_COPIES, INVOICE_COPY_LABELS, type InvoiceCopy, type PrintedDocumentType } from '@vyuha/shared';
 
+import { PackingSlipPaper } from './packing-slip-paper';
 import { DocumentPaper } from './paper';
 import { dispatchAsPaper, grnAsPaper, packAsPaper, paperModelOf, purchaseOrderAsPaper, salesDocumentAsPaper, type PaperRecord } from './paper-record';
 import { useDocumentSettings, useFooterLogoUrls } from './use-document-settings';
@@ -100,16 +101,30 @@ export function DocumentPrintPage() {
   }
   const copies: readonly (InvoiceCopy | null)[] = type === 'INVOICE' ? INVOICE_COPIES : [null];
   const model = paperModelOf(type, record, party.data);
+  const design = settings.data.designs[type];
+  // D-47: the slip prints one sheet per box, on the size the design chose;
+  // @page follows it so the dialog offers the sheet the slip was drawn for.
+  const slip = type === 'PACKING_SLIP';
+  const pageSize = slip ? design.paperSize : 'A4';
+  const boxes = slip ? Array.from({ length: model.slip?.boxCount ?? 1 }, (_, index) => index + 1) : [];
   return (
     <div className="bg-muted/40 min-h-dvh print:bg-white">
+      {pageSize === 'A5' ? <style>{'@page { size: A5; margin: 0; }'}</style> : null}
       <div className="print-hidden mx-auto flex max-w-[210mm] items-center justify-between gap-2 px-4 py-3 text-sm">
-        <span className="text-muted-foreground">Use your browser's print dialog to save this as a PDF (A4).</span>
+        <span className="text-muted-foreground">
+          Use your browser's print dialog to save this as a PDF ({pageSize}{slip && boxes.length > 1 ? `, ${String(boxes.length)} sheets — one per box` : ''}).
+        </span>
         <Button size="sm" onClick={() => { window.print(); }}>
           Print or save PDF
         </Button>
       </div>
       <div className="mx-auto flex max-w-[210mm] flex-col gap-6 pb-8 print:gap-0 print:pb-0">
-        {copies.map((copy) => (
+        {slip
+          ? boxes.map((box) => (
+              <PackingSlipPaper key={box} design={design} profile={settings.data.profile} orgName={branding.data.name} model={model} box={box} />
+            ))
+          : null}
+        {slip ? null : copies.map((copy) => (
           <DocumentPaper
             key={copy ?? 'single'}
             design={settings.data.designs[type]}
