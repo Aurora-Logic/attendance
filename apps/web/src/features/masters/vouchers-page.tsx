@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowsClockwiseIcon, LockKeyIcon, ReceiptIcon, PrinterIcon } from '@phosphor-icons/react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { ArrowsClockwiseIcon, LockKeyIcon, ReceiptIcon } from '@phosphor-icons/react';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -26,6 +26,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { useVoucher, useVouchers, type Voucher } from './use-vouchers';
+import { VoucherPaperPreview } from './voucher-paper-preview';
 
 /**
  * The books (Phase 6c): every voucher pulled from Tally, newest first, and
@@ -121,12 +122,9 @@ function VoucherSheet({ id, onClose }: { id: string | null; onClose: () => void 
           ) : null}
           {voucher ? (
             <>
-              {/* Owner, 22 Aug 2026: the voucher on the organisation's paper -- preview, PDF, Excel. */}
-              <div className="mb-3 flex flex-wrap gap-2">
-                <Button size="sm" nativeButton={false} render={<Link to={`/masters/vouchers/${voucher.id}/paper`} />}>
-                  <PrinterIcon data-icon="inline-start" />
-                  Preview and print
-                </Button>
+              {/* Owner, 22 Aug 2026: the voucher on the organisation's paper, here -- print, PDF, Excel. */}
+              <div className="mb-4">
+                <VoucherPaperPreview voucher={voucher} />
               </div>
               <dl className="divide-border divide-y">
                 <Row label="Amount">
