@@ -25,7 +25,7 @@ import { SignInTourOffer } from '@/features/guide';
 import { ApiError } from '@/lib/api/client';
 import { useLogin } from '@/lib/session/use-session';
 
-import { AuthShell, SubmitLabel } from './auth-shell';
+import { AuthShell, LegalConsent, SubmitLabel } from './auth-shell';
 
 /**
  * REQ-B-01: sign in with a work email and password.
@@ -189,6 +189,7 @@ export function LoginPage() {
                 {login.isPending ? 'Signing in' : 'Sign in'}
               </SubmitLabel>
             </Button>
+            <LegalConsent verb="signing in" />
           </FieldGroup>
         </Form>
 

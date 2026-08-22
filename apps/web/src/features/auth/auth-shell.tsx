@@ -1,12 +1,11 @@
 import type { ReactNode } from 'react';
-
-import { MODULES } from '@/lib/nav';
+import { Link } from 'react-router';
 
 /**
  * The frame the two screens before sign-in share: the wordmark, the page's
- * own title and lead, the form, and the product line. One component, so the
- * invitation link lands on a page that is unmistakably the same product as
- * the sign-in it leads to.
+ * own title and lead, and the form. One component, so the invitation link
+ * lands on a page that is unmistakably the same product as the sign-in it
+ * leads to.
  *
  * The column arrives once, on first paint: a 300ms rise through
  * @starting-style. This is the one surface a person sees once a day rather
@@ -27,11 +26,29 @@ export function AuthShell({ title, lead, children }: { title: string; lead: stri
           </div>
         </div>
         {children}
-        <p className="text-muted-foreground text-center text-xs" aria-label="What Vyuha covers">
-          {MODULES.map((module) => module.label).join(' · ')}
-        </p>
       </div>
     </main>
+  );
+}
+
+/**
+ * Signing in, or setting the password that makes an account usable, is how
+ * the terms are accepted; this says so where the acceptance happens and
+ * links the documents, which are readable without a session.
+ */
+export function LegalConsent({ verb }: { verb: string }) {
+  return (
+    <p className="text-muted-foreground text-center text-xs">
+      By {verb} you agree to the{' '}
+      <Link to="/legal/terms" className="text-foreground underline underline-offset-4">
+        Terms and Conditions
+      </Link>{' '}
+      and the{' '}
+      <Link to="/legal/privacy" className="text-foreground underline underline-offset-4">
+        Privacy Policy
+      </Link>
+      .
+    </p>
   );
 }
 

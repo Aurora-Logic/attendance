@@ -89,6 +89,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-25 | Punch is the primary action | Link-rendered Buttons leave the floor (`a[href]:not([data-own-target])`); the dashboard's Punch is solid with the fingerprint glyph the nav uses | Done |
 | B-26 | Where you are, marked | Module switcher as a glyph tile with a second line; dots beside the active sidebar row and under the active bottom tab | Reverted 22 Aug on the owner's call ("the design is not good"); `75b5423` undone in full |
 | B-27 | Login page, presence without a new layout | One `AuthShell` for sign-in and set-password: typographic wordmark, Welcome back hierarchy, product line, a first-paint rise, a submit label that arrives through a blur | Done (owner picked this direction over a split screen) |
+| B-28 | Terms, privacy, consent | The product line under sign-in is gone; a consent line under Sign in and Set password links the Terms and Conditions and the Privacy Policy; both are public pages at `/legal/terms` and `/legal/privacy`, readable before sign-in | Done; wording is a draft for counsel (OPEN-QUESTIONS) |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 

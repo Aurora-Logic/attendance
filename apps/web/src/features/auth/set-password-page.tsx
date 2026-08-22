@@ -25,7 +25,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { ApiError, apiRequest } from '@/lib/api/client';
 import { MIN_PASSWORD_LENGTH } from '@vyuha/shared';
 
-import { AuthShell, SubmitLabel } from './auth-shell';
+import { AuthShell, LegalConsent, SubmitLabel } from './auth-shell';
 import type { SetPasswordMode, SetPasswordTarget } from './set-password-route';
 
 /**
@@ -312,6 +312,7 @@ export function SetPasswordPage({ mode, token }: SetPasswordPageProps) {
                     {submitting ? copy.submitting : copy.submit}
                   </SubmitLabel>
                 </Button>
+                <LegalConsent verb="setting your password" />
               </FieldGroup>
             </Form>
           </>

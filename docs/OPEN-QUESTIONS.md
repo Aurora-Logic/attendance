@@ -393,3 +393,13 @@ Three things to confirm:
    references resolve, which catches a card pointing at a screen that was
    renamed or a key that was deleted — the A-01 failure mode, where
    `regularization.raise` left the catalogue entirely.
+
+## Legal pages (22 Aug 2026, owner's request: terms and privacy, accepted by signing in)
+
+`/legal/terms` and `/legal/privacy` exist and are linked from the consent line under Sign in and Set password. The wording in `apps/web/src/features/legal/legal-content.ts` is a working draft written from what the product records and does; it has **not been reviewed by counsel**. Three things only the owner can supply, and the draft says "ask your administrator" in their place until they arrive:
+
+1. The operator's legal entity name and registered address (governs the jurisdiction clause).
+2. The grievance officer's name and contact, which the Digital Personal Data Protection Act, 2023 expects a data fiduciary's processor to publish.
+3. Whether the photo retention and recycle-bin windows stated match what each organisation configures (the draft states the defaults: twelve months, and "a set window").
+
+Recommended default: keep the draft live (it is accurate about the product) and have counsel review before the first external organisation signs in.

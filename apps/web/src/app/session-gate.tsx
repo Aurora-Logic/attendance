@@ -5,6 +5,8 @@ import { Spinner } from '@/components/ui/spinner';
 import { LoginPage } from '@/features/auth/login-page';
 import { SetPasswordPage } from '@/features/auth/set-password-page';
 import { setPasswordRoute } from '@/features/auth/set-password-route';
+import { LegalPage } from '@/features/legal/legal-page';
+import { legalRoute } from '@/features/legal/legal-route';
 import { useSessionStore } from '@/lib/session/session-store';
 import { useMe, useRevalidateSessionOnReconnect } from '@/lib/session/use-session';
 
@@ -25,7 +27,9 @@ import { useMe, useRevalidateSessionOnReconnect } from '@/lib/session/use-sessio
  */
 export function SessionGate({ children }: { children: ReactNode }) {
   const { data: me, isPending } = useMe();
-  const setPassword = setPasswordRoute(useLocation().pathname);
+  const pathname = useLocation().pathname;
+  const setPassword = setPasswordRoute(pathname);
+  const legal = legalRoute(pathname);
   const setFromMe = useSessionStore((s) => s.setFromMe);
   const clear = useSessionStore((s) => s.clear);
 
@@ -56,6 +60,12 @@ export function SessionGate({ children }: { children: ReactNode }) {
   // which is correct — the token names the account, not the reader.
   if (setPassword !== null) {
     return <SetPasswordPage mode={setPassword.mode} token={setPassword.token} />;
+  }
+
+  // Readable without a session, and with one: the terms are accepted by
+  // signing in, so they cannot sit behind the sign-in they are accepted at.
+  if (legal !== null) {
+    return <LegalPage slug={legal} />;
   }
 
   if (isPending) {
