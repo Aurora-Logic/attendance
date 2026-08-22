@@ -3,7 +3,6 @@ import { PERMISSIONS } from '@vyuha/shared';
 
 import { usePermission } from '@/lib/session/permissions';
 
-import { DashboardPage } from './dashboard-page';
 
 /**
  * Where "/" goes, decided by what the person can actually do.
@@ -26,6 +25,8 @@ import { DashboardPage } from './dashboard-page';
  */
 export function LandingPage() {
   const seesTheBooks = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
-  if (seesTheBooks) return <Navigate to="/reports/dashboard" replace />;
-  return <DashboardPage />;
+  // Both branches redirect. "/" is the entry and nothing else -- rendering a
+  // screen here as well as at its own address is what let the two meanings
+  // drift apart in the first place.
+  return <Navigate to={seesTheBooks ? '/reports/dashboard' : '/dashboard'} replace />;
 }

@@ -103,7 +103,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Me',
     items: [
-      { to: '/', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
+      { to: '/dashboard', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
       {
         to: '/punch',
         label: 'Punch',
@@ -358,7 +358,7 @@ const ATTENDANCE_MODULE: ModuleDef = {
   id: 'attendance',
   label: 'Attendance',
   icon: CalendarDotsIcon,
-  home: '/',
+  home: '/dashboard',
   groups: NAV_GROUPS,
 };
 
