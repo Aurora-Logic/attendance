@@ -173,13 +173,28 @@ export function MobileBottomNav() {
             {visibleModules.length > 1 ? (
               <div className="mb-4 flex flex-col gap-2">
                 <p className="text-muted-foreground text-xs font-medium">Modules</p>
-                <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
+                {/*
+                  Wraps rather than scrolls sideways.
+
+                  Six modules do not fit across a phone, and a row that scrolls
+                  hides the ones nobody thought to look for -- Attendance sat
+                  off the right edge, which is the module most of the company
+                  uses. A sideways scroll is also the least discoverable
+                  gesture on a surface somebody opened *to see what exists*.
+
+                  Wrapping was rejected for the settings tab strip and rightly:
+                  a second row there pushes page content down on every visit.
+                  That reasoning does not carry here. This is a sheet the
+                  person opened deliberately, it already scrolls vertically,
+                  and a second row of modules costs one line of a surface whose
+                  whole job is to list things.
+                */}
+                <div className="flex flex-wrap gap-2">
                   {visibleModules.map((m) => (
                     <Button
                       key={m.id}
                       variant={m.id === module.id ? 'default' : 'ghost'}
                       size="sm"
-                      className="shrink-0"
                       aria-current={m.id === module.id ? 'true' : undefined}
                       onClick={() => {
                         setMoreOpen(false);
