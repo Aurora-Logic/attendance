@@ -50,6 +50,7 @@ export const attendancePolicySchema = z.object({
   maxWorkMinutes: z.number().int(),
   regularizationWindowDays: z.number().int(),
   regularizationMaxPerMonth: z.number().int(),
+  regularizationAutoFile: z.boolean(),
   autoEscalationDays: z.number().int(),
 });
 

@@ -51,7 +51,7 @@ import { DEVICE_BINDING_MODES, PERMISSIONS, PUNCH_WINDOW_BEHAVIOURS } from '@vyu
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
 import { OfficeLocationPanel } from './office-location-panel';
-import { PolicyChoiceField, PolicyNumberField } from './policy-fields';
+import { PolicyChoiceField, PolicyNumberField, PolicyToggleField } from './policy-fields';
 import {
   DATE_FORMATS,
   DEVICE_BINDING_LABELS,
@@ -595,6 +595,17 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                 enforcedBy={saved.enforcement.attendance.regularizationMaxPerMonth}
                 onValueChange={(next) => {
                   patchAttendance({ regularizationMaxPerMonth: next });
+                }}
+              />
+
+              <PolicyToggleField
+                id="policy-regularization-auto-file"
+                label="Auto-file a correction for a late or out-of-window punch"
+                help="Instead of waiting for the employee to notice and raise it, a draft correction is started for them automatically — they only add why before it goes to their approver."
+                value={draft.attendance.regularizationAutoFile}
+                enforcedBy={saved.enforcement.attendance.regularizationAutoFile}
+                onValueChange={(next) => {
+                  patchAttendance({ regularizationAutoFile: next });
                 }}
               />
 

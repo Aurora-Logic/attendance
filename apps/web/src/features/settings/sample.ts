@@ -33,6 +33,7 @@ export function sampleSettings(): OrgSettings {
       maxWorkMinutes: 16 * 60,
       regularizationWindowDays: 7,
       regularizationMaxPerMonth: 3,
+      regularizationAutoFile: false,
       autoEscalationDays: 3,
     },
     photo: { retentionMonths: 12, minBytes: 80 * KB, maxBytes: 150 * KB },
@@ -52,6 +53,7 @@ export function sampleSettings(): OrgSettings {
         maxWorkMinutes: 'Day engine',
         regularizationWindowDays: null,
         regularizationMaxPerMonth: null,
+        regularizationAutoFile: 'Regularization',
         autoEscalationDays: null,
       },
       photo: {

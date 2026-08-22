@@ -99,6 +99,11 @@ export const ATTENDANCE_SETTINGS = {
     // permission away from four roles.
     enforcedBy: 'Regularization',
   },
+  regularizationAutoFile: {
+    key: 'attendance.regularization_auto_file',
+    help: 'Automatically file a correction request when a punch is late or outside the shift window, so the employee only has to add a reason instead of starting the form themselves. Off leaves raising a correction to the employee, as today.',
+    enforcedBy: 'Regularization',
+  },
   autoEscalationDays: {
     key: 'attendance.auto_escalation_days',
     help: 'An untouched approval escalates to HR after this many days (REQ-G-09).',
@@ -141,6 +146,7 @@ export const attendancePolicySchema = z.object({
   // Zero is a legitimate policy: regularization switched off without removing
   // the permission from four roles.
   regularizationMaxPerMonth: z.number().int().min(0).max(31),
+  regularizationAutoFile: z.boolean(),
   autoEscalationDays: z.number().int().min(1).max(30),
 });
 
@@ -194,6 +200,9 @@ export const DEFAULT_ATTENDANCE_POLICY: AttendancePolicy = {
   // REQ-F-02: 7 days back, 3 a month.
   regularizationWindowDays: 7,
   regularizationMaxPerMonth: 3,
+  // Off: raising a correction is left to the employee unless an organisation
+  // opts in.
+  regularizationAutoFile: false,
   // REQ-G-09.
   autoEscalationDays: 3,
 };
