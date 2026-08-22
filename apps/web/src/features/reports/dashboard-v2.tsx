@@ -14,12 +14,6 @@ import {
   LineChart,
   Pie,
   PieChart,
-  PolarAngleAxis,
-  PolarGrid,
-  Radar,
-  RadarChart,
-  RadialBar,
-  RadialBarChart,
   ComposedChart,
   Scatter,
   XAxis,
@@ -82,35 +76,41 @@ import * as series from './dashboard-v2.series';
 const MONEY = (value: unknown): string => (typeof value === 'number' ? formatMoneyShort(value) : '');
 const COUNT = (value: unknown): string => (typeof value === 'number' ? formatCount(value) : '');
 const PERCENT = (value: unknown): string => (typeof value === 'number' ? `${String(value)}%` : '');
+const DAYS = (value: unknown): string => (typeof value === 'number' ? `${formatCount(value)}d` : '');
 /** Recharts hands a tooltip label in as ReactNode, so the month key has to be
  *  narrowed before `monthLabel` will take it. */
 const MONTH_TIP = (label: unknown): string => (typeof label === 'string' ? monthLabel(label) : '');
 
 /**
- * A name long enough to outrun its bar is cut, not wrapped.
+ * A row's name, cut to what the axis gutter holds.
  *
- * Recharts wraps an over-long LabelList value onto a second line, which then
- * renders below the bar it belongs to and is clipped by it -- "Ozar Aerospace
- * Components" arrived as two half-visible rows.
+ * Names used to be written inside the bar, and Recharts wraps an over-long
+ * label onto further lines which the bar then clips -- "Nashik Switchgear
+ * Traders" arrived as three half-visible rows inside a 26px bar. A category
+ * axis has a width the name can be measured against and cannot be cropped by
+ * the mark, so the name sits outside and the bar carries only its figure.
  */
-const NAME_MAX = 26;
+const NAME_MAX = 18;
+const NAME_GUTTER = 132;
 const CLIP = (value: unknown): string => {
   if (typeof value !== 'string') return '';
   return value.length <= NAME_MAX ? value : `${value.slice(0, NAME_MAX - 1).trimEnd()}\u2026`;
 };
 
+/**
+ * A shade per row.
+ *
+ * A ranked chart in one flat colour throws away the ramp; stepping through it
+ * gives the eye an order to follow down the rows.
+ */
+const shade = (index: number): string => `var(--chart-${String((index % 5) + 1)})`;
+const withShades = <T,>(points: readonly T[]): (T & { fill: string })[] =>
+  points.map((point, index) => ({ ...point, fill: shade(index) }));
+
 /** Square, because the theme is. */
 const SHARP = 0;
 /** A bar is a measurement, not a block of colour. */
 const BAR = 16;
-/**
- * A horizontal bar with its name written inside it.
- *
- * 12px is thinner than the text, so "Ozar Aerospace Components" wrapped to two
- * lines and both were clipped by the bar it sat in. The label sets the floor,
- * not the other way round.
- */
-const BAR_LABELLED = 26;
 
 /**
  * A headline figure.
@@ -137,7 +137,7 @@ function Kpi({
   const navigate = useNavigate();
   return (
     <Card
-      className="hover:bg-accent/40 focus-visible:ring-ring cursor-pointer gap-2 py-4 outline-none focus-visible:ring-2"
+      className="hover:bg-accent/40 focus-visible:ring-ring cursor-pointer gap-0 px-3 py-2.5 outline-none focus-visible:ring-2"
       tabIndex={0}
       role="link"
       onClick={() => {
@@ -150,14 +150,21 @@ function Kpi({
         }
       }}
     >
-      <CardHeader className="gap-1 px-4">
-        <CardDescription className="text-xs">{label}</CardDescription>
-        <CardTitle className="text-2xl tabular-nums">
-          {pending ? <Skeleton className="h-7 w-24" /> : value}
+      {/*
+        A headline figure needs a label, the number and a line of context, and
+        the Card's own padding on top of the header's and the content's made
+        each of those a block of air. The parts are stacked directly here
+        instead, and the figure is sized to the six-across row rather than to
+        a card of its own.
+      */}
+      <CardHeader className="gap-0 border-b-0 p-0">
+        <CardDescription className="text-xs leading-tight">{label}</CardDescription>
+        <CardTitle className="text-xl leading-tight font-semibold tabular-nums">
+          {pending ? <Skeleton className="h-6 w-20" /> : value}
         </CardTitle>
       </CardHeader>
-      <CardContent className="px-4">
-        <p className="text-muted-foreground text-xs leading-snug">{hint}</p>
+      <CardContent className="p-0">
+        <p className="text-muted-foreground text-[11px] leading-tight">{hint}</p>
       </CardContent>
     </Card>
   );
@@ -249,6 +256,10 @@ const SLIPPAGE_CONFIG = {
 } satisfies ChartConfig;
 const HEADROOM_CONFIG = {
   value: { label: 'Limit used', color: 'var(--chart-5)' },
+} satisfies ChartConfig;
+const FILL_CONFIG = {
+  value: { label: 'Filled', color: 'var(--chart-1)' },
+  shortfall: { label: 'Still owed', color: 'var(--chart-5)' },
 } satisfies ChartConfig;
 const SEASON_CONFIG = {
   value: { label: 'Invoiced', color: 'var(--chart-2)' },
@@ -354,11 +365,6 @@ export function ReportsDashboardV2() {
     return { state: key, value: slice.value, fill: `var(--color-${key})` };
   });
   const riskTotal = risk.points.reduce((sum, p) => sum + p.value, 0);
-  // A radial bar wants its own colour per ring, same as a pie.
-  const fillRings = served.points.map((point, index) => ({
-    ...point,
-    fill: `var(--chart-${String((index % 5) + 1)})`,
-  }));
 
   return (
     <div className="flex flex-col gap-4">
@@ -527,20 +533,20 @@ export function ReportsDashboardV2() {
           }
         >
           <ChartContainer config={VALUE_CONFIG}>
-            <BarChart accessibilityLayer data={[...customers.points]} layout="vertical" margin={{ right: 72, left: 4 }}>
+            <BarChart accessibilityLayer data={withShades(customers.points)} layout="vertical" margin={{ right: 72 }}>
               <CartesianGrid horizontal={false} />
-              <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} hide />
+              <YAxis
+                dataKey="label"
+                type="category"
+                tickLine={false}
+                axisLine={false}
+                width={NAME_GUTTER}
+                tickFormatter={CLIP}
+                className="fill-muted-foreground"
+              />
               <XAxis dataKey="value" type="number" hide />
               <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_LABELLED}>
-                <LabelList
-                  dataKey="label"
-                  position="insideLeft"
-                  offset={8}
-                  className="fill-background"
-                  fontSize={11}
-                  formatter={CLIP}
-                />
+              <Bar dataKey="value" radius={SHARP} maxBarSize={BAR}>
                 <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={11} formatter={MONEY} />
               </Bar>
             </BarChart>
@@ -562,7 +568,7 @@ export function ReportsDashboardV2() {
             <PieChart>
               <ChartTooltip content={<ChartTooltipContent hideLabel />} />
               <Pie data={agePie} dataKey="value" nameKey="bucket" label={({ value }) => MONEY(value)} />
-              <ChartLegend content={<ChartLegendContent nameKey="bucket" />} />
+              <ChartLegend content={<ChartLegendContent nameKey="bucket" className="w-full flex-wrap justify-center gap-x-4 gap-y-1" />} />
             </PieChart>
           </ChartContainer>
         </ChartCard>
@@ -581,7 +587,7 @@ export function ReportsDashboardV2() {
               <Pie data={riskPie} dataKey="value" nameKey="state" innerRadius={62} strokeWidth={4}>
                 <LabelList dataKey="value" className="fill-background" stroke="none" fontSize={11} formatter={MONEY} />
               </Pie>
-              <ChartLegend content={<ChartLegendContent nameKey="state" />} />
+              <ChartLegend content={<ChartLegendContent nameKey="state" className="w-full flex-wrap justify-center gap-x-4 gap-y-1" />} />
             </PieChart>
           </ChartContainer>
         </ChartCard>
@@ -598,7 +604,7 @@ export function ReportsDashboardV2() {
               <CartesianGrid vertical={false} />
               <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={monthLabel} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <ChartLegend content={<ChartLegendContent />} />
+              <ChartLegend content={<ChartLegendContent className="w-full flex-wrap justify-center gap-x-4 gap-y-1" />} />
               <Bar dataKey="repeatRevenue" stackId="m" fill="var(--color-repeatRevenue)" radius={SHARP} maxBarSize={BAR} />
               <Bar dataKey="newRevenue" stackId="m" fill="var(--color-newRevenue)" radius={SHARP} maxBarSize={BAR} />
             </BarChart>
@@ -632,41 +638,49 @@ export function ReportsDashboardV2() {
 
         <ChartCard
           title="The trading year, folded"
-          description="Radar. Every January together, every February together"
+          description="Bar. Every January together, every February together"
           report="sales-analysis"
           query="&groupBy=month"
           state={stateOf(byMonth, season.points)}
           insight={season.insight}
         >
-          <ChartContainer config={SEASON_CONFIG} className="mx-auto aspect-square max-h-[280px]">
-            <RadarChart data={[...season.points]}>
-              <ChartTooltip cursor={false} content={<ChartTooltipContent formatter={MONEY} />} />
-              <PolarGrid />
-              <PolarAngleAxis dataKey="label" />
-              <Radar
-                dataKey="value"
-                stroke="var(--color-value)"
-                fill="var(--color-value)"
-                fillOpacity={0.5}
-              />
-            </RadarChart>
+          {/* Twelve columns rather than a radar. A radar makes the eye compare
+              the areas of twelve wedges, which nobody can do; twelve bars on a
+              common baseline is the comparison the question actually asks. */}
+          <ChartContainer config={SEASON_CONFIG}>
+            <BarChart accessibilityLayer data={withShades(season.points)} margin={{ top: 20 }}>
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} interval={0} fontSize={10} />
+              <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+              <Bar dataKey="value" radius={SHARP} maxBarSize={BAR}>
+                <LabelList position="top" offset={8} className="fill-foreground" fontSize={9} formatter={MONEY} />
+              </Bar>
+            </BarChart>
           </ChartContainer>
         </ChartCard>
 
         <ChartCard
           title="How much of the order book went out"
-          description="Radial bar. Fill rate by customer, worst served first"
+          description="Stacked bar. What was filled against what is still owed"
           report="order-fill-rate"
-          state={stateOf(filling, fillRings)}
+          state={stateOf(filling, served.points)}
           insight={served.insight}
         >
-          <ChartContainer config={{ value: { label: 'Filled' } }} className="mx-auto aspect-square max-h-[280px]">
-            <RadialBarChart data={fillRings} innerRadius={30} outerRadius={130} startAngle={90} endAngle={-270}>
-              <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="label" />} />
-              <RadialBar dataKey="value" background>
-                <LabelList dataKey="label" position="insideStart" className="fill-background capitalize" fontSize={10} />
-              </RadialBar>
-            </RadialBarChart>
+          {/* Both halves on one bar. A ring, or a bar that simply stops at
+              40%, leaves the reader to work out that the other 60% is the
+              story. */}
+          <ChartContainer config={FILL_CONFIG}>
+            <BarChart accessibilityLayer data={[...served.points]} layout="vertical" margin={{ right: 56 }}>
+              <CartesianGrid horizontal={false} />
+              <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} width={NAME_GUTTER} tickFormatter={CLIP} className="fill-muted-foreground" />
+              <XAxis type="number" domain={[0, 100]} hide />
+              <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+              <ChartLegend content={<ChartLegendContent className="w-full flex-wrap justify-center gap-x-4" />} />
+              <Bar dataKey="value" stackId="fill" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR}>
+                <LabelList dataKey="value" position="insideLeft" offset={8} className="fill-background" fontSize={10} formatter={PERCENT} />
+              </Bar>
+              <Bar dataKey="shortfall" stackId="fill" fill="var(--color-shortfall)" radius={SHARP} maxBarSize={BAR} />
+            </BarChart>
           </ChartContainer>
         </ChartCard>
 
@@ -703,7 +717,7 @@ export function ReportsDashboardV2() {
                 tickFormatter={MONEY}
               />
               <ChartTooltip cursor={{ strokeDasharray: '3 3' }} content={<ChartTooltipContent />} />
-              <ChartLegend content={<ChartLegendContent />} />
+              <ChartLegend content={<ChartLegendContent className="w-full flex-wrap justify-center gap-x-4 gap-y-1" />} />
               {/* The line is what makes the dots mean something: it is what a
                   customer would be worth at the book's average bill, so above
                   it is bigger bills and below it is more of them. */}
@@ -729,21 +743,13 @@ export function ReportsDashboardV2() {
           insight={slippage.insight}
         >
           <ChartContainer config={SLIPPAGE_CONFIG}>
-            <BarChart accessibilityLayer data={[...slippage.points]} layout="vertical" margin={{ right: 72, left: 4 }}>
+            <BarChart accessibilityLayer data={withShades(slippage.points)} layout="vertical" margin={{ right: 64 }}>
               <CartesianGrid horizontal={false} />
-              <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} hide />
+              <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} width={NAME_GUTTER} tickFormatter={CLIP} className="fill-muted-foreground" />
               <XAxis dataKey="value" type="number" hide />
               <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_LABELLED}>
-                <LabelList
-                  dataKey="label"
-                  position="insideLeft"
-                  offset={8}
-                  className="fill-background"
-                  fontSize={11}
-                  formatter={CLIP}
-                />
-                <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={11} formatter={COUNT} />
+              <Bar dataKey="value" radius={SHARP} maxBarSize={BAR}>
+                <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={11} formatter={DAYS} />
               </Bar>
             </BarChart>
           </ChartContainer>
@@ -802,20 +808,12 @@ export function ReportsDashboardV2() {
           insight={exposure.insight}
         >
           <ChartContainer config={HEADROOM_CONFIG}>
-            <BarChart accessibilityLayer data={[...exposure.points]} layout="vertical" margin={{ right: 72, left: 4 }}>
+            <BarChart accessibilityLayer data={withShades(exposure.points)} layout="vertical" margin={{ right: 64 }}>
               <CartesianGrid horizontal={false} />
-              <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} hide />
+              <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} width={NAME_GUTTER} tickFormatter={CLIP} className="fill-muted-foreground" />
               <XAxis dataKey="value" type="number" hide />
               <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_LABELLED}>
-                <LabelList
-                  dataKey="label"
-                  position="insideLeft"
-                  offset={8}
-                  className="fill-background"
-                  fontSize={11}
-                  formatter={CLIP}
-                />
+              <Bar dataKey="value" radius={SHARP} maxBarSize={BAR}>
                 <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={11} formatter={PERCENT} />
               </Bar>
             </BarChart>

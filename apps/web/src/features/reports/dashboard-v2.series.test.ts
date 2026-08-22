@@ -441,3 +441,20 @@ describe('sumColumn', () => {
     expect(sumColumn([], 'exposure')).toBe(0);
   });
 });
+
+describe('fillRate shortfall', () => {
+  it('carries what is still owed alongside what went out', () => {
+    const series = fillRate([
+      row({ partyName: 'Part', fillPct: '40' }),
+      row({ partyName: 'Full', fillPct: '100' }),
+    ]);
+    expect(series.points).toEqual([
+      { label: 'Part', value: 40, shortfall: 60 },
+      { label: 'Full', value: 100, shortfall: 0 },
+    ]);
+  });
+
+  it('never reports a negative shortfall when a line over-ships', () => {
+    expect(fillRate([row({ partyName: 'Over', fillPct: '115' })]).points[0]?.shortfall).toBe(0);
+  });
+});

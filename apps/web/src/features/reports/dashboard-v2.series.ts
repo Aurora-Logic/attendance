@@ -297,10 +297,27 @@ export function paymentSlippage(rows: readonly ReportRowView[], keep = 6): Serie
 
 // ----------------------------------------------------------- 8. fill rate
 
-/** How much of what was ordered actually went out. */
-export function fillRate(rows: readonly ReportRowView[], keep = 6): Series<Point> {
+export interface FillPoint extends Point {
+  /** What is still owed to that customer, as a share of what they ordered. */
+  readonly shortfall: number;
+}
+
+/**
+ * How much of what was ordered actually went out, and how much did not.
+ *
+ * Both halves, because a bar that stops at 40% leaves the reader to work out
+ * that the other 60% is the story.
+ */
+export function fillRate(rows: readonly ReportRowView[], keep = 6): Series<FillPoint> {
   const all = rows
-    .map((row) => ({ label: text(row, 'partyName'), value: num(row, 'fillPct') }))
+    .map((row) => {
+      const filled = num(row, 'fillPct');
+      return {
+        label: text(row, 'partyName'),
+        value: filled,
+        shortfall: Math.max(0, Math.round((100 - filled) * 10) / 10),
+      };
+    })
     .filter((p) => p.label !== '')
     .sort((a, b) => a.value - b.value);
   const points = all.slice(0, keep);

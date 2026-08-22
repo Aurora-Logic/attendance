@@ -33,12 +33,18 @@ describe('dashboard chart layout', () => {
     }
   });
 
-  it('gives a bar carrying a name inside it room for the text', () => {
-    // 12px is thinner than the 11px label that sits in it, which wrapped the
-    // name to two clipped lines.
-    const labelled = /const BAR_LABELLED = (\d+);/u.exec(source);
-    expect(labelled).not.toBeNull();
-    expect(Number(labelled?.[1])).toBeGreaterThanOrEqual(20);
+  it('writes a row name on the axis, never inside the mark', () => {
+    // Recharts wraps an over-long label onto further lines and the bar then
+    // clips them: "Nashik Switchgear Traders" arrived as three half-visible
+    // rows inside its own bar. Every horizontal chart gets a category axis
+    // wide enough to hold the name instead.
+    const horizontal = source.match(/layout="vertical"/gu) ?? [];
+    const gutters = source.match(/width=\{NAME_GUTTER\}/gu) ?? [];
+    expect(horizontal.length).toBeGreaterThan(0);
+    expect(gutters.length, 'a horizontal chart is missing its name gutter').toBe(horizontal.length);
+    expect(source, 'a name is being written inside a bar again').not.toContain(
+      'dataKey="label"\n                  position="insideLeft"',
+    );
   });
 
   it('keeps every bar square', () => {
