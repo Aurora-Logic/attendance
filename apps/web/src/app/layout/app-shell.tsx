@@ -8,6 +8,7 @@ import {
   MegaphoneIcon,
   MonitorIcon,
   MoonIcon,
+  QuestionIcon,
   SignOutIcon,
   SunIcon,
   UserCircleIcon,
@@ -193,6 +194,10 @@ function UserMenu() {
   // The action alone, which is a stable reference, so opening or closing the
   // calculator never re-renders the header. Selecting the whole store would.
   const openCalculator = useCalculatorStore((s) => s.openPanel);
+  // The action alone, for the same reason the calculator takes only its
+  // opener: selecting the whole store would re-render the header every time
+  // the answer panel opened or closed.
+  const openShortcuts = useUiStore((s) => s.setShortcutsOpen);
   /*
    * The unread dot.
    *
@@ -305,6 +310,23 @@ function UserMenu() {
                   sm and whose Ctrl+F1 needs a keyboard this device does not
                   have. Without this row the feature would exist and be
                   unreachable at the width most people use. */}
+              {/* The third row added for this reason, and the reason is
+                  written out twice below: the answer panel lives on Ctrl+F1,
+                  the header button that opens it is hidden under sm, and a
+                  phone has no keyboard. Without this row the help a person
+                  needs most on a phone -- why a punch was refused, standing in
+                  a doorway -- would be the help they cannot reach. */}
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSheetOpen(false);
+                  openShortcuts(true);
+                }}
+              >
+                <QuestionIcon data-icon="inline-start" />
+                Ask a question
+              </Button>
               <Button
                 variant="outline"
                 className="w-full"
@@ -604,11 +626,17 @@ export function AppShell() {
               </Button>
             </HeaderTooltip>
 
-            <HeaderTooltip label="Keyboard shortcuts" keys="ctrl+f1" alias="f1">
+            {/* "Help and shortcuts", not "Keyboard shortcuts". The key is
+                still PRD §6.4's, and the icon still says which key -- but the
+                sheet behind it now answers questions as well as listing keys,
+                and nobody looking for help clicks a keyboard. The label is
+                where that is cheapest to say: the icon stays, so the header
+                gains no width and the tour anchor keeps its target. */}
+            <HeaderTooltip label="Help and shortcuts" keys="ctrl+f1" alias="f1">
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="Keyboard shortcuts"
+                aria-label="Help and shortcuts"
                 data-guide="header.shortcuts"
                 className="hidden sm:inline-flex"
                 onClick={toggleShortcuts}
