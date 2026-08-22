@@ -21,16 +21,17 @@ import {
   type VoucherDetailView,
   type VoucherView,
   type ItemLifecycle,
-  type PartyLifecycle,
-} from '@vyuha/shared';
+  type PartyLifecycle, lifecycleAnalyticsQuerySchema, type ItemAnalytics, type PartyAnalytics } from '@vyuha/shared';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
+import { LifecycleAnalyticsService } from './lifecycle-analytics.service.js';
 import { LifecycleService } from './lifecycle.service.js';
 import { MastersService } from './masters.service.js';
 
 class PartyListQueryDto extends createZodDto(partyListQuerySchema) {}
+class LifecycleAnalyticsQueryDto extends createZodDto(lifecycleAnalyticsQuerySchema) {}
 class StockItemListQueryDto extends createZodDto(stockItemListQuerySchema) {}
 class PriceListListQueryDto extends createZodDto(priceListListQuerySchema) {}
 class VoucherListQueryDto extends createZodDto(voucherListQuerySchema) {}
@@ -49,6 +50,7 @@ class VoucherListQueryDto extends createZodDto(voucherListQuerySchema) {}
 export class MastersController {
   constructor(private readonly masters: MastersService,
     private readonly lifecycle: LifecycleService,
+    private readonly analytics: LifecycleAnalyticsService,
   ) {}
 
   @Get('parties')
@@ -92,11 +94,24 @@ export class MastersController {
     return this.lifecycle.item(principal, id);
   }
 
+  /** The period half of the item's life (owner, 22 Aug 2026): KPIs with a comparison, months, who, and the grid. */
+  @Get('items/:id/analytics')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  itemAnalytics(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Query() query: LifecycleAnalyticsQueryDto): Promise<ItemAnalytics> {
+    return this.analytics.item(principal, id, query);
+  }
+
   /** The life of one party, as the customer it is, the vendor it is, or both. */
   @Get('parties/:id/lifecycle')
   @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
   partyLifecycle(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PartyLifecycle> {
     return this.lifecycle.party(principal, id);
+  }
+
+  @Get('parties/:id/analytics')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  partyAnalytics(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Query() query: LifecycleAnalyticsQueryDto): Promise<PartyAnalytics> {
+    return this.analytics.party(principal, id, query);
   }
 
   /** REQ-R-03: `GET /masters/price-lists`. */

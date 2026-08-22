@@ -36,7 +36,7 @@ import { DateField, DateRangeField, MonthField, type RangePreset } from '@/featu
 import { subDays } from 'date-fns';
 
 import { fromDateParam } from '@/features/attendance/format';
-import { periodForGranularity } from './period-compare';
+import { periodForGranularity } from '@/lib/period-compare';
 
 import { monthRange, type PeriodMode } from './period';
 

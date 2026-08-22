@@ -19,7 +19,7 @@ import { useApprovals } from '@/features/approvals/use-approvals';
 import { useReportRows } from './api';
 import { CompositionDonut, GenericReportChart, MonthlyValueChart, RateRadial, ReportChart, ShareRadialChart } from './report-charts';
 import { inr, lapseSeries } from './report-series';
-import { comparisonRange, deltaOf, periodForGranularity } from './period-compare';
+import { comparisonRange, deltaOf, periodForGranularity } from '@/lib/period-compare';
 
 /**
  * The Reports dashboard (14 Area AI): a tile is a report with a figure and

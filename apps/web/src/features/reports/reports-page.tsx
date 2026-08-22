@@ -98,7 +98,7 @@ import { ColumnChooser } from './column-chooser';
 import { ReportCatalogue } from './report-catalogue';
 import { GenericReportChart, ReportChart, type ChartDrill } from './report-charts';
 import { chartKindOf, primaryNumericColumn } from './report-series';
-import { comparisonRange, deltaOf, periodForGranularity, type CompareMode, type Granularity } from './period-compare';
+import { comparisonRange, deltaOf, periodForGranularity, type CompareMode, type Granularity } from '@/lib/period-compare';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
 import { periodFor, periodModeOf } from './period';
 import { ScheduleDialog } from './schedule-dialog';
