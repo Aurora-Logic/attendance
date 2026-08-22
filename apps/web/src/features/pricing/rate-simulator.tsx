@@ -55,13 +55,13 @@ export function RateSimulator() {
   return (
     <div className="flex flex-col gap-6">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <RecordPicker id="simulate-party" label="Party" placeholder="Any party (the default list)" searchPlaceholder="Search parties" emptyMessage="No party matches." icon={<BooksIcon className="text-muted-foreground" />} options={partyOptions} loading={parties.isPending} clearable clearLabel="No party" value={pick(partyOptions, partyId)} onValueChange={(next) => { setPartyId(next?.id ?? null); }} />
-        <RecordPicker id="simulate-item" label="Stock item" placeholder="Stock item" searchPlaceholder="Search stock items" emptyMessage="No item matches." icon={<CubeIcon className="text-muted-foreground" />} options={itemOptions} loading={items.isPending} value={pick(itemOptions, stockItemId)} onValueChange={(next) => { setStockItemId(next?.id ?? null); }} />
+        <RecordPicker id="simulate-party" label="Party" showLabel placeholder="Any party (the default list)" searchPlaceholder="Search parties" emptyMessage="No party matches." icon={<BooksIcon className="text-muted-foreground" />} options={partyOptions} loading={parties.isPending} clearable clearLabel="No party" value={pick(partyOptions, partyId)} onValueChange={(next) => { setPartyId(next?.id ?? null); }} />
+        <RecordPicker id="simulate-item" label="Stock item" showLabel placeholder="Stock item" searchPlaceholder="Search stock items" emptyMessage="No item matches." icon={<CubeIcon className="text-muted-foreground" />} options={itemOptions} loading={items.isPending} value={pick(itemOptions, stockItemId)} onValueChange={(next) => { setStockItemId(next?.id ?? null); }} />
         <Field>
           <FieldLabel htmlFor="simulate-qty">Quantity</FieldLabel>
           <Input id="simulate-qty" inputMode="decimal" className="tabular-nums" value={quantity} onChange={(event) => { setQuantity(event.target.value); }} />
         </Field>
-        <DateField label="Document date" value={fromDateParam(date)} onValueChange={(next) => { setDate(toDateParam(next)); }} yearsBack={5} yearsForward={1} />
+        <DateField label="Document date" showLabel value={fromDateParam(date)} onValueChange={(next) => { setDate(toDateParam(next)); }} yearsBack={5} yearsForward={1} />
       </div>
 
       {stockItemId === null ? (

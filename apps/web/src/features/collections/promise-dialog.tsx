@@ -118,6 +118,7 @@ function PromiseForm({ partyId, onDone, onCancel }: { partyId: string | null; on
 
         {partyId === null ? (
           <RecordPicker
+            showLabel
             id="promise-party"
             label="Customer"
             placeholder="Tally party"
@@ -157,7 +158,7 @@ function PromiseForm({ partyId, onDone, onCancel }: { partyId: string | null; on
               {openBills.data === undefined ? 'Against the bills below.' : `${money(outstanding.toFixed(2))} is open in all.`}
             </FieldDescription>
           </Field>
-          <DateField label="Promised by" value={fromDateParam(promisedDate)} onValueChange={(next) => { setPromisedDate(toDateParam(next)); }} yearsBack={0} yearsForward={2} />
+          <DateField label="Promised by" showLabel value={fromDateParam(promisedDate)} onValueChange={(next) => { setPromisedDate(toDateParam(next)); }} yearsBack={0} yearsForward={2} />
         </div>
 
         <Field>

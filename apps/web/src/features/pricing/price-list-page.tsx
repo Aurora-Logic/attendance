@@ -232,18 +232,22 @@ function Editor({ detail, canManage, canApprove, onSaved }: { detail: PriceListD
           <FieldLabel htmlFor="price-list-name">Name</FieldLabel>
           <Input id="price-list-name" disabled={!editable} value={draft.name} onChange={(event) => { setDraft((c) => ({ ...c, name: event.target.value })); }} placeholder="Asha Traders terms" />
         </Field>
-        <DateField label="Effective from" value={fromDateParam(draft.effectiveFrom)} onValueChange={(next) => { setDraft((c) => ({ ...c, effectiveFrom: toDateParam(next) })); }} yearsBack={3} yearsForward={2} className={editable ? undefined : 'pointer-events-none opacity-60'} />
+        <DateField label="Effective from" showLabel value={fromDateParam(draft.effectiveFrom)} onValueChange={(next) => { setDraft((c) => ({ ...c, effectiveFrom: toDateParam(next) })); }} yearsBack={3} yearsForward={2} className={editable ? undefined : 'pointer-events-none opacity-60'} />
         <div className="flex flex-col gap-1">
           {draft.effectiveTo === '' ? (
             <Field>
               <FieldLabel htmlFor="price-list-open-ended">Effective to</FieldLabel>
+              {/* The sentence was the button's label and ran off the end of a
+                  quarter-width cell. The control says what it is; the sentence
+                  explains it underneath, where there is room for it. */}
               <Button id="price-list-open-ended" type="button" variant="outline" disabled={!editable} className="w-full justify-start font-normal" onClick={() => { setDraft((c) => ({ ...c, effectiveTo: c.effectiveFrom })); }}>
                 <CalendarBlankIcon data-icon="inline-start" />
-                Open-ended — runs until a new version replaces it
+                <span className="truncate">Open-ended</span>
               </Button>
+              <FieldDescription>Runs until a new version replaces it.</FieldDescription>
             </Field>
           ) : (
-            <DateField label="Effective to" value={fromDateParam(draft.effectiveTo)} onValueChange={(next) => { setDraft((c) => ({ ...c, effectiveTo: toDateParam(next) })); }} yearsBack={3} yearsForward={5} className={editable ? undefined : 'pointer-events-none opacity-60'} />
+            <DateField label="Effective to" showLabel value={fromDateParam(draft.effectiveTo)} onValueChange={(next) => { setDraft((c) => ({ ...c, effectiveTo: toDateParam(next) })); }} yearsBack={3} yearsForward={5} className={editable ? undefined : 'pointer-events-none opacity-60'} />
           )}
           {editable && draft.effectiveTo !== '' ? (
             <Button type="button" variant="link" size="sm" className="h-auto self-start px-0 text-xs" onClick={() => { setDraft((c) => ({ ...c, effectiveTo: '' })); }}>

@@ -1,9 +1,10 @@
-import { useState, type ReactElement, type ReactNode } from 'react';
+import { useId, useState, type ReactElement, type ReactNode } from 'react';
 import { CalendarBlankIcon, ClockIcon } from '@phosphor-icons/react';
 import type { DateRange } from 'react-day-picker';
 
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
+import { Field, FieldLabel } from '@/components/ui/field';
 import {
   Popover,
   PopoverContent,
@@ -157,6 +158,13 @@ interface DateFieldProps extends OpenControl {
   onValueChange: (value: Date) => void;
   /** The accessible name, e.g. "Muster date". */
   label: string;
+  /**
+   * Renders `label` as text above the control, the way every Input on a form
+   * carries one. Off by default: a toolbar's date needs no column of labels
+   * above it, and a form's does -- a date sitting beside a labelled field
+   * with no label of its own is the row that reads as broken.
+   */
+  showLabel?: boolean;
   /** Rendered inside the trigger, before the date. */
   hint?: ReactNode;
   disabled?: (date: Date) => boolean;
@@ -193,6 +201,7 @@ export function DateField({
   value,
   onValueChange,
   label,
+  showLabel = false,
   hint,
   disabled,
   className,
@@ -201,6 +210,7 @@ export function DateField({
   ...control
 }: DateFieldProps) {
   const [open, setOpen] = useOpenState(control);
+  const controlId = useId();
 
   /*
    * The dropdowns need a bounded range; without `startMonth`/`endMonth` the
@@ -212,7 +222,7 @@ export function DateField({
   const startMonth = new Date(today.getFullYear() - yearsBack, 0, 1);
   const endMonth = new Date(today.getFullYear() + yearsForward, 11, 31);
 
-  return (
+  const surface = (
     <PickerSurface
       open={open}
       onOpenChange={setOpen}
@@ -220,9 +230,10 @@ export function DateField({
       description="Pick a date."
       trigger={
         <Button
+          id={controlId}
           variant="outline"
           aria-label={label}
-          className={cn('justify-start gap-2 tabular-nums', className)}
+          className={cn('w-full justify-start gap-2 tabular-nums', showLabel ? '' : className)}
         >
           <CalendarBlankIcon data-icon="inline-start" />
           {formatDate(toDateParam(value))}
@@ -249,6 +260,14 @@ export function DateField({
         className={TOUCH_CALENDAR}
       />
     </PickerSurface>
+  );
+
+  if (!showLabel) return surface;
+  return (
+    <Field className={className}>
+      <FieldLabel htmlFor={controlId}>{label}</FieldLabel>
+      {surface}
+    </Field>
   );
 }
 

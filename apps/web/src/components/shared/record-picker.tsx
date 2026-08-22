@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { CaretUpDownIcon, CheckIcon, XIcon, WarningDiamondIcon } from '@phosphor-icons/react';
 
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 import {
   Command,
   CommandEmpty,
@@ -56,6 +57,19 @@ interface RecordPickerProps {
   options: readonly PickerOption[];
   /** Names the control, and titles the sheet on a phone. */
   label: string;
+  /**
+   * Renders `label` as text above the control, through the same Field and
+   * FieldLabel every other input uses.
+   *
+   * Off by default because a filter toolbar is a row of controls whose
+   * placeholders carry the meaning, and a column of labels there is noise.
+   * On in a form: a picker beside a labelled Input is otherwise the one
+   * control on the row with no name and no label line, which reads as a
+   * broken row rather than a deliberate one.
+   */
+  showLabel?: boolean;
+  /** Sizing from the row that owns it; the control itself is always full width. */
+  className?: string;
   placeholder: string;
   searchPlaceholder?: string;
   emptyMessage?: string;
@@ -73,6 +87,8 @@ export function RecordPicker({
   onValueChange,
   options,
   label,
+  showLabel = false,
+  className,
   placeholder,
   searchPlaceholder = 'Search',
   emptyMessage = 'Nothing matches that.',
@@ -85,10 +101,13 @@ export function RecordPicker({
 }: RecordPickerProps) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
+  // The label needs something to point at when the caller gave no id.
+  const fallbackId = useId();
+  const controlId = id ?? fallbackId;
 
   const trigger = (
     <Button
-      id={id}
+      id={controlId}
       variant="outline"
       disabled={disabled}
       aria-label={label}
@@ -167,8 +186,18 @@ export function RecordPicker({
     </Command>
   );
 
+  const labelled = (surface: ReactNode) =>
+    showLabel ? (
+      <Field className={className}>
+        <FieldLabel htmlFor={controlId}>{label}</FieldLabel>
+        {surface}
+      </Field>
+    ) : (
+      surface
+    );
+
   if (isMobile) {
-    return (
+    return labelled(
       <Sheet open={open} onOpenChange={setOpen}>
         {/* Rendered by the Sheet rather than wrapped in it, so the button keeps
             its own focus management. */}
@@ -180,16 +209,16 @@ export function RecordPicker({
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto">{list}</div>
         </SheetContent>
-      </Sheet>
+      </Sheet>,
     );
   }
 
-  return (
+  return labelled(
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger render={trigger} />
       <PopoverContent align="start" className="w-(--anchor-width) min-w-72 p-0">
         {list}
       </PopoverContent>
-    </Popover>
+    </Popover>,
   );
 }

@@ -201,6 +201,7 @@ export function ReturnReceiptDialog({ open, onOpenChange }: { open: boolean; onO
           <RecordPicker
             id="return-party"
             label="Customer"
+            showLabel
             placeholder="Choose a customer"
             searchPlaceholder="Search parties"
             emptyMessage="No party matches."
@@ -220,6 +221,7 @@ export function ReturnReceiptDialog({ open, onOpenChange }: { open: boolean; onO
           <RecordPicker
             id="return-order"
             label="Against the order"
+            showLabel
             placeholder={partyId === null ? 'Choose a customer first' : 'Optional — fills the lines in'}
             searchPlaceholder="Search orders"
             emptyMessage="No dispatched order for this customer."
