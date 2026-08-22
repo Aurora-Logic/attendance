@@ -78,11 +78,16 @@ export function ChartCard({
         ) : null}
         {pending !== true && empty !== true ? children : null}
       </CardContent>
+      {/*
+        `leading-snug` below, not `leading-none`. These are sentences, not the
+        three-word labels shadcn's example footers carry, and at 360px they
+        wrap -- at line-height 1 the second line sits on top of the first.
+      */}
       {insight == null && footnote === undefined ? null : (
-        <CardFooter className="flex-col items-start gap-2 text-sm">
-          {insight == null ? null : <p className="leading-none font-medium">{insight}</p>}
+        <CardFooter className="flex-col items-start gap-1.5 text-sm">
+          {insight == null ? null : <p className="leading-snug font-medium text-pretty">{insight}</p>}
           {footnote === undefined ? null : (
-            <div className="text-muted-foreground leading-none">{footnote}</div>
+            <div className="text-muted-foreground leading-snug text-pretty">{footnote}</div>
           )}
         </CardFooter>
       )}

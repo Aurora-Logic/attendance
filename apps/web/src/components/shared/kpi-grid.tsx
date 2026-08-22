@@ -75,7 +75,12 @@ export function KpiTile({ label, value, current, previous, format, lowerIsBetter
             },
           })}
     >
-      <dt className="text-muted-foreground truncate text-xs leading-tight">
+      {/*
+        Wrapping, not truncated. Two tiles across a 360px phone leaves about
+        130px of label, and "Receivables exposure" cut to "Receivables ex..."
+        tells the reader less than a second line does.
+      */}
+      <dt className="text-muted-foreground text-xs leading-tight text-balance">
         {icon === undefined ? null : (
           <span aria-hidden className="mr-1 inline-flex align-[-2px] [&_svg]:size-3">
             {icon}
@@ -83,7 +88,12 @@ export function KpiTile({ label, value, current, previous, format, lowerIsBetter
         )}
         {label}
       </dt>
-      <dd className="truncate text-xl leading-tight font-semibold tabular-nums">{value}</dd>
+      {/*
+        A step smaller on a phone, and never truncated: a rupee figure cut in
+        the middle is a wrong number, not a shortened one. Twenty pixels of
+        "24,78,282.20" does not fit half a phone; eighteen does.
+      */}
+      <dd className="text-lg leading-tight font-semibold tabular-nums sm:text-xl">{value}</dd>
       {delta !== null ? (
         <dd
           className={cn('flex items-center gap-1 text-[0.6875rem] tabular-nums', good === null ? 'text-muted-foreground' : good ? 'text-success' : 'text-destructive')}
@@ -93,7 +103,7 @@ export function KpiTile({ label, value, current, previous, format, lowerIsBetter
           {deltaText(delta.absolute, delta.pct, delta.label, format)}
         </dd>
       ) : note ? (
-        <dd className="text-muted-foreground text-[0.6875rem] leading-tight">{note}</dd>
+        <dd className="text-muted-foreground text-[0.6875rem] leading-snug text-pretty">{note}</dd>
       ) : null}
     </Card>
   );

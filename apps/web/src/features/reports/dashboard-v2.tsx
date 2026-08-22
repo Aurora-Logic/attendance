@@ -175,9 +175,9 @@ function ChartCard({
         {!state.isPending && !state.isError && state.hasPoints ? children : null}
       </CardContent>
       <CardFooter className="flex-col items-start gap-2 text-sm">
-        {insight === null ? null : <p className="leading-none font-medium">{insight}</p>}
+        {insight === null ? null : <p className="leading-snug font-medium text-pretty">{insight}</p>}
         {footnote === undefined ? null : (
-          <div className="text-muted-foreground leading-none">{footnote}</div>
+          <div className="text-muted-foreground leading-snug text-pretty">{footnote}</div>
         )}
       </CardFooter>
     </Card>
@@ -407,7 +407,7 @@ export function ReportsDashboardV2() {
         </CardContent>
         <CardFooter className="text-sm">
           {basket.insight === null ? null : (
-            <p className="leading-none font-medium">{basket.insight}</p>
+            <p className="leading-snug font-medium text-pretty">{basket.insight}</p>
           )}
         </CardFooter>
       </Card>
