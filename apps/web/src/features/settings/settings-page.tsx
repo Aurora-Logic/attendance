@@ -1,15 +1,13 @@
 import { useState } from 'react';
 import {
   BuildingsIcon,
-  CameraIcon,
   ClockIcon,
   EnvelopeSimpleIcon,
   LockKeyIcon,
   MapPinAreaIcon,
   FileTextIcon,
-  MoonIcon,
   PaperPlaneTiltIcon,
-  WarningCircleIcon, PaintBrushIcon } from '@phosphor-icons/react';
+  WarningCircleIcon, PaintBrushIcon, ReceiptIcon, ShieldCheckIcon, ShoppingCartIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
@@ -50,7 +48,12 @@ import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS } fr
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
 import { OfficeLocationPanel } from './office-location-panel';
+import { PurchaseSettingsPanel } from '@/features/purchase/purchase-settings-panel';
+import { SalesSettingsPanel } from '@/features/sales/sales-settings-panel';
+
 import { AppearancePanel } from './appearance-panel';
+import { useSearchParams } from 'react-router';
+
 import { PolicyChoiceField, PolicyDurationField, PolicyNumberField, PolicyToggleField } from './policy-fields';
 import {
   DATE_FORMATS,
@@ -154,16 +157,46 @@ function FormSkeleton() {
   );
 }
 
+/**
+ * Owner, 22 Aug 2026: every module's settings live here, one tab each. The
+ * tab is in the URL so the sales and purchase list pages can deep-link to
+ * theirs, and so a reload lands where the person was.
+ */
+const TABS = ['organisation', 'appearance', 'office', 'attendance', 'sales', 'purchase', 'documents', 'email', 'access'] as const;
+type SettingsTab = (typeof TABS)[number];
+
+function useSettingsTab(): [SettingsTab, (next: SettingsTab) => void] {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const param = searchParams.get('tab');
+  const tab: SettingsTab = TABS.includes(param as SettingsTab) ? (param as SettingsTab) : 'organisation';
+  const setTab = (next: SettingsTab) => {
+    setSearchParams(
+      (current) => {
+        const params = new URLSearchParams(current);
+        if (next === 'organisation') params.delete('tab');
+        else params.set('tab', next);
+        return params;
+      },
+      { replace: true },
+    );
+  };
+  return [tab, setTab];
+}
+
 export function SettingsPage() {
   const canManage = usePermission(PERMISSIONS.SETTINGS_MANAGE);
+  const canSales = usePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE);
+  const canPurchase = usePermission(PERMISSIONS.PURCHASE_DOCUMENT_APPROVE);
   const query = useSettings({ enabled: canManage });
   const saved = query.data?.value ?? null;
 
   return (
     <>
-      <PageHeader description="Organisation profile, attendance policy, photo retention, outbound email and the sign-in window." />
+      <PageHeader description="Every module's settings in one place: the organisation, how it looks, attendance and photos, sales and purchase thresholds, documents, email, security and the sign-in window." />
 
-      {canManage ? (
+      {!canManage && (canSales || canPurchase) ? (
+        <ModuleSettingsOnly canSales={canSales} canPurchase={canPurchase} />
+      ) : canManage ? (
         <div className="flex flex-col gap-4">
           {query.data?.sample ? <SampleDataNotice what="settings" /> : null}
 
@@ -179,7 +212,7 @@ export function SettingsPage() {
             />
           ) : null}
 
-          {saved ? <SettingsForm key={saved.organisation.id} saved={saved} /> : null}
+          {saved ? <SettingsForm key={saved.organisation.id} saved={saved} canSales={canSales} canPurchase={canPurchase} /> : null}
         </div>
       ) : (
         <Empty className="border">
@@ -199,7 +232,49 @@ export function SettingsPage() {
   );
 }
 
-function SettingsForm({ saved }: { saved: OrgSettings }) {
+/** A sales or purchase approver without settings.manage: their tabs, nothing else. */
+function ModuleSettingsOnly({ canSales, canPurchase }: { canSales: boolean; canPurchase: boolean }) {
+  const [tab, setTab] = useSettingsTab();
+  const first: SettingsTab = canSales ? 'sales' : 'purchase';
+  const value = (tab === 'sales' && canSales) || (tab === 'purchase' && canPurchase) ? tab : first;
+  return (
+    <Tabs
+      value={value}
+      onValueChange={(next: unknown) => {
+        if (next === 'sales' || next === 'purchase') setTab(next);
+      }}
+      className="gap-4"
+    >
+      <TabsList className="no-scrollbar max-w-full overflow-x-auto">
+        {canSales ? (
+          <TabsTrigger value="sales" className="px-3">
+            <ReceiptIcon data-icon="inline-start" />
+            Sales
+          </TabsTrigger>
+        ) : null}
+        {canPurchase ? (
+          <TabsTrigger value="purchase" className="px-3">
+            <ShoppingCartIcon data-icon="inline-start" />
+            Purchase
+          </TabsTrigger>
+        ) : null}
+      </TabsList>
+      {canSales ? (
+        <TabsContent value="sales">
+          <SalesSettingsPanel />
+        </TabsContent>
+      ) : null}
+      {canPurchase ? (
+        <TabsContent value="purchase">
+          <PurchaseSettingsPanel />
+        </TabsContent>
+      ) : null}
+    </Tabs>
+  );
+}
+
+function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; canSales: boolean; canPurchase: boolean }) {
+  const [tab, setTab] = useSettingsTab();
   const [draft, setDraft] = useState<Draft>(() => draftOf(saved));
   const [historyOpen, setHistoryOpen] = useState(false);
   const save = useSaveSettings();
@@ -367,7 +442,13 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         </Button>
       </div>
 
-      <Tabs defaultValue="organisation" className="gap-4">
+      <Tabs
+        value={tab}
+        onValueChange={(next: unknown) => {
+          if (TABS.includes(next as SettingsTab)) setTab(next as SettingsTab);
+        }}
+        className="gap-4"
+      >
         {/* Scrolls rather than stretching the page.
             Four labelled tabs do not fit in 360px, and a TabsList that
             overflows widens the document -- which then drags the fixed bottom
@@ -393,17 +474,25 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
             <ClockIcon data-icon="inline-start" />
             Attendance
           </TabsTrigger>
-          <TabsTrigger value="photos" className="px-3">
-            <CameraIcon data-icon="inline-start" />
-            Photos
-          </TabsTrigger>
+          {canSales ? (
+            <TabsTrigger value="sales" className="px-3">
+              <ReceiptIcon data-icon="inline-start" />
+              Sales
+            </TabsTrigger>
+          ) : null}
+          {canPurchase ? (
+            <TabsTrigger value="purchase" className="px-3">
+              <ShoppingCartIcon data-icon="inline-start" />
+              Purchase
+            </TabsTrigger>
+          ) : null}
           <TabsTrigger value="email" className="px-3">
             <EnvelopeSimpleIcon data-icon="inline-start" />
             Email
           </TabsTrigger>
           <TabsTrigger value="access" className="px-3">
-            <MoonIcon data-icon="inline-start" />
-            Access window
+            <ShieldCheckIcon data-icon="inline-start" />
+            Security &amp; access
           </TabsTrigger>
           <TabsTrigger value="documents" className="px-3">
             <FileTextIcon data-icon="inline-start" />
@@ -519,6 +608,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         </TabsContent>
 
         <TabsContent value="attendance">
+          <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Attendance policy"
@@ -614,9 +704,6 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
               />
             </FieldGroup>
           </div>
-        </TabsContent>
-
-        <TabsContent value="photos">
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Punch photos"
@@ -697,7 +784,20 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
               ) : null}
             </FieldGroup>
           </div>
+          </div>
         </TabsContent>
+
+
+        {canSales ? (
+          <TabsContent value="sales">
+            <SalesSettingsPanel />
+          </TabsContent>
+        ) : null}
+        {canPurchase ? (
+          <TabsContent value="purchase">
+            <PurchaseSettingsPanel />
+          </TabsContent>
+        ) : null}
 
         <TabsContent value="email">
           <EmailTab settings={saved} />

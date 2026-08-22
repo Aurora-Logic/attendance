@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { FileTextIcon, GearIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams, Link } from 'react-router';
 
 import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
@@ -21,7 +21,6 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
 import { SyncStateBadge } from './sales-order-sheet';
-import { SalesSettingsDialog } from './sales-settings-dialog';
 import { formatMoney } from './money';
 import type { EstimateSummary } from './types';
 import { useSalesOrders } from './use-estimates';
@@ -72,7 +71,6 @@ export function SalesOrdersPage() {
   const canView = canViewSelf || canViewAll;
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const canApproveDiscount = usePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -167,9 +165,8 @@ export function SalesOrdersPage() {
                   size="sm"
                   variant="outline"
                   aria-label="Sales settings"
-                  onClick={() => {
-                    setSettingsOpen(true);
-                  }}
+                  nativeButton={false}
+                  render={<Link to="/settings?tab=sales" />}
                 >
                   <GearIcon data-icon="inline-start" />
                   <span className="hidden sm:inline">Settings</span>
@@ -294,8 +291,6 @@ export function SalesOrdersPage() {
           </>
         ) : null}
       </div>
-
-      <SalesSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   );
 }

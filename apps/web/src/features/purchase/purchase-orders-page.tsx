@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { GearIcon, LockKeyIcon, PlusIcon, ShoppingCartIcon } from '@phosphor-icons/react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams, Link } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -30,7 +30,6 @@ import {
   type PurchaseOrderStatus,
 } from '@vyuha/shared';
 
-import { PurchaseSettingsDialog } from './purchase-settings-dialog';
 import type { PurchaseOrderSummary } from './types';
 import { usePurchaseOrders } from './use-purchase';
 
@@ -96,7 +95,6 @@ export function PurchaseOrdersPage() {
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
   const partyParam = searchParams.get('party') ?? '';
   const salesOrderParam = searchParams.get('salesOrder') ?? '';
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [draft, setDraft] = useState(q);
   const [syncedQ, setSyncedQ] = useState(q);
@@ -180,9 +178,8 @@ export function PurchaseOrdersPage() {
                   size="sm"
                   variant="outline"
                   aria-label="Purchase settings"
-                  onClick={() => {
-                    setSettingsOpen(true);
-                  }}
+                  nativeButton={false}
+                  render={<Link to="/settings?tab=purchase" />}
                 >
                   <GearIcon data-icon="inline-start" />
                   <span className="hidden sm:inline">Settings</span>
@@ -307,8 +304,6 @@ export function PurchaseOrdersPage() {
           </>
         ) : null}
       </div>
-
-      <PurchaseSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   );
 }

@@ -98,6 +98,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-29 | Two-step sign-in (REQ-B-09) | Authenticator app after the password: enrolment with QR and first code, ten recovery codes, thirty-day remembered browsers, five-minute challenges spent by five wrong codes, an Admin reset, a policy setting (Admin and Accounts by default) that makes a named role enrol before any screen | Done |
 | B-30 | Consent line, legal pages, identity tints | The consent sentence reads as one quiet line with hairline links; the legal pages are a composed reading layout (contents rail, 65ch measure, numbered sections, first-paint rise); eight `--tint-*` tokens in both modes replace raw Tailwind palettes on people, deal stages and task columns | Done (1 of 4 in the appearance brief) |
 | B-31 | Appearance: accent, base, density per workspace | Four variables the theme derives itself from; eight accent presets plus any hue, three bases, two densities; applied by the shell from the branding read; a Settings tab whose preview is the page itself | Done (2 of 4 in the appearance brief) |
+| B-32 | One Settings screen | Every module's settings under one screen, one tab each: Organisation, Appearance, Office location, Attendance (with punch photos), Sales, Purchase, Documents, Email, Security & access; the tab is in the URL; the Sales and Purchase list pages link to their tab; an approver without settings.manage sees only their tabs | Done (3 of 4 in the appearance brief) |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -296,3 +297,13 @@ Owner's picks: presets plus a custom hue, per workspace, with density, number fo
 | -- | Settings -> Appearance: eight accent swatches in fixed order (static classes), a hue slider (shadcn Slider, installed through the registry) for any other, three base swatches, two densities, As shipped; the page is the preview, the saved appearance returns on leaving | A hex field can choose a colour the text cannot sit on; a hue at fixed lightness cannot |
 
 Density scales Tailwind's `--spacing` by a fifth; type keeps its size and the 44px touch floor is in px. Tests: catalogue agreement for the group, the settings endpoint suite (55), `applyAppearance` in jsdom, 540 web tests. Browser gate not run (owner instruction); verified through the emitted CSS. The whole-package typecheck is blocked by the other session's uncommitted chart edits; this increment's files typecheck.
+
+### B-32 (appearance brief, part 3: Settings in one place; owner asked "what do you think?" and chose to consolidate), 22 Aug 2026
+
+| Before | After | Why |
+| --- | --- | --- |
+| Sales settings and Purchase settings were dialogs behind a button on their list pages; Photos had its own tab; the sign-in window sat under a tab called "Access window" and the two-step policy had just joined it | One screen, one tab per area; the two dialogs are panels on Sales and Purchase tabs with their own Save (their own endpoints, their own permission); punch photos sit under Attendance; "Security & access" names what the last tab holds | A Tally user expects one Settings; three patterns for one idea is what made the two-step policy hard to find this morning |
+| The tab was component state | `?tab=` in the URL; the list pages link to `/settings?tab=sales` and `?tab=purchase`; a reload lands where the person was | A setting has an address |
+| Settings was closed to anyone without settings.manage, which would have taken the thresholds away from the approvers who own them | An approver without settings.manage sees a Settings screen with only their tabs | Consolidation must not cost anyone access they had |
+
+Tests: 540 web tests, eslint clean on the changed files, a direct Vite build. The whole-package typecheck is blocked by the other session's uncommitted sales edits (dispatch-sections, scan-page); this increment's files typecheck. Browser gate not run (owner instruction).
