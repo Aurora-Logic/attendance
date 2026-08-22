@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeftIcon, ArrowsInIcon, DotsThreeVerticalIcon, EyeIcon, FileXlsIcon, PaintBrushIcon, PencilSimpleIcon, PrinterIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { ArrowLeftIcon, ArrowsInIcon, DotsThreeVerticalIcon, EyeIcon, FileXlsIcon, ListIcon, PaintBrushIcon, PencilSimpleIcon, PrinterIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { PERMISSIONS, type DocumentSettings, type PrintedDocumentType } from '@vyuha/shared';
 
 import { DesignRail } from './design-rail';
+import { DocumentForm } from './document-form';
 import { downloadDocumentFile } from './download';
 import { DocumentPaper, type PaperEditing, type PaperModel } from './paper';
 import { useFooterLogoUrls, useSaveDocumentSettings } from './use-document-settings';
@@ -91,6 +92,11 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const settingsDirty = JSON.stringify(settings.draft) !== JSON.stringify(settings.saved);
   const showEditing = preview ? undefined : editing;
   const hasExtras = extras !== undefined;
+  // A phone draws the document as a form (DocumentForm) and shows the paper
+  // only on request, so the toggle exists there even for a document nobody
+  // can edit; on a desk the paper is the editor and the toggle is Preview.
+  const formOnPhone = isMobile && !preview;
+  const previewToggle = isMobile || (canPreview && editing !== undefined);
 
   // Fit: the largest zoom step at which the whole sheet stands in the stage — by height on a desk; by width on a
   // phone, where the stage scrolls and a squashed A4 grid would be unreadable.
@@ -126,7 +132,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
     return () => {
       observer.disconnect();
     };
-  }, [fit, isMobile, zoomIndex, design.templateId, design.fontScale, model.lines.length, hasExtras]);
+  }, [fit, isMobile, preview, zoomIndex, design.templateId, design.fontScale, model.lines.length, hasExtras]);
 
   async function exportXlsx() {
     if (excel === null) return;
@@ -147,26 +153,29 @@ export function DocumentEditor(props: DocumentEditorProps) {
           // views all render DocumentEditor — and none of them renders the
           // PageHeader the rest of the product is anchored on.
           data-guide="screen.document"
-          className="bg-background/85 supports-[backdrop-filter]:bg-background/70 flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 backdrop-blur md:px-6"
+          // One row on a phone: the back arrow alone, the title truncating,
+          // Preview and the overflow at the thumb's edge. Wrapping put the
+          // actions on a second row with a blank band beside them.
+          className="bg-background/85 supports-[backdrop-filter]:bg-background/70 flex shrink-0 items-center gap-2 border-b px-3 py-2 backdrop-blur md:flex-wrap md:px-6"
         >
           <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={backTo} />}>
             <ArrowLeftIcon data-icon="inline-start" />
-            {backLabel}
+            <span className="max-md:sr-only">{backLabel}</span>
           </Button>
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className="truncate text-sm font-semibold">{title}</span>
             {badges}
             {dirty ? <Badge variant="secondary">Unsaved</Badge> : null}
           </div>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
             <Button variant={fit ? 'default' : 'outline'} size="sm" className="hidden md:inline-flex" aria-pressed={fit} aria-label="Fit the page to the screen" onClick={() => { setFit((v) => !v); }}>
               <ArrowsInIcon data-icon="inline-start" />
               {fit ? `Fit ${String(Math.round(zoom.value * 100))}%` : '100%'}
             </Button>
-            {canPreview && editing !== undefined ? (
+            {previewToggle ? (
               <Button variant={preview ? 'default' : 'outline'} size="sm" aria-pressed={preview} onClick={() => { setPreview((v) => !v); }}>
-                {preview ? <PencilSimpleIcon data-icon="inline-start" /> : <EyeIcon data-icon="inline-start" />}
-                {preview ? 'Edit' : 'Preview'}
+                {preview ? (editing !== undefined ? <PencilSimpleIcon data-icon="inline-start" /> : <ListIcon data-icon="inline-start" />) : <EyeIcon data-icon="inline-start" />}
+                {preview ? (editing !== undefined ? 'Edit' : 'Details') : 'Preview'}
               </Button>
             ) : null}
             <div className="hidden items-center gap-2 md:flex">
@@ -201,7 +210,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
           </div>
         </div>
 
-        <div ref={stageRef} className="bg-muted/40 min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6">
+        <div ref={stageRef} className={cn('min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6', formOnPhone ? 'bg-background' : 'bg-muted/40')}>
           {failure ? (
             <Alert variant="destructive" className="mx-auto mb-4 max-w-[210mm]">
               <WarningCircleIcon />
@@ -210,9 +219,13 @@ export function DocumentEditor(props: DocumentEditorProps) {
             </Alert>
           ) : null}
           {hint ? <p className="text-muted-foreground mx-auto mb-3 max-w-[210mm] text-xs">{hint}</p> : null}
-          <div ref={paperRef} className={cn('mx-auto w-fit max-w-full', zoom.className)}>
-            <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
-          </div>
+          {formOnPhone ? (
+            <DocumentForm model={model} design={design} editing={editing} />
+          ) : (
+            <div ref={paperRef} className={cn('mx-auto w-fit max-w-full', zoom.className)}>
+              <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
+            </div>
+          )}
           {extras ? <div className="mx-auto mt-6 max-w-[210mm]">{extras}</div> : null}
         </div>
 

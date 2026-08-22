@@ -81,6 +81,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-17 | Motion audit (emil-design-eng) | Every animated primitive and every pressable surface read against the decision framework; see the B-17 table below | Done |
 | B-18 | Raise the bar, round one | Sliding tab pill, tooltip delay with instant follow-on from one root provider, theme cross-fade through a view transition | Done |
 | B-19 | One button height on a phone | Buttons and toggles join the 44px coarse-pointer floor; the invisible-target scheme and 17 per-screen overrides removed; a source-scan test keeps them out | Done |
+| B-20 | Documents on a phone | Estimate, sales order, purchase order and invoice draw as a stacked form below the tablet breakpoint; the paper is one tap away under Preview; the toolbar is one row | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -158,3 +159,16 @@ Three mechanisms were deciding a button's height on a phone, and they disagreed.
 | Nothing stopped the next screen from doing it again | `button-height.test.ts` scans every screen's `<Button>` for height, size or coarse-pointer growth classes; five deliberate exceptions are named with their reasons (punch photo tile, calculator keys, profile fold rows, the 56px punch hero, the upload tile) | The class of bug, not the instance |
 
 Tab triggers stay out of the floor by design (the 32px strip carries its own tap target). `InputGroup` still carries its own addon growth; it is inside a 44px field either way. Desktop is untouched: the floor is a `pointer: coarse` query. Browser gate not run (owner instruction); verified through the emitted CSS selector, the scan test and 507 web tests.
+
+### B-20 (owner's screenshot of EST-0019 on a phone), 22 Aug 2026
+
+The paper is the editor on a desk (REQ-W-01). On a phone the shell zoomed the A4 sheet to the screen's width — 0.4× — which is eight-point type, line inputs a few pixels tall and a buyer picker nobody can hit. The toolbar wrapped its actions onto a second row beside a blank band.
+
+| Before | After | Why |
+| --- | --- | --- |
+| The A4 paper zoomed to 40% on every phone, editable in theory | `DocumentForm`: the same `PaperModel` and `PaperEditing` the paper consumes, drawn as sections — party, dates, consignee, one block per line, totals, the small boxes folded under More details, notes and terms. The four editor pages are untouched; `DocumentEditor` picks the surface | A dense grid is hidden below the breakpoint, not crushed (thumb-reach); the page that owns the document does not know which surface drew it |
+| No way to see the paper on a phone except the crushed editor | Preview shows the paper (fit by width, read-only); Edit / Details comes back. The toggle exists on a phone even for an invoice nobody edits | The paper is still the deliverable; it is one tap away instead of the only view |
+| Toolbar wrapped: back link with its label, title, then Preview and the overflow on a second row with a blank band | One row: the arrow alone (label for screen readers), the title truncating, Preview and the overflow at the thumb's edge | The bar is where you are and what you can do; a blank band is neither |
+| Fit effect ignored the preview toggle, so the paper would have mounted at 100% after a flip | `preview` in the effect's dependencies | The paper re-measures when it appears |
+
+Three jsdom tests prove the form: a read-only document renders without a single input and shows party, line facts, totals, the filled detail box and the notes; every editing section reaches the hook the page wired (place of supply, line quantity and rate, remove, add, notes, a detail box behind More details); the consignee section follows the design flag. Browser gate not run (owner instruction).
