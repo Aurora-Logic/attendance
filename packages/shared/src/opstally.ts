@@ -34,6 +34,7 @@ export const OPSTALLY_EVENTS = [
   'voucher.created',
   'voucher.updated',
   'voucher.cancelled',
+  'voucher.snapshot',
 ] as const;
 
 export type OpsTallyEventType = (typeof OPSTALLY_EVENTS)[number];
@@ -146,6 +147,15 @@ export const opsTallyEventSchema = z.discriminatedUnion('event', [
   z.object({ ...envelope, event: z.literal('voucher.created'), payload: opsTallyVoucherSchema }),
   z.object({ ...envelope, event: z.literal('voucher.updated'), payload: opsTallyVoucherSchema }),
   z.object({ ...envelope, event: z.literal('voucher.cancelled'), payload: opsTallyVoucherSchema }),
+  z.object({
+    ...envelope,
+    event: z.literal('voucher.snapshot'),
+    payload: z.object({
+      vouchers: z.array(opsTallyVoucherSchema).max(500),
+      chunk: z.number().int().min(1),
+      total_chunks: z.number().int().min(1),
+    }),
+  }),
 ]);
 
 export type OpsTallyEvent = z.infer<typeof opsTallyEventSchema>;
