@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Route, Routes } from 'react-router';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 
 import { AppShell } from '@/app/layout/app-shell';
 import { SessionGate } from '@/app/session-gate';
@@ -80,8 +80,10 @@ const RecycleBinPage = lazy(() => import('@/features/recycle-bin').then((m) => (
 const ReportsPage = lazy(() => import('@/features/reports').then((m) => ({ default: m.ReportsPage })));
 const DashboardPage = lazy(() => import('@/features/dashboard/dashboard-page').then((m) => ({ default: m.DashboardPage })));
 const LandingPage = lazy(() => import('@/features/dashboard/landing').then((m) => ({ default: m.LandingPage })));
-const ReportsDashboardPage = lazy(() => import('@/features/reports/reports-dashboard-page').then((m) => ({ default: m.ReportsDashboardPage })));
-const ReportsDashboardV2 = lazy(() => import('@/features/reports/dashboard-v2').then((m) => ({ default: m.ReportsDashboardV2 })));
+/* The reports dashboard is the shadcn-shaped one. The earlier page it replaced
+   lived at this address for months, so the address is what moved, not the
+   people using it. */
+const ReportsDashboardPage = lazy(() => import('@/features/reports/dashboard-v2').then((m) => ({ default: m.ReportsDashboardV2 })));
 const AdministrationScreen = lazy(() => import('@/features/administration/administration-screen').then((m) => ({ default: m.AdministrationScreen })));
 const RolesPage = lazy(() => import('@/features/roles').then((m) => ({ default: m.RolesPage })));
 const SettingsPage = lazy(() => import('@/features/settings').then((m) => ({ default: m.SettingsPage })));
@@ -227,7 +229,9 @@ export default function App() {
               <Route path="reports/dashboard" element={<ReportsDashboardPage />} />
               {/* A second version, so the two can be compared before either is
                   kept. Vanilla shadcn charts and cards, no project chart layer. */}
-              <Route path="reports/dashboard/v2" element={<ReportsDashboardV2 />} />
+              {/* The comparison is over and this one won; the old link still
+                  works rather than answering "not found". */}
+              <Route path="reports/dashboard/v2" element={<Navigate to="/reports/dashboard" replace />} />
               <Route path="administration" element={<AdministrationScreen />} />
               <Route path="downloads" element={<DownloadsPage />} />
               <Route path="recycle-bin" element={<RecycleBinPage />} />
