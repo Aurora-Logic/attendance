@@ -78,6 +78,8 @@ Existing keys are unchanged. Twenty-one are added.
 | `sales.document.create` | ✓ | ✓ | | | ✓ |
 | `sales.document.alter` | | ✓ | | | ✓ |
 | `sales.discount.approve` | | ✓ | | | ✓ |
+| `pricing.manage` (docs/15 AN) | | ✓ | | | ✓ |
+| `pricing.approve` (docs/15 AN) | | | | | ✓ |
 | `sales.credit.override` | | ✓ | | ✓ | ✓ |
 | `purchase.document.view` | | | ✓ | ✓ | ✓ |
 | `purchase.document.create` | | | ✓ | | ✓ |

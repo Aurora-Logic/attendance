@@ -122,6 +122,12 @@ export const salesDocumentLines = pgTable(
     packedQty: numeric('packed_qty', { precision: 16, scale: 3 }).notNull().default('0'),
     invoicedQty: numeric('invoiced_qty', { precision: 16, scale: 3 }).notNull().default('0'),
     dispatchedQty: numeric('dispatched_qty', { precision: 16, scale: 3 }).notNull().default('0'),
+    // 15 REQ-AN-15: what the price lists resolved when the line was written, as values; and why a rate went below it.
+    priceListId: uuid('price_list_id'),
+    priceListVersion: integer('price_list_version'),
+    resolvedRate: numeric('resolved_rate', { precision: 16, scale: 2 }),
+    appliedDiscountPct: numeric('applied_discount_pct', { precision: 5, scale: 2 }),
+    rateOverrideReason: text('rate_override_reason'),
     ...standardColumns(),
   },
   (t) => [

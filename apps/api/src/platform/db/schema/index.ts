@@ -21,3 +21,4 @@ export * from './sync.schema.js';
 export * from './projections.schema.js';
 export * from './task.schema.js';
 export * from './procurement.schema.js';
+export * from './pricing.schema.js';

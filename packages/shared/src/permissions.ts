@@ -92,6 +92,9 @@ export const PERMISSIONS = {
   SALES_DISCOUNT_APPROVE: 'sales.discount.approve',
   /** 08 REQ-W-09: release an order blocked by the party's credit position, with a reason. */
   SALES_CREDIT_OVERRIDE: 'sales.credit.override',
+  // 15 REQ-AN-10: price lists are drafted by one key and activated by another.
+  PRICING_MANAGE: 'pricing.manage',
+  PRICING_APPROVE: 'pricing.approve',
 
   /** 08 §2.2 / 13. Purchase and Accounts roles arrive with their phases; Admin holds these meanwhile. */
   PURCHASE_DOCUMENT_VIEW: 'purchase.document.view',
@@ -147,6 +150,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'sales.document.alter': 'Alter an accepted document (re-pushed against its GUID)',
   'sales.discount.approve': 'Approve a discount above the threshold',
   'sales.credit.override': 'Release a sales order blocked by the party’s credit limit, with a reason',
+  'pricing.manage': 'Draft and edit price lists and submit them for approval',
+  'pricing.approve': 'Approve a price list into force',
   'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
   'purchase.document.create': 'Raise purchase orders and record receipts',
   'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
@@ -209,41 +214,25 @@ const HR_PERMISSIONS = [
   PERMISSIONS.REPORT_EXPORT,
 ] as const satisfies readonly PermissionKey[];
 
-const ADMIN_PERMISSIONS = [
-  ...HR_PERMISSIONS,
-  // REQ-E-09. Admin only, and deliberately not in `HR_PERMISSIONS`: HR closes
-  // a month, only Admin reopens one.
-  PERMISSIONS.ATTENDANCE_UNLOCK,
-  PERMISSIONS.SETTINGS_MANAGE,
-  PERMISSIONS.ROLES_MANAGE,
-  PERMISSIONS.AUDIT_VIEW,
-  PERMISSIONS.INTEGRATION_MANAGE,
-  PERMISSIONS.MASTERS_TALLY_VIEW,
-  // 08 §2.2: Sales manager and Accounts hold this too, when those roles land.
-  PERMISSIONS.RECEIVABLES_VIEW,
-  PERMISSIONS.REPORTS_EXCEPTIONS_NOTIFY,
-  PERMISSIONS.REPORTS_MARGIN_VIEW,
-  PERMISSIONS.CRM_CONTACT_VIEW_SELF,
-  PERMISSIONS.CRM_CONTACT_VIEW_ALL,
-  PERMISSIONS.CRM_CONTACT_MANAGE,
-  PERMISSIONS.CRM_DEAL_VIEW_SELF,
-  PERMISSIONS.CRM_DEAL_VIEW_ALL,
-  PERMISSIONS.CRM_DEAL_MANAGE,
-  PERMISSIONS.CRM_PIPELINE_MANAGE,
-  PERMISSIONS.CRM_TASK_VIEW_SELF,
-  PERMISSIONS.CRM_TASK_VIEW_TEAM,
-  PERMISSIONS.CRM_TASK_MANAGE,
-  PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
-  PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
-  PERMISSIONS.SALES_DOCUMENT_CREATE,
-  PERMISSIONS.SALES_DOCUMENT_ALTER,
-  PERMISSIONS.SALES_DISCOUNT_APPROVE,
-  PERMISSIONS.SALES_CREDIT_OVERRIDE,
-  PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
-  PERMISSIONS.PURCHASE_DOCUMENT_CREATE,
-  PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
-  PERMISSIONS.ACCESS_OUTSIDE_WINDOW,
-] as const satisfies readonly PermissionKey[];
+/**
+ * Admin holds every permission there is, derived rather than listed.
+ *
+ * This used to be an enumeration -- HR's set, then thirty-odd keys named one
+ * by one. It was complete, and that is the problem: it was complete because
+ * somebody remembered each time, and the failure mode is silent. A permission
+ * added for a new module and not added here leaves the owner of the system
+ * unable to reach a screen they are supposed to own, and nothing anywhere
+ * says so; they simply find a 403 one day and assume it is a bug elsewhere.
+ *
+ * Reading the catalogue makes "Admin can do everything" true by construction.
+ * A key that exists is a key Admin has, on the day it is added, without anyone
+ * doing anything.
+ *
+ * This is a *seed*, not an invariant -- REQ-B-07 lets an administrator edit
+ * any role afterwards, including their own, and the last-holder guard in
+ * `RbacAdminService` is what stops that going too far.
+ */
+const ADMIN_PERMISSIONS = Object.values(PERMISSIONS) satisfies readonly PermissionKey[];
 
 /**
  * Seed only. Admin can edit any of these in the UI afterwards (REQ-B-07), so
@@ -275,6 +264,7 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.SALES_DOCUMENT_ALTER,
   PERMISSIONS.SALES_DISCOUNT_APPROVE,
   PERMISSIONS.SALES_CREDIT_OVERRIDE,
+  PERMISSIONS.PRICING_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 /** 08 §2.2, the Purchase column: the procurement queue, POs and receipts, tasks, and the masters. */

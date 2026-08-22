@@ -6,6 +6,8 @@ import { FieldDescription } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
+import { ResolvedRateHint } from '@/features/pricing/resolved-rate-hint';
+
 import { ItemHistoryAffordance } from './item-history-popover';
 import { formatMoney } from './money';
 import { newLine, previewLine, type LineDraft } from './types';
@@ -41,6 +43,8 @@ interface DocumentLinesEditorProps {
   canPickItems: boolean;
   partyId: string | null;
   companyId: string | null;
+  /** 15 REQ-AN-13: the price lists resolve at the document's date; null reads as today. */
+  documentDate?: string | null;
   /** The saved figures, or null for a new document. Shown when the draft is clean. */
   saved: DocumentTotals | null;
   dirty: boolean;
@@ -55,6 +59,7 @@ export function DocumentLinesEditor({
   canPickItems,
   partyId,
   companyId,
+  documentDate = null,
   saved,
   dirty,
 }: DocumentLinesEditorProps) {
@@ -167,6 +172,24 @@ export function DocumentLinesEditor({
                   ) : null}
                 </div>
               </div>
+              {canPickItems ? (
+                <ResolvedRateHint
+                  partyId={partyId}
+                  stockItemId={line.stockItemId}
+                  quantity={line.quantity}
+                  date={documentDate}
+                  rate={line.rate}
+                  reason={line.rateOverrideReason}
+                  editable={editable}
+                  lineNo={index + 1}
+                  onUseRate={(rate) => {
+                    updateLine(line.key, { rate: rate.replace(/\.?0+$/u, '') });
+                  }}
+                  onReasonChange={(reason) => {
+                    updateLine(line.key, { rateOverrideReason: reason });
+                  }}
+                />
+              ) : null}
               <div className="text-muted-foreground flex justify-end gap-4 text-xs tabular-nums">
                 <span>{line.unit ? `per ${line.unit}` : ''}</span>
                 <span>{p === null ? '—' : `${formatMoney(p.amount.toFixed(2))}${p.tax > 0 ? ` + tax ${formatMoney(p.tax.toFixed(2))}` : ''}`}</span>

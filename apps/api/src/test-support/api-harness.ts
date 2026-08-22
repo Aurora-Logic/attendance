@@ -181,7 +181,8 @@ export class ApiHarness {
       .useClass(RecordingMailer)
       .compile();
 
-    const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
+    // VYUHA_TEST_LOGS=1 surfaces the errors a 500 hides; silent otherwise so a run reads clean.
+    const app = moduleRef.createNestApplication({ logger: process.env.VYUHA_TEST_LOGS === '1' ? (['error', 'warn'] as const) : false, rawBody: true });
     app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
     await app.listen(0);
 
@@ -214,7 +215,8 @@ export class ApiHarness {
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
 
-    const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
+    // VYUHA_TEST_LOGS=1 surfaces the errors a 500 hides; silent otherwise so a run reads clean.
+    const app = moduleRef.createNestApplication({ logger: process.env.VYUHA_TEST_LOGS === '1' ? (['error', 'warn'] as const) : false, rawBody: true });
     app.setGlobalPrefix(API_PREFIX_PATH.slice(1));
     await app.listen(0);
 

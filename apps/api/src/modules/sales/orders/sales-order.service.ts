@@ -245,7 +245,17 @@ export class SalesOrderService implements OnModuleInit {
     // sales.discount.approve, unless the confirmer holds the key themselves.
     const settings = await this.readSettings(principal.orgId);
     const steepest = Math.max(0, ...existing.lines.map((l) => Number(l.discountPct)));
-    if (settings.discountApprovalPct !== null && steepest > settings.discountApprovalPct && !hasPermission(principal, PERMISSIONS.SALES_DISCOUNT_APPROVE)) {
+    // 15 REQ-AN-16: the resolved rate is the floor. A line under it needs a
+    // reason, and goes to the same inbox as a steep discount.
+    const belowFloor = existing.lines.filter((l) => l.resolvedRate !== null && Number(l.rate) < Number(l.resolvedRate));
+    const unexplained = belowFloor.find((l) => l.rateOverrideReason === null || l.rateOverrideReason.trim() === '');
+    if (unexplained !== undefined) {
+      throw AppError.validation(`Line ${String(unexplained.lineNo)} (${unexplained.description}) is priced at ${unexplained.rate} against a floor of ${unexplained.resolvedRate ?? ''}; a reason is needed to go below the price list.`, {
+        fields: [{ path: `lines.${String(unexplained.lineNo - 1)}.rateOverrideReason`, message: 'required below the resolved rate' }],
+      });
+    }
+    const steepDiscount = settings.discountApprovalPct !== null && steepest > settings.discountApprovalPct;
+    if ((steepDiscount || belowFloor.length > 0) && !hasPermission(principal, PERMISSIONS.SALES_DISCOUNT_APPROVE)) {
       const approvers = await this.approvers(principal.orgId, principal.userId);
       const ctx = orgContextOf(principal);
       await this.db.transaction(async (tx) => {
@@ -255,7 +265,7 @@ export class SalesOrderService implements OnModuleInit {
             type: 'SALES_DISCOUNT',
             subjectType: SALES_ORDER_SUBJECT_TYPE,
             subjectId: id,
-            subject: `${existing.number} · ${existing.customerName} · ${String(steepest)}% off · ${existing.grandTotal}`,
+            subject: `${existing.number} · ${existing.customerName} · ${belowFloor.length > 0 ? `${String(belowFloor.length)} line${belowFloor.length === 1 ? '' : 's'} below the price list` : `${String(steepest)}% off`} · ${existing.grandTotal}`,
             requesterUserId: principal.userId,
             approverUserIds: approvers,
           },

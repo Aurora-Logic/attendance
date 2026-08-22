@@ -366,6 +366,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
           </div>
 
           <DocumentLinesEditor
+            documentDate={draft.date}
             lines={draft.lines}
             onLinesChange={(next) => {
               setDraft((current) => ({ ...current, lines: next }));

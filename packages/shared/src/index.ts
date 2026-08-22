@@ -31,3 +31,4 @@ export * from './tasks.js';
 export * from './opstally.js';
 export * from './notifications.js';
 export * from './voucher-paper.js';
+export * from './pricing.js';

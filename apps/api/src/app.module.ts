@@ -37,6 +37,7 @@ import { SettingsModule } from './platform/settings/settings.module.js';
 import { SyncModule } from './platform/sync/sync.module.js';
 import { TasksModule } from './platform/tasks/tasks.module.js';
 import { DocumentsModule } from './platform/documents/documents.module.js';
+import { PricingModule } from './platform/pricing/pricing.module.js';
 import { StorageModule } from './platform/storage/storage.module.js';
 
 /**
@@ -86,6 +87,8 @@ import { StorageModule } from './platform/storage/storage.module.js';
     SyncModule,
     TasksModule,
     DocumentsModule,
+    // Area AN: price lists; before SalesModule, whose lines resolve through its resolver.
+    PricingModule,
     IntegrationModule,
     HealthModule,
     HelpModule,
