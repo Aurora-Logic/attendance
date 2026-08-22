@@ -65,14 +65,13 @@ export function PackingSlipPaper({ design, profile, orgName, model, box, classNa
   const number = model.number ?? 'Draft';
   const boxCount = model.slip?.boxCount ?? 1;
   const lines = model.lines;
-  const shown = a4 || note ? lines : lines.slice(0, 6);
+  const shown = lines;
   const units = lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
 
   return (
     <div
       data-size={design.paperSize}
-      className={cn('slip-paper grid gap-[4mm] p-[8mm] shadow-sm ring-1 ring-black/5', a4 && 'gap-[6mm] p-[12mm]', className)}
-      style={{ gridTemplateRows: 'auto auto auto 1fr auto' }}
+      className={cn('slip-paper mx-auto flex flex-col gap-[4mm] p-[8mm] shadow-sm ring-1 ring-black/5', a4 && 'gap-[6mm] p-[12mm]', className)}
       aria-label={note ? `Delivery note ${number}` : `Packing slip ${number}, box ${String(box)} of ${String(boxCount)}`}
     >
       <header className="flex items-start justify-between gap-[6mm] border-b-2 border-[#111] pb-[3mm]">
@@ -171,22 +170,22 @@ export function PackingSlipPaper({ design, profile, orgName, model, box, classNa
         </table>
         <p className="pt-[1.5mm] text-[#444]">
           {lines.length} line{lines.length === 1 ? '' : 's'} · {units} units {note ? 'in this dispatch' : 'in this packing'}
-          {shown.length < lines.length ? ` · ${String(lines.length - shown.length)} more on the delivery note` : ''}
           {a4 ? ' · quantities only, values are on the invoice' : ''}
         </p>
         {model.notes.trim() !== '' ? <p className="pt-[1mm] text-[#444]">{model.notes}</p> : null}
       </section>
 
-      <footer className="flex flex-col gap-[2.5mm]">
-        {/* The marks the organisation switched on, as glyphs a loader reads
-            before the word (owner, 22 Aug): no tick-boxes, the mark is the mark. */}
+      <footer className="mt-auto flex flex-col gap-[3mm] pt-[3mm]">
+        {/* The marks the organisation switched on: a bordered band a loader
+            reads across the room (owner, 22 Aug) - big glyph over its word,
+            the mark is the mark, no tick-boxes. */}
         {design.handlingMarks.length > 0 ? (
-          <div className={cn('flex flex-wrap items-center gap-[5mm] text-[8pt] font-semibold', a4 && 'text-[9pt]')}>
+          <div className="grid auto-cols-fr grid-flow-col items-stretch gap-0 border-2 border-[#111] divide-x-2 divide-[#111]">
             {design.handlingMarks.map((mark) => {
               const Glyph = HANDLING_MARK_ICONS[mark];
               return (
-                <span key={mark} className="inline-flex items-center gap-[1.5mm]">
-                  <Glyph weight="bold" className={cn('size-[5mm]', a4 && 'size-[6mm]')} aria-hidden />
+                <span key={mark} className="flex flex-col items-center justify-center gap-[1.5mm] px-[2mm] py-[2.5mm] text-center text-[8pt] leading-tight font-bold uppercase tracking-[0.04em]">
+                  <Glyph weight="bold" className={cn('size-[9mm]', a4 && 'size-[12mm]')} aria-hidden />
                   {HANDLING_MARK_LABELS[mark]}
                 </span>
               );

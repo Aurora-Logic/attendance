@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { PERMISSIONS, type DocumentSettings, type PrintedDocumentType } from '@vyuha/shared';
 
 import { DesignRail } from './design-rail';
+import { HandlingMarksControl } from './handling-marks-control';
 import { DocumentForm } from './document-form';
 import { downloadDocumentFile } from './download';
 import { PackingSlipPaper } from './packing-slip-paper';
@@ -242,6 +243,20 @@ export function DocumentEditor(props: DocumentEditorProps) {
             </Alert>
           ) : null}
           {hint ? <p className="text-muted-foreground mx-auto mb-3 max-w-[210mm] text-xs">{hint}</p> : null}
+          {/* D-47 (owner): the marks are set here, on the slip, not inside Design. */}
+          {SLIP_PAPER_TYPES.includes(docType) ? (
+            <div className="mx-auto mb-4 max-w-[210mm]">
+              <HandlingMarksControl
+                docType={docType}
+                settings={settings.draft}
+                onDraft={settings.setDraft}
+                canManage={canManageSettings}
+                onSave={(next) => {
+                  saveSettings.mutate(next);
+                }}
+              />
+            </div>
+          ) : null}
           {formOnPhone ? (
             <DocumentForm model={model} design={design} editing={editing} />
           ) : (
