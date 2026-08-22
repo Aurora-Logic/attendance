@@ -834,6 +834,7 @@ const OFF_NAV_LABELS: Record<string, string> = {
 const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }[] = [
   { pattern: /^\/employees\/[^/]+$/u, parent: '/employees', label: 'Employee' },
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
+  { pattern: /^\/masters\/vouchers\/[^/]+\/paper$/u, parent: '/masters/vouchers', label: 'Print' },
   { pattern: /^\/masters\/parties\/[^/]+$/u, parent: '/masters/parties', label: 'Party' },
   { pattern: /^\/masters\/items\/[^/]+$/u, parent: '/masters/items', label: 'Stock item' },
   { pattern: /^\/crm\/contacts\/[^/]+$/u, parent: '/crm/contacts', label: 'Contact' },

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowsClockwiseIcon, LockKeyIcon, ReceiptIcon } from '@phosphor-icons/react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { ArrowsClockwiseIcon, LockKeyIcon, ReceiptIcon, PrinterIcon } from '@phosphor-icons/react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
@@ -121,6 +121,13 @@ function VoucherSheet({ id, onClose }: { id: string | null; onClose: () => void 
           ) : null}
           {voucher ? (
             <>
+              {/* Owner, 22 Aug 2026: the voucher on the organisation's paper -- preview, PDF, Excel. */}
+              <div className="mb-3 flex flex-wrap gap-2">
+                <Button size="sm" nativeButton={false} render={<Link to={`/masters/vouchers/${voucher.id}/paper`} />}>
+                  <PrinterIcon data-icon="inline-start" />
+                  Preview and print
+                </Button>
+              </div>
               <dl className="divide-border divide-y">
                 <Row label="Amount">
                   <span className="tabular-nums">{voucher.amount}</span>
