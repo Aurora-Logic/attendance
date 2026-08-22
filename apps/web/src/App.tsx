@@ -19,6 +19,7 @@ import { IntegrationsPage } from '@/features/integrations';
 import { PeriodLockPage } from '@/features/period-lock';
 import { RecycleBinPage } from '@/features/recycle-bin';
 import { ReportsPage } from '@/features/reports';
+import { DashboardPage } from '@/features/dashboard/dashboard-page';
 import { LandingPage } from '@/features/dashboard/landing';
 import { ReportsDashboardPage } from '@/features/reports/reports-dashboard-page';
 import { AdministrationScreen } from '@/features/administration/administration-screen';
@@ -86,7 +87,7 @@ const BUILT_ROUTES = new Set([
   '/masters/items',
   '/masters/price-lists',
   '/masters/vouchers',
-  '/',
+  '/dashboard',
   '/employees',
   '/punch',
   '/my-attendance',
@@ -134,6 +135,15 @@ export default function App() {
 
             <Route element={<AppShell />}>
               <Route index element={<LandingPage />} />
+              {/*
+                The attendance dashboard has its own address now. It used to
+                be "/", which was fine while "/" meant one thing -- then "/"
+                started choosing where to send people, and the two meanings
+                collided: clicking Attendance navigated to "/", which
+                immediately redirected away again, so the module could not be
+                opened at all by anyone the redirect applied to.
+              */}
+              <Route path="dashboard" element={<DashboardPage />} />
 
               <Route path="employees" element={<EmployeesPage />} />
               <Route path="employees/:id" element={<EmployeeDetailPage />} />

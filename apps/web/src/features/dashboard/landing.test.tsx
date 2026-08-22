@@ -8,10 +8,6 @@ vi.mock('@/lib/session/permissions', () => ({
   usePermission: (key: string) => permission.held.has(key),
   usePermissions: () => permission.held,
 }));
-vi.mock('./dashboard-page', () => ({
-  DashboardPage: () => <div>attendance dashboard</div>,
-}));
-
 import { LandingPage } from './landing';
 
 /**
@@ -26,12 +22,27 @@ describe('the landing screen', () => {
     expect(screen.queryByText('attendance dashboard')).toBeNull();
   });
 
-  it('leaves everybody else on the attendance dashboard', () => {
-    // Most of the company. Punch and their own days is the right first screen
-    // and must not regress into a redirect they cannot use.
+  it('sends everybody else to the attendance dashboard', () => {
     permission.held = new Set(['punch.self', 'attendance.view.self']);
-    renderWithProviders(<LandingPage />, { route: '/' });
-    expect(screen.getByText('attendance dashboard')).toBeTruthy();
+    const { container } = renderWithProviders(<LandingPage />, { route: '/' });
+    // A redirect either way: "/" is the entry and renders nothing itself.
+    expect(container.textContent).toBe('');
+  });
+
+  it('never renders a screen at "/" itself', () => {
+    /*
+     * The regression this pins. While "/" both redirected *and* was the
+     * attendance module's home, clicking Attendance navigated to "/" and was
+     * bounced straight back -- the module could not be opened at all by
+     * anyone the redirect applied to. "/" chooses; the screens have their own
+     * addresses.
+     */
+    for (const held of [['receivables.view'], ['punch.self']]) {
+      permission.held = new Set(held);
+      const { container, unmount } = renderWithProviders(<LandingPage />, { route: '/' });
+      expect(container.textContent).toBe('');
+      unmount();
+    }
   });
 
   it('decides on a permission, not a role name', () => {
@@ -41,5 +52,21 @@ describe('the landing screen', () => {
     permission.held = new Set(['receivables.view']);
     renderWithProviders(<LandingPage />, { route: '/' });
     expect(screen.queryByText('attendance dashboard')).toBeNull();
+  });
+});
+
+describe('every module home opens something', () => {
+  it('points no module at a route that only redirects', async () => {
+    /*
+     * The bug in one assertion. Attendance's home was "/", and "/" redirects,
+     * so the switcher navigated to a route that immediately sent you
+     * elsewhere -- clicking Attendance did nothing visible. A module's home
+     * must be a screen, not the chooser.
+     */
+    const { MODULES } = await import('@/lib/nav');
+    for (const module of MODULES) {
+      expect(module.home, `${module.id} points at the redirecting root`).not.toBe('/');
+      expect(module.home.startsWith('/'), `${module.id} home is not a path`).toBe(true);
+    }
   });
 });

@@ -168,7 +168,7 @@ const SHELL_STEPS: GuideStep[] = [
 const SCREEN_INTROS: GuideStep[] = [
   {
     id: 'screen.dashboard',
-    route: '/',
+    route: '/dashboard',
     anchor: ANCHORS.screenHeader,
     // No permission: everyone lands here, and a landing screen nobody can be
     // guided through is the one gap people notice first.
