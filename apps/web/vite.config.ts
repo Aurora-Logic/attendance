@@ -123,4 +123,19 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // P-23: React and its router/query cache together across deploys;
+        // recharts and per-route icons stay in the lazy route chunks that
+        // use them (a manual "charts" chunk was preloaded eagerly, defeating
+        // the split, so it is left to automatic splitting).
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined
+          if (/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id) || id.includes("@tanstack")) return "react-vendor"
+          return undefined
+        },
+      },
+    },
+  },
 })
