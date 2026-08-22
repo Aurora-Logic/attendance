@@ -487,7 +487,7 @@ export function DealsPage() {
                     </span>
                   )}
                   {deal.expectedCloseDate === null ? null : (
-                    <span className={cn('flex items-center gap-1 tabular-nums', deal.status === 'open' && deal.expectedCloseDate < todayParam && 'text-amber-600 dark:text-amber-400')}>
+                    <span className={cn('flex items-center gap-1 tabular-nums', deal.status === 'open' && deal.expectedCloseDate < todayParam && 'text-warning')}>
                       <CalendarBlankIcon className="shrink-0" />
                       {formatDate(deal.expectedCloseDate)}
                     </span>
