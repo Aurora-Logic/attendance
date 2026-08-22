@@ -328,7 +328,7 @@ function EmployeeForm({
         </SheetTitle>
         <SheetDescription>
           {existing === null
-            ? 'The record, not a login. An account is invited separately (REQ-B-02).'
+            ? 'The record, not a login. An account is invited separately.'
             : `${existing.employeeCode}. Everything except the code is editable, with an audit trail.`}
         </SheetDescription>
       </SheetHeader>
@@ -359,7 +359,7 @@ function EmployeeForm({
             />
             <FieldDescription>
               {existing !== null
-                ? 'REQ-A-04: the code is fixed once the record exists, because every report and export cites it.'
+                ? 'The code is fixed once the record exists, because every report and export cites it.'
                 : touched && codeIssue !== null
                   ? codeIssue
                   : 'Unique across the organisation, and permanent once saved.'}
@@ -576,7 +576,7 @@ function EmployeeForm({
                   }}
                 />
                 <FieldDescription>
-                  REQ-A-07: the server refuses a manager that would close a reporting loop.
+                  The server refuses a manager that would close a reporting loop.
                 </FieldDescription>
               </Field>
 
@@ -591,7 +591,7 @@ function EmployeeForm({
                 />
               </Field>
               <FieldDescription>
-                REQ-D-08: exempt from the geofence. Their punches are recorded as On Duty.
+                Exempt from the geofence. Their punches are recorded as On Duty.
               </FieldDescription>
             </FieldGroup>
           </FieldSet>

@@ -35,8 +35,6 @@ export const PERMISSIONS = {
   LEAVE_APPROVE_ALL: 'leave.approve.all',
   LEAVE_POLICY_MANAGE: 'leave.policy.manage',
 
-  REGULARIZATION_RAISE: 'regularization.raise',
-  REGULARIZATION_APPROVE: 'regularization.approve',
 
   EMPLOYEE_VIEW: 'employee.view',
   EMPLOYEE_MANAGE: 'employee.manage',
@@ -60,6 +58,14 @@ export const PERMISSIONS = {
    */
   MASTERS_TALLY_VIEW: 'masters.tally.view',
   RECEIVABLES_VIEW: 'receivables.view',
+  /**
+   * D-46: the daily exception sweep writes to whoever holds this, seeded to
+   * Admin and Accounts. A permission rather than a role name because roles
+   * are not hardcoded into logic — an org can hand the digest to anyone.
+   */
+  REPORTS_EXCEPTIONS_NOTIFY: 'reports.exceptions.notify',
+  /** D-46: the margin proxy is for Sales manager, Accounts and Admin; nobody else sees cost against price. */
+  REPORTS_MARGIN_VIEW: 'reports.margin.view',
 
   /**
    * Phase 7 (08 §2.2). Self/all breadths for contacts and deals; tasks are a
@@ -112,8 +118,6 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'leave.approve.team': "Approve the team's leave",
   'leave.approve.all': 'Approve leave for anyone',
   'leave.policy.manage': 'Manage leave types and balances',
-  'regularization.raise': 'Raise a regularization request',
-  'regularization.approve': 'Approve a regularization request',
   'employee.view': 'View employee records',
   'employee.manage': 'Create and edit employee records',
   'shift.manage': 'Manage shifts, rosters, and weekly-off patterns',
@@ -125,6 +129,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'audit.view': 'View the audit log',
   'masters.tally.view': 'View the Tally masters projection: parties, items, price lists',
   'receivables.view': 'View vouchers and receivables pulled from Tally: invoices, receipts, statements, ageing',
+  'reports.exceptions.notify': 'Receive the daily exception-report digest',
+  'reports.margin.view': 'View the gross margin proxy report',
   'crm.contact.view.self': 'View the contacts and companies you own',
   'crm.contact.view.all': 'View every contact and company',
   'crm.contact.manage': 'Create and edit contacts and companies',
@@ -180,14 +186,12 @@ const EMPLOYEE_PERMISSIONS = [
   PERMISSIONS.PUNCH_SELF,
   PERMISSIONS.ATTENDANCE_VIEW_SELF,
   PERMISSIONS.LEAVE_APPLY_SELF,
-  PERMISSIONS.REGULARIZATION_RAISE,
 ] as const satisfies readonly PermissionKey[];
 
 const OPERATIONS_PERMISSIONS = [
   ...EMPLOYEE_PERMISSIONS,
   PERMISSIONS.ATTENDANCE_VIEW_TEAM,
   PERMISSIONS.LEAVE_APPROVE_TEAM,
-  PERMISSIONS.REGULARIZATION_APPROVE,
   PERMISSIONS.EMPLOYEE_VIEW,
   PERMISSIONS.SHIFT_MANAGE,
   PERMISSIONS.REPORT_VIEW,
@@ -217,6 +221,8 @@ const ADMIN_PERMISSIONS = [
   PERMISSIONS.MASTERS_TALLY_VIEW,
   // 08 §2.2: Sales manager and Accounts hold this too, when those roles land.
   PERMISSIONS.RECEIVABLES_VIEW,
+  PERMISSIONS.REPORTS_EXCEPTIONS_NOTIFY,
+  PERMISSIONS.REPORTS_MARGIN_VIEW,
   PERMISSIONS.CRM_CONTACT_VIEW_SELF,
   PERMISSIONS.CRM_CONTACT_VIEW_ALL,
   PERMISSIONS.CRM_CONTACT_MANAGE,
@@ -264,6 +270,7 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.CRM_PIPELINE_MANAGE,
   PERMISSIONS.CRM_TASK_VIEW_TEAM,
   PERMISSIONS.RECEIVABLES_VIEW,
+  PERMISSIONS.REPORTS_MARGIN_VIEW,
   PERMISSIONS.SALES_DOCUMENT_VIEW_ALL,
   PERMISSIONS.SALES_DOCUMENT_ALTER,
   PERMISSIONS.SALES_DISCOUNT_APPROVE,
@@ -295,6 +302,8 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
   PERMISSIONS.PURCHASE_DOCUMENT_APPROVE,
   PERMISSIONS.RECEIVABLES_VIEW,
+  PERMISSIONS.REPORTS_EXCEPTIONS_NOTIFY,
+  PERMISSIONS.REPORTS_MARGIN_VIEW,
 ] as const satisfies readonly PermissionKey[];
 
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {

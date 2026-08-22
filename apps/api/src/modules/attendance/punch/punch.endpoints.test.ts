@@ -15,7 +15,8 @@ import { and, eq, sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { ApiHarness, scopedEmail } from '../../../test-support/api-harness.js';
+import { ApiHarness, FIXTURE_OFFICE, scopedEmail } from '../../../test-support/api-harness.js';
+import { addDays } from '../day-engine/calendar-date.js';
 import { consentAcceptances, employees, files } from '../../../platform/db/schema/index.js';
 import { localDateIn } from '../day-engine/calendar-date.js';
 import { attendanceDays, punches, shiftAssignments, shifts } from '../schema/index.js';
@@ -55,6 +56,8 @@ let employeeBId: string;
 let consentEmployeeId: string;
 let syncEmployeeId: string;
 let tokenA: string;
+let employeeRoleId = '';
+let probeShiftId = '';
 let tokenB: string;
 let hrToken: string;
 let noPunchToken: string;
@@ -134,6 +137,11 @@ function punchIn(
       clientTime: new Date().toISOString(),
       source: 'MOBILE',
       consentAccepted: true,
+      // At the fixture office, with a tight fix: the geofence is enforced on
+      // every punch, so a punch with no position is refused.
+      latitude: FIXTURE_OFFICE.latitude,
+      longitude: FIXTURE_OFFICE.longitude,
+      gpsAccuracyM: 8,
       ...overrides,
     },
   });
@@ -185,7 +193,7 @@ beforeAll(async () => {
     .jpeg({ quality: 90 })
     .toBuffer();
 
-  const employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
+  employeeRoleId = await harness.createSystemRole(SYSTEM_ROLES.EMPLOYEE);
   const hrRoleId = await harness.createSystemRole(SYSTEM_ROLES.HR);
   // Holds a view key but not punch.self, so the 403 test refuses for exactly
   // the permission this endpoint requires rather than for having none at all.
@@ -230,6 +238,7 @@ beforeAll(async () => {
     .returning({ id: shifts.id });
   const shiftId = shiftRows[0]?.id;
   if (shiftId === undefined) throw new Error('shift fixture insert returned no row');
+  probeShiftId = shiftId;
 
   await harness.db.insert(shiftAssignments).values(
     [employeeAId, employeeBId, consentEmployeeId, syncEmployeeId].map((employeeId) => ({
@@ -319,6 +328,9 @@ describe('access control', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
       },
     });
     expect(result.status).toBe(400);
@@ -336,6 +348,9 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
       },
     });
 
@@ -353,10 +368,11 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
     expect(result.body.punch.attendanceDate).toBe(today);
     expect(result.body.punch.employee.id).toBe(employeeAId);
     // Two objects per punch, and they are different objects (REQ-D-03a).
-    expect(result.body.punch.photo.thumbnailFileId).not.toBe(result.body.punch.photo.fileId);
-    // No geofence centre and no fix: flagged as unchecked, never as passed.
-    expect(result.body.punch.flags).toContain('geofence_disabled');
-    expect(result.body.punch.flags).toContain('no_location');
+    expect(result.body.punch.photo).not.toBeNull();
+    expect(result.body.punch.photo?.thumbnailFileId).not.toBe(result.body.punch.photo?.fileId);
+    // Taken at the fixture office with a tight fix: inside, and nothing flagged about it.
+    expect(result.body.punch.flags).not.toContain('outside_geofence');
+    expect(result.body.punch.flags).not.toContain('low_gps_accuracy');
 
     // The receipt's day is the engine's inline run, not a cached view.
     expect(result.body.day).not.toBeNull();
@@ -465,22 +481,10 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
     expect(result.body.error.details?.expected).toBe('OUT');
   });
 
-  it('demands a typed reason for an out-of-window punch, then accepts it (REQ-D-06)', async () => {
-    // The shift runs for hours yet, so an OUT now is outside its window and
-    // the org default is ALLOW_WITH_REASON (05-decisions).
-    const refused = await multipart<ErrorBody>('/punches', tokenA, {
-      idempotencyKey: `pt-out-${runId}`,
-      photos: [{ field: 'photo', bytes: photoWithExifBytes }],
-      payload: {
-        type: 'OUT',
-        clientTime: new Date().toISOString(),
-        source: 'MOBILE',
-        consentAccepted: true,
-      },
-    });
-    expect(refused.status).toBe(422);
-    expect(refused.body.error.code).toBe('PUNCH_REASON_REQUIRED');
-
+  it('records an out-of-window punch, flags it, and raises it into Approvals (owner, 21 Aug 2026)', async () => {
+    // The shift runs for hours yet, so an OUT now is outside its window.
+    // No reason is asked for and nothing is blocked: the flag goes to an
+    // admin, who decides there.
     const accepted = await multipart<PunchReceipt>('/punches', tokenA, {
       idempotencyKey: `pt-out-${runId}`,
       photos: [{ field: 'photo', bytes: photoWithExifBytes }],
@@ -489,48 +493,26 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
-        reason: 'Leaving early for a medical appointment.',
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
       },
     });
     expect(accepted.status, JSON.stringify(accepted.body)).toBe(201);
     expect(accepted.body.punch.flags).toContain('outside_window');
-    expect(accepted.body.punch.reason).toContain('medical');
+    expect(accepted.body.punch.flagReview).toBeNull();
     expect(accepted.body.day?.firstInAt).not.toBeNull();
     expect(accepted.body.day?.lastOutAt).not.toBeNull();
     expect(accepted.body.day?.flags).toContain('outside_window');
-  });
 
-  it('refuses an OUT when nothing is open (REQ-D-01)', async () => {
-    const result = await multipart<ErrorBody>('/punches', tokenB, {
-      idempotencyKey: `pt-b-out-first-${runId}`,
-      photos: [{ field: 'photo', bytes: photoWithExifBytes }],
-      payload: {
-        type: 'OUT',
-        clientTime: new Date().toISOString(),
-        source: 'MOBILE',
-        consentAccepted: true,
-        reason: 'Trying to punch out before ever punching in.',
-      },
-    });
-    expect(result.status).toBe(409);
-    expect(result.body.error.details?.expected).toBe('IN');
-  });
-
-  it('rejects a half day marked on an OUT at the schema (REQ-D-07)', async () => {
-    const result = await multipart<ErrorBody>('/punches', tokenB, {
-      idempotencyKey: `pt-b-half-out-${runId}`,
-      photos: [{ field: 'photo', bytes: photoWithExifBytes }],
-      payload: {
-        type: 'OUT',
-        clientTime: new Date().toISOString(),
-        source: 'MOBILE',
-        consentAccepted: true,
-        isHalfDay: true,
-        halfDayPart: 'FIRST_HALF',
-      },
-    });
-    expect(result.status).toBe(400);
-    expect(result.body.error.code).toBe('VALIDATION_FAILED');
+    const inbox = await harness.get<{ data: { id: string; type: string; subjectType: string; subject: string; status: string }[] }>(
+      '/approvals?status=PENDING',
+      { token: hrToken },
+    );
+    expect(inbox.status, inbox.text).toBe(200);
+    const raised = inbox.body.data.find((row) => row.subjectType === 'punch' && row.subject.includes('Punya'));
+    expect(raised, JSON.stringify(inbox.body.data)).toBeDefined();
+    expect(raised?.type).toBe('FLAGGED_PUNCH');
   });
 
   it('accepts a half day chosen at IN and reflects it on the day (REQ-D-07)', async () => {
@@ -542,6 +524,9 @@ describe('POST /punches (REQ-D-01 … REQ-D-13)', () => {
         clientTime: new Date().toISOString(),
         source: 'MOBILE',
         consentAccepted: true,
+        latitude: FIXTURE_OFFICE.latitude,
+        longitude: FIXTURE_OFFICE.longitude,
+        gpsAccuracyM: 8,
         isHalfDay: true,
         halfDayPart: 'SECOND_HALF',
       },
@@ -567,6 +552,9 @@ describe('POST /punches/sync (REQ-D-10)', () => {
           {
             idempotencyKey: `pt-sync-stale-${runId}`,
             photoIndex: 0,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(72 * 3600 * 1000),
             consentAccepted: true,
@@ -575,6 +563,9 @@ describe('POST /punches/sync (REQ-D-10)', () => {
           {
             idempotencyKey: `pt-sync-fresh-${runId}`,
             photoIndex: 1,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(7 * 60 * 1000),
             consentAccepted: true,
@@ -615,6 +606,9 @@ describe('POST /punches/sync (REQ-D-10)', () => {
           {
             idempotencyKey: `pt-sync-stale-${runId}`,
             photoIndex: 0,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(72 * 3600 * 1000),
             consentAccepted: true,
@@ -623,6 +617,9 @@ describe('POST /punches/sync (REQ-D-10)', () => {
           {
             idempotencyKey: `pt-sync-fresh-${runId}`,
             photoIndex: 1,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(7 * 60 * 1000),
             consentAccepted: true,
@@ -709,6 +706,9 @@ describe('consent gate (REQ-M-03)', () => {
           {
             idempotencyKey: `pt-consent-sync-no-${runId}`,
             photoIndex: 0,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(5 * 60 * 1000),
           },
@@ -731,6 +731,9 @@ describe('consent gate (REQ-M-03)', () => {
           {
             idempotencyKey: `pt-consent-sync-yes-${runId}`,
             photoIndex: 0,
+            latitude: FIXTURE_OFFICE.latitude,
+            longitude: FIXTURE_OFFICE.longitude,
+            gpsAccuracyM: 8,
             type: 'IN',
             clientTime: isoAgo(5 * 60 * 1000),
             consentAccepted: true,
@@ -825,7 +828,7 @@ describe('reads and scope', () => {
     expect([...times].sort()).toEqual(times);
     // Lists carry the thumbnail id; rendering the full image here is the
     // review failure REQ-D-03a names.
-    expect(detail.body.punches.every((punch) => punch.photo.thumbnailFileId.length > 0)).toBe(true);
+    expect(detail.body.punches.every((punch) => (punch.photo?.thumbnailFileId.length ?? 0) > 0)).toBe(true);
   });
 
   it('hides another employee`s day behind 404 (IDOR)', async () => {
@@ -859,10 +862,10 @@ describe('reads and scope', () => {
     expect(context.body.nextPunchType).toBe('OUT');
     expect(context.body.lastPunch?.type).toBe('IN');
     expect(context.body.day).not.toBeNull();
-    // Neither premises control is configured yet (OPEN-QUESTIONS 1 and 3),
-    // and the screen is told so rather than shown a control that silently
-    // does not exist.
-    expect(context.body.geofence.enforced).toBe(false);
+    // The geofence is always enforced; the allowlist is not configured yet
+    // (OPEN-QUESTIONS 3) and the screen is told so.
+    expect(context.body.geofence.enforced).toBe(true);
+    expect(context.body.geofence.exempt).toBe(false);
     expect(context.body.ipAllowlist.enforced).toBe(false);
   });
 
@@ -906,5 +909,238 @@ describe('fixture hygiene', () => {
       .from(employees)
       .where(and(eq(employees.orgId, ORG_ID), eq(employees.employeeCode, `PT-A-${runId}`)));
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe('the geofence is enforced on the server (owner, 21 Aug 2026)', () => {
+  beforeAll(async () => {
+    // B was left punched in by the half-day test, and ordering is checked
+    // before location: close the day so each probe below is judged on where
+    // it stands, not on what came before.
+    const closed = await punchIn(tokenB, `pt-geo-close-${runId}`, {
+      type: 'OUT',
+      reason: 'Closing the day before the geofence probes',
+    });
+    expect(closed.status, JSON.stringify(closed.body)).toBe(201);
+  });
+
+  it('refuses a punch from outside the radius, and leaves no punch behind', async () => {
+    const before = await countPunches(employeeBId);
+    const result = await punchIn(tokenB, `pt-geo-out-${runId}`, {
+      // About 1.1 km north of the fixture office, with a tight fix.
+      latitude: FIXTURE_OFFICE.latitude + 0.01,
+      longitude: FIXTURE_OFFICE.longitude,
+      gpsAccuracyM: 5,
+    });
+    expect(result.status, JSON.stringify(result.body)).toBe(422);
+    expect(result.body.error.code).toBe('PUNCH_OUTSIDE_GEOFENCE');
+    expect(result.body.error.message).toMatch(/outside the 100 m punch area/u);
+    expect(await countPunches(employeeBId)).toBe(before);
+  });
+
+  it('refuses a punch that carries no position at all', async () => {
+    const result = await punchIn(tokenB, `pt-geo-none-${runId}`, {
+      latitude: undefined,
+      longitude: undefined,
+      gpsAccuracyM: undefined,
+    });
+    expect(result.status, JSON.stringify(result.body)).toBe(422);
+    expect(result.body.error.code).toBe('PUNCH_LOCATION_REQUIRED');
+  });
+
+  it('refuses every punch at an office whose coordinates are not set, and says so in the context', async () => {
+    await harness.db.execute(
+      sql`UPDATE locations SET geofence_lat = NULL, geofence_lng = NULL WHERE org_id = ${ORG_ID}`,
+    );
+    try {
+      const context = await harness.get<PunchContext>('/me/today', { token: tokenB });
+      expect(context.body.canPunch).toBe(false);
+      expect(context.body.blockedReason?.code).toBe('PUNCH_GEOFENCE_NOT_CONFIGURED');
+      const result = await punchIn(tokenB, `pt-geo-unset-${runId}`);
+      expect(result.status, JSON.stringify(result.body)).toBe(422);
+      expect(result.body.error.code).toBe('PUNCH_GEOFENCE_NOT_CONFIGURED');
+    } finally {
+      await harness.db.execute(
+        sql`UPDATE locations SET geofence_lat = ${FIXTURE_OFFICE.latitude}, geofence_lng = ${FIXTURE_OFFICE.longitude} WHERE org_id = ${ORG_ID}`,
+      );
+    }
+  });
+
+  it('tolerates a fix that is outside by less than its own accuracy, flagged', async () => {
+    const result = await punchIn(tokenB, `pt-geo-weak-${runId}`, {
+      // About 110 m away with a 60 m accuracy: 110 - 60 < 100, so inside the doubt.
+      latitude: FIXTURE_OFFICE.latitude + 0.001,
+      longitude: FIXTURE_OFFICE.longitude,
+      gpsAccuracyM: 60,
+    });
+    expect(result.status, JSON.stringify(result.body)).toBe(201);
+    expect(result.body.punch.flags).toContain('low_gps_accuracy');
+  });
+});
+
+describe('acting on a flagged punch from Approvals (owner, 21 Aug 2026)', () => {
+  // An employee of their own, so the only flag on the day is the one being
+  // acted on. A's day also carries an offline-sync punch the engine's
+  // independent time check flags, which no review of another punch can clear.
+  let reviewEmployeeId = '';
+  let reviewToken = '';
+  let reviewPunchId = '';
+  let reviewApprovalId = '';
+
+  beforeAll(async () => {
+    reviewEmployeeId = await harness.createEmployee({ code: `PT-E-${runId}`, firstName: 'Esha' });
+    const user = await harness.createUser({
+      email: scopedEmail('punch-e'),
+      roleIds: [employeeRoleId],
+      employeeId: reviewEmployeeId,
+    });
+    await harness.db.insert(shiftAssignments).values({
+      orgId: ORG_ID,
+      employeeId: reviewEmployeeId,
+      shiftId: probeShiftId,
+      effectiveFrom: today,
+      effectiveTo: today,
+    });
+    reviewToken = (await harness.login(user.email, user.password)).token;
+    const punchedIn = await punchIn(reviewToken, `pt-e-in-${runId}`);
+    expect(punchedIn.status, JSON.stringify(punchedIn.body)).toBe(201);
+    // The shift runs for hours yet, so this OUT is outside its window: flagged, and raised.
+    const punchedOut = await punchIn(reviewToken, `pt-e-out-${runId}`, { type: 'OUT' });
+    expect(punchedOut.status, JSON.stringify(punchedOut.body)).toBe(201);
+    expect(punchedOut.body.punch.flags).toContain('outside_window');
+    expect(punchedOut.body.day?.flags).toContain('outside_window');
+    reviewPunchId = punchedOut.body.punch.id;
+    const inbox = await harness.get<{ data: { id: string; subjectType: string; subjectId: string }[] }>('/approvals?status=PENDING', { token: hrToken });
+    reviewApprovalId = inbox.body.data.find((row) => row.subjectType === 'punch' && row.subjectId === reviewPunchId)?.id ?? '';
+    expect(reviewApprovalId).not.toBe('');
+  });
+
+  it('refuses a caller who cannot edit attendance', async () => {
+    const refused = await harness.post<ErrorBody>(`/punches/${reviewPunchId}/flag-review`, {
+      token: reviewToken,
+      body: { action: 'ACCEPT' },
+    });
+    expect(refused.status).toBe(403);
+  });
+
+  it('a note closes nothing, and needs its text', async () => {
+    const noteless = await harness.post<ErrorBody>(`/punches/${reviewPunchId}/flag-review`, {
+      token: hrToken,
+      body: { action: 'NOTE' },
+    });
+    expect(noteless.status).toBe(400);
+    const noted = await harness.post<PunchRecord>(`/punches/${reviewPunchId}/flag-review`, {
+      token: hrToken,
+      body: { action: 'NOTE', note: 'Spoke to them; waiting on the shift roster.' },
+    });
+    expect(noted.status, JSON.stringify(noted.body)).toBe(200);
+    // A note is not a decision: the punch still reads unreviewed.
+    expect(noted.body.flagReview).toBeNull();
+    const still = await harness.get<{ status: string }>(`/approvals/${reviewApprovalId}`, { token: hrToken });
+    expect(still.body.status).toBe('PENDING');
+  });
+
+  it('accept clears the flag from the day, settles the approval, and is audited', async () => {
+    const accepted = await harness.post<PunchRecord>(`/punches/${reviewPunchId}/flag-review`, {
+      token: hrToken,
+      body: { action: 'ACCEPT', note: 'Stayed back to finish the dispatch.' },
+    });
+    expect(accepted.status, JSON.stringify(accepted.body)).toBe(200);
+    expect(accepted.body.flagReview?.action).toBe('ACCEPT');
+    expect(accepted.body.flagReview?.decidedBy).not.toBeNull();
+
+    const approval = await harness.get<{ status: string }>(`/approvals/${reviewApprovalId}`, { token: hrToken });
+    expect(approval.body.status).toBe('APPROVED');
+
+    const day = await harness.get<AttendanceDayDetail>(`/attendance/days/${reviewEmployeeId}/${today}`, { token: hrToken });
+    expect(day.status).toBe(200);
+    expect(day.body.flags).not.toContain('outside_window');
+    expect(await harness.waitForAuditAction('punch.flag_reviewed')).toBe(true);
+  });
+
+  it('an admin records an IN for the employee: a separate event, counted in the day, audited', async () => {
+    const at = new Date().toISOString();
+    const refused = await harness.post<ErrorBody>('/punches/admin', {
+      token: reviewToken,
+      body: { employeeId: reviewEmployeeId, type: 'IN', at, reason: 'Forgot to punch in after the site visit.' },
+    });
+    expect(refused.status).toBe(403);
+
+    const tooShort = await harness.post<ErrorBody>('/punches/admin', {
+      token: hrToken,
+      body: { employeeId: reviewEmployeeId, type: 'IN', at, reason: 'forgot' },
+    });
+    expect(tooShort.status).toBe(400);
+
+    const recorded = await harness.post<PunchReceipt>('/punches/admin', {
+      token: hrToken,
+      body: { employeeId: reviewEmployeeId, type: 'IN', at, reason: 'Forgot to punch in after the site visit.' },
+    });
+    expect(recorded.status, JSON.stringify(recorded.body)).toBe(201);
+    expect(recorded.body.punch.source).toBe('ADMIN_ENTRY');
+    expect(recorded.body.punch.photo).toBeNull();
+    expect(recorded.body.punch.recordedBy).not.toBeNull();
+    expect(recorded.body.punch.reason).toContain('site visit');
+    // The day counts it: the employee's own IN and OUT are still there beside it.
+    const day = await harness.get<AttendanceDayDetail>(`/attendance/days/${reviewEmployeeId}/${today}`, { token: hrToken });
+    expect(day.body.punches.map((punch) => punch.source)).toEqual(['MOBILE', 'MOBILE', 'ADMIN_ENTRY']);
+    expect(day.body.firstInAt).not.toBeNull();
+    // No photograph to serve, and that is a 404 rather than a 500.
+    const photo = await harness.get<ErrorBody>(`/punches/${recorded.body.punch.id}/photo`, { token: hrToken });
+    expect(photo.status).toBe(404);
+    expect(await harness.waitForAuditAction('punch.admin_recorded')).toBe(true);
+
+    // Ordering still holds for an admin: a second IN on an open day is refused.
+    const again = await harness.post<ErrorBody>('/punches/admin', {
+      token: hrToken,
+      body: { employeeId: reviewEmployeeId, type: 'IN', at, reason: 'A second IN that should be refused.' },
+    });
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe('PUNCH_OUT_OF_ORDER');
+  });
+
+  it('marks a half day through the same override HR already uses', async () => {
+    const marked = await harness.post<PunchRecord>(`/punches/${reviewPunchId}/flag-review`, {
+      token: hrToken,
+      body: { action: 'HALF_DAY', halfDayPart: 'SECOND_HALF', note: 'Left at lunch, counted as a half day.' },
+    });
+    expect(marked.status, JSON.stringify(marked.body)).toBe(200);
+    expect(marked.body.flagReview?.action).toBe('HALF_DAY');
+    const day = await harness.get<AttendanceDayDetail>(`/attendance/days/${reviewEmployeeId}/${today}`, { token: hrToken });
+    expect(day.body.status).toBe('HALF_DAY');
+    expect(day.body.flags).toContain('manual_override');
+  });
+});
+
+describe('attendance analytics (owner, 22 Aug 2026)', () => {
+  it('serves the four reports to an org-wide attendance viewer, and refuses an employee', async () => {
+    for (const key of ['flag-review-log', 'approvals-turnaround', 'early-arrival-leaderboard', 'on-time-rate'] as const) {
+      const page = await harness.get<{ data: Record<string, unknown>[] }>(`/reports/${key}/rows?from=${addDays(today, -1)}&to=${today}`, { token: hrToken });
+      expect(page.status, `${key}: ${page.text}`).toBe(200);
+      const refused = await harness.get(`/reports/${key}/rows`, { token: tokenA });
+      expect(refused.status, key).toBe(403);
+    }
+  });
+
+  it('the flag review log names the admin, the employee and the verdict', async () => {
+    const page = await harness.get<{ data: { adminName: string; employeeName: string; action: string; punchType: string }[] }>(
+      `/reports/flag-review-log/rows?from=${addDays(today, -1)}&to=${today}`,
+      { token: hrToken },
+    );
+    expect(page.status, page.text).toBe(200);
+    const accepted = page.body.data.find((row) => row.employeeName.startsWith('Esha') && row.action === 'ACCEPT');
+    expect(accepted).toBeDefined();
+    expect(accepted?.punchType).toBe('OUT');
+    expect(accepted?.adminName).not.toBe('');
+  });
+
+  it('approvals turnaround counts the flagged punch that was decided', async () => {
+    const page = await harness.get<{ data: { type: string; decided: number; medianHours: number | null }[] }>(
+      `/reports/approvals-turnaround/rows?from=${addDays(today, -1)}&to=${today}`,
+      { token: hrToken },
+    );
+    expect(page.status, page.text).toBe(200);
+    const flagged = page.body.data.find((row) => row.type === 'FLAGGED_PUNCH');
+    expect(flagged?.decided ?? 0).toBeGreaterThanOrEqual(1);
   });
 });

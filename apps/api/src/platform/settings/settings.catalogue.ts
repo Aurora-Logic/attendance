@@ -1,4 +1,4 @@
-import { DEVICE_BINDING_MODES, PUNCH_WINDOW_BEHAVIOURS } from '@vyuha/shared';
+import { DEVICE_BINDING_MODES } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -61,11 +61,6 @@ export interface SettingDescriptor {
  * that they were edited together.
  */
 export const ATTENDANCE_SETTINGS = {
-  punchWindowBehaviour: {
-    key: 'attendance.punch_window_behaviour',
-    help: 'What happens to a punch outside the shift window (REQ-D-06).',
-    enforcedBy: 'Punch',
-  },
   geofenceBehaviour: {
     key: 'attendance.geofence_behaviour',
     help: 'What happens to a punch outside the location radius (REQ-D-08).',
@@ -77,6 +72,19 @@ export const ATTENDANCE_SETTINGS = {
     key: 'attendance.device_binding_mode',
     help: 'Whether punching from a new device warns, blocks, or is ignored (REQ-B-08).',
     enforcedBy: 'Punch',
+  },
+  // Owner, 21 Aug 2026: early arrival is recognised (confetti at the punch,
+  // a streak on the profile) when the first IN beats shift start by this many
+  // minutes; the toggle switches the whole recognition off.
+  earlyArrivalEnabled: {
+    key: 'attendance.early_arrival_enabled',
+    help: 'Whether an early arrival is celebrated and counted toward a streak.',
+    enforcedBy: 'Day engine',
+  },
+  earlyArrivalThresholdMinutes: {
+    key: 'attendance.early_arrival_threshold_minutes',
+    help: 'How many minutes before shift start counts as early.',
+    enforcedBy: 'Day engine',
   },
   maxWorkMinutes: {
     key: 'attendance.max_work_minutes',
@@ -136,7 +144,6 @@ export const PHOTO_SETTINGS = {
  * feature would misbehave rather than merely be configured oddly.
  */
 export const attendancePolicySchema = z.object({
-  punchWindowBehaviour: z.enum(PUNCH_WINDOW_BEHAVIOURS),
   geofenceBehaviour: z.enum(GEOFENCE_BEHAVIOURS),
   deviceBindingMode: z.enum(DEVICE_BINDING_MODES),
   // The day engine's own guard is `positive().max(24h)`; 60 minutes is the
@@ -147,6 +154,8 @@ export const attendancePolicySchema = z.object({
   // the permission from four roles.
   regularizationMaxPerMonth: z.number().int().min(0).max(31),
   regularizationAutoFile: z.boolean(),
+  earlyArrivalEnabled: z.boolean(),
+  earlyArrivalThresholdMinutes: z.number().int().min(5).max(240),
   autoEscalationDays: z.number().int().min(1).max(30),
 });
 
@@ -189,8 +198,6 @@ export type PhotoPolicy = z.infer<typeof photoPolicyObject>;
  * default from the one in force is worse than no screen.
  */
 export const DEFAULT_ATTENDANCE_POLICY: AttendancePolicy = {
-  // 05-decisions: out-of-window punches are allowed with a typed reason.
-  punchWindowBehaviour: 'ALLOW_WITH_REASON',
   // REQ-D-08 and 05-decisions: hard block.
   geofenceBehaviour: 'BLOCK',
   // REQ-B-08: warn.
@@ -203,6 +210,9 @@ export const DEFAULT_ATTENDANCE_POLICY: AttendancePolicy = {
   // Off: raising a correction is left to the employee unless an organisation
   // opts in.
   regularizationAutoFile: false,
+  // Owner, 21 Aug 2026: on, fifteen minutes.
+  earlyArrivalEnabled: true,
+  earlyArrivalThresholdMinutes: 15,
   // REQ-G-09.
   autoEscalationDays: 3,
 };

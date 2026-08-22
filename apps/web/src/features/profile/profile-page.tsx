@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import {
   Item,
@@ -54,7 +55,7 @@ function DetailRow({ label, value, note }: { label: string; value: string; note?
 }
 
 export function ProfilePage() {
-  const { data: me, isPending } = useMe();
+  const { data: me, isPending, isError, error, refetch } = useMe();
 
   if (isPending) {
     return (
@@ -63,6 +64,29 @@ export function ProfilePage() {
         <Skeleton className="h-3 w-48" />
         <Skeleton className="h-3 w-64" />
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <ShieldCheckIcon />
+          </EmptyMedia>
+          <EmptyTitle>Could not load your profile</EmptyTitle>
+          <EmptyDescription>{error.message}</EmptyDescription>
+        </EmptyHeader>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void refetch();
+          }}
+        >
+          Try again
+        </Button>
+      </Empty>
     );
   }
 

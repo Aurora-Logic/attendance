@@ -20,6 +20,7 @@ import { IntegrationsPage } from '@/features/integrations';
 import { PeriodLockPage } from '@/features/period-lock';
 import { RecycleBinPage } from '@/features/recycle-bin';
 import { ReportsPage } from '@/features/reports';
+import { ReportsDashboardPage } from '@/features/reports/reports-dashboard-page';
 import { AdministrationScreen } from '@/features/administration/administration-screen';
 import { RolesPage } from '@/features/roles';
 import { SettingsPage } from '@/features/settings';
@@ -180,6 +181,7 @@ export default function App() {
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />
+              <Route path="reports/dashboard" element={<ReportsDashboardPage />} />
               <Route path="administration" element={<AdministrationScreen />} />
               <Route path="downloads" element={<DownloadsPage />} />
               <Route path="recycle-bin" element={<RecycleBinPage />} />

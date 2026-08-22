@@ -70,6 +70,9 @@ function materiallyEqual(existing: ExistingDayRow, computed: DayRowValues): bool
     existing.otMinutes === computed.otMinutes &&
     existing.lateMinutes === computed.lateMinutes &&
     existing.earlyExitMinutes === computed.earlyExitMinutes &&
+    existing.earlyArrivalMinutes === computed.earlyArrivalMinutes &&
+    existing.earlyArrival === computed.earlyArrival &&
+    existing.earlyStreak === computed.earlyStreak &&
     existing.leaveRequestId === computed.leaveRequestId &&
     // `is_manual_override` is not compared: the engine reads it from this same
     // row and never writes it, so the two sides cannot differ. A comparison
@@ -135,7 +138,7 @@ export class DayEngine {
 
     const existing = await this.repository.findExistingDay(employeeId, date);
 
-    const [holiday, weeklyOffPattern, leave, onDuty, punches, adjustment, maxWorkMinutes] =
+    const [holiday, weeklyOffPattern, leave, onDuty, punches, adjustment, maxWorkMinutes, earlyPolicy, previousStreak] =
       await Promise.all([
         this.repository.findHoliday(employee, date),
         this.repository.findWeeklyOffPattern(employee),
@@ -144,6 +147,8 @@ export class DayEngine {
         this.repository.findPunches(employeeId, date),
         this.repository.findAdjustment(employeeId, date),
         this.repository.readMaxWorkMinutes(),
+        this.repository.readEarlyArrivalPolicy(),
+        this.repository.findPreviousStreak(employeeId, date),
       ]);
 
     // Steps 3 and 5 to 10.
@@ -160,6 +165,7 @@ export class DayEngine {
       onDuty,
       punches,
       adjustment,
+      earlyArrival: { ...earlyPolicy, previousStreak },
       existing:
         existing === null
           ? null

@@ -273,7 +273,7 @@ function PackForm({ order, onClose, onPacked }: { order: Estimate; onClose: () =
                   setComment(event.target.value);
                 }}
               />
-              <FieldDescription>Visible to sales, on the order (REQ-AA-08).</FieldDescription>
+              <FieldDescription>Visible to sales, on the order.</FieldDescription>
             </Field>
           </div>
         ) : null}

@@ -112,6 +112,10 @@ export const MAX_BULK_APPROVAL_IDS = 200;
 export interface ApprovalRequestSummary {
   readonly id: string;
   readonly type: ApprovalType;
+  /** `snake_case`, from `APPROVAL_SUBJECT_TYPES`; what the row's actions are for. */
+  readonly subjectType: string;
+  /** The subject's own id, so a row can act on the thing it is about. */
+  readonly subjectId: string;
   /** The user who raised it, named. REQ-I-05 refuses to let them decide it. */
   readonly requester: NamedRef;
   readonly subject: string;

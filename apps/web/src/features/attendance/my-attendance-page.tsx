@@ -5,6 +5,7 @@ import { endOfMonth, isSameMonth, startOfMonth } from 'date-fns';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
 import {
@@ -80,6 +81,7 @@ const COLUMNS: RecordColumn<AttendanceDay>[] = [
   {
     key: 'flags',
     header: 'Flags',
+    headerIcon: <ACTION_ICONS.flag />,
     cell: (row) => (row.flags.length > 0 ? <AttendanceFlags flags={row.flags} /> : EMPTY_VALUE),
     secondary: true,
   },

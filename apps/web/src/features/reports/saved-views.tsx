@@ -103,7 +103,10 @@ export function SavedViews({
           {isLoading ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel>Loading views</DropdownMenuLabel>
+              {/* Base UI refuses a label outside a group; a bare label here crashed the screen the moment the menu opened while views were still loading. */}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Loading views</DropdownMenuLabel>
+              </DropdownMenuGroup>
             </>
           ) : null}
 
@@ -216,7 +219,7 @@ export function SavedViews({
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             <DialogClose render={<Button variant="outline">Cancel</Button>} />
             <Button
               disabled={name.trim().length === 0 || isSaving}

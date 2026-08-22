@@ -1,7 +1,9 @@
 import {
+  adminPunchSchema,
   attendanceDayQuerySchema,
   idempotencyKeySchema,
   punchFeedQuerySchema,
+  punchFlagReviewSchema,
   punchPhotoQuerySchema,
   punchSubmissionSchema,
   punchSyncSchema,
@@ -66,3 +68,9 @@ export class PunchSyncFormDto extends createZodDto(punchSyncFormSchema) {}
 export class PunchFeedQueryDto extends createZodDto(punchFeedQuerySchema) {}
 export class PunchPhotoQueryDto extends createZodDto(punchPhotoQuerySchema) {}
 export class AttendanceDayQueryDto extends createZodDto(attendanceDayQuerySchema) {}
+
+/** Owner, 21 Aug 2026: an admin's action on a flagged punch, from Approvals. */
+export class PunchFlagReviewDto extends createZodDto(punchFlagReviewSchema) {}
+
+/** Owner, 21 Aug 2026: an admin's IN or OUT for an employee, recorded from Approvals. */
+export class AdminPunchDto extends createZodDto(adminPunchSchema) {}

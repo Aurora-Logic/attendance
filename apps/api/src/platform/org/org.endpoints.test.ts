@@ -322,7 +322,8 @@ describe('locations (REQ-A-01)', () => {
   it('lets HR read a location but not write one', async () => {
     const read = await harness.get<Paginated<LocationSummary>>('/locations', { token: hrToken });
     expect(read.status).toBe(200);
-    expect(read.body.data.map((row) => row.code)).toEqual(['OM-HO']);
+    // The harness puts placeless fixture employees at FIXTURE-HQ; it is not this test's.
+    expect(read.body.data.map((row) => row.code).filter((code) => code !== 'FIXTURE-HQ')).toEqual(['OM-HO']);
 
     const written = await harness.patch<ErrorBody>(`/locations/${headOfficeId}`, {
       token: hrToken,
@@ -334,7 +335,7 @@ describe('locations (REQ-A-01)', () => {
     const unchanged = await harness.get<Paginated<LocationSummary>>('/locations', {
       token: hrToken,
     });
-    expect(unchanged.body.data[0]?.name).toBe('Head Office');
+    expect(unchanged.body.data.find((row) => row.code === 'OM-HO')?.name).toBe('Head Office');
   });
 
   it('hides a soft-deleted location from the list', async () => {
@@ -348,7 +349,7 @@ describe('locations (REQ-A-01)', () => {
     const listed = await harness.get<Paginated<LocationSummary>>('/locations', {
       token: adminToken,
     });
-    expect(listed.body.meta.total).toBe(0);
+    expect(listed.body.data.filter((row) => row.code !== 'FIXTURE-HQ')).toHaveLength(0);
 
     const rows = await harness.db
       .select({ id: locations.id })

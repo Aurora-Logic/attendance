@@ -81,7 +81,7 @@ export function GrnPaperPage() {
               <AlertTitle>{record.syncState === 'FAILED' ? 'Tally rejected it' : 'Tally has since changed it'}</AlertTitle>
               <AlertDescription>
                 <p className="font-mono text-xs">{record.lastError}</p>
-                <p className="mt-1">{record.syncState === 'FAILED' ? 'Tally’s own words (REQ-T-01).' : 'Seen on the pull (D-38). The stock is on the shelf either way.'}</p>
+                <p className="mt-1">{record.syncState === 'FAILED' ? 'Tally’s own words.' : 'Seen on the pull (D-38). The stock is on the shelf either way.'}</p>
               </AlertDescription>
             </Alert>
           ) : null}
@@ -93,11 +93,11 @@ export function GrnPaperPage() {
             from {record.vendorName}, {formatRelativeAge(record.receivedAt)}
             {record.receivedByName ? ` by ${record.receivedByName}` : ''}.
             {record.syncState === 'PUSHED' ? ` In Tally as Receipt Note #${record.remoteVoucherNumber ?? '?'}.` : record.syncState === 'QUEUED' ? ' Queued for Tally as a Receipt Note.' : ''}
-            {' '}Received goes into stock through the Receipt Note; rejected does not, and keeps the PO line open (REQ-X-21).
+            {' '}Received goes into stock through the Receipt Note; rejected does not, and keeps the PO line open.
           </p>
           {pending > 0 ? (
             <section className="flex flex-col gap-2">
-              <SectionHeading title="Pending allocation" note="Less arrived than the orders behind these lines need. Who gets it is decided here, not by arrival order (REQ-X-27, D-30)." />
+              <SectionHeading title="Pending allocation" note="Less arrived than the orders behind these lines need. Who gets it is decided here, not by arrival order." />
               <AllocationForm grn={record} />
             </section>
           ) : null}

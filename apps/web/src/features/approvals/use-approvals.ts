@@ -8,7 +8,14 @@ import {
 } from '@tanstack/react-query';
 import { z } from 'zod';
 
-import type { ApprovalStatus, ApprovalType, ApprovalView, Paginated } from '@vyuha/shared';
+import {
+  punchFlagReviewSchema,
+  type ApprovalStatus,
+  type ApprovalType,
+  type ApprovalView,
+  type Paginated,
+  type PunchFlagReviewInput,
+} from '@vyuha/shared';
 
 import { withDevFixture, type Sampled } from '@/features/leave/dev-fixture-fallback';
 import { paginatedSchema } from '@/features/leave/types';
@@ -145,6 +152,23 @@ export function useBulkDecision(): UseMutationResult<void, Error, BulkAction> {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: APPROVALS_QUERY_ROOT });
       void queryClient.invalidateQueries({ queryKey: ['leave'] });
+    },
+  });
+}
+
+/** Owner, 21 Aug 2026: the four admin actions on a flagged punch, from the inbox. */
+export function useFlagReview(): UseMutationResult<void, Error, { punchId: string; input: PunchFlagReviewInput }> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ punchId, input }) => {
+      await apiRequest<unknown>(`/punches/${punchId}/flag-review`, {
+        method: 'POST',
+        body: punchFlagReviewSchema.parse(input),
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: APPROVALS_QUERY_ROOT });
+      void queryClient.invalidateQueries({ queryKey: ['attendance'] });
     },
   });
 }

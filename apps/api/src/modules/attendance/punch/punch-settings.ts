@@ -1,9 +1,6 @@
 import {
-  DEFAULT_PUNCH_WINDOW_BEHAVIOUR,
   DEVICE_BINDING_MODES,
-  PUNCH_WINDOW_BEHAVIOURS,
   type DeviceBindingMode,
-  type PunchWindowBehaviour,
 } from '@vyuha/shared';
 import { z } from 'zod';
 
@@ -22,7 +19,6 @@ import { z } from 'zod';
  */
 
 export const PUNCH_SETTING_KEYS = {
-  windowBehaviour: 'attendance.punch_window_behaviour',
   deviceBindingMode: 'attendance.device_binding_mode',
   photoMinBytes: 'attendance.photo_min_bytes',
   photoMaxBytes: 'attendance.photo_max_bytes',
@@ -32,7 +28,6 @@ export const PUNCH_SETTING_KEYS = {
 export type PunchSettingKey = (typeof PUNCH_SETTING_KEYS)[keyof typeof PUNCH_SETTING_KEYS];
 
 export interface PunchSettings {
-  readonly windowBehaviour: PunchWindowBehaviour;
   readonly deviceBindingMode: DeviceBindingMode;
   /** REQ-D-03a: the band the stored photo should land in. */
   readonly photoMinBytes: number;
@@ -44,7 +39,6 @@ export interface PunchSettings {
 const KB = 1024;
 
 export const DEFAULT_PUNCH_SETTINGS: PunchSettings = {
-  windowBehaviour: DEFAULT_PUNCH_WINDOW_BEHAVIOUR,
   deviceBindingMode: 'WARN',
   photoMinBytes: 80 * KB,
   photoMaxBytes: 150 * KB,
@@ -95,9 +89,6 @@ export function resolvePunchSettings(values: ReadonlyMap<string, unknown>): Punc
   }
 
   return {
-    windowBehaviour:
-      read(values, PUNCH_SETTING_KEYS.windowBehaviour, z.enum(PUNCH_WINDOW_BEHAVIOURS)) ??
-      DEFAULT_PUNCH_SETTINGS.windowBehaviour,
     deviceBindingMode:
       read(values, PUNCH_SETTING_KEYS.deviceBindingMode, z.enum(DEVICE_BINDING_MODES)) ??
       DEFAULT_PUNCH_SETTINGS.deviceBindingMode,

@@ -77,6 +77,25 @@ Last updated: 11 August 2026
 
 ---
 
+## Attendance changes, 21 August 2026
+
+Owner decisions for the second attendance brief (docs/PENDING.md, A-01 to A-09):
+
+- Corrections (regularization) and on-duty requests are removed as employee-raised
+  flows. Open requests stay decidable in Approvals until the queue is empty.
+- An admin-recorded IN/OUT (`ADMIN_ENTRY`) counts in the day computation, sits
+  beside the employee's own punches rather than replacing them, needs a reason,
+  and is gated on `attendance.edit`.
+- Late and out-of-window punches are always accepted and flagged into Approvals;
+  the punch-window behaviour setting is retired.
+- Early arrival: hand-rolled confetti, default threshold 15 minutes, streak
+  resets on a non-early working day; both settings live under Attendance policy.
+- Geofence: the server rejects anything outside the radius except a fix that is
+  outside by less than its own accuracy. No field-staff exemption, no
+  allow-with-reason without a fix, and an office with no coordinates cannot punch
+  until they are entered. Radius per office, editable, default 100 m.
+- Durations in the shift editor use an hours + minutes picker in 5-minute steps.
+
 ## Still open
 
 | # | Question | Needed by |

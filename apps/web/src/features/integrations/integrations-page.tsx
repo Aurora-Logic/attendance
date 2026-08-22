@@ -622,7 +622,7 @@ export function IntegrationsPage() {
           <DialogHeader>
             <DialogTitle>Add a Tally connection</DialogTitle>
             <DialogDescription>
-              One connection per Tally company (REQ-Q-03). The company GUID can be bound later,
+              One connection per Tally company. The company GUID can be bound later,
               but no job runs until it is.
             </DialogDescription>
           </DialogHeader>
@@ -670,7 +670,7 @@ export function IntegrationsPage() {
               </Alert>
             ) : null}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             <Button
               variant="outline"
               onClick={() => {
@@ -737,7 +737,7 @@ export function IntegrationsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Full re-pull for {repulling?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Every master is re-read from the beginning (REQ-R-05), and masters that no longer
+              Every master is re-read from the beginning, and masters that no longer
               exist in Tally are marked absent — never deleted. Nothing in Tally changes; this
               only rebuilds the copy here. The work runs on the agent's next polls.
             </AlertDialogDescription>
@@ -814,7 +814,7 @@ export function IntegrationsPage() {
               <CopyField value={webhookUrl} label="Webhook URL" id="opstally-webhook-url" />
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             {webhookUrl === null ? (
               <>
                 <Button
@@ -883,7 +883,7 @@ export function IntegrationsPage() {
               </Alert>
             ) : null}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             <Button
               variant="outline"
               onClick={() => {
@@ -919,7 +919,7 @@ export function IntegrationsPage() {
           {issuedToken === null ? null : (
             <CopyField value={issuedToken} label="Agent token" id="issued-agent-token" />
           )}
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end gap-2">
             <Button
               onClick={() => {
                 setIssuedToken(null);

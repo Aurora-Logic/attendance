@@ -24,7 +24,10 @@ import {
   type SavedView,
 } from '@vyuha/shared';
 
+import { sql } from 'drizzle-orm';
+
 import { AppError } from '../common/errors.js';
+import { InjectDatabase, type Database } from '../db/db.provider.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
 import { ExportService } from './export.service.js';
@@ -64,6 +67,7 @@ import { ScheduleService } from './schedule.service.js';
 @Controller('reports')
 export class ReportController {
   constructor(
+    @InjectDatabase() private readonly db: Database,
     private readonly sources: ReportSourceRegistry,
     private readonly exports: ExportService,
     private readonly views: SavedViewService,
@@ -219,6 +223,22 @@ export class ReportController {
     const filters = source.assertFiltersUsable(key, query);
     const { limit, offset } = pageSlice(query);
     const page = await source.page(principal, key, { ...filters, sort: query.sort }, limit, offset);
+    // REQ-AD-09: the first page of a report is an "open"; later pages and
+    // refetches of page one within the same minute are the same sitting.
+    // Fire-and-forget — a usage row must never slow or fail the report.
+    if (offset === 0) {
+      void this.db
+        .execute(
+          sql`INSERT INTO report_usage (org_id, user_id, report_key)
+              SELECT ${principal.orgId}, ${principal.userId}, ${key}
+              WHERE NOT EXISTS (
+                SELECT 1 FROM report_usage
+                 WHERE org_id = ${principal.orgId} AND user_id = ${principal.userId}
+                   AND report_key = ${key} AND opened_at > now() - interval '1 minute'
+              )`,
+        )
+        .catch(() => undefined);
+    }
     return paginated<unknown>([...page.rows], query, page.total);
   }
 }

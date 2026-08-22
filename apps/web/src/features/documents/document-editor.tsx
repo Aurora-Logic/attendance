@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeftIcon, ArrowsInIcon, EyeIcon, FileXlsIcon, PaintBrushIcon, PencilSimpleIcon, PrinterIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { ArrowLeftIcon, ArrowsInIcon, DotsThreeVerticalIcon, EyeIcon, FileXlsIcon, PaintBrushIcon, PencilSimpleIcon, PrinterIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -79,6 +79,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const branding = useBranding();
   const [preview, setPreview] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [fit, setFit] = useState(true);
   const [zoomIndex, setZoomIndex] = useState(ZOOMS.length - 1);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -161,27 +162,35 @@ export function DocumentEditor(props: DocumentEditorProps) {
                 {preview ? 'Edit' : 'Preview'}
               </Button>
             ) : null}
-            {/* An anchor, so the print route opens in its own tab; nativeButton off because the rendered element is not a <button>. */}
-            {printPath === null ? (
-              <Button variant="outline" size="sm" disabled>
-                <PrinterIcon data-icon="inline-start" />
-                PDF
+            <div className="hidden items-center gap-2 md:flex">
+              {/* An anchor, so the print route opens in its own tab; nativeButton off because the rendered element is not a <button>. */}
+              {printPath === null ? (
+                <Button variant="outline" size="sm" disabled>
+                  <PrinterIcon data-icon="inline-start" />
+                  PDF
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" nativeButton={false} render={<a href={printPath} target="_blank" rel="noreferrer" />}>
+                  <PrinterIcon data-icon="inline-start" />
+                  PDF
+                </Button>
+              )}
+              <Button variant="outline" size="sm" disabled={excel === null} onClick={() => { void exportXlsx(); }}>
+                <FileXlsIcon data-icon="inline-start" />
+                Excel
               </Button>
-            ) : (
-              <Button variant="outline" size="sm" nativeButton={false} render={<a href={printPath} target="_blank" rel="noreferrer" />}>
-                <PrinterIcon data-icon="inline-start" />
-                PDF
+              <Button variant="outline" size="sm" aria-label="Open the design rail" onClick={() => { setDesignOpen(true); }}>
+                <PaintBrushIcon data-icon="inline-start" />
+                Design
               </Button>
-            )}
-            <Button variant="outline" size="sm" disabled={excel === null} onClick={() => { void exportXlsx(); }}>
-              <FileXlsIcon data-icon="inline-start" />
-              Excel
+              {isMobile ? null : actions}
+            </div>
+            {/* On a phone the bar stays one row: Preview beside an overflow that
+                opens as a bottom sheet (thumb-reach: a menu of rows arrives from
+                an edge); the page's own verbs move to a footer the thumb reaches. */}
+            <Button variant="outline" size="icon-sm" className="pointer-coarse:size-11 md:hidden" aria-label="More document actions" onClick={() => { setMobileMenuOpen(true); }}>
+              <DotsThreeVerticalIcon />
             </Button>
-            <Button variant="outline" size="sm" aria-label="Open the design rail" onClick={() => { setDesignOpen(true); }}>
-              <PaintBrushIcon data-icon="inline-start" />
-              Design
-            </Button>
-            {actions}
           </div>
         </div>
 
@@ -199,7 +208,43 @@ export function DocumentEditor(props: DocumentEditorProps) {
           </div>
           {extras ? <div className="mx-auto mt-6 max-w-[210mm]">{extras}</div> : null}
         </div>
+
+        {isMobile && actions !== undefined && actions !== null ? (
+          <div className="bg-background/95 supports-[backdrop-filter]:bg-background/80 flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden">
+            {actions}
+          </div>
+        ) : null}
       </div>
+
+      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <SheetContent side="bottom" className="gap-0">
+          <SheetHeader className="border-b">
+            <SheetTitle>{title}</SheetTitle>
+            <SheetDescription>Export and design.</SheetDescription>
+          </SheetHeader>
+          <div className="flex flex-col gap-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {printPath === null ? (
+              <Button variant="outline" className="justify-start" disabled>
+                <PrinterIcon data-icon="inline-start" />
+                PDF
+              </Button>
+            ) : (
+              <Button variant="outline" className="justify-start" nativeButton={false} render={<a href={printPath} target="_blank" rel="noreferrer" />} onClick={() => { setMobileMenuOpen(false); }}>
+                <PrinterIcon data-icon="inline-start" />
+                PDF
+              </Button>
+            )}
+            <Button variant="outline" className="justify-start" disabled={excel === null} onClick={() => { void exportXlsx(); setMobileMenuOpen(false); }}>
+              <FileXlsIcon data-icon="inline-start" />
+              Excel
+            </Button>
+            <Button variant="outline" className="justify-start" onClick={() => { setMobileMenuOpen(false); setDesignOpen(true); }}>
+              <PaintBrushIcon data-icon="inline-start" />
+              Design
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={designOpen} onOpenChange={setDesignOpen}>
         <SheetContent side={isMobile ? 'bottom' : 'right'} className="gap-0 p-0 sm:max-w-md max-md:max-h-[92vh]">

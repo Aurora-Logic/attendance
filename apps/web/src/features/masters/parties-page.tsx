@@ -208,7 +208,7 @@ export function PartiesPage() {
             }}
           >
             <SelectTrigger className="pointer-coarse:min-h-11 w-44" aria-label="Ledger side">
-              <SelectValue />
+              <SelectValue>{(value: string) => (value === ALL_GROUPS ? 'Both ledger sides' : value)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_GROUPS}>Both ledger sides</SelectItem>

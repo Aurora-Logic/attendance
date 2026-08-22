@@ -1,4 +1,5 @@
-import { AddressBookIcon, BooksIcon, BuildingsIcon, CheckSquareIcon, ClipboardIcon, FileTextIcon, HandshakeIcon, ReceiptIcon, ShoppingCartIcon, TruckIcon, UserIcon, type Icon } from '@phosphor-icons/react';
+import { AddressBookIcon, BooksIcon, BuildingsIcon, CheckSquareIcon, HandshakeIcon, ReceiptIcon, UserIcon, type Icon } from '@phosphor-icons/react';
+import { DOCUMENT_ICONS } from '@/components/shared/entity-icons';
 
 import type { GoToRecord } from '@vyuha/shared';
 
@@ -69,27 +70,27 @@ const GO_TO_RECORD_KINDS: Record<string, GoToRecordKind> = {
   },
   estimate: {
     group: 'Estimates',
-    icon: FileTextIcon,
+    icon: DOCUMENT_ICONS.estimate,
     route: (record) => `/sales/estimates/${record.id}`,
   },
   sales_order: {
     group: 'Sales orders',
-    icon: ClipboardIcon,
+    icon: DOCUMENT_ICONS.sales_order,
     route: (record) => `/sales/orders/${record.id}`,
   },
   invoice: {
     group: 'Invoices',
-    icon: ReceiptIcon,
+    icon: DOCUMENT_ICONS.invoice,
     route: (record) => `/sales/invoices/${record.id}`,
   },
   dispatch: {
     group: 'Dispatches',
-    icon: TruckIcon,
+    icon: DOCUMENT_ICONS.dispatch,
     route: (record) => `/sales/dispatches/${record.id}`,
   },
   purchase_order: {
     group: 'Purchase orders',
-    icon: ShoppingCartIcon,
+    icon: DOCUMENT_ICONS.purchase_order,
     route: (record) => `/purchase/orders/${record.id}`,
   },
 };

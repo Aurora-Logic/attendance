@@ -161,7 +161,7 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
     <section className="flex flex-col gap-3">
       <SectionHeading
         title="Access and roles"
-        note="REQ-B-07. A role is a named bundle of permissions, and it attaches to the login account rather than to the employee record."
+        note="A role is a named bundle of permissions, and it attaches to the login account rather than to the employee record."
       />
 
       {access.isPending ? <AccessSkeleton /> : null}
@@ -184,7 +184,7 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
             </EmptyMedia>
             <EmptyTitle>{name} has no login account</EmptyTitle>
             <EmptyDescription>
-              An employee record and a login are separate things (REQ-B-02). Click below to provide login credentials or send an invite link.
+              An employee record and a login are separate things. Click below to provide login credentials or send an invite link.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>

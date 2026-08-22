@@ -27,13 +27,14 @@ export function sampleSettings(): OrgSettings {
       logoKey: null,
     },
     attendance: {
-      punchWindowBehaviour: 'ALLOW_WITH_REASON',
       geofenceBehaviour: 'BLOCK',
       deviceBindingMode: 'WARN',
       maxWorkMinutes: 16 * 60,
       regularizationWindowDays: 7,
       regularizationMaxPerMonth: 3,
       regularizationAutoFile: false,
+      earlyArrivalEnabled: true,
+      earlyArrivalThresholdMinutes: 15,
       autoEscalationDays: 3,
     },
     photo: { retentionMonths: 12, minBytes: 80 * KB, maxBytes: 150 * KB },
@@ -47,13 +48,14 @@ export function sampleSettings(): OrgSettings {
     },
     enforcement: {
       attendance: {
-        punchWindowBehaviour: 'Punch',
         geofenceBehaviour: null,
         deviceBindingMode: 'Punch',
         maxWorkMinutes: 'Day engine',
         regularizationWindowDays: null,
         regularizationMaxPerMonth: null,
         regularizationAutoFile: 'Regularization',
+        earlyArrivalEnabled: 'Day engine',
+        earlyArrivalThresholdMinutes: 'Day engine',
         autoEscalationDays: null,
       },
       photo: {

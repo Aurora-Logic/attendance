@@ -124,7 +124,7 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
         </SheetTitle>
         <SheetDescription>
           {isNew
-            ? 'A deal has no accounting existence and is never pushed to Tally (REQ-U-05).'
+            ? 'A deal has no accounting existence and is never pushed to Tally.'
             : record === null
               ? 'Edit the deal.'
               : `${record.pipelineName} · ${record.stageName} · ${String(record.probability)}%`}
@@ -170,7 +170,7 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
                       }}
                     />
                     <span className="text-muted-foreground text-xs">
-                      REQ-U-03: chosen by you, never matched by name. Invoices for this company go to that ledger.
+                      Chosen by you, never matched by name. Invoices for this company go to that ledger.
                     </span>
                   </div>
                 ) : (

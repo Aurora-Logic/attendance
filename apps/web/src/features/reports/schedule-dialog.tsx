@@ -297,7 +297,7 @@ export function ScheduleDialog({
           </p>
         </FieldGroup>
 
-        <DialogFooter>
+        <DialogFooter className="flex-row justify-end gap-2">
           <Button
             variant="outline"
             onClick={() => {

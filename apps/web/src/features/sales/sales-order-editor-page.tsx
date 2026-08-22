@@ -19,6 +19,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { DocumentEditor } from '@/features/documents/document-editor';
 import { PaperField, type PaperEditing, type PaperLine, type PaperModel } from '@/features/documents/paper';
 import { useDesignDraft } from '@/features/documents/use-design-draft';
+import { useDraftBackup } from '@/features/documents/use-draft-backup';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
 import { useStockItems } from '@/features/masters/use-stock-items';
@@ -114,6 +115,16 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
     setDraft(next);
     setBase(next);
   };
+  // Crash insurance for a new document: the unsaved draft mirrors into
+  // sessionStorage and comes back if the tab reloads mid-typing.
+  const backup = useDraftBackup('sales-order', draft, record === null);
+
+  const [backupOffered, setBackupOffered] = useState(false);
+  if (!backupOffered && backup.restored !== null && record === null && JSON.stringify(backup.restored) !== JSON.stringify(draft)) {
+    setBackupOffered(true);
+    setDraft(backup.restored);
+  }
+
   const [altering, setAltering] = useState(false);
   const [dialog, setDialog] = useState<'pack' | 'invoice' | 'dispatch' | 'short-close' | 'credit-override' | null>(null);
   const save = useSaveSalesOrder();
@@ -231,7 +242,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
               label="Tally party"
               placeholder="Choose the party"
               searchPlaceholder="Search parties"
-              emptyMessage="No party matches. A prospect must become a party in Tally first (REQ-U-03)."
+              emptyMessage="No party matches. A prospect must become a party in Tally first."
               icon={<BooksIcon className="text-muted-foreground" />}
               options={partyOptions}
               loading={parties.isPending}
@@ -313,6 +324,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
     save.mutate(effective, {
       onSuccess: (saved) => {
         toast.add({ type: 'success', title: isNew ? `${saved.number} raised` : `${saved.number} saved`, description: `${saved.customerName} · ${formatMoney(saved.grandTotal)}` });
+        backup.clear();
         if (isNew) void navigate(`/sales/orders/${saved.id}`, { replace: true });
         else adopt(estimateToDraft(saved));
       },
@@ -336,7 +348,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
                     : `${saved.number} confirmed`,
             description:
               saved.status === 'PENDING_APPROVAL'
-                ? 'The discount is past the threshold; a Sales manager decides it in the Approvals inbox (REQ-W-08).'
+                ? 'The discount is past the threshold; a Sales manager decides it in the Approvals inbox.'
                 : action !== 'cancel' && saved.syncState === 'NOT_PUSHED'
                   ? 'No agent connection can carry it yet; push it when one is issued.'
                   : undefined,
@@ -390,7 +402,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
                     <p>
                       Exposure {formatMoney(creditBlock.position.exposure)} + open orders {formatMoney(creditBlock.position.openOrders)} + this order {formatMoney(creditBlock.orderTotal)} &gt; limit {formatMoney(creditBlock.position.creditLimit)}.
                     </p>
-                    <p className="mt-1">{canOverrideCredit ? 'You hold sales.credit.override: release it with a reason, which is audited (REQ-W-09).' : `Releasing it needs ${creditBlock.requiredPermission}; ask a holder to confirm it with a reason.`}</p>
+                    <p className="mt-1">{canOverrideCredit ? 'You hold sales.credit.override: release it with a reason, which is audited.' : `Releasing it needs ${creditBlock.requiredPermission}; ask a holder to confirm it with a reason.`}</p>
                   </AlertDescription>
                   {canOverrideCredit ? (
                     <AlertAction>
@@ -408,7 +420,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
                   <AlertTitle>Tally rejected it</AlertTitle>
                   <AlertDescription>
                     <p className="font-mono text-xs">{record.lastError}</p>
-                    <p className="mt-1">Tally&rsquo;s own words (REQ-T-01). Fix the cause there or here, then push again.</p>
+                    <p className="mt-1">Tally&rsquo;s own words. Fix the cause there or here, then push again.</p>
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -494,7 +506,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
           if (!next) setDialog(null);
         }}
         title={`Release ${record?.number ?? 'this order'} past the credit limit?`}
-        description="The order confirms and queues for Tally although the party is over its limit. The position and your reason are recorded (REQ-W-09)."
+        description="The order confirms and queues for Tally although the party is over its limit. The position and your reason are recorded."
         consequences={creditBlock === null ? [] : [`${creditBlock.position.partyName}: exposure ${formatMoney(creditBlock.position.exposure)}, open orders ${formatMoney(creditBlock.position.openOrders)}, limit ${formatMoney(creditBlock.position.creditLimit)}.`, `This order adds ${formatMoney(creditBlock.orderTotal)}.`]}
         prompt="Why is this order being released?"
         hint="Kept in the audit log against your name."
@@ -521,7 +533,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
               }
             }}
             title={`Short-close ${record.number}?`}
-            description="The balance that has not left is written off (REQ-AA-05). It comes off the pick queue and its shortage requirements close."
+            description="The balance that has not left is written off. It comes off the pick queue and its shortage requirements close."
             consequences={['What is packed, invoiced or dispatched stays as it is.', 'The order no longer returns to the pick queue.', 'Recorded against your name in the audit log; it cannot be undone from here.']}
             prompt="Why is the balance being written off?"
             hint="The customer cancelled the rest, the item is discontinued — the reason is kept on the order."

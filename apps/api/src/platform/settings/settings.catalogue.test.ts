@@ -60,7 +60,6 @@ describe('defaults', () => {
     // Repeated literals rather than imports, because platform must not import
     // modules. Each one is checked against the module's source below.
     expect(DEFAULT_ATTENDANCE_POLICY.maxWorkMinutes).toBe(16 * 60);
-    expect(DEFAULT_ATTENDANCE_POLICY.punchWindowBehaviour).toBe('ALLOW_WITH_REASON');
     expect(DEFAULT_ATTENDANCE_POLICY.deviceBindingMode).toBe('WARN');
     expect(DEFAULT_PHOTO_POLICY.minBytes).toBe(80 * 1024);
     expect(DEFAULT_PHOTO_POLICY.maxBytes).toBe(150 * 1024);
@@ -120,15 +119,13 @@ describe('resolveGroup', () => {
       DEFAULT_ATTENDANCE_POLICY,
       new Map<string, unknown>([
         [ATTENDANCE_SETTINGS.maxWorkMinutes.key, 600],
-        [ATTENDANCE_SETTINGS.punchWindowBehaviour.key, 'BLOCk'],
+        [ATTENDANCE_SETTINGS.deviceBindingMode.key, 'WARn'],
       ]),
     );
 
     expect(resolved.value.maxWorkMinutes).toBe(600);
-    expect(resolved.value.punchWindowBehaviour).toBe(
-      DEFAULT_ATTENDANCE_POLICY.punchWindowBehaviour,
-    );
-    expect(resolved.unreadable).toEqual([ATTENDANCE_SETTINGS.punchWindowBehaviour.key]);
+    expect(resolved.value.deviceBindingMode).toBe(DEFAULT_ATTENDANCE_POLICY.deviceBindingMode);
+    expect(resolved.unreadable).toEqual([ATTENDANCE_SETTINGS.deviceBindingMode.key]);
   });
 
   it('refuses a stored photo band that is inverted', () => {

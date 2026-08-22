@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { type ReactNode, createElement, useMemo, useState } from 'react';
 import {
   ArrowLeftIcon,
   CalendarXIcon,
@@ -16,6 +16,8 @@ import { RowActions } from '@/components/shared/row-actions';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { PUNCH_SOURCE_ICONS } from '@/components/shared/entity-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
@@ -37,13 +39,8 @@ import { DayDetailSheet } from '@/features/attendance/day-detail-sheet';
 import { formatClock, formatDuration, toDateParam } from '@/features/attendance/format';
 import { MonthField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import {
-  FAMILY_BORDER,
-  FAMILY_TEXT,
-  NEEDS_REVIEW,
-  flagLabel,
-} from '@/features/attendance/status';
-import { AttendanceFlags, AttendanceStatusBadge } from '@/features/attendance/status-badge';
+import { NEEDS_REVIEW, flagClasses, flagLabel } from '@/features/attendance/status';
+import { AttendanceFlags, AttendanceStatusBadge, EarlyStreakBadge } from '@/features/attendance/status-badge';
 import { employeeActions } from './employee-actions';
 import { EmployeeAccessSection } from './employee-access-section';
 import { EmployeeInviteDialog } from './invite-dialog';
@@ -233,6 +230,7 @@ const DAY_COLUMNS: RecordColumn<AttendanceDay>[] = [
   {
     key: 'flags',
     header: 'Flags',
+    headerIcon: <ACTION_ICONS.flag />,
     cell: (row) => (row.flags.length > 0 ? <AttendanceFlags flags={row.flags} /> : EMPTY_VALUE),
     secondary: true,
   },
@@ -263,10 +261,21 @@ const PUNCH_COLUMNS: RecordColumn<EmployeePunch>[] = [
       </Badge>
     ),
   },
-  { key: 'source', header: 'Source', cell: (row) => humaniseEnum(row.source), secondary: true },
+  {
+    key: 'source',
+    header: 'Source',
+    cell: (row) => (
+      <span className="inline-flex items-center gap-1.5 [&_svg]:size-3.5">
+        {createElement(PUNCH_SOURCE_ICONS[row.source], { 'aria-hidden': true, className: 'text-muted-foreground' })}
+        {humaniseEnum(row.source)}
+      </span>
+    ),
+    secondary: true,
+  },
   {
     key: 'flags',
     header: 'Flags',
+    headerIcon: <ACTION_ICONS.flag />,
     cell: (row) =>
       row.flags.length > 0 ? <AttendanceFlags flags={[...row.flags]} /> : EMPTY_VALUE,
   },
@@ -448,6 +457,11 @@ export function EmployeeDetailPage() {
   });
 
   const days = useMemo(() => daysQuery.data?.data ?? [], [daysQuery.data]);
+  // Owner, 21 Aug 2026: the streak as of the latest computed day in view.
+  const latestStreak = useMemo(() => {
+    const latest = [...days].sort((a, b) => a.date.localeCompare(b.date)).at(-1);
+    return latest?.earlyStreak ?? 0;
+  }, [days]);
   const totals = useMemo(() => summariseRange(days), [days]);
   const workedSeries = useMemo(() => toWorkedSeries(days), [days]);
   const statusSlices = useMemo(() => toStatusSlices(days), [days]);
@@ -543,6 +557,12 @@ export function EmployeeDetailPage() {
         description="One employee's record, and how their attendance reads over a month."
         action={backToRegister}
       />
+      {latestStreak > 0 ? (
+        <div className="flex items-center gap-2">
+          <EarlyStreakBadge streak={latestStreak} />
+          <span className="text-muted-foreground text-xs">Consecutive working days punched in ahead of the shift.</span>
+        </div>
+      ) : null}
 
       {employee.isPending ? (
         <div
@@ -764,6 +784,7 @@ export function EmployeeDetailPage() {
                 {flags.length > 0 ? (
                   <section className="flex flex-col gap-3">
                     <SectionHeading
+                      icon={<ACTION_ICONS.flag />}
                       title="Flags raised"
                       note="What this month's days were flagged for, commonest first. The ones that need somebody to look are marked out."
                     />
@@ -772,13 +793,9 @@ export function EmployeeDetailPage() {
                         <li key={flag}>
                           <Badge
                             variant="ghost"
-                            className={cn(
-                              'border gap-1.5',
-                              NEEDS_REVIEW.has(flag)
-                                ? cn(FAMILY_TEXT.destructive, FAMILY_BORDER.destructive)
-                                : cn(FAMILY_TEXT.quiet, FAMILY_BORDER.neutral),
-                            )}
+                            className={cn('border gap-1.5', flagClasses(flag).text, flagClasses(flag).border, flagClasses(flag).fill)}
                           >
+                            <ACTION_ICONS.flag aria-hidden weight={NEEDS_REVIEW.has(flag) ? 'fill' : 'regular'} />
                             {flagLabel(flag)}
                             <span className="tabular-nums">{count}</span>
                           </Badge>
@@ -892,7 +909,7 @@ export function EmployeeDetailPage() {
       />
       {/* Same dialog as the register's, from the same action list, so the two
           screens cannot come to different conclusions about who may be
-          invited (REQ-B-03). */}
+          invited. */}
       <EmployeeInviteDialog
         employee={inviting}
         onOpenChange={(open) => {

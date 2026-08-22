@@ -3,14 +3,15 @@ import { describe, expect, it } from 'vitest';
 
 import { parseCalendarDate } from './calendar-date.js';
 import {
-  computeDayResult,
   type AdjustmentFact,
   type DayInput,
+  type EarlyArrivalInput,
   type ExistingDayFact,
   type HolidayFact,
   type LeaveFact,
   type PunchFact,
   type ShiftPolicy,
+  computeDayResult,
 } from './compute-day.js';
 import type { WeeklyOffConfig } from './weekly-off.js';
 
@@ -123,6 +124,7 @@ interface Scenario {
   readonly punches?: readonly PunchSpec[];
   readonly adjustment?: AdjustmentFact | null;
   readonly existing?: ExistingDayFact | null;
+  readonly earlyArrival?: EarlyArrivalInput;
 }
 
 function buildInput(scenario: Scenario): DayInput {
@@ -140,6 +142,7 @@ function buildInput(scenario: Scenario): DayInput {
     punches: (scenario.punches ?? []).map(punch),
     adjustment: scenario.adjustment ?? null,
     existing: scenario.existing ?? null,
+    earlyArrival: scenario.earlyArrival ?? { enabled: true, thresholdMinutes: 15, previousStreak: 0 },
   };
 }
 
@@ -929,5 +932,53 @@ describe('computeDayResult', () => {
       'outside_geofence',
       'outside_window',
     ]);
+  });
+});
+
+describe('early arrival (owner, 21 Aug 2026)', () => {
+  const early = (minutesBefore: number): PunchSpec[] => [
+    { type: 'IN', at: new Date(SCHEDULED_IN.getTime() - minutesBefore * 60_000) },
+    { type: 'OUT', at: SCHEDULED_OUT },
+  ];
+
+  it('recognises a first IN that beats shift start by the threshold, and extends the streak', () => {
+    const result = computeDayResult(
+      buildInput({ punches: early(20), earlyArrival: { enabled: true, thresholdMinutes: 15, previousStreak: 3 } }),
+    );
+    expect(result.earlyArrivalMinutes).toBe(20);
+    expect(result.earlyArrival).toBe(true);
+    expect(result.earlyStreak).toBe(4);
+  });
+
+  it('a worked day that was not early resets the streak; exactly the threshold counts', () => {
+    const short = computeDayResult(
+      buildInput({ punches: early(10), earlyArrival: { enabled: true, thresholdMinutes: 15, previousStreak: 3 } }),
+    );
+    expect(short.earlyArrival).toBe(false);
+    expect(short.earlyStreak).toBe(0);
+    const exact = computeDayResult(buildInput({ punches: early(15) }));
+    expect(exact.earlyArrival).toBe(true);
+  });
+
+  it('a rest day carries the streak forward untouched', () => {
+    const sunday = computeDayResult(
+      buildInput({
+        date: SUNDAY,
+        weeklyOffPattern: { weekdays: [7] },
+        earlyArrival: { enabled: true, thresholdMinutes: 15, previousStreak: 5 },
+      }),
+    );
+    expect(sunday.status).toBe('WEEKLY_OFF');
+    expect(sunday.earlyArrival).toBe(false);
+    expect(sunday.earlyStreak).toBe(5);
+  });
+
+  it('switched off in Settings, nothing is recognised and no streak grows', () => {
+    const result = computeDayResult(
+      buildInput({ punches: early(40), earlyArrival: { enabled: false, thresholdMinutes: 15, previousStreak: 3 } }),
+    );
+    expect(result.earlyArrivalMinutes).toBe(40);
+    expect(result.earlyArrival).toBe(false);
+    expect(result.earlyStreak).toBe(0);
   });
 });

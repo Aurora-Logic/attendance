@@ -1,12 +1,14 @@
 import {
   ERROR_CODES,
-  employeeDisplayName,
   type EmployeeStatus,
   type HalfDayPart,
+  PUNCH_FLAG_REVIEW_ACTIONS,
   type PunchFlag,
+  type PunchFlagReview,
   type PunchRecord,
   type PunchSource,
   type PunchType,
+  employeeDisplayName,
 } from '@vyuha/shared';
 import { and, asc, desc, eq, gte, isNull, lte, sql, type SQL } from 'drizzle-orm';
 
@@ -63,6 +65,15 @@ export const PUNCH_COLUMNS = {
   deviceMismatch: punches.deviceMismatch,
   reason: punches.reason,
   flags: punches.flags,
+  recordedByUserId: punches.recordedByUserId,
+  recordedByName: sql<string | null>`(select trim(concat(e.first_name, ' ', coalesce(e.last_name, ''))) from users u left join employees e on e.id = u.employee_id where u.id = ${punches.recordedByUserId})`,
+  // The latest decisive review (a NOTE decides nothing), three correlated
+  // reads per row; a page of punches is fifty rows, not fifty thousand.
+  reviewAction: sql<string | null>`(select r.action::text from punch_flag_reviews r where r.punch_id = ${punches.id} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
+  reviewNote: sql<string | null>`(select r.note from punch_flag_reviews r where r.punch_id = ${punches.id} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
+  reviewAt: sql<Date | null>`(select r.created_at from punch_flag_reviews r where r.punch_id = ${punches.id} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
+  reviewByName: sql<string | null>`(select trim(concat(e.first_name, ' ', coalesce(e.last_name, ''))) from punch_flag_reviews r join users u on u.id = r.decided_by left join employees e on e.id = u.employee_id where r.punch_id = ${punches.id} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
+  reviewById: sql<string | null>`(select r.decided_by from punch_flag_reviews r where r.punch_id = ${punches.id} and r.action <> 'NOTE' order by r.created_at desc limit 1)`,
 } as const;
 
 export interface PunchRow {
@@ -78,8 +89,8 @@ export interface PunchRow {
   clockSkewSeconds: number | null;
   syncDelaySeconds: number | null;
   source: PunchSource;
-  photoFileId: string;
-  thumbnailFileId: string;
+  photoFileId: string | null;
+  thumbnailFileId: string | null;
   latitude: number | null;
   longitude: number | null;
   gpsAccuracyM: number | null;
@@ -91,6 +102,13 @@ export interface PunchRow {
   deviceMismatch: boolean;
   reason: string | null;
   flags: PunchFlag[];
+  recordedByUserId: string | null;
+  recordedByName: string | null;
+  reviewAction: string | null;
+  reviewNote: string | null;
+  reviewAt: Date | string | null;
+  reviewByName: string | null;
+  reviewById: string | null;
 }
 
 /**
@@ -142,7 +160,14 @@ export function toPunchRecord(row: PunchRow): PunchRecord {
     clockSkewSeconds: row.clockSkewSeconds,
     syncDelaySeconds: row.syncDelaySeconds,
     source: row.source,
-    photo: { fileId: row.photoFileId, thumbnailFileId: row.thumbnailFileId },
+    photo:
+      row.photoFileId === null || row.thumbnailFileId === null
+        ? null
+        : { fileId: row.photoFileId, thumbnailFileId: row.thumbnailFileId },
+    recordedBy:
+      row.recordedByUserId === null
+        ? null
+        : { id: row.recordedByUserId, name: row.recordedByName === null || row.recordedByName === '' ? 'Administrator' : row.recordedByName },
     location:
       row.latitude === null || row.longitude === null
         ? null
@@ -156,6 +181,21 @@ export function toPunchRecord(row: PunchRow): PunchRecord {
     halfDayPart: row.halfDayPart,
     reason: row.reason,
     flags: composeFlags(row),
+    flagReview: flagReviewOf(row),
+  };
+}
+
+function flagReviewOf(row: PunchRow): PunchFlagReview | null {
+  if (row.reviewAction === null || row.reviewAt === null) return null;
+  const action = PUNCH_FLAG_REVIEW_ACTIONS.find((candidate) => candidate === row.reviewAction);
+  if (action === undefined) return null;
+  const at = row.reviewAt instanceof Date ? row.reviewAt : new Date(row.reviewAt);
+  return {
+    action,
+    note: row.reviewNote,
+    decidedBy:
+      row.reviewById === null ? null : { id: row.reviewById, name: row.reviewByName === null || row.reviewByName === '' ? 'Administrator' : row.reviewByName },
+    decidedAt: at.toISOString(),
   };
 }
 
@@ -192,8 +232,9 @@ export interface NewPunch {
   readonly clientTime: Date | null;
   readonly clockSkewSeconds: number | null;
   readonly syncDelaySeconds: number | null;
-  readonly photoFileId: string;
-  readonly thumbnailFileId: string;
+  readonly photoFileId: string | null;
+  readonly thumbnailFileId: string | null;
+  readonly recordedByUserId: string | null;
   readonly latitude: number | null;
   readonly longitude: number | null;
   readonly gpsAccuracyM: number | null;
@@ -668,6 +709,7 @@ export class PunchRepository {
         syncDelaySeconds: values.syncDelaySeconds,
         photoFileId: values.photoFileId,
         thumbnailFileId: values.thumbnailFileId,
+        recordedByUserId: values.recordedByUserId,
         latitude: values.latitude,
         longitude: values.longitude,
         gpsAccuracyM: values.gpsAccuracyM,

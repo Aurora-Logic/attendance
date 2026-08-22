@@ -199,7 +199,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
           <Alert>
             <TruckIcon />
             <AlertTitle>Nothing on {order.number} is invoiced and waiting to leave</AlertTitle>
-            <AlertDescription>Goods do not leave ahead of the paperwork (REQ-AA-14). Raise or link an invoice first.</AlertDescription>
+            <AlertDescription>Goods do not leave ahead of the paperwork. Raise or link an invoice first.</AlertDescription>
           </Alert>
         ) : (
           <>
@@ -259,7 +259,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
                   </SelectContent>
                 </Select>
                 <FieldDescription>
-                  {mode === 'local_auto' ? 'Nothing more is needed.' : mode === 'local_own_vehicle' ? 'Vehicle and driver are recorded (REQ-AA-18).' : 'LR, transporter, and both photographs (REQ-AA-19, AA-20).'}
+                  {mode === 'local_auto' ? 'Nothing more is needed.' : mode === 'local_own_vehicle' ? 'Vehicle and driver are recorded.' : 'LR, transporter, and both photographs.'}
                 </FieldDescription>
               </Field>
               {mode === 'outstation' ? (
@@ -306,7 +306,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
                 <div className="grid gap-4 sm:grid-cols-2">
                   <PhotoPicker
                     label="Box photographs"
-                    hint={`Up to ${String(MAX_BOX_PHOTOS)}. Camera or gallery (REQ-AA-21).`}
+                    hint={`Up to ${String(MAX_BOX_PHOTOS)}. Camera or gallery.`}
                     photos={box}
                     max={MAX_BOX_PHOTOS}
                     error={missing.box}
@@ -342,7 +342,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
               <TextField id="dispatch-email" label="Customer email" value={email} onChange={setEmail} error={missing.email} inputMode="email" placeholder="From the party master when blank" disabled={!dispatchable} />
               <TextField id="dispatch-whatsapp" label="Customer WhatsApp" value={whatsapp} onChange={setWhatsapp} error={missing.whatsapp} inputMode="tel" placeholder="From the party master when blank" disabled={!dispatchable} />
             </div>
-            <FieldDescription>REQ-AA-28: overrides for this dispatch’s notification only. The message is composed now and sent by hand from the dispatch (REQ-AA-26).</FieldDescription>
+            <FieldDescription>Overrides for this dispatch’s notification only. The message is composed now and sent by hand from the dispatch.</FieldDescription>
 
             <Field>
               <FieldLabel htmlFor="dispatch-notes">Notes</FieldLabel>

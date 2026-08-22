@@ -1,5 +1,6 @@
 import { ArrowClockwiseIcon, BellSimpleIcon, WarningCircleIcon } from '@phosphor-icons/react';
-import { Fragment, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { notificationIcon } from '@/components/shared/entity-icons';
+import { Fragment, type KeyboardEvent as ReactKeyboardEvent, createElement } from 'react';
 
 import type { NotificationSummary } from '@vyuha/shared';
 
@@ -171,6 +172,7 @@ export function NotificationList({
                     className="bg-primary size-1.5 shrink-0 rounded-full"
                   />
                 ) : null}
+                <NotificationGlyph eventType={notification.eventType} />
                 <span className="min-w-0 truncate">{notification.title}</span>
                 <span className="text-muted-foreground ml-auto shrink-0 text-[11px] font-normal tabular-nums">
                   {relativeTime(notification.createdAt)}
@@ -183,4 +185,9 @@ export function NotificationList({
       ))}
     </ItemGroup>
   );
+}
+
+/** The event family's glyph (owner, 22 Aug 2026), so a bell row reads before its words do. */
+function NotificationGlyph({ eventType }: { eventType: string }) {
+  return createElement(notificationIcon(eventType), { 'aria-hidden': true, className: 'text-muted-foreground size-3.5 shrink-0' });
 }

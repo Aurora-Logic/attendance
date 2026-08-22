@@ -1,11 +1,14 @@
-import { useMemo, useState } from 'react';
-import { CheckIcon, ProhibitIcon, TrayIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { createElement, useMemo, useState } from 'react';
+import { CheckIcon, ProhibitIcon, TrayIcon, UserGearIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import type { HalfDayPart, PunchFlagReviewAction } from '@vyuha/shared';
 import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
+import { APPROVAL_TYPE_ICONS } from '@/components/shared/entity-icons';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,6 +49,10 @@ import {
 } from '@vyuha/shared';
 
 import { DecisionDialog } from './decision-dialog';
+import { RecordAttendanceDialog } from '@/features/attendance/record-attendance-dialog';
+
+import { FLAG_REVIEW_COPY } from './flag-review-copy';
+import { FlagReviewDialog } from './flag-review-dialog';
 import { APPROVE_CLASSES, REJECT_CLASSES } from './decision-styles';
 import {
   APPROVAL_STATUS_LABELS,
@@ -53,7 +60,7 @@ import {
   APPROVAL_TYPE_LABELS,
   type ApprovalRequest,
 } from './types';
-import { useApprovals, useBulkDecision, useDecideApproval } from './use-approvals';
+import { useApprovals, useBulkDecision, useDecideApproval, useFlagReview } from './use-approvals';
 
 /**
  * REQ-I-01…I-05 / PRD §5 screen 6: one inbox for every request type.
@@ -126,6 +133,9 @@ export function ApprovalsPage() {
   const canApproveTeam = usePermission(PERMISSIONS.LEAVE_APPROVE_TEAM);
   const canApproveAll = usePermission(PERMISSIONS.LEAVE_APPROVE_ALL);
   const canApprove = canApproveTeam || canApproveAll;
+  // Owner, 21 Aug 2026: a flagged punch is acted on by whoever may edit
+  // attendance, with four verbs instead of approve / reject.
+  const canReviewFlags = usePermission(PERMISSIONS.ATTENDANCE_EDIT);
 
   const page = readPositiveInt(searchParams.get('page'), 1, Number.MAX_SAFE_INTEGER);
   const pageSize = readPositiveInt(searchParams.get('pageSize'), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
@@ -163,6 +173,9 @@ export function ApprovalsPage() {
 
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   const [decision, setDecision] = useState<PendingDecision | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [flagReview, setFlagReview] = useState<{ action: PunchFlagReviewAction; punchId: string; subject: string } | null>(null);
+  const reviewFlag = useFlagReview();
 
   const decide = useDecideApproval();
   const bulk = useBulkDecision();
@@ -286,12 +299,17 @@ export function ApprovalsPage() {
     {
       key: 'requester',
       header: 'Requester',
-      cell: (row) => <span className="font-medium">{row.requester.name}</span>,
+      cell: (row) => <PersonChip name={row.requester.name} className="font-medium" />,
     },
     {
       key: 'type',
       header: 'Type',
-      cell: (row) => <Badge variant="outline">{APPROVAL_TYPE_LABELS[row.type]}</Badge>,
+      cell: (row) => (
+        <Badge variant="outline">
+          <TypeGlyph type={row.type} />
+          {APPROVAL_TYPE_LABELS[row.type]}
+        </Badge>
+      ),
     },
     {
       key: 'subject',
@@ -324,7 +342,32 @@ export function ApprovalsPage() {
       key: 'actions',
       header: 'Decide',
       cell: (row) =>
-        isOpen(row) && canApprove ? (
+        row.subjectType === 'punch' ? (
+          isOpen(row) && canReviewFlags ? (
+            <div className="flex flex-wrap justify-end gap-1">
+              {(['ACCEPT', 'KEEP', 'HALF_DAY', 'NOTE'] as const).map((action) => {
+                const copy = FLAG_REVIEW_COPY[action];
+                const Icon = copy.icon;
+                return (
+                  <Button
+                    key={action}
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`${copy.verb}: ${row.subject}`}
+                    disabled={pending || reviewFlag.isPending}
+                    className={action === 'ACCEPT' ? APPROVE_CLASSES : action === 'KEEP' ? REJECT_CLASSES : undefined}
+                    onClick={() => {
+                      setFlagReview({ action, punchId: row.subjectId, subject: row.subject });
+                    }}
+                  >
+                    <Icon data-icon="inline-start" />
+                    {copy.verb}
+                  </Button>
+                );
+              })}
+            </div>
+          ) : null
+        ) : isOpen(row) && canApprove ? (
           <div className="flex justify-end gap-1">
             {/* The two decisions carry their outcome in the text. They sit
                 side by side and read identically otherwise, which is the one
@@ -385,7 +428,20 @@ export function ApprovalsPage() {
             ? 'Everything waiting on you, of every kind. Filter by type to act on a set at once.'
             : 'Everything you have put up for approval, of every kind, and where each one has got to.'
         }
+        action={
+          canReviewFlags ? (
+            <Button
+              onClick={() => {
+                setRecording(true);
+              }}
+            >
+              <UserGearIcon data-icon="inline-start" />
+              Record attendance
+            </Button>
+          ) : undefined
+        }
       />
+      {canReviewFlags ? <RecordAttendanceDialog open={recording} onOpenChange={setRecording} /> : null}
 
       <div className="flex flex-col gap-4">
         {canApprove ? (
@@ -430,6 +486,7 @@ export function ApprovalsPage() {
                 <SelectItem value={ALL}>All types</SelectItem>
                 {APPROVAL_TYPES.map((value) => (
                   <SelectItem key={value} value={value}>
+                    <TypeGlyph type={value} />
                     {APPROVAL_TYPE_LABELS[value]}
                   </SelectItem>
                 ))}
@@ -636,6 +693,58 @@ export function ApprovalsPage() {
         ) : null}
       </div>
 
+      <FlagReviewDialog
+
+        open={flagReview !== null}
+
+        onOpenChange={(open) => {
+
+          if (!open) setFlagReview(null);
+
+        }}
+
+        action={flagReview?.action ?? 'ACCEPT'}
+
+        subject={flagReview?.subject ?? ''}
+
+        pending={reviewFlag.isPending}
+
+        onConfirm={(input: { note?: string; halfDayPart?: HalfDayPart }) => {
+
+          if (!flagReview) return;
+
+          const verb = FLAG_REVIEW_COPY[flagReview.action].verb;
+
+          reviewFlag.mutate(
+
+            { punchId: flagReview.punchId, input: { action: flagReview.action, ...input } },
+
+            {
+
+              onSuccess: () => {
+
+                toast.add({ type: 'success', title: flagReview.action === 'NOTE' ? 'Note added' : `Punch ${verb.toLowerCase()}` });
+
+                setFlagReview(null);
+
+              },
+
+              onError: (error: Error) => {
+
+                const copy = actionErrorCopy(error, verb);
+
+                toast.add({ type: 'error', title: copy.title, description: copy.description });
+
+              },
+
+            },
+
+          );
+
+        }}
+
+      />
+
       <DecisionDialog
         open={decision !== null}
         onOpenChange={(next) => {
@@ -649,4 +758,9 @@ export function ApprovalsPage() {
       />
     </>
   );
+}
+
+/** Owner, 22 Aug 2026: a request type wears one glyph in the inbox, its filter and the bell. */
+function TypeGlyph({ type }: { type: ApprovalType }) {
+  return createElement(APPROVAL_TYPE_ICONS[type], { 'aria-hidden': true });
 }

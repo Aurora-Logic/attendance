@@ -122,6 +122,9 @@ interface JoinedRow {
   otMinutes: number;
   lateMinutes: number;
   earlyExitMinutes: number;
+  earlyArrivalMinutes: number;
+  earlyArrival: boolean;
+  earlyStreak: number;
   flags: AttendanceFlag[];
   isManualOverride: boolean;
   locked: boolean;
@@ -147,6 +150,9 @@ function toSummary(row: JoinedRow): AttendanceDaySummary {
     otMinutes: row.otMinutes,
     lateMinutes: row.lateMinutes,
     earlyExitMinutes: row.earlyExitMinutes,
+    earlyArrivalMinutes: row.earlyArrivalMinutes,
+    earlyArrival: row.earlyArrival,
+    earlyStreak: row.earlyStreak,
     flags: row.flags,
     isManualOverride: row.isManualOverride,
     locked: row.locked,
@@ -230,6 +236,9 @@ export class AttendanceDayRepository extends ScopedRepository<typeof attendanceD
         otMinutes: attendanceDays.otMinutes,
         lateMinutes: attendanceDays.lateMinutes,
         earlyExitMinutes: attendanceDays.earlyExitMinutes,
+        earlyArrivalMinutes: attendanceDays.earlyArrivalMinutes,
+        earlyArrival: attendanceDays.earlyArrival,
+        earlyStreak: attendanceDays.earlyStreak,
         flags: attendanceDays.flags,
         isManualOverride: attendanceDays.isManualOverride,
         locked: attendanceDays.locked,

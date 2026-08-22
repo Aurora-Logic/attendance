@@ -175,6 +175,18 @@
     --color-success: var(--success);
     --color-warning: var(--warning);
     --color-info: var(--info);
+    --color-flag-late: var(--flag-late);
+    --color-flag-early-exit: var(--flag-early-exit);
+    --color-flag-missing-punch: var(--flag-missing-punch);
+    --color-flag-outside-geofence: var(--flag-outside-geofence);
+    --color-flag-outside-window: var(--flag-outside-window);
+    --color-flag-offline-sync: var(--flag-offline-sync);
+    --color-flag-device-mismatch: var(--flag-device-mismatch);
+    --color-flag-manual-override: var(--flag-manual-override);
+    --color-flag-low-gps-accuracy: var(--flag-low-gps-accuracy);
+    --color-flag-no-location: var(--flag-no-location);
+    --color-flag-mock-location: var(--flag-mock-location);
+    --color-flag-clock-skew: var(--flag-clock-skew);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -229,6 +241,20 @@
     --success: oklch(0.573 0.152 152.535);
     --warning: oklch(0.646 0.157 71.578);
     --info: oklch(0.567 0.183 259.052);
+    /* One hue per attendance flag (owner, 22 Aug 2026): identities, not states, so they are
+       distinct from the status colours and from each other. Same lightness band as --info. */
+    --flag-late: oklch(0.58 0.17 71);
+    --flag-early-exit: oklch(0.58 0.17 50);
+    --flag-missing-punch: oklch(0.58 0.17 27);
+    --flag-outside-geofence: oklch(0.58 0.17 330);
+    --flag-outside-window: oklch(0.58 0.17 300);
+    --flag-offline-sync: oklch(0.58 0.17 190);
+    --flag-device-mismatch: oklch(0.58 0.17 259);
+    --flag-manual-override: oklch(0.58 0.17 280);
+    --flag-low-gps-accuracy: oklch(0.58 0.17 110);
+    --flag-no-location: oklch(0.58 0.17 40);
+    --flag-mock-location: oklch(0.58 0.17 350);
+    --flag-clock-skew: oklch(0.58 0.17 220);
     --border: oklch(0.923 0.003 48.717);
     --input: oklch(0.923 0.003 48.717);
     --ring: oklch(0.709 0.01 56.259);
@@ -278,6 +304,20 @@
     --success: oklch(0.723 0.176 149.579);
     --warning: oklch(0.769 0.166 70.08);
     --info: oklch(0.707 0.165 254.624);
+    /* One hue per attendance flag (owner, 22 Aug 2026): identities, not states, so they are
+       distinct from the status colours and from each other. Same lightness band as --info. */
+    --flag-late: oklch(0.74 0.16 71);
+    --flag-early-exit: oklch(0.74 0.16 50);
+    --flag-missing-punch: oklch(0.74 0.16 27);
+    --flag-outside-geofence: oklch(0.74 0.16 330);
+    --flag-outside-window: oklch(0.74 0.16 300);
+    --flag-offline-sync: oklch(0.74 0.16 190);
+    --flag-device-mismatch: oklch(0.74 0.16 259);
+    --flag-manual-override: oklch(0.74 0.16 280);
+    --flag-low-gps-accuracy: oklch(0.74 0.16 110);
+    --flag-no-location: oklch(0.74 0.16 40);
+    --flag-mock-location: oklch(0.74 0.16 350);
+    --flag-clock-skew: oklch(0.74 0.16 220);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.553 0.013 58.071);
@@ -368,3 +408,61 @@
   .a4-paper { width: 210mm; min-height: 297mm; margin: 0; box-shadow: none !important; border: 0 !important; break-after: page; }
   .a4-paper:last-child { break-after: auto; }
 }
+
+/*
+ * Scrollbars, product-wide: thin, rounded, translucent — furniture, not
+ * chrome (the Notion look). The standard properties inherit from the root;
+ * the -webkit rules cover Safari, where the thumb only says so on hover.
+ */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 18%, transparent) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--foreground) 18%, transparent);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--foreground) 32%, transparent);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+@media print {
+  :root { scrollbar-width: none; }
+}
+
+/*
+ * Printing a working screen (a report, the dashboard): the chrome goes,
+ * the content keeps the page. The paper routes have their own rules above;
+ * this covers Ctrl+P anywhere else, which is how a report becomes a PDF
+ * (D-46: browser print, no server renderer).
+ */
+@media print {
+  [data-slot='sidebar'],
+  [data-slot='sidebar-trigger'],
+  header,
+  nav,
+  [data-print='hide'] {
+    display: none !important;
+  }
+  [data-slot='sidebar-inset'] {
+    margin: 0 !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+}
+
+/* A strip that scrolls by design (tab lists) hides the bar itself; the fade of content is the affordance. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

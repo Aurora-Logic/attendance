@@ -46,10 +46,14 @@ export class EmployeeAccessController {
 
   /**
    * Direct credential provisioning and password reset for an employee.
-   * Gated on `employee.manage` (HR/Admin).
+   *
+   * Gated on `roles.manage`, not `employee.manage`, for the same reason the
+   * role routes are: setting somebody's password is taking over their
+   * account, and the body may attach a role. HR editing a department must
+   * not be able to sign in as the administrator afterwards.
    */
   @Post('credentials')
-  @RequirePermission(PERMISSIONS.EMPLOYEE_MANAGE)
+  @RequirePermission(PERMISSIONS.ROLES_MANAGE)
   @HttpCode(HttpStatus.OK)
   setCredentials(
     @CurrentUser() principal: Principal,

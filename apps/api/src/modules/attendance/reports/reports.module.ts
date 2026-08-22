@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AttendanceAnalyticsReportSource } from './attendance-analytics.source.js';
 import { AttendanceReportSource } from './attendance-report.source.js';
 import { ReportService } from './report.service.js';
 
@@ -13,7 +14,7 @@ import { ReportService } from './report.service.js';
  * grows an import for this module.
  */
 @Module({
-  providers: [ReportService, AttendanceReportSource],
+  providers: [ReportService, AttendanceReportSource, AttendanceAnalyticsReportSource],
   exports: [ReportService],
 })
 export class ReportModule {}

@@ -421,7 +421,7 @@ export function RequirementsPage() {
           }
         }}
         title={`Close the requirement for ${closing?.stockItemName ?? 'this item'}?`}
-        description="It leaves the queue without a purchase order (REQ-X-11). The sales order it carried, if any, stays as it is."
+        description="It leaves the queue without a purchase order. The sales order it carried, if any, stays as it is."
         consequences={['Nothing is bought for it, and no PO is raised.', 'The reason is recorded and audited.']}
         prompt="Why is nothing being bought?"
         hint="Customer cancelled, substitute offered, item discontinued — the next reader should not have to guess."
@@ -629,7 +629,7 @@ function RaisePurchaseOrderBody({ requirements, onRaised, onClose }: { requireme
       <DialogHeader>
         <DialogTitle>Raise a purchase order</DialogTitle>
         <DialogDescription>
-          {String(requirements.length)} requirement{requirements.length === 1 ? '' : 's'} across {String(items)} item{items === 1 ? '' : 's'} become one draft PO, one line per item, quantities summed (REQ-X-13). Rates are set on
+          {String(requirements.length)} requirement{requirements.length === 1 ? '' : 's'} across {String(items)} item{items === 1 ? '' : 's'} become one draft PO, one line per item, quantities summed. Rates are set on
           the draft.
         </DialogDescription>
       </DialogHeader>

@@ -121,7 +121,7 @@ function SalesSettingsForm({ saved, save, onClose }: { saved: SalesSettings; sav
                 setPct(event.target.value);
               }}
             />
-            <FieldDescription>An order with a line discounted above this waits in the Approvals inbox for sales.discount.approve (REQ-W-08); leave empty for none.</FieldDescription>
+            <FieldDescription>An order with a line discounted above this waits in the Approvals inbox for sales.discount.approve; leave empty for none.</FieldDescription>
           </Field>
         </FieldGroup>
       </Form>

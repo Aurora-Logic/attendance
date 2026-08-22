@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ClockCounterClockwiseIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 
 import { buttonVariants } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -37,15 +38,6 @@ import { useCanViewOvertime } from './visibility';
  * was reached.
  */
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5">
-      <dt className="text-muted-foreground shrink-0 text-xs">{label}</dt>
-      <dd className="min-w-0 text-right text-xs font-medium tabular-nums">{children}</dd>
-    </div>
-  );
-}
-
 /**
  * Whether this day is worth offering a correction for, and which one.
  *
@@ -65,6 +57,15 @@ function suggestedKind(day: AttendanceDay): RegularizationKind | null {
   if (!missingPunch) return null;
   if (day.firstIn === null && day.lastOut === null) return 'FORGOT_TO_PUNCH';
   return day.lastOut === null ? 'MISSING_OUT' : 'MISSING_IN';
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-1.5">
+      <dt className="text-muted-foreground shrink-0 text-xs">{label}</dt>
+      <dd className="min-w-0 text-right text-xs font-medium tabular-nums">{children}</dd>
+    </div>
+  );
 }
 
 export function DayDetailSheet({
@@ -122,7 +123,10 @@ export function DayDetailSheet({
               {day.flags.length > 0 ? (
                 <>
                   <Separator className="my-4" />
-                  <p className="text-muted-foreground mb-2 text-xs">Flags</p>
+                  <p className="text-muted-foreground mb-2 flex items-center gap-1 text-xs [&_svg]:size-3.5">
+                    <ACTION_ICONS.flag aria-hidden />
+                    Flags
+                  </p>
                   <AttendanceFlags flags={day.flags} />
                 </>
               ) : null}

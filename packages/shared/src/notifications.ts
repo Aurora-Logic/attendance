@@ -48,6 +48,8 @@ export const NOTIFICATION_EVENTS = {
   PROCUREMENT_STOCK_ARRIVED: 'procurement.stock_arrived',
   /** 12 REQ-AA-15: an order has waited for its invoice longer than the configured hours. */
   SALES_INVOICE_WAITING: 'sales.invoice_waiting',
+  /** D-46: the morning digest, sent only when an exception report has rows. */
+  REPORTS_EXCEPTIONS_DAILY: 'reports.exceptions_daily',
 } as const;
 
 export type NotificationEventType =
@@ -81,6 +83,7 @@ export const NOTIFICATION_EVENT_GROUPS = [
   'Integrations',
   'Tasks',
   'Orders',
+  'Reports',
 ] as const;
 export type NotificationEventGroup = (typeof NOTIFICATION_EVENT_GROUPS)[number];
 
@@ -195,6 +198,11 @@ export const NOTIFICATION_EVENT_DESCRIPTORS: Record<
     label: 'Packed order waiting for its invoice',
     note: 'To accounts, once per order, when packed goods have waited longer than the configured hours (REQ-AA-15).',
   },
+  'reports.exceptions_daily': {
+    group: 'Reports',
+    label: 'Daily exception digest',
+    note: 'Each morning that an exception report is not empty: negative stock, credit breaches, stale pulls, duplicate masters.',
+  },
 };
 
 /**
@@ -228,7 +236,8 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   // The person's own corrections, where the decision and the approver's reason
   // are read together (REQ-F-05). This pointed at /my-attendance while the
   // regularization slice was being built in parallel and had no screen yet.
-  'regularization.decided': '/regularizations',
+  // The corrections screen is gone (owner, 21 Aug 2026); the decision shows on the person's own day.
+  'regularization.decided': '/my-attendance',
   'approval.overdue': '/approvals',
   'period.locked': '/period-lock',
   'period.unlocked': '/period-lock',
@@ -239,6 +248,7 @@ export const NOTIFICATION_EVENT_ROUTES: Record<NotificationEventType, string> = 
   'task.overdue': '/tasks',
   'procurement.stock_arrived': '/sales/orders',
   'sales.invoice_waiting': '/sales/awaiting-invoice',
+  'reports.exceptions_daily': '/reports',
 };
 
 /** Only the channels this phase actually delivers on (REQ-K-02). */

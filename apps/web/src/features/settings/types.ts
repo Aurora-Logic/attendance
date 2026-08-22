@@ -1,8 +1,6 @@
 import {
   DEVICE_BINDING_MODES,
-  PUNCH_WINDOW_BEHAVIOURS,
   type DeviceBindingMode,
-  type PunchWindowBehaviour,
 } from '@vyuha/shared';
 import { z } from 'zod';
 
@@ -44,13 +42,14 @@ export const orgProfileSchema = z.object({
 export type OrgProfile = z.infer<typeof orgProfileSchema>;
 
 export const attendancePolicySchema = z.object({
-  punchWindowBehaviour: z.enum(PUNCH_WINDOW_BEHAVIOURS),
   geofenceBehaviour: z.enum(GEOFENCE_BEHAVIOURS),
   deviceBindingMode: z.enum(DEVICE_BINDING_MODES),
   maxWorkMinutes: z.number().int(),
   regularizationWindowDays: z.number().int(),
   regularizationMaxPerMonth: z.number().int(),
   regularizationAutoFile: z.boolean(),
+  earlyArrivalEnabled: z.boolean(),
+  earlyArrivalThresholdMinutes: z.number().int(),
   autoEscalationDays: z.number().int(),
 });
 
@@ -102,12 +101,6 @@ export interface SettingsPatch {
   attendance?: Partial<AttendancePolicy>;
   photo?: Partial<PhotoPolicy>;
 }
-
-export const PUNCH_WINDOW_LABELS: Record<PunchWindowBehaviour, string> = {
-  BLOCK: 'Block the punch',
-  ALLOW_WITH_REASON: 'Allow with a typed reason',
-  ALLOW_AND_FLAG: 'Allow and flag for review',
-};
 
 export const GEOFENCE_LABELS: Record<GeofenceBehaviour, string> = {
   BLOCK: 'Block the punch',

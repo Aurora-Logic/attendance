@@ -1,5 +1,5 @@
 {
-  "id": "eb99a43a-20b2-46cd-b7ad-26e95cae206d",
+  "id": "6745f446-82ed-4ccb-9ec2-114e3febcddb",
   "prevId": "ba2c1ef5-d89c-4988-b972-bc48e66445c4",
   "version": "7",
   "dialect": "postgresql",
@@ -6219,6 +6219,93 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.report_usage": {
+      "name": "report_usage",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "report_key": {
+          "name": "report_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "opened_at": {
+          "name": "opened_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "report_usage_org_key_idx": {
+          "name": "report_usage_org_key_idx",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "report_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "opened_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "report_usage_org_id_organizations_id_fk": {
+          "name": "report_usage_org_id_organizations_id_fk",
+          "tableFrom": "report_usage",
+          "tableTo": "organizations",
+          "columnsFrom": [
+            "org_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.saved_views": {
       "name": "saved_views",
       "schema": "",
@@ -10898,15 +10985,7 @@
           "name": "reason",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
-        },
-        "origin": {
-          "name": "origin",
-          "type": "regularization_origin",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'EMPLOYEE'"
+          "notNull": true
         },
         "attachment_file_id": {
           "name": "attachment_file_id",
@@ -11160,10 +11239,6 @@
         "regularizations_decision_is_attributed": {
           "name": "regularizations_decision_is_attributed",
           "value": "(decided_at IS NULL) = (decided_by IS NULL)"
-        },
-        "regularizations_system_reason_optional": {
-          "name": "regularizations_system_reason_optional",
-          "value": "origin = 'SYSTEM' OR reason IS NOT NULL"
         }
       },
       "isRLSEnabled": false
@@ -16350,14 +16425,6 @@
         "MISSING_OUT",
         "WRONG_TIME",
         "FORGOT_TO_PUNCH"
-      ]
-    },
-    "public.regularization_origin": {
-      "name": "regularization_origin",
-      "schema": "public",
-      "values": [
-        "EMPLOYEE",
-        "SYSTEM"
       ]
     },
     "public.purchase_order_status": {

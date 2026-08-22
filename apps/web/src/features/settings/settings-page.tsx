@@ -46,19 +46,18 @@ import {
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DEVICE_BINDING_MODES, PERMISSIONS, PUNCH_WINDOW_BEHAVIOURS } from '@vyuha/shared';
+import { DEVICE_BINDING_MODES, PERMISSIONS } from '@vyuha/shared';
 
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
 import { OfficeLocationPanel } from './office-location-panel';
-import { PolicyChoiceField, PolicyNumberField, PolicyToggleField } from './policy-fields';
+import { PolicyChoiceField, PolicyDurationField, PolicyNumberField, PolicyToggleField } from './policy-fields';
 import {
   DATE_FORMATS,
   DEVICE_BINDING_LABELS,
   GEOFENCE_BEHAVIOURS,
   GEOFENCE_LABELS,
   MONTH_LABELS,
-  PUNCH_WINDOW_LABELS,
   TIMEZONE_OPTIONS,
   WEEKDAY_LABELS,
   type AttendancePolicy,
@@ -369,7 +368,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
             The overflow stays, so the strip still scrolls by touch at 360px.
             A scrolling tab strip is the standard mobile answer; wrapping to two
             rows would push the content down on every phone. */}
-        <TabsList className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <TabsList className="no-scrollbar max-w-full overflow-x-auto">
           <TabsTrigger value="organisation" className="px-3">
             <BuildingsIcon data-icon="inline-start" />
             Organisation
@@ -404,7 +403,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Organisation profile"
-              note="REQ-L-01. These decide how every date on every screen and export is written."
+              note="These decide how every date on every screen and export is written."
             />
             <FieldGroup className="grid gap-5 md:grid-cols-2">
               <Field>
@@ -480,7 +479,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                   value: String(month.value),
                   label: month.label,
                 }))}
-                help="REQ-G-04. Accruals, carry-forward and lapse are all measured from here."
+                help="Accruals, carry-forward and lapse are all measured from here."
                 onValueChange={(next) => {
                   patchOrganisation({ leaveYearStartMonth: Number(next) });
                 }}
@@ -504,23 +503,9 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Attendance policy"
-              note="REQ-L-02. Changing a value here alters behaviour without a redeploy."
+              note="Changing a value here alters behaviour without a redeploy."
             />
             <FieldGroup className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              <PolicyChoiceField
-                id="policy-punch-window"
-                label="Punch outside the shift window"
-                value={draft.attendance.punchWindowBehaviour}
-                options={PUNCH_WINDOW_BEHAVIOURS.map((value) => ({
-                  value,
-                  label: PUNCH_WINDOW_LABELS[value],
-                }))}
-                enforcedBy={saved.enforcement.attendance.punchWindowBehaviour}
-                onValueChange={(next) => {
-                  patchAttendance({ punchWindowBehaviour: next });
-                }}
-              />
-
               <PolicyChoiceField
                 id="policy-geofence"
                 label="Punch outside the location radius"
@@ -551,6 +536,31 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                 enforcedBy={saved.enforcement.attendance.deviceBindingMode}
                 onValueChange={(next) => {
                   patchAttendance({ deviceBindingMode: next });
+                }}
+              />
+
+              <FieldSeparator className="md:col-span-2 xl:col-span-3" />
+
+              <PolicyToggleField
+                id="policy-early-arrival"
+                label="Celebrate early arrivals"
+                help="A punch in ahead of shift start by the threshold gets a moment of confetti and counts toward a streak."
+                value={draft.attendance.earlyArrivalEnabled}
+                enforcedBy={saved.enforcement.attendance.earlyArrivalEnabled}
+                onValueChange={(next) => {
+                  patchAttendance({ earlyArrivalEnabled: next });
+                }}
+              />
+
+              <PolicyDurationField
+                id="policy-early-threshold"
+                label="Early means at least"
+                help="Before shift start. The streak resets on a worked day that misses it; days off carry it forward."
+                value={draft.attendance.earlyArrivalThresholdMinutes}
+                enforcedBy={saved.enforcement.attendance.earlyArrivalThresholdMinutes}
+                disabled={!draft.attendance.earlyArrivalEnabled}
+                onValueChange={(next) => {
+                  patchAttendance({ earlyArrivalThresholdMinutes: Math.max(5, next) });
                 }}
               />
 
@@ -630,7 +640,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Punch photos"
-              note="REQ-L-03. Retention decides how long a face is kept, so it is a privacy setting as much as a storage one."
+              note="Retention decides how long a face is kept, so it is a privacy setting as much as a storage one."
             />
 
             {draft.photo.retentionMonths !== saved.photo.retentionMonths ? (
@@ -730,7 +740,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         // including the logo (REQ-L-01), so one id covers all four tabs.
         entityId={saved.organisation.id}
         title="Organisation settings"
-        description="Every settings change, with the values before and after (REQ-L-05)."
+        description="Every settings change, with the values before and after."
       />
     </div>
   );
@@ -751,7 +761,7 @@ function EmailTab({ settings }: { settings: OrgSettings }) {
     <div className="flex flex-col gap-4 border p-4">
       <SectionHeading
         title="Outbound email"
-        note="REQ-L-04. Read from the server's own configuration; change it where the service is deployed."
+        note="Read from the server's own configuration; change it where the service is deployed."
       />
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">

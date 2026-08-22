@@ -134,7 +134,7 @@ function ContactSheetBody({
         <SheetTitle>{isNew ? 'New contact' : initial.name}</SheetTitle>
         <SheetDescription>
           {isNew
-            ? 'A person you sell to or through. Nothing here reaches Tally — a contact becomes a party only when they buy (REQ-U-03).'
+            ? 'A person you sell to or through. Nothing here reaches Tally — a contact becomes a party only when they buy.'
             : 'Edit the contact. The change is audited under your name.'}
         </SheetDescription>
       </SheetHeader>
@@ -219,7 +219,7 @@ function ContactSheetBody({
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1">You can still save — this is a warning, not a refusal (REQ-U-08).</p>
+                <p className="mt-1">You can still save — this is a warning, not a refusal.</p>
               </AlertDescription>
             </Alert>
           ) : null}

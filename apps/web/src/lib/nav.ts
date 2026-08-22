@@ -1,38 +1,40 @@
 import {
   AddressBookIcon,
+  ArchiveIcon,
+  BarcodeIcon,
   BooksIcon,
+  BuildingsIcon,
   CalendarBlankIcon,
   CalendarDotsIcon,
   ChartBarIcon,
+  ChartLineUpIcon,
   CheckSquareIcon,
+  ClipboardIcon,
   ClipboardTextIcon,
   ClockCounterClockwiseIcon,
   ClockIcon,
   DownloadSimpleIcon,
   FileTextIcon,
   FingerprintIcon,
-  ClipboardIcon,
-  BarcodeIcon,
-  ReceiptXIcon,
-  TruckIcon,
-  ShoppingCartIcon,
-  ListChecksIcon,
-  ArchiveIcon,
+  GaugeIcon,
   GearIcon,
   HandshakeIcon,
   type Icon,
+  ListChecksIcon,
   LockIcon,
   PackageIcon,
   PlugIcon,
   ReceiptIcon,
-  TagIcon,
-  BuildingsIcon,
-  ChartLineUpIcon,
+  ReceiptXIcon,
   ScrollIcon,
-  TrashIcon,
   ShieldCheckIcon,
+  ShoppingCartIcon,
   SquaresFourIcon,
+  TagIcon,
+  TrashIcon,
+  TrayIcon,
   TreePalmIcon,
+  TruckIcon,
   UmbrellaIcon,
   UsersIcon,
   UsersThreeIcon,
@@ -92,8 +94,10 @@ export interface ModuleDef {
  * approvals inbox serve every module and neither belongs inside one of them.
  */
 export const NAV_GROUPS: NavGroup[] = [
+  // Regrouped at the owner's ask (21 Aug): what is mine, what is my team's,
+  // and the people themselves — instead of one eight-item "Work".
   {
-    label: 'Work',
+    label: 'Me',
     items: [
       { to: '/', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
       {
@@ -122,6 +126,11 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 2,
         reqs: 'REQ-G-03, G-06',
       },
+    ],
+  },
+  {
+    label: 'Team',
+    items: [
       {
         to: '/approvals',
         label: 'Approvals',
@@ -168,7 +177,7 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'Records',
+    label: 'People',
     items: [
       {
         to: '/employees',
@@ -178,11 +187,6 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 1,
         reqs: 'REQ-A-03, A-06',
       },
-    ],
-  },
-  {
-    label: 'Reports',
-    items: [
       {
         to: '/analytics',
         label: 'Analytics',
@@ -195,18 +199,9 @@ export const NAV_GROUPS: NavGroup[] = [
         phase: 4,
         reqs: 'REQ-K-01, REQ-J-01',
       },
-      {
-        to: '/reports',
-        label: 'Reports',
-        icon: ChartBarIcon,
-        permission: PERMISSIONS.REPORT_VIEW,
-        phase: 3,
-        reqs: 'REQ-J-01',
-      },
     ],
   },
 ];
-
 
 /**
  * The destinations REQ-O-02 pulls out of every module sidebar.
@@ -599,6 +594,116 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
             phase: 8,
             reqs: 'REQ-X-10, REQ-X-11, REQ-X-12',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: ChartBarIcon,
+    home: '/reports',
+    permission: PERMISSIONS.REPORT_VIEW,
+    // REQ-AD-03: the catalogue is the destination and search is the menu —
+    // sixty reports cannot live in a sidebar, so the sidebar lists the
+    // categories, each a filtered view of the one catalogue.
+    groups: [
+      {
+        label: 'Overview',
+        items: [
+          {
+            to: '/reports/dashboard',
+            label: 'Dashboard',
+            icon: GaugeIcon,
+            permission: PERMISSIONS.RECEIVABLES_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AI',
+          },
+        ],
+      },
+      {
+        label: 'Catalogue',
+        items: [
+          {
+            to: '/reports',
+            label: 'All reports',
+            shortLabel: 'Reports',
+            icon: ChartBarIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 3,
+            reqs: 'REQ-J-01, REQ-AD-03',
+          },
+          {
+            to: '/reports?category=Books',
+            label: 'Books',
+            icon: BooksIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AE',
+          },
+          {
+            to: '/reports?category=Customers',
+            label: 'Customers',
+            icon: UsersThreeIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AG',
+          },
+          {
+            to: '/reports?category=Inventory',
+            label: 'Inventory',
+            icon: PackageIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AF',
+          },
+          {
+            to: '/reports?category=Vendors',
+            label: 'Vendors',
+            icon: ArchiveIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AG',
+          },
+          {
+            to: '/reports?category=Exceptions',
+            label: 'Exceptions',
+            icon: ScrollIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: '14 REQ-AH',
+          },
+          {
+            to: '/reports?category=Attendance',
+            label: 'Attendance',
+            icon: CalendarDotsIcon,
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 3,
+            reqs: 'REQ-J-01',
+          },
+          {
+            to: '/reports?category=Approvals',
+            label: 'Approvals',
+            icon: TrayIcon,
+            // The catalogue hides what the reader may not open; the link is
+            // gated like every other category so the tour and the nav agree.
+            permission: PERMISSIONS.REPORT_VIEW,
+            phase: 6,
+            reqs: 'B-05, B-06',
+          },
+        ],
+      },
+      {
+        label: 'Output',
+        items: [
+          {
+            to: '/downloads',
+            label: 'Downloads',
+            icon: DownloadSimpleIcon,
+            permission: PERMISSIONS.REPORT_EXPORT,
+            phase: 3,
+            reqs: 'REQ-J-03',
           },
         ],
       },

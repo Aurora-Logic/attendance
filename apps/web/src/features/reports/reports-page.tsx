@@ -5,6 +5,11 @@ import {
   CalendarPlusIcon,
   CaretDownIcon,
   ChartBarIcon,
+  FunnelIcon,
+  FileCsvIcon,
+  FileXlsIcon,
+  PrinterIcon,
+  TableIcon,
   DownloadSimpleIcon,
   ImageIcon,
   SwapIcon,
@@ -20,6 +25,7 @@ import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
 import {
@@ -35,6 +41,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -45,9 +52,13 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { usePermission } from '@/lib/session/permissions';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { EMPTY_VALUE, formatDate, humaniseEnum } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -81,7 +92,13 @@ import {
 } from './api';
 import { useParties } from '@/features/masters/use-parties';
 
+import { useChartIntro } from '@/components/shared/use-chart-motion';
+
 import { ColumnChooser } from './column-chooser';
+import { ReportCatalogue } from './report-catalogue';
+import { GenericReportChart, ReportChart, type ChartDrill } from './report-charts';
+import { chartKindOf, primaryNumericColumn } from './report-series';
+import { comparisonRange, deltaOf, periodForGranularity, type CompareMode, type Granularity } from './period-compare';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
 import { periodFor, periodModeOf } from './period';
 import { ScheduleDialog } from './schedule-dialog';
@@ -205,6 +222,8 @@ function ReportSwitcher({
 export function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [chooserOpen, setChooserOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [exportSheetOpen, setExportSheetOpen] = useState(false);
   const [periodOpen, setPeriodOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [selectedPunch, setSelectedPunch] = useState<PunchAuditRow | null>(null);
@@ -217,6 +236,8 @@ export function ReportsPage() {
 
 
   const reportParam = searchParams.get('report');
+  // No report chosen: the module's front door is the catalogue (REQ-AD-03), not a default report.
+  const browsing = reportParam === null || !isReportKey(reportParam);
   const reportKey: ReportKey = isReportKey(reportParam ?? '')
     ? (reportParam as ReportKey)
     : REPORT_KEYS[0];
@@ -257,6 +278,9 @@ export function ReportsPage() {
     punchType: searchParams.get('punchType'),
     partyId: searchParams.get('partyId'),
     groupBy: searchParams.get('groupBy'),
+    voucherType: searchParams.get('voucherType'),
+    ledgerName: searchParams.get('ledgerName'),
+    itemName: searchParams.get('itemName'),
   };
 
   const sort = searchParams.get('sort') ?? definition?.defaultSort ?? '';
@@ -286,6 +310,23 @@ export function ReportsPage() {
     });
   }
 
+  /**
+   * A chart segment drills to its own rows: the clicked value becomes the
+   * matching filter and the view lands on the table (data-analyst skill §5).
+   * A segment whose report has no filter for its category does nothing —
+   * a drill that cannot narrow honestly should not pretend to.
+   */
+  function drillToSegment(drill: ChartDrill) {
+    if (definition === undefined) return;
+    const can = (name: string) => (definition.filters as readonly string[]).includes(name);
+    if (drill.categoryKey === 'voucherType' && can('voucherType')) setFilters({ voucherType: drill.category });
+    else if (drill.categoryKey === 'ledgerName' && can('ledgerName')) setFilters({ ledgerName: drill.category });
+    else if ((drill.categoryKey === 'item' || drill.categoryKey === 'itemName') && can('itemName')) setFilters({ itemName: drill.category });
+    else if (drill.categoryKey === 'partyName' && can('partyId') && drill.rowId !== null) setFilters({ partyId: drill.rowId });
+    else return;
+    setViewMode('table');
+  }
+
   function setFilters(patch: Partial<ReportFilterState>) {
     patchParams((params) => {
       if (patch.period !== undefined) {
@@ -294,7 +335,7 @@ export function ReportsPage() {
         if (patch.period.to) params.set('to', toDateParam(patch.period.to));
         else params.delete('to');
       }
-      for (const key of ['departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy'] as const) {
+      for (const key of ['departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType', 'ledgerName', 'itemName'] as const) {
         if (!(key in patch)) continue;
         const value = patch[key];
         if (value === null || value === undefined) params.delete(key);
@@ -305,7 +346,7 @@ export function ReportsPage() {
 
   function clearFilters() {
     patchParams((params) => {
-      for (const key of ['from', 'to', 'departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy'] as const) {
+      for (const key of ['from', 'to', 'departmentId', 'locationId', 'employeeId', 'status', 'flags', 'punchType', 'partyId', 'groupBy', 'voucherType', 'ledgerName', 'itemName'] as const) {
         params.delete(key);
       }
     });
@@ -348,10 +389,9 @@ export function ReportsPage() {
     });
   }
 
-  function toggleSort(field: string) {
-    const descending = sort === field;
+  function setSort(next: string) {
     patchParams((params) => {
-      params.set('sort', descending ? `-${field}` : field);
+      params.set('sort', next);
     });
   }
 
@@ -406,6 +446,9 @@ export function ReportsPage() {
     ...(filters.punchType ? { punchType: filters.punchType as ReportFilters['punchType'] } : {}),
     ...(filters.partyId ? { partyId: filters.partyId } : {}),
     ...(filters.groupBy ? { groupBy: filters.groupBy as ReportFilters['groupBy'] } : {}),
+    ...(filters.voucherType ? { voucherType: filters.voucherType } : {}),
+    ...(filters.ledgerName ? { ledgerName: filters.ledgerName } : {}),
+    ...(filters.itemName ? { itemName: filters.itemName } : {}),
   };
 
   // A report that has no answer without a filter is not asked until it has
@@ -413,12 +456,64 @@ export function ReportsPage() {
   const missingRequired = (definition?.requiredFilters ?? []).filter((name) => {
     if (name === 'partyId') return filters.partyId === null;
     if (name === 'period') return !period.from;
+    if (name === 'ledgerName') return filters.ledgerName === null;
     return false;
   });
   // Not until the catalogue has said what the report needs: a statement asked
   // for before its definition arrived would fetch a 400 for a party nobody
   // had a chance to choose.
-  const active = useReportRows(reportKey, rowParams, { enabled: definition !== undefined && missingRequired.length === 0 });
+  const active = useReportRows(reportKey, rowParams, { enabled: !browsing && definition !== undefined && missingRequired.length === 0 });
+
+  const isMobile = useIsMobile();
+  // ------------------------------------------------- comparison (P-04)
+  const hasPeriod = definition?.filters.includes('period') ?? false;
+  const granularityParam = searchParams.get('granularity');
+  const granularity: Granularity | null = granularityParam === 'month' || granularityParam === 'quarter' || granularityParam === 'year' ? granularityParam : null;
+  const compareParam = searchParams.get('compare');
+  const compare: CompareMode = compareParam === 'previous' || compareParam === 'lastYear' ? compareParam : 'off';
+  const currentRange = rowParams.from !== undefined && rowParams.to !== undefined ? { from: rowParams.from, to: rowParams.to } : null;
+  const compareRange = compare !== 'off' && currentRange !== null ? comparisonRange(currentRange, compare) : null;
+  const comparison = useReportRows(
+    reportKey,
+    { ...rowParams, page: 1, pageSize: 200, ...(compareRange ?? {}) },
+    { enabled: !browsing && hasPeriod && compareRange !== null && definition !== undefined && missingRequired.length === 0 },
+  );
+
+  // The chart reads the full filtered set (to the 200-row cap), never the table's page (P-06).
+  const chartSource = useReportRows(
+    reportKey,
+    { ...rowParams, page: 1, pageSize: 200 },
+    { enabled: !browsing && definition !== undefined && missingRequired.length === 0 },
+  );
+  const chartRows = chartSource.data?.data ?? [];
+  const chartIntro = useChartIntro(chartSource.isSuccess);
+  const chartKind = chartKindOf(reportKey, definition, chartRows);
+  const primaryColumn = definition === undefined ? null : primaryNumericColumn(definition, active.data?.data ?? []);
+  const prevById = new Map((comparison.data?.data ?? []).map((row) => [row.id, row]));
+
+  // Table | Chart | Both, remembered per report on this device; a phone
+  // starts on the table, a desk sees both (owner's pick, 21 Aug).
+  const [viewModes, setViewModes] = useState<Record<string, string>>(() => {
+    try {
+      const raw = window.localStorage.getItem('vyuha.reports.viewModes');
+      return raw === null ? {} : (JSON.parse(raw) as Record<string, string>);
+    } catch {
+      return {};
+    }
+  });
+  const storedMode = viewModes[reportKey];
+  const viewMode: 'table' | 'chart' | 'both' = storedMode === 'table' || storedMode === 'chart' || storedMode === 'both' ? storedMode : isMobile ? 'table' : 'both';
+  function setViewMode(next: 'table' | 'chart' | 'both') {
+    setViewModes((current) => {
+      const merged = { ...current, [reportKey]: next };
+      try {
+        window.localStorage.setItem('vyuha.reports.viewModes', JSON.stringify(merged));
+      } catch {
+        // A locked-down browser forgets; the toggle still works for the session.
+      }
+      return merged;
+    });
+  }
 
   const savedViews = useSavedViews(reportKey);
   const saveView = useSaveView();
@@ -440,6 +535,9 @@ export function ReportsPage() {
     ...(filters.punchType ? { punchType: filters.punchType as ReportFilters['punchType'] } : {}),
     ...(filters.partyId ? { partyId: filters.partyId } : {}),
     ...(filters.groupBy ? { groupBy: filters.groupBy as ReportFilters['groupBy'] } : {}),
+    ...(filters.voucherType ? { voucherType: filters.voucherType } : {}),
+    ...(filters.ledgerName ? { ledgerName: filters.ledgerName } : {}),
+    ...(filters.itemName ? { itemName: filters.itemName } : {}),
   };
 
   function startExport(format: ExportFormat) {
@@ -459,6 +557,17 @@ export function ReportsPage() {
         columns: visibleColumns,
         sort,
         format,
+        // The comparison the screen is showing flows into the file with the
+        // same range, the same column and the same header wording.
+        ...(compare !== 'off' && compareRange !== null && primaryColumn !== null
+          ? {
+              compare: {
+                ...compareRange,
+                columnKey: primaryColumn.key,
+                label: compare === 'lastYear' ? 'last FY' : 'previous',
+              },
+            }
+          : {}),
       },
       {
         onSuccess: (job) => {
@@ -508,8 +617,47 @@ export function ReportsPage() {
     header: column.header,
     numeric: isNumericColumn(column.type),
     secondary: column.secondary === true,
+    ...(column.sortField === undefined ? {} : { sortField: column.sortField }),
     cell: (row) => renderCell(row.cells[column.key] ?? null, column.type),
   }));
+
+  // Comparison deltas ride beside the primary numeric column: previous value,
+  // the change, and the change as a share — 'new' when the base was zero,
+  // never a percentage of nothing (data-analyst skill §3).
+  if (compare !== 'off' && primaryColumn !== null && comparison.isSuccess) {
+    const columnKey = primaryColumn.key;
+    const readNumber = (row: ReportRowView | undefined): number => {
+      const value = row?.cells[columnKey];
+      return typeof value === 'number' ? value : typeof value === 'string' ? Number(value) || 0 : 0;
+    };
+    tableColumns.push(
+      {
+        key: 'compare-previous',
+        header: compare === 'lastYear' ? `${primaryColumn.header} (last FY)` : `${primaryColumn.header} (previous)`,
+        numeric: true,
+        secondary: true,
+        cell: (row) => {
+          const prev = prevById.get(row.id);
+          return prev === undefined ? EMPTY_VALUE : renderCell(prev.cells[columnKey] ?? null, 'text');
+        },
+      },
+      {
+        key: 'compare-delta',
+        header: 'Change',
+        numeric: true,
+        cell: (row) => {
+          const delta = deltaOf(readNumber(row), readNumber(prevById.get(row.id)));
+          if (delta.label === 'none') return EMPTY_VALUE;
+          return (
+            <span className={cn('inline-flex items-center gap-0.5 tabular-nums', delta.direction === 'up' ? 'text-success' : delta.direction === 'down' ? 'text-destructive' : 'text-muted-foreground')}>
+              {delta.direction === 'up' ? <ArrowUpIcon className="size-3" /> : delta.direction === 'down' ? <ArrowDownIcon className="size-3" /> : null}
+              {delta.label === 'new' ? 'new' : `${delta.absolute > 0 ? '+' : ''}${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(delta.absolute)}${delta.pct === null ? '' : ` (${String(delta.pct)}%)`}`}
+            </span>
+          );
+        },
+      },
+    );
+  }
 
   // The photo is chrome, not a column: it has no cell in the exported file and
   // must never be one, so it is added to the table rather than to the report's
@@ -559,7 +707,10 @@ export function ReportsPage() {
     filters.flags !== null ||
     filters.punchType !== null ||
     filters.partyId !== null ||
-    filters.groupBy !== null;
+    filters.groupBy !== null ||
+    filters.voucherType !== null ||
+    filters.ledgerName !== null ||
+    filters.itemName !== null;
 
   /*
    * REQ-J-05: the same filters without the period.
@@ -574,6 +725,8 @@ export function ReportsPage() {
   // REQ-L-01, the same formatting the exported file uses, so the caption bar on
   // screen and the header block in the download agree about what a date is.
   const captions = describeFilters(exportFilters, {}, formatDate);
+
+  if (browsing) return <ReportCatalogue reports={catalogue.data ?? []} loading={catalogue.isPending} />;
 
   return (
     <>
@@ -611,6 +764,17 @@ export function ReportsPage() {
                 Export
                 <ShortcutHint keys="alt+e" className="hidden md:inline-flex" />
               </Button>
+              {isMobile ? (
+                <Button
+                  aria-label="Choose an export format"
+                  disabled={!canExport || requestExport.isPending}
+                  onClick={() => {
+                    setExportSheetOpen(true);
+                  }}
+                >
+                  <CaretDownIcon />
+                </Button>
+              ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
@@ -648,8 +812,18 @@ export function ReportsPage() {
                     <CalendarPlusIcon data-icon="inline-start" />
                     Schedule this report
                   </DropdownMenuItem>
-                </DropdownMenuContent>
+                                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      window.print();
+                    }}
+                  >
+                    <PrinterIcon />
+                    Print / save as PDF
+                  </DropdownMenuItem>
+</DropdownMenuContent>
               </DropdownMenu>
+              )}
             </ButtonGroup>
           </>
         }
@@ -662,8 +836,167 @@ export function ReportsPage() {
           </p>
         ) : null}
 
-        {/* Toolbar (PRD §6.2). Wraps at 360px rather than scrolling sideways. */}
-        <div className="flex flex-wrap items-start justify-between gap-2">
+        {/* Toolbar (PRD §6.2). On a phone the filters live in a bottom sheet
+            (REQ-AD-15, thumb-reach): one Filters button instead of a wall of
+            full-width controls before any data. */}
+        <div className="md:hidden">
+          <div className="flex items-center gap-2">
+            <Button
+              variant={isFiltered ? 'default' : 'outline'}
+              size="sm"
+              className="pointer-coarse:min-h-11"
+              onClick={() => {
+                setMobileFiltersOpen(true);
+              }}
+            >
+              <FunnelIcon data-icon="inline-start" />
+              Filters
+              {isFiltered ? <Badge variant="secondary" className="ml-1">on</Badge> : null}
+            </Button>
+            {chartKind !== 'none' ? (
+              <ToggleGroup
+                variant="outline"
+                aria-label="How the report shows"
+                className="ml-auto"
+                value={[viewMode]}
+                onValueChange={(value: string[]) => {
+                  const next = value[0];
+                  if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
+                }}
+              >
+                <ToggleGroupItem value="table" aria-label="Table view" className="pointer-coarse:min-h-11">
+                  <TableIcon />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="chart" aria-label="Chart view" className="pointer-coarse:min-h-11">
+                  <ChartBarIcon />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="both" aria-label="Both views" className="pointer-coarse:min-h-11">
+                  Both
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
+          </div>
+          {/* Thumb-reach: a four-row menu on a phone arrives from the bottom
+              edge, not from the top-right corner the dropdown would pin to. */}
+          <Sheet open={exportSheetOpen} onOpenChange={setExportSheetOpen}>
+            <SheetContent side="bottom" className="gap-0 p-0">
+              <SheetHeader className="border-b">
+                <SheetTitle>Export</SheetTitle>
+                <SheetDescription>{definition?.label ?? 'This report'}, with the filters as they stand.</SheetDescription>
+              </SheetHeader>
+              <div className="flex flex-col p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+                {(
+                  [
+                    { label: 'Excel workbook (.xlsx)', icon: <FileXlsIcon data-icon="inline-start" />, run: () => { startExport('XLSX'); } },
+                    { label: 'Comma-separated (.csv)', icon: <FileCsvIcon data-icon="inline-start" />, run: () => { startExport('CSV'); } },
+                    { label: 'Schedule this report', icon: <CalendarPlusIcon data-icon="inline-start" />, run: () => { setScheduleOpen(true); } },
+                    { label: 'Print / save as PDF', icon: <PrinterIcon data-icon="inline-start" />, run: () => { window.print(); } },
+                  ] as const
+                ).map((action) => (
+                  <Button
+                    key={action.label}
+                    variant="ghost"
+                    className="min-h-11 justify-start"
+                    onClick={() => {
+                      setExportSheetOpen(false);
+                      action.run();
+                    }}
+                  >
+                    {action.icon}
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+            <SheetContent side="bottom" className="max-h-[88vh] gap-0 p-0">
+              <SheetHeader className="border-b">
+                <SheetTitle>Filters</SheetTitle>
+                <SheetDescription>{definition?.label ?? 'This report'} — period, filters, sort and columns.</SheetDescription>
+              </SheetHeader>
+              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                <ReportFilterBar
+                  available={definition?.filters ?? []}
+                  periodMode={periodMode}
+                  value={filters}
+                  onChange={setFilters}
+                  departments={departments.data ?? []}
+                  locations={locations.data ?? []}
+                  parties={partyOptions}
+                  partiesLoading={parties.isPending}
+                  periodOpen={periodOpen}
+                  onPeriodOpenChange={setPeriodOpen}
+                  onClear={clearFilters}
+                  isFiltered={isFiltered}
+                />
+                {hasPeriod ? (
+                  <div className="flex flex-col gap-2">
+                    <Select
+                      value={compare}
+                      onValueChange={(value: string | null) => {
+                        if (value === null) return;
+                        patchParams((params) => {
+                          if (value === 'previous' || value === 'lastYear') params.set('compare', value);
+                          else params.delete('compare');
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="pointer-coarse:min-h-11 w-full" aria-label="Compare against">
+                        <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="off">No comparison</SelectItem>
+                        <SelectItem value="previous">vs previous period</SelectItem>
+                        <SelectItem value="lastYear">vs same period last FY</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+                {definition !== undefined && definition.columns.some((column) => column.sortField !== undefined) ? (
+                  <div className="flex items-center gap-1.5">
+                    <Select
+                      value={sort.startsWith('-') ? sort.slice(1) : sort}
+                      onValueChange={(value: string | null) => {
+                        if (value !== null) setSort(sort === `-${value}` ? `-${value}` : value);
+                      }}
+                    >
+                      <SelectTrigger className="pointer-coarse:min-h-11 flex-1" aria-label="Sort by">
+                        <SelectValue>
+                          {(value: string) => `Sort: ${definition.columns.find((column) => column.sortField === value)?.header ?? 'Default'}`}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {definition.columns
+                          .filter((column) => column.sortField !== undefined)
+                          .map((column) => (
+                            <SelectItem key={column.sortField} value={column.sortField ?? ''}>
+                              {column.header}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      className="pointer-coarse:size-11"
+                      aria-label={sort.startsWith('-') ? 'Sorted descending; switch to ascending' : 'Sorted ascending; switch to descending'}
+                      onClick={() => {
+                        const field = sort.startsWith('-') ? sort.slice(1) : sort;
+                        if (field) setSort(sort.startsWith('-') ? field : `-${field}`);
+                      }}
+                    >
+                      {sort.startsWith('-') ? <ArrowDownIcon /> : <ArrowUpIcon />}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </SheetContent>
+          </Sheet>
+        </div>
+
+        <div className="hidden flex-wrap items-start justify-between gap-2 md:flex">
           <ReportFilterBar
             available={definition?.filters ?? []}
             periodMode={periodMode}
@@ -679,7 +1012,10 @@ export function ReportsPage() {
             isFiltered={isFiltered}
           />
 
-          <div className="flex flex-wrap items-center gap-2">
+          </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+
             <SavedViews
               views={savedViews.data ?? []}
               isLoading={savedViews.isPending}
@@ -711,7 +1047,6 @@ export function ReportsPage() {
               }}
             />
           </div>
-        </div>
 
         {/* What this report is showing, in words, so a shared link explains
             itself and matches the block at the top of the exported file. */}
@@ -720,37 +1055,72 @@ export function ReportsPage() {
         </p>
 
         {/* Sort is on the toolbar rather than on the header cells: at 360px the
-            table becomes stacked rows with no header to click. */}
-        {definition !== undefined ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-muted-foreground text-xs">Sort</span>
-            {definition.columns
-              .filter((column) => column.sortField !== undefined)
-              .map((column) => {
-                const field = column.sortField ?? '';
-                const isActive = sort === field || sort === `-${field}`;
-                const descending = sort === `-${field}`;
-                return (
-                  <Button
-                    key={field}
-                    variant={isActive ? 'secondary' : 'ghost'}
-                    size="sm"
-                    className="gap-1"
-                    onClick={() => {
-                      toggleSort(field);
-                    }}
-                  >
-                    {column.header}
-                    {isActive ? (
-                      descending ? (
-                        <ArrowDownIcon className="size-3" />
-                      ) : (
-                        <ArrowUpIcon className="size-3" />
-                      )
-                    ) : null}
-                  </Button>
-                );
-              })}
+            table becomes stacked rows with no header to click. One Select and
+            one direction button, not a loose row of text buttons. */}
+        {definition !== undefined && (definition.columns.some((column) => column.sortField !== undefined) || hasPeriod) ? (
+          <div className="hidden flex-wrap items-center gap-1.5 md:flex">
+            {hasPeriod ? (
+              <>
+                <Select
+                  value={granularity ?? 'custom'}
+                  onValueChange={(value: string | null) => {
+                    if (value === null) return;
+                    patchParams((params) => {
+                      if (value === 'month' || value === 'quarter' || value === 'year') {
+                        const range = periodForGranularity(value, new Date().toLocaleDateString('en-CA'));
+                        params.set('granularity', value);
+                        params.set('from', range.from);
+                        params.set('to', range.to);
+                      } else {
+                        params.delete('granularity');
+                      }
+                    });
+                  }}
+                >
+                  <SelectTrigger size="sm" className="pointer-coarse:min-h-11 w-36" aria-label="Period granularity">
+                    <SelectValue>{(value: string) => (value === 'month' ? 'This month' : value === 'quarter' ? 'This quarter' : value === 'year' ? 'This FY' : 'Custom period')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="custom">Custom period</SelectItem>
+                    <SelectItem value="month">This month</SelectItem>
+                    <SelectItem value="quarter">This quarter</SelectItem>
+                    <SelectItem value="year">This FY (Apr–Mar)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={compare}
+                  onValueChange={(value: string | null) => {
+                    if (value === null) return;
+                    patchParams((params) => {
+                      if (value === 'previous' || value === 'lastYear') params.set('compare', value);
+                      else params.delete('compare');
+                    });
+                  }}
+                >
+                  <SelectTrigger size="sm" className="pointer-coarse:min-h-11 w-44" aria-label="Compare against">
+                    <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="off">No comparison</SelectItem>
+                    <SelectItem value="previous">vs previous period</SelectItem>
+                    <SelectItem value="lastYear">vs same period last FY</SelectItem>
+                  </SelectContent>
+                </Select>
+                {compare !== 'off' && compareRange !== null ? (
+                  <span className="text-muted-foreground text-xs tabular-nums">
+                    against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}
+                    {currentRange !== null ? ', to date' : ''}
+                    {/* The party filter above scopes both periods, which is what
+                        lets one customer or vendor be compared across them. */}
+                    {definition?.filters.includes('partyId')
+                      ? filters.partyId
+                        ? `, for ${partyOptions.find((option) => option.id === filters.partyId)?.label ?? 'one party'}`
+                        : ' · whole business — filter by party to compare one'
+                      : ''}
+                  </span>
+                ) : null}
+              </>
+            ) : null}
           </div>
         ) : null}
 
@@ -852,8 +1222,42 @@ export function ReportsPage() {
 
         {rows.length > 0 ? (
           <>
+            {chartKind !== 'none' ? (
+              <ToggleGroup
+                variant="outline"
+                aria-label="How the report shows"
+                className="max-md:hidden"
+                value={[viewMode]}
+                onValueChange={(value: string[]) => {
+                  const next = value[0];
+                  if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
+                }}
+              >
+                <ToggleGroupItem value="table" className="pointer-coarse:h-11">
+                  <TableIcon data-icon="inline-start" />
+                  Table
+                </ToggleGroupItem>
+                <ToggleGroupItem value="chart" className="pointer-coarse:h-11">
+                  <ChartBarIcon data-icon="inline-start" />
+                  Chart
+                </ToggleGroupItem>
+                <ToggleGroupItem value="both" className="pointer-coarse:h-11">
+                  Both
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
+            {viewMode !== 'table' && chartKind === 'bespoke' ? <ReportChart reportKey={reportKey} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} /> : null}
+            {viewMode !== 'table' && chartKind === 'generic' && definition !== undefined ? (
+              <GenericReportChart reportKey={reportKey} definition={definition} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} onDrill={drillToSegment} />
+            ) : null}
+            {viewMode !== 'table' && chartSource.isSuccess && total > 200 ? <p className="text-muted-foreground text-xs">The chart reads the top 200 rows by the current sort; the table has all {String(total)}.</p> : null}
+            {viewMode === 'chart' ? null : (
             <RecordTable
               columns={tableColumns}
+              sort={sort === '' ? null : { field: sort.startsWith('-') ? sort.slice(1) : sort, descending: sort.startsWith('-') }}
+              onSortChange={(next) => {
+                setSort(next.descending ? `-${next.field}` : next.field);
+              }}
               rows={rows}
               rowKey={(row) => row.id}
               mobilePrimary={(row) => row.primary}
@@ -884,7 +1288,8 @@ export function ReportsPage() {
                   : undefined
               }
             />
-            <RecordPagination page={page} pageSize={pageSize} total={total} />
+            )}
+            {viewMode === 'chart' ? null : <RecordPagination page={page} pageSize={pageSize} total={total} />}
           </>
         ) : null}
       </div>

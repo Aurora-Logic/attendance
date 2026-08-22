@@ -1,25 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  ERROR_CODES,
-  OFFLINE_SYNC_MAX_AGE_HOURS,
-  PERMISSIONS,
-  employeeDisplayName,
+  type AdminPunchInput,
   type AttendanceDaySummary,
   type ConsentKey,
   type CursorPaginated,
+  ERROR_CODES,
+  OFFLINE_SYNC_MAX_AGE_HOURS,
+  PERMISSIONS,
+  type PhotoVariant,
   type PunchContext,
   type PunchFeedQuery,
   type PunchFlag,
+  type PunchReceipt,
   type PunchRecord,
   type PunchSource,
   type PunchSubmission,
   type PunchSyncItem,
   type PunchSyncReport,
   type PunchSyncResult,
-  type PunchReceipt,
   type PunchType,
-  type PhotoVariant,
   type SignedPhotoUrl,
+  employeeDisplayName,
+  uuidv7,
 } from '@vyuha/shared';
 import { sql, type SQL } from 'drizzle-orm';
 
@@ -59,7 +61,11 @@ import {
   type PunchWindow,
 } from './punch-policy.js';
 import { DEFAULT_PUNCH_SETTINGS, photoExpiry, type PunchSettings } from './punch-settings.js';
-import { PunchRepository, type NewPunch, type PunchEmployee } from './punch.repository.js';
+import {
+  type NewPunch,
+  type PunchEmployee,
+  PunchRepository,
+} from './punch.repository.js';
 
 /**
  * REQ-D-01 … REQ-D-13. The heart of the product, and the file where the order
@@ -154,7 +160,6 @@ interface PunchVerdict {
   readonly outsideGeofence: boolean;
   readonly deviceMismatch: boolean;
   readonly distanceFromGeofenceM: number | null;
-  readonly reasonRequired: boolean;
   /** REQ-D-05 on a live punch; REQ-D-10's queue delay on a synced one. */
   readonly skewSeconds: number;
 }
@@ -325,6 +330,8 @@ export class PunchService {
     // employee service gives: a 403 would confirm the id names a real punch.
     if (punch === null) throw AppError.notFound('Punch', punchId);
 
+    // An ADMIN_ENTRY has no photograph; a 404 rather than a 500.
+    if (punch.photo === null) throw AppError.notFound('Punch photo', punchId);
     const fileId = variant === 'full' ? punch.photo.fileId : punch.photo.thumbnailFileId;
     return this.files.signedUrlFor(principal, fileId, PHOTO_URL_TTL_SECONDS);
   }
@@ -364,6 +371,15 @@ export class PunchService {
 
     let shifts: ShiftForDate[] = [];
     let shiftError: PunchContext['blockedReason'] = null;
+    // The screen is told up front rather than after the photo is taken.
+    const geofenceBlocker: PunchContext['blockedReason'] =
+      employee.geofenceLat === null || employee.geofenceLng === null
+        ? {
+            code: ERROR_CODES.PUNCH_GEOFENCE_NOT_CONFIGURED,
+            message:
+              'Your office has no coordinates set, so punches there cannot be checked yet. An administrator sets the office location in Settings.',
+          }
+        : null;
     try {
       shifts = await this.candidatesFor(repository, ctx, employee, now);
     } catch (error: unknown) {
@@ -400,7 +416,6 @@ export class PunchService {
             chosen.candidate.scheduledOut,
             nextPunchType,
           );
-    const insideWindow = nextWindow !== null && isWithinWindow(nextWindow, now);
 
     const ip = normaliseIp(meta.ip);
     const allowlistConfigured = employee.ipAllowlist.length > 0;
@@ -420,8 +435,8 @@ export class PunchService {
         employeeCode: employee.employeeCode,
         isFieldStaff: employee.isFieldStaff,
       },
-      canPunch: blocked === null && shiftError === null,
-      nextPunchType: blocked === null && shiftError === null ? nextPunchType : null,
+      canPunch: blocked === null && shiftError === null && geofenceBlocker === null,
+      nextPunchType: blocked === null && shiftError === null && geofenceBlocker === null ? nextPunchType : null,
       shift:
         chosen === null || label === null || nextWindow === null
           ? null
@@ -451,13 +466,13 @@ export class PunchService {
                 now,
               ),
             },
-      windowBehaviour: settings.windowBehaviour,
-      reasonRequired: !insideWindow && settings.windowBehaviour === 'ALLOW_WITH_REASON',
       photoRequired: true,
       geofence: {
-        enforced: employee.geofenceLat !== null && employee.geofenceLng !== null,
+        enforced: true,
         radiusM: employee.geofenceRadiusM,
-        exempt: employee.isFieldStaff,
+        // No exemption survives (owner, 21 Aug 2026); the field stays so
+        // older clients keep parsing the context.
+        exempt: false,
       },
       ipAllowlist: {
         enforced: allowlistConfigured,
@@ -467,7 +482,7 @@ export class PunchService {
       day,
       consentAccepted,
       photoRetentionMonths: settings.photoRetentionMonths,
-      blockedReason: blocked ?? shiftError,
+      blockedReason: blocked ?? shiftError ?? geofenceBlocker,
     };
   }
 
@@ -648,13 +663,6 @@ export class PunchService {
     // 8. REQ-D-06 / REQ-D-08a. The reason is demanded before the photo is
     //    processed, so a punch that will be refused never reaches storage.
     const reason = facts.reason ?? null;
-    if (verdict.reasonRequired && reason === null) {
-      throw new AppError(
-        ERROR_CODES.PUNCH_REASON_REQUIRED,
-        'This punch needs a typed reason before it can be recorded.',
-        { details: { flags: [...verdict.flags] } },
-      );
-    }
 
     // 9. REQ-D-03 / REQ-D-03a. Decode, strip EXIF, stamp, compress, thumbnail.
     const stored = await this.storePhoto(principal, employee, facts.type, photoBytes, now, settings);
@@ -675,6 +683,7 @@ export class PunchService {
       syncDelaySeconds: source === 'OFFLINE_SYNC' ? verdict.skewSeconds : null,
       photoFileId: stored.photoFileId,
       thumbnailFileId: stored.thumbnailFileId,
+      recordedByUserId: null,
       latitude: facts.latitude ?? null,
       longitude: facts.longitude ?? null,
       gpsAccuracyM: facts.gpsAccuracyM ?? null,
@@ -784,7 +793,7 @@ export class PunchService {
         clientTime: facts.clientTime,
         source: inserted.source,
         flags: inserted.flags,
-        photoFileId: inserted.photo.fileId,
+        photoFileId: inserted.photo?.fileId ?? null,
         reason: inserted.reason,
       },
     });
@@ -816,7 +825,6 @@ export class PunchService {
     principal: Principal,
   ): Promise<PunchVerdict> {
     const flags = new Set<PunchFlag>();
-    let reasonRequired = false;
 
     // -- clock (REQ-D-05). Measured against the arrival instant whatever the
     //    punch is judged at: on a live punch this is how wrong the device's
@@ -855,24 +863,11 @@ export class PunchService {
       shift.candidate.scheduledOut,
       facts.type,
     );
+    // Owner, 21 Aug 2026: an out-of-window punch is always recorded and
+    // flagged; the flag lands in Approvals and an admin decides there. No
+    // block, no typed reason at the punch.
     const outsideWindow = !isWithinWindow(window, effective.at);
-    if (outsideWindow) {
-      if (settings.windowBehaviour === 'BLOCK') {
-        throw new AppError(
-          ERROR_CODES.PUNCH_OUTSIDE_WINDOW,
-          `The punch window for this shift runs from ${window.opens.toISOString()} to ${window.closes.toISOString()}.`,
-          {
-            details: {
-              windowStart: window.opens.toISOString(),
-              windowEnd: window.closes.toISOString(),
-              punchType: facts.type,
-            },
-          },
-        );
-      }
-      flags.add('outside_window');
-      if (settings.windowBehaviour === 'ALLOW_WITH_REASON') reasonRequired = true;
-    }
+    if (outsideWindow) flags.add('outside_window');
 
     // -- network origin (REQ-D-09). Governs web; GPS governs mobile.
     if (facts.source === 'WEB') {
@@ -894,7 +889,7 @@ export class PunchService {
 
     // -- location (REQ-D-08, REQ-D-08a)
     let distanceFromGeofenceM: number | null = null;
-    let outsideGeofence = false;
+    const outsideGeofence = false;
 
     if (facts.isMockLocation) {
       // Before every other location question: a reading the device itself
@@ -926,18 +921,24 @@ export class PunchService {
             accuracyM: facts.gpsAccuracyM ?? null,
           };
 
+    // Owner, 21 Aug 2026 (docs/05-decisions.md): the geofence is enforced on
+    // the server with one exception only - a fix that is outside by less
+    // than its own accuracy. No field-staff exemption, no punch without a
+    // position, and no punch at an office whose coordinates are not set.
     const verdict = evaluateGeofence(centre, reading);
     switch (verdict.kind) {
       case 'not_configured':
-        // OPEN-QUESTIONS item 1. Same reasoning as the allowlist above.
-        flags.add('geofence_disabled');
-        if (reading === null) flags.add('no_location');
-        break;
+        await this.auditRejection(principal, employee, 'geofence_not_configured', {});
+        throw new AppError(
+          ERROR_CODES.PUNCH_GEOFENCE_NOT_CONFIGURED,
+          'Your office has no coordinates set, so a punch there cannot be checked. Ask an administrator to set the office location in Settings.',
+        );
       case 'no_reading':
-        // REQ-D-08a: allowed with a mandatory typed reason, never silently.
-        flags.add('no_location');
-        reasonRequired = true;
-        break;
+        await this.auditRejection(principal, employee, 'no_location', {});
+        throw new AppError(
+          ERROR_CODES.PUNCH_LOCATION_REQUIRED,
+          'A location is required to punch. Allow location access on this device and try again.',
+        );
       case 'inside':
         distanceFromGeofenceM = verdict.distanceM;
         break;
@@ -946,15 +947,6 @@ export class PunchService {
         flags.add('low_gps_accuracy');
         break;
       case 'outside':
-        distanceFromGeofenceM = verdict.distanceM;
-        if (employee.isFieldStaff) {
-          // REQ-D-08: "Employees flagged as field staff are exempt." Recorded
-          // as genuinely outside, because it was -- the exemption is about who
-          // may punch there, not about pretending they were at the office.
-          flags.add('field_staff_exempt');
-          outsideGeofence = true;
-          break;
-        }
         await this.auditRejection(principal, employee, 'outside_geofence', {
           distanceM: Math.round(verdict.distanceM),
           radiusM: employee.geofenceRadiusM,
@@ -971,8 +963,6 @@ export class PunchService {
           },
         );
     }
-
-    if (employee.isFieldStaff && verdict.kind !== 'outside') flags.add('field_staff_exempt');
 
     // -- device (REQ-B-08, WARN by 05-decisions)
     const fingerprint = facts.deviceFingerprint ?? null;
@@ -996,7 +986,6 @@ export class PunchService {
       outsideGeofence,
       deviceMismatch,
       distanceFromGeofenceM,
-      reasonRequired,
       skewSeconds: skew,
     };
   }
@@ -1103,6 +1092,107 @@ export class PunchService {
    * is what keeps a night shift's 02:00 OUT attached to the day it started
    * (REQ-C-02) without letting an ordinary evening punch drift backwards.
    */
+  /**
+   * Owner, 21 Aug 2026: an admin records an IN or OUT for an employee, or for
+   * themselves. A separate event with its own source, actor and reason, never
+   * a replacement for the employee's punch: it sits beside them, counts in the
+   * day like any punch, and is audited. No photo, no location, no window
+   * verdict - the admin's reason is the verdict. Ordering (REQ-D-01) and the
+   * period lock (REQ-E-09) still hold, because the day they land on does.
+   */
+  async recordAdminEntry(
+    principal: Principal,
+    input: AdminPunchInput,
+  ): Promise<PunchReceipt> {
+    const ctx = orgContextOf(principal);
+    const repository = new PunchRepository(this.db, ctx);
+    const employee = await repository.findPunchEmployee(input.employeeId);
+    if (employee === null) throw AppError.notFound('Employee', input.employeeId);
+
+    const now = new Date();
+    const at = new Date(input.at);
+    if (at.getTime() > now.getTime() + 5 * 60_000) {
+      throw AppError.validation('An attendance entry cannot be in the future.', {
+        fields: [{ path: 'at', message: 'must not be in the future' }],
+      });
+    }
+    const blocked = employeeBlockedReason(employee, at);
+    if (blocked !== null) throw new AppError(blocked.code, blocked.message);
+
+    const candidates = await this.candidatesFor(repository, ctx, employee, at);
+    const attendanceDate = chooseAttendanceDate(
+      candidates.map((entry) => entry.candidate),
+      input.type,
+      at,
+    );
+    const dayEngineRepository = new DayEngineRepository(this.db, ctx);
+    if (await dayEngineRepository.isPeriodLocked(employeeContextOf(employee), attendanceDate)) {
+      throw new AppError(
+        ERROR_CODES.PERIOD_LOCKED,
+        `Attendance for ${attendanceDate} is locked, so no entry can be recorded against it.`,
+        { details: { attendanceDate } },
+      );
+    }
+
+    const punchValues: NewPunch = {
+      employeeId: employee.id,
+      attendanceDate,
+      punchType: input.type,
+      serverTime: now,
+      // The instant the admin named is the one the day is computed from.
+      effectiveTime: at,
+      clientTime: null,
+      clockSkewSeconds: null,
+      syncDelaySeconds: null,
+      photoFileId: null,
+      thumbnailFileId: null,
+      recordedByUserId: principal.userId,
+      latitude: null,
+      longitude: null,
+      gpsAccuracyM: null,
+      distanceFromGeofenceM: null,
+      ip: null,
+      deviceFingerprint: null,
+      source: 'ADMIN_ENTRY',
+      userAgent: null,
+      appVersion: null,
+      isHalfDayMarked: false,
+      halfDayPart: null,
+      outsideWindow: false,
+      outsideGeofence: false,
+      deviceMismatch: false,
+      reason: input.reason,
+      flags: [],
+      idempotencyKey: `admin-${uuidv7()}`,
+    };
+
+    const inserted = await repository.withPunchOrderingLock(employee.id, async (locked) => {
+      const states = await locked.punchStateFor(employee.id, [attendanceDate]);
+      assertOrdering(input.type, states[0]?.hasOpenIn ?? false, attendanceDate);
+      const created = await locked.insert(punchValues);
+      if (created === null) throw new Error('Admin entry insert returned no row.');
+      return created;
+    });
+
+    this.auditContext.record({
+      action: 'punch.admin_recorded',
+      entityType: 'punch',
+      entityId: inserted.id,
+      after: {
+        employeeId: employee.id,
+        employeeCode: employee.employeeCode,
+        type: input.type,
+        at: at.toISOString(),
+        attendanceDate,
+        reason: input.reason,
+        recordedBy: principal.userId,
+      },
+    });
+
+    const day = await this.computeDayInline(principal, employee.id, attendanceDate, now);
+    return { punch: inserted, day, replayed: false };
+  }
+
   private async candidatesFor(
     repository: PunchRepository,
     ctx: OrgContext,
@@ -1379,8 +1469,6 @@ function emptyContext(
     canPunch: false,
     nextPunchType: null,
     shift: null,
-    windowBehaviour: 'ALLOW_WITH_REASON',
-    reasonRequired: false,
     photoRequired: true,
     geofence: { enforced: false, radiusM: 0, exempt: false },
     ipAllowlist: { enforced: false, allowed: false },

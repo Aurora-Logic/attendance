@@ -1,5 +1,5 @@
 import type { AttendanceFlag, AttendanceStatus } from '@vyuha/shared';
-import { and, asc, eq, gte, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { Database } from '../../../platform/db/db.provider.js';
@@ -13,6 +13,7 @@ import {
   leaveRequestDays,
   leaveRequests,
   onDutyRequests,
+  punchFlagReviews,
   punches,
   restrictedHolidayElections,
   shiftAssignments,
@@ -50,7 +51,13 @@ export const DEFAULT_MAX_WORK_MINUTES = 16 * 60;
 export const SETTING_KEYS = {
   maxWorkMinutes: 'attendance.max_work_minutes',
   defaultWeeklyOffPatternId: 'attendance.default_weekly_off_pattern_id',
+  earlyArrivalEnabled: 'attendance.early_arrival_enabled',
+  earlyArrivalThresholdMinutes: 'attendance.early_arrival_threshold_minutes',
 } as const;
+
+/** Owner, 21 Aug 2026: on, fifteen minutes, unless Settings says otherwise. */
+export const DEFAULT_EARLY_ARRIVAL_POLICY = { enabled: true, thresholdMinutes: 15 } as const;
+const earlyArrivalThresholdSchema = z.number().int().min(5).max(240);
 
 const maxWorkMinutesSchema = z.number().int().positive().max(24 * 60);
 const patternIdSchema = z.string().uuid();
@@ -86,6 +93,10 @@ export interface ExistingDayRow {
   readonly otMinutes: number;
   readonly lateMinutes: number;
   readonly earlyExitMinutes: number;
+  /** Owner, 21 Aug 2026: the early-arrival recognition. */
+  readonly earlyArrivalMinutes: number;
+  readonly earlyArrival: boolean;
+  readonly earlyStreak: number;
   readonly flags: readonly AttendanceFlag[];
   readonly leaveRequestId: string | null;
 }
@@ -110,6 +121,10 @@ export interface DayRowValues {
   readonly otMinutes: number;
   readonly lateMinutes: number;
   readonly earlyExitMinutes: number;
+  /** Owner, 21 Aug 2026: the early-arrival recognition. */
+  readonly earlyArrivalMinutes: number;
+  readonly earlyArrival: boolean;
+  readonly earlyStreak: number;
   readonly flags: readonly AttendanceFlag[];
   readonly leaveRequestId: string | null;
 }
@@ -329,6 +344,9 @@ export class DayEngineRepository {
         otMinutes: attendanceDays.otMinutes,
         lateMinutes: attendanceDays.lateMinutes,
         earlyExitMinutes: attendanceDays.earlyExitMinutes,
+        earlyArrivalMinutes: attendanceDays.earlyArrivalMinutes,
+        earlyArrival: attendanceDays.earlyArrival,
+        earlyStreak: attendanceDays.earlyStreak,
         flags: attendanceDays.flags,
         leaveRequestId: attendanceDays.leaveRequestId,
       })
@@ -493,8 +511,28 @@ export class DayEngineRepository {
     // is. `server_time` itself is not passed on -- nothing downstream of this
     // needs the instant a punch arrived, and offering both is offering a way
     // to compute a day from the wrong one.
+    // Owner, 21 Aug 2026: an admin's acceptance (or half-day marking) from
+    // Approvals clears what a punch would otherwise flag. Read as its own
+    // query rather than a correlated subselect, so the verdict cannot depend
+    // on how the select above is rendered.
+    const accepted = new Set<string>();
+    if (rows.length > 0) {
+      const reviews = await this.db
+        .select({ punchId: punchFlagReviews.punchId })
+        .from(punchFlagReviews)
+        .where(
+          and(
+            eq(punchFlagReviews.orgId, this.ctx.orgId),
+            inArray(punchFlagReviews.punchId, rows.map((row) => row.id)),
+            inArray(punchFlagReviews.action, ['ACCEPT', 'HALF_DAY']),
+          ),
+        );
+      for (const review of reviews) accepted.add(review.punchId);
+    }
+
     return rows.map(({ serverTime, effectiveTime, ...row }) => ({
       ...row,
+      flagAccepted: accepted.has(row.id),
       effectiveTime: requireInstant(
         effectiveTime ?? serverTime,
         'punches.effective_time / punches.server_time',
@@ -538,6 +576,41 @@ export class DayEngineRepository {
   }
 
   /** REQ-E-03. A malformed setting is refused, not silently replaced. */
+  /** Owner, 21 Aug 2026: whether early arrival is recognised, and from how many minutes. */
+  async readEarlyArrivalPolicy(): Promise<{ enabled: boolean; thresholdMinutes: number }> {
+    const [enabledRaw, thresholdRaw] = await Promise.all([
+      this.readOrgSetting(SETTING_KEYS.earlyArrivalEnabled),
+      this.readOrgSetting(SETTING_KEYS.earlyArrivalThresholdMinutes),
+    ]);
+    const enabled = typeof enabledRaw === 'boolean' ? enabledRaw : DEFAULT_EARLY_ARRIVAL_POLICY.enabled;
+    const parsed = earlyArrivalThresholdSchema.safeParse(thresholdRaw);
+    return {
+      enabled,
+      thresholdMinutes: parsed.success ? parsed.data : DEFAULT_EARLY_ARRIVAL_POLICY.thresholdMinutes,
+    };
+  }
+
+  /**
+   * The streak as it stood after the employee's most recent computed day
+   * before this one. Every day row carries the running streak - non-working
+   * days carry it forward unchanged - so the latest row is the answer.
+   */
+  async findPreviousStreak(employeeId: string, date: string): Promise<number> {
+    const rows = await this.db
+      .select({ earlyStreak: attendanceDays.earlyStreak })
+      .from(attendanceDays)
+      .where(
+        this.orgScoped(
+          eq(attendanceDays.orgId, this.ctx.orgId),
+          eq(attendanceDays.employeeId, employeeId),
+          sql`${attendanceDays.date} < ${date}`,
+        ),
+      )
+      .orderBy(sql`${attendanceDays.date} desc`)
+      .limit(1);
+    return rows[0]?.earlyStreak ?? 0;
+  }
+
   async readMaxWorkMinutes(): Promise<number> {
     const value = await this.readOrgSetting(SETTING_KEYS.maxWorkMinutes);
     if (value === undefined) return DEFAULT_MAX_WORK_MINUTES;
@@ -620,6 +693,9 @@ export class DayEngineRepository {
       otMinutes: values.otMinutes,
       lateMinutes: values.lateMinutes,
       earlyExitMinutes: values.earlyExitMinutes,
+      earlyArrivalMinutes: values.earlyArrivalMinutes,
+      earlyArrival: values.earlyArrival,
+      earlyStreak: values.earlyStreak,
       flags: [...values.flags],
       leaveRequestId: values.leaveRequestId,
       computedAt,

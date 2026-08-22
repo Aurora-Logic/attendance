@@ -17,7 +17,8 @@ export type UserStatus = (typeof USER_STATUSES)[number];
 export const PUNCH_TYPES = ['IN', 'OUT'] as const;
 export type PunchType = (typeof PUNCH_TYPES)[number];
 
-export const PUNCH_SOURCES = ['WEB', 'MOBILE', 'OFFLINE_SYNC'] as const;
+/** ADMIN_ENTRY (owner, 21 Aug 2026): recorded by an admin for an employee, beside the employee's own punches. */
+export const PUNCH_SOURCES = ['WEB', 'MOBILE', 'OFFLINE_SYNC', 'ADMIN_ENTRY'] as const;
 export type PunchSource = (typeof PUNCH_SOURCES)[number];
 
 export const HALF_DAY_PARTS = ['FIRST_HALF', 'SECOND_HALF'] as const;
@@ -58,8 +59,13 @@ export const ATTENDANCE_FLAGS = [
 export type AttendanceFlag = (typeof ATTENDANCE_FLAGS)[number];
 
 /** REQ-D-06. Default is ALLOW_WITH_REASON per 05-decisions. */
-export const PUNCH_WINDOW_BEHAVIOURS = ['BLOCK', 'ALLOW_WITH_REASON', 'ALLOW_AND_FLAG'] as const;
-export type PunchWindowBehaviour = (typeof PUNCH_WINDOW_BEHAVIOURS)[number];
+/**
+ * What an admin does with a flagged punch from Approvals (owner, 21 Aug 2026).
+ * ACCEPT clears the flag, KEEP leaves it, HALF_DAY pins the day to a half,
+ * NOTE attaches a note and closes nothing.
+ */
+export const PUNCH_FLAG_REVIEW_ACTIONS = ['ACCEPT', 'KEEP', 'HALF_DAY', 'NOTE'] as const;
+export type PunchFlagReviewAction = (typeof PUNCH_FLAG_REVIEW_ACTIONS)[number];
 
 /** REQ-B-08. Default is WARN per 05-decisions. */
 export const DEVICE_BINDING_MODES = ['OFF', 'WARN', 'ENFORCE'] as const;

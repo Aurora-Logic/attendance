@@ -193,14 +193,6 @@ const SCREEN_INTROS: GuideStep[] = [
     body: 'Apply, and track where an application has reached. Balances are shown against each type before you commit to a date.',
   },
   {
-    id: 'screen.regularizations',
-    route: '/regularizations',
-    anchor: ANCHORS.screenHeader,
-    permission: PERMISSIONS.REGULARIZATION_RAISE,
-    title: 'Corrections',
-    body: 'Ask for a day to be put right when the punch does not match what happened. Every correction carries a reason and goes to an approver.',
-  },
-  {
     id: 'screen.team-attendance',
     route: '/team-attendance',
     anchor: ANCHORS.screenHeader,
@@ -287,6 +279,14 @@ const SCREEN_INTROS: GuideStep[] = [
     permission: PERMISSIONS.ATTENDANCE_VIEW_TEAM,
     title: 'Analytics',
     body: 'Trends across the team rather than a single month: attendance, lateness and leave, read as shapes instead of rows.',
+  },
+  {
+    id: 'screen.reports-dashboard',
+    route: '/reports/dashboard',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.RECEIVABLES_VIEW,
+    title: 'Reports dashboard',
+    body: 'The figures behind the reports — exposure, revenue going quiet, dead stock — each tile a door into the report it came from.',
   },
   {
     id: 'screen.reports',
@@ -537,7 +537,10 @@ export const ALL_STEPS: GuideStep[] = [
 
 /** The intro for a route, if it has one. */
 export function introFor(route: string): GuideStep | undefined {
-  return [...SCREEN_INTROS, ...TRADING_INTROS].find((step) => step.route === route);
+  // A nav link may carry a query (the report catalogue's categories); the
+  // screen it lands on — and therefore its guide — is the pathname's.
+  const pathname = route.split('?')[0] ?? route;
+  return [...SCREEN_INTROS, ...TRADING_INTROS].find((step) => step.route === pathname);
 }
 
 /** Every route the tour knows how to introduce. */
