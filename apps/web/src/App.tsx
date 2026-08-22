@@ -40,6 +40,7 @@ import { PickQueuePage } from '@/features/sales/pick-queue-page';
 import { AwaitingInvoicePage } from '@/features/sales/awaiting-invoice-page';
 import { DispatchesPage } from '@/features/sales/dispatches-page';
 import { ScanPage } from '@/features/sales/scan-page';
+import { PackedPage } from '@/features/sales/packed-page';
 import { RequirementsPage } from '@/features/purchase/requirements-page';
 import { GrnPaperPage } from '@/features/purchase/grn-paper-page';
 import { PurchaseOrderEditorPage } from '@/features/purchase/purchase-order-editor-page';
@@ -171,6 +172,7 @@ export default function App() {
               <Route path="sales/dispatches" element={<DispatchesPage />} />
               <Route path="sales/dispatches/:id" element={<DispatchPaperPage />} />
               <Route path="sales/scan" element={<ScanPage />} />
+              <Route path="sales/packed" element={<PackedPage />} />
               <Route path="sales/packs/:id" element={<PackingSlipPage />} />
               <Route path="purchase/requirements" element={<RequirementsPage />} />
               <Route path="purchase/orders" element={<PurchaseOrdersPage />} />

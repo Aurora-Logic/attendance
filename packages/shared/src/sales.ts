@@ -521,6 +521,11 @@ export type CreatePackRecordInput = z.infer<typeof createPackRecordSchema>;
 export interface PackRecordView {
   readonly id: string;
   readonly documentId: string;
+  /** D-47: a pack is read across orders on the Packed screen, so it names its order and customer. */
+  readonly orderNumber: string;
+  readonly customerName: string;
+  /** The slip number the paper prints and the scan reads: order number / last four of the pack id. */
+  readonly slipNumber: string;
   readonly boxCount: number;
   readonly packedById: string | null;
   readonly packedByName: string | null;
@@ -528,6 +533,12 @@ export interface PackRecordView {
   readonly comment: string | null;
   readonly lines: readonly { lineId: string; description: string; quantity: string; comment: string | null }[];
 }
+
+/** D-47: the Packed screen's query — every pack record, newest first, optionally narrowed by order number or customer. */
+export const packListQuerySchema = pageQuerySchema.extend({
+  q: z.string().trim().min(1).max(80).optional(),
+});
+export type PackListQuery = z.infer<typeof packListQuerySchema>;
 
 /** REQ-AA-06: an open order with something left to pack, as the picker sees it. */
 export interface PickQueueEntry {

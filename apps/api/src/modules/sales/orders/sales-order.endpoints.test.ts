@@ -554,6 +554,15 @@ describe('dispatch (12 §3.4, §3.5)', () => {
     expect(found.body.id).toBe(pack?.id);
     const unknown = await harness.get<ErrorBody>(`/sales/packs/by-slip/${encodeURIComponent(`${order.body.number}/ZZZZ`)}`, { token: salesToken });
     expect(unknown.status).toBe(404);
+
+    // D-47: the Packed screen lists every pack across orders, naming order and slip.
+    const packed = await harness.get<Paginated<PackRecordView>>('/sales/packs?page=1&pageSize=10', { token: salesToken });
+    expect(packed.status).toBe(200);
+    const listed = packed.body.data.find((p) => p.id === pack?.id);
+    expect(listed?.orderNumber).toBe(order.body.number);
+    expect(listed?.slipNumber).toBe(slip);
+    const narrowed = await harness.get<Paginated<PackRecordView>>(`/sales/packs?page=1&q=${encodeURIComponent(order.body.number)}`, { token: salesToken });
+    expect(narrowed.body.data.every((p) => p.orderNumber === order.body.number)).toBe(true);
   });
 
   it('a local auto dispatch of the remaining invoiced 2 needs no LR and no photographs; the second dispatch shows in the order history', async () => {

@@ -506,6 +506,14 @@ const TRADING_INTROS: GuideStep[] = [
     body: 'How each consignment leaves: local by carrier, on your own vehicle, or outstation. The flow ends at dispatch.',
   },
   {
+    id: 'screen.sales-packed',
+    route: '/sales/packed',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Packed',
+    body: 'Every pack across your orders, newest first, with its slips one tap away. This is where a box waits between packing and the door.',
+  },
+  {
     id: 'screen.sales-scan',
     route: '/sales/scan',
     anchor: ANCHORS.screenHeader,

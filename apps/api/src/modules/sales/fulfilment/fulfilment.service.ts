@@ -3,9 +3,13 @@ import {
   DEFAULT_PURCHASE_SETTINGS,
   NOTIFICATION_EVENTS,
   PERMISSIONS,
+  pageSlice,
+  paginated,
   type AwaitingInvoiceEntry,
   type CreatePackRecordInput,
+  type PackListQuery,
   type PackRecordView,
+  type Paginated,
   type PickQueueEntry,
   type SalesDocumentView,
   type UnlinkedInvoice,
@@ -185,25 +189,42 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
     return pack;
   }
 
-  private async packRecords(principal: Principal, where: SQL): Promise<PackRecordView[]> {
+  /** D-47: the Packed screen — every pack across the orders this person may see, newest first. */
+  async listAllPacks(principal: Principal, query: PackListQuery): Promise<Paginated<PackRecordView>> {
+    const scope = this.scopes.resolve(principal, GRANTS, sql`d.owner_id`).where;
+    const needle = query.q === undefined ? null : `%${query.q}%`;
+    const where = sql`${scope} AND d.deleted_at IS NULL${needle === null ? sql`` : sql` AND (d.number ILIKE ${needle} OR d.customer_name ILIKE ${needle})`}`;
+    const counted = await this.db.execute<{ total: number }>(sql`
+      SELECT count(*)::int AS total FROM pack_records p JOIN sales_documents d ON d.id = p.document_id
+       WHERE p.org_id = ${principal.orgId} AND p.deleted_at IS NULL AND ${where}
+    `);
+    const { limit, offset } = pageSlice(query);
+    const rows = await this.packRecords(principal, where, sql`ORDER BY p.packed_at DESC LIMIT ${limit} OFFSET ${offset}`);
+    return paginated(rows, query, counted.rows[0]?.total ?? 0);
+  }
+
+  private async packRecords(principal: Principal, where: SQL, order: SQL = sql`ORDER BY p.packed_at`): Promise<PackRecordView[]> {
     const rows = await this.db.execute<{
-      id: string; document_id: string; box_count: number; packed_by: string | null; packed_by_name: string | null; packed_at: Date; comment: string | null;
+      id: string; document_id: string; order_number: string; customer_name: string; box_count: number; packed_by: string | null; packed_by_name: string | null; packed_at: Date; comment: string | null;
       lines: { lineId: string; description: string; quantity: string; comment: string | null }[];
     }>(sql`
-      SELECT p.id, p.document_id, p.box_count, p.packed_by,
+      SELECT p.id, p.document_id, d.number AS order_number, d.customer_name, p.box_count, p.packed_by,
              CASE WHEN e.id IS NULL THEN NULL ELSE concat_ws(' ', e.first_name, e.last_name) END AS packed_by_name,
              p.packed_at, p.comment,
              COALESCE((
                SELECT json_agg(json_build_object('lineId', pl.line_id, 'description', l.description, 'quantity', pl.quantity::text, 'comment', pl.comment) ORDER BY l.line_no)
                  FROM pack_record_lines pl JOIN sales_document_lines l ON l.id = pl.line_id WHERE pl.pack_record_id = p.id
              ), '[]'::json) AS lines
-        FROM pack_records p LEFT JOIN employees e ON e.id = p.packed_by
+        FROM pack_records p JOIN sales_documents d ON d.id = p.document_id LEFT JOIN employees e ON e.id = p.packed_by
        WHERE p.org_id = ${principal.orgId} AND ${where} AND p.deleted_at IS NULL
-       ORDER BY p.packed_at
+       ${order}
     `);
     return rows.rows.map((r) => ({
       id: r.id,
       documentId: r.document_id,
+      orderNumber: r.order_number,
+      customerName: r.customer_name,
+      slipNumber: `${r.order_number}/${r.id.slice(-4).toUpperCase()}`,
       boxCount: Number(r.box_count),
       packedById: r.packed_by,
       packedByName: r.packed_by_name,

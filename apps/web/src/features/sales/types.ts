@@ -219,6 +219,9 @@ export type UnlinkedInvoice = z.infer<typeof unlinkedInvoiceSchema>;
 export const packRecordSchema = z.object({
   id: z.string(),
   documentId: z.string(),
+  orderNumber: z.string(),
+  customerName: z.string(),
+  slipNumber: z.string(),
   boxCount: z.number(),
   packedById: z.string().nullable(),
   packedByName: z.string().nullable(),
@@ -227,6 +230,10 @@ export const packRecordSchema = z.object({
   lines: z.array(z.object({ lineId: z.string(), description: z.string(), quantity: z.string(), comment: z.string().nullable() })),
 });
 export type PackRecord = z.infer<typeof packRecordSchema>;
+
+/** D-47: the Packed screen's page of pack records. */
+export const packedListSchema = z.object({ data: z.array(packRecordSchema), meta: z.object({ page: z.number(), pageSize: z.number(), total: z.number() }) });
+export type PackedList = z.infer<typeof packedListSchema>;
 
 // ------------------------------------------------------------------ dispatch
 

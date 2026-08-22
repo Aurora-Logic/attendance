@@ -1,22 +1,11 @@
-import { useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 import type { CreatePackRecordInput } from '@vyuha/shared';
 import { z } from 'zod';
 
 import { apiRequest } from '@/lib/api/client';
 import { parseOrThrow } from '@/lib/api/parse';
 
-import {
-  awaitingInvoiceEntrySchema,
-  estimateSchema,
-  packRecordSchema,
-  pickQueueEntrySchema,
-  unlinkedInvoiceSchema,
-  type AwaitingInvoiceEntry,
-  type Estimate,
-  type PackRecord,
-  type PickQueueEntry,
-  type UnlinkedInvoice,
-} from './types';
+import { awaitingInvoiceEntrySchema, estimateSchema, packRecordSchema, packedListSchema, pickQueueEntrySchema, unlinkedInvoiceSchema, type AwaitingInvoiceEntry, type Estimate, type PackRecord, type PackedList, type PickQueueEntry, type UnlinkedInvoice } from './types';
 
 /**
  * Pick, pack, and the billing handshake (12 §3.2, §3.3). Every mutation
@@ -71,6 +60,21 @@ export function useUnlinkedInvoices(options: { enabled?: boolean } = {}): UseQue
 }
 
 /** One pack record: the packing slip's page. */
+/** D-47: the Packed screen — every pack across the orders this person may see, newest first. */
+export function usePackedList(filters: { page: number; pageSize?: number; q?: string }): UseQueryResult<PackedList, Error> {
+  const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize ?? 25) });
+  if (filters.q) params.set('q', filters.q);
+  const key = params.toString();
+  return useQuery({
+    queryKey: ['sales', 'packed', key],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/sales/packs?${key}`, { signal });
+      return parseOrThrow(packedListSchema, body, 'packed list');
+    },
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function usePackRecord(id: string | null): UseQueryResult<PackRecord, Error> {
   return useQuery({
     enabled: id !== null,

@@ -484,7 +484,7 @@ export const MODULES: ModuleDef[] = [
     icon: FileTextIcon,
     home: '/sales/estimates',
     // Owner, 22 Aug: the phone is the floor's device - the process is what it carries.
-    phoneBar: ['/sales/orders', '/sales/pick-queue', '/sales/scan', '/sales/dispatches'],
+    phoneBar: ['/sales/pick-queue', '/sales/packed', '/sales/scan', '/sales/dispatches'],
     permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
     groups: [
       {
@@ -528,6 +528,15 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
             phase: 8,
             reqs: 'REQ-AA-05, REQ-AA-06, REQ-AA-07',
+          },
+          {
+            to: '/sales/packed',
+            label: 'Packed',
+            shortLabel: 'Packed',
+            icon: PackageIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'D-47',
           },
           {
             to: '/sales/awaiting-invoice',

@@ -1,11 +1,13 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
 import {
   PERMISSIONS,
   createPackRecordSchema,
   linkInvoiceSchema,
+  packListQuerySchema,
   shortCloseSchema,
   type AwaitingInvoiceEntry,
   type PackRecordView,
+  type Paginated,
   type PickQueueEntry,
   type SalesDocumentView,
   type UnlinkedInvoice,
@@ -24,6 +26,8 @@ import { FulfilmentService } from './fulfilment.service.js';
 class CreatePackRecordDto extends createZodDto(createPackRecordSchema) {}
 class LinkInvoiceDto extends createZodDto(linkInvoiceSchema) {}
 class ShortCloseDto extends createZodDto(shortCloseSchema) {}
+
+class PackListQueryDto extends createZodDto(packListQuerySchema) {}
 
 const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL] as const;
 
@@ -53,6 +57,13 @@ export class FulfilmentController {
   @RequirePermission(...VIEW)
   unlinked(@CurrentUser() principal: Principal): Promise<UnlinkedInvoice[]> {
     return this.fulfilment.unlinkedInvoices(principal);
+  }
+
+  /** D-47: the Packed screen — every pack across the orders this person may see. */
+  @Get('packs')
+  @RequirePermission(...VIEW)
+  allPacks(@CurrentUser() principal: Principal, @Query() query: PackListQueryDto): Promise<Paginated<PackRecordView>> {
+    return this.fulfilment.listAllPacks(principal, query);
   }
 
   @Get('orders/:id/packs')
