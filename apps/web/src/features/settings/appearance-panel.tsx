@@ -6,6 +6,7 @@ import { SectionHeading } from '@/components/shared/section-heading';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Slider } from '@/components/ui/slider';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/utils';
 import {
@@ -20,6 +21,7 @@ import {
   type AppearanceBase,
 } from '@vyuha/shared';
 
+import { BASE_SWATCH, SWATCH } from './appearance-swatches';
 import { EnforcementNote } from './policy-fields';
 
 /**
@@ -31,35 +33,6 @@ import { EnforcementNote } from './policy-fields';
  * one the text cannot sit on.
  */
 const CUSTOM_CHROMA = 0.22;
-
-/** Static classes, one per preset, so a swatch is a class and not a style. */
-const SWATCH: Record<string, string> = {
-  indigo: 'bg-[oklch(0.457_0.24_277)]',
-  blue: 'bg-[oklch(0.457_0.2_255)]',
-  teal: 'bg-[oklch(0.457_0.13_190)]',
-  green: 'bg-[oklch(0.457_0.15_150)]',
-  amber: 'bg-[oklch(0.457_0.16_70)]',
-  rose: 'bg-[oklch(0.457_0.2_15)]',
-  violet: 'bg-[oklch(0.457_0.22_305)]',
-  slate: 'bg-[oklch(0.457_0.06_260)]',
-};
-/**
- * A swatch per ramp, at the lightness the page's own surfaces sit at.
- *
- * Built from `APPEARANCE_BASE_TOKENS` by hand rather than interpolated,
- * because Tailwind cannot see a class name assembled at runtime and would
- * purge it -- an arbitrary value has to appear literally in the source. The
- * numbers are the same ones the CSS uses: 0.013 is stone's chroma and the
- * multiplier scales it, so these previews are the ramps rather than an
- * approximation of them.
- */
-const BASE_SWATCH: Record<AppearanceBase, string> = {
-  stone: 'bg-[oklch(0.92_0.013_58)]',
-  zinc: 'bg-[oklch(0.92_0.016_286)]',
-  neutral: 'bg-[oklch(0.92_0_0)]',
-  gray: 'bg-[oklch(0.92_0.027_264)]',
-  slate: 'bg-[oklch(0.92_0.046_257)]',
-};
 
 export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value: Appearance; saved: Appearance; enforcedBy: string | null | undefined; onChange: (next: Partial<Appearance>) => void }) {
   // The page is the preview. On unmount -- the tab left, the page left --
@@ -94,30 +67,66 @@ export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value:
       <FieldGroup className="gap-6">
         <Field>
           <FieldLabel>Accent</FieldLabel>
-          <div role="radiogroup" aria-label="Accent" className="flex flex-wrap gap-2">
-            {ACCENT_PRESETS.map((candidate) => {
-              const selected = preset?.id === candidate.id;
-              return (
-                <Button
-                  key={candidate.id}
-                  type="button"
-                  variant="outline"
-                  role="radio"
-                  aria-checked={selected}
-                  aria-label={candidate.label}
-                  className={cn('gap-2 pl-1.5', selected && 'border-foreground')}
-                  onClick={() => {
-                    onChange({ accentHue: candidate.hue, accentChroma: candidate.chroma });
-                  }}
-                >
-                  <span aria-hidden className={cn('flex size-5 items-center justify-center', SWATCH[candidate.id])}>
-                    {selected ? <CheckIcon className="size-3 text-white" /> : null}
-                  </span>
-                  {candidate.label}
-                </Button>
-              );
-            })}
-          </div>
+          {/*
+            Swatches, not labelled buttons. Eight fitted in a row; eighteen do
+            not, and a wall of pill-shaped names is harder to scan than the
+            colours themselves -- the swatch *is* the label here. The name is
+            still reachable: it is the accessible name and it is in the
+            tooltip, so nothing is colour-only.
+
+            Selection is a ring plus a tick, never colour alone. A ring on its
+            own fails for the person who cannot separate the ring's hue from
+            the swatch's, and on slate it would barely show.
+          */}
+          <TooltipProvider delay={300}>
+            <div
+              role="radiogroup"
+              aria-label="Accent"
+              className="grid grid-cols-9 gap-1.5 sm:grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))]"
+            >
+              {ACCENT_PRESETS.map((candidate) => {
+                const selected = preset?.id === candidate.id;
+                return (
+                  <Tooltip key={candidate.id}>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          role="radio"
+                          aria-checked={selected}
+                          aria-label={candidate.label}
+                          onClick={() => {
+                            onChange({ accentHue: candidate.hue, accentChroma: candidate.chroma });
+                          }}
+                          className={cn(
+                            // Padding and the minimum width are cleared so the
+                            // control *is* the swatch rather than a button with
+                            // a colour inside it. The primitive's coarse-pointer
+                            // hit area is kept.
+                            'size-auto min-w-0 p-0 hover:bg-transparent',
+                            // 44px on a coarse pointer via the pseudo-element,
+                            // so the tile stays 36px and the grid stays a grid.
+                            'focus-visible:ring-ring relative flex aspect-square items-center justify-center rounded-md outline-none transition-transform focus-visible:ring-2 focus-visible:ring-offset-2',
+                            'after:absolute after:inset-0 pointer-coarse:after:-inset-1',
+                            'active:scale-95',
+                            SWATCH[candidate.id],
+                            selected && 'ring-foreground ring-2 ring-offset-2',
+                          )}
+                        >
+                          {/* White on every swatch: each is oklch(0.457), and
+                              white on that lightness clears AA at any hue in
+                              the ramp. */}
+                          {selected ? <CheckIcon weight="bold" className="size-4 text-white" /> : null}
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>{candidate.label}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </TooltipProvider>
           <FieldDescription>
             {preset ? `${preset.label}, at the lightness the theme was measured at.` : `A custom hue at ${String(Math.round(value.accentHue))}°; the lightness and contrast are the theme's.`}
           </FieldDescription>

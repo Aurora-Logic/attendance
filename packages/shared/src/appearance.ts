@@ -82,15 +82,39 @@ export interface AccentPreset {
 }
 
 /** Eight accents in fixed order; the first is the theme as shipped. */
+/**
+ * Every accent shadcn's themes offer, plus the rest of the ramp they come from.
+ *
+ * Hue and chroma are Tailwind v4's `-700` step, read from its own `theme.css`.
+ * That step because this theme pins the accent's lightness at `oklch(0.457)`,
+ * and 700 is the step that sits there -- a 600 chroma is more than the colour
+ * can hold once it is darkened to 0.457, so it would flatten. The existing
+ * `indigo` was already 277/0.24, which is indigo-700 exactly; the rest were
+ * near misses and are now the real values.
+ *
+ * Ordered around the wheel rather than alphabetically, so the grid reads as a
+ * spectrum and a person looking for "something greener" scans in one
+ * direction. Slate sits last: it is the one that is deliberately not a colour.
+ */
 export const ACCENT_PRESETS: readonly AccentPreset[] = [
+  { id: 'pink', label: 'Pink', hue: 4, chroma: 0.223 },
+  { id: 'rose', label: 'Rose', hue: 17, chroma: 0.222 },
+  { id: 'red', label: 'Red', hue: 27.5, chroma: 0.213 },
+  { id: 'orange', label: 'Orange', hue: 38.4, chroma: 0.195 },
+  { id: 'amber', label: 'Amber', hue: 49, chroma: 0.163 },
+  { id: 'yellow', label: 'Yellow', hue: 66.4, chroma: 0.135 },
+  { id: 'lime', label: 'Lime', hue: 131.6, chroma: 0.157 },
+  { id: 'green', label: 'Green', hue: 150.1, chroma: 0.154 },
+  { id: 'emerald', label: 'Emerald', hue: 165.6, chroma: 0.118 },
+  { id: 'teal', label: 'Teal', hue: 186.4, chroma: 0.096 },
+  { id: 'cyan', label: 'Cyan', hue: 223.1, chroma: 0.105 },
+  { id: 'sky', label: 'Sky', hue: 242.7, chroma: 0.134 },
+  { id: 'blue', label: 'Blue', hue: 264.4, chroma: 0.243 },
   { id: 'indigo', label: 'Indigo', hue: 277, chroma: 0.24 },
-  { id: 'blue', label: 'Blue', hue: 255, chroma: 0.2 },
-  { id: 'teal', label: 'Teal', hue: 190, chroma: 0.13 },
-  { id: 'green', label: 'Green', hue: 150, chroma: 0.15 },
-  { id: 'amber', label: 'Amber', hue: 70, chroma: 0.16 },
-  { id: 'rose', label: 'Rose', hue: 15, chroma: 0.2 },
-  { id: 'violet', label: 'Violet', hue: 305, chroma: 0.22 },
-  { id: 'slate', label: 'Slate', hue: 260, chroma: 0.06 },
+  { id: 'violet', label: 'Violet', hue: 292.6, chroma: 0.27 },
+  { id: 'purple', label: 'Purple', hue: 301.9, chroma: 0.265 },
+  { id: 'fuchsia', label: 'Fuchsia', hue: 323.9, chroma: 0.253 },
+  { id: 'slate', label: 'Slate', hue: 257.3, chroma: 0.044 },
 ];
 
 export const appearanceSchema = z.object({
