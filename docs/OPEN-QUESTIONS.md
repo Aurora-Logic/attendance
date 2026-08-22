@@ -425,3 +425,40 @@ Recommended default: keep the trail append-only; if storage ever matters, add "a
 
 **Recommended default:** extend the agent results contract with an entity type `bill_allocation` (voucher reference, party, bill name, ref type new / against / advance / on_account, bill date, due date, signed amount) written by `SyncWriterService` beside the voucher; the agent is outbound-only, so this is a change on the agent as well. Area AJ is built against the projection as it stands, so it lights up the day the rows arrive.
 
+## The per-IP login rate limit does not refuse (22 Aug 2026, found merging work-order-aj-ao into phase-6a)
+
+**Not mine, and not caused by the merge** — reproduced on plain `phase-6a`
+with the merge absent, in a worktree of its own, with the file run alone so
+it was not contention.
+
+`login-rate-limit.test.ts` fails nine ways. The budget is twenty failures
+per address per fifteen minutes; the twenty-first attempt should throw
+`RATE_LIMITED` and instead returns `no-error`, and the window that should
+hold twenty members holds nought. Both the Redis path and the Postgres
+fallback are therefore failing to record and failing to refuse.
+
+The likely cause, unconfirmed: `claimAttempt` opens with
+
+    if (this.redis.status !== 'ready') return this.claimViaDb(...)
+
+and an ioredis client is `connecting`/`wait` until it has connected. So a
+freshly built client — which is what the test builds, and what the API has
+for the first moments after boot and after any reconnect — takes the
+Postgres path every time. If that path is the broken one, the limit is off
+in exactly the window an attacker would find it off.
+
+It arrived with PR #5's "database fallback for rate limits". The
+per-account lockout (five attempts, in Postgres, with an email notice) is
+unaffected and still stands, which is what keeps this a serious defect
+rather than an emergency.
+
+Also red on `phase-6a` from the same PR, 34 tests across 7 files:
+`seed.test.ts` (Employee now holds `regularization.raise`, which the seed's
+own expectation was never updated for), `punch`, `regularization`,
+`auth.endpoints`, `password-reset-rate-limit` and `fallback-job-runner`.
+
+**Recommended:** fix the limiter before anything ships, and treat the seed
+expectation as a one-line update. Not touched here because it is another
+developer's in-flight feature and a security control is the wrong place for
+a guess.
+
