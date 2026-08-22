@@ -111,6 +111,25 @@ function ThemeSection() {
  * record is only guaranteed a first name (the contract makes lastName
  * nullable) and a signed-in user may have no employee record at all.
  */
+/**
+ * One destination in the account sheet's grid: glyph above label, the label
+ * allowed two lines, the whole tile the target. The glyph is read before the
+ * word on a narrow screen, which is why it sits on top rather than inline.
+ */
+function SheetTile({ icon, label, dot, onClick }: { icon: React.ReactNode; label: string; dot?: boolean; onClick: () => void }) {
+  return (
+    <Button
+      variant="outline"
+      className="relative h-auto min-h-16 flex-col gap-1.5 px-2 py-3 whitespace-normal"
+      onClick={onClick}
+    >
+      {icon}
+      <span className="line-clamp-2 text-center text-xs leading-tight">{label}</span>
+      {dot ? <span className="bg-primary absolute top-2 right-2 size-2 rounded-full" aria-hidden /> : null}
+    </Button>
+  );
+}
+
 function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/u).filter(Boolean);
   const first = words[0]?.charAt(0) ?? '';
@@ -289,93 +308,66 @@ function UserMenu() {
               <ThemeToggleGroup />
             </div>
 
-            <div className="flex flex-col gap-2 border-t p-4">
-              <Button
-                variant="outline"
-                className="w-full"
+            {/* Six destinations as a grid of tiles rather than six rows: a
+                row spends the whole width on one word and pushes the tail
+                below the fold (thumb-reach). Two columns at 360, three from
+                sm. Three of these exist only because a phone has no keyboard
+                and hides the header buttons below sm: the answer panel and the
+                per-screen guide live on Ctrl+F1, the calculator on Ctrl+N
+                (REQ-N-03), and without a tile here each would be built
+                responsive and then be unreachable at the width that was for. */}
+            <div className="grid grid-cols-2 gap-2 border-t p-4 sm:grid-cols-3">
+              <SheetTile icon={<UserCircleIcon className="size-5" />} label="Profile" onClick={goToProfile} />
+              <SheetTile
+                icon={<MegaphoneIcon className="size-5" />}
+                label="Updates"
+                dot={unread}
                 onClick={() => {
                   setSheetOpen(false);
                   void navigate('/updates');
                 }}
-              >
-                <MegaphoneIcon data-icon="inline-start" />
-                Updates
-                {unread ? (
-                  <span className="bg-primary ml-auto size-2 rounded-full" aria-hidden />
-                ) : null}
-              </Button>
-              {/* The same reasoning as the Calculator row below, and the same
-                  bug it was written to prevent: the per-screen guide is offered
-                  from the shortcut sheet, whose header button is hidden below
-                  sm and whose Ctrl+F1 needs a keyboard this device does not
-                  have. Without this row the feature would exist and be
-                  unreachable at the width most people use. */}
-              {/* The third row added for this reason, and the reason is
-                  written out twice below: the answer panel lives on Ctrl+F1,
-                  the header button that opens it is hidden under sm, and a
-                  phone has no keyboard. Without this row the help a person
-                  needs most on a phone -- why a punch was refused, standing in
-                  a doorway -- would be the help they cannot reach. */}
-              <Button
-                variant="outline"
-                className="w-full"
+              />
+              <SheetTile
+                icon={<QuestionIcon className="size-5" />}
+                label="Ask a question"
                 onClick={() => {
                   setSheetOpen(false);
                   openShortcuts(true);
                 }}
-              >
-                <QuestionIcon data-icon="inline-start" />
-                Ask a question
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full"
+              />
+              <SheetTile
+                icon={<MapPinIcon className="size-5" />}
+                label="Guide to this screen"
                 onClick={() => {
                   setSheetOpen(false);
                   startPageGuide();
                 }}
-              >
-                <MapPinIcon data-icon="inline-start" />
-                Guide to this screen
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full"
+              />
+              <SheetTile
+                icon={<CompassIcon className="size-5" />}
+                label="Take the tour"
                 onClick={() => {
                   setSheetOpen(false);
                   startTour();
                 }}
-              >
-                <CompassIcon data-icon="inline-start" />
-                Take the tour
-              </Button>
-              {/* REQ-N-03 asks for the calculator on any screen, and on a phone
-                  this is the only way in: the header button that carries the
-                  shortcut hint is hidden below sm, and Ctrl+N needs a keyboard
-                  the device does not have. Without this row the panel would be
-                  built responsive and then be unreachable at the width the
-                  responsiveness was for. */}
-              <Button
-                variant="outline"
-                className="w-full"
+              />
+              <SheetTile
+                icon={<CalculatorIcon className="size-5" />}
+                label="Calculator"
                 onClick={() => {
                   setSheetOpen(false);
                   openCalculator();
                 }}
-              >
-                <CalculatorIcon data-icon="inline-start" />
-                Calculator
-              </Button>
+              />
             </div>
 
-            <SheetFooter className="flex-row gap-2 border-t">
-              <Button variant="outline" className="flex-1" onClick={goToProfile}>
-                <UserCircleIcon data-icon="inline-start" />
-                Profile
-              </Button>
+            <SheetFooter className="border-t">
+              {/* Alone on the bottom edge, and not a confirm: signing back in
+                  costs one form, and a dialog on a reversible action is
+                  friction, not safety. */}
               <Button
                 variant="ghost"
-                className="text-destructive hover:text-destructive flex-1"
+                className="text-destructive hover:text-destructive w-full"
                 disabled={logout.isPending}
                 onClick={() => {
                   logout.mutate();
