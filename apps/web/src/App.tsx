@@ -116,6 +116,7 @@ const StockItemsPage = lazy(() => import('@/features/masters/stock-items-page').
 const StockItemPage = lazy(() => import('@/features/masters/item-page').then((m) => ({ default: m.StockItemPage })));
 const PartyPage = lazy(() => import('@/features/masters/party-page').then((m) => ({ default: m.PartyPage })));
 const ReturnsPage = lazy(() => import('@/features/returns/returns-page').then((m) => ({ default: m.ReturnsPage })));
+const PortalLinksPage = lazy(() => import('@/features/portal/portal-links-page').then((m) => ({ default: m.PortalLinksPage })));
 const CollectionsPage = lazy(() => import('@/features/collections/collections-page').then((m) => ({ default: m.CollectionsPage })));
 const DuplicatesPage = lazy(() => import('@/features/masters/duplicates-page').then((m) => ({ default: m.DuplicatesPage })));
 const VouchersPage = lazy(() => import('@/features/masters/vouchers-page').then((m) => ({ default: m.VouchersPage })));
@@ -184,6 +185,7 @@ export default function App() {
               <Route path="masters/price-lists/:id" element={<PriceListPage />} />
               <Route path="sales/returns" element={<ReturnsPage />} />
               <Route path="collections" element={<CollectionsPage />} />
+              <Route path="masters/portal-links" element={<PortalLinksPage />} />
               <Route path="masters/duplicates" element={<DuplicatesPage />} />
               <Route path="masters/vouchers" element={<VouchersPage />} />
               <Route path="masters/vouchers/:id" element={<VouchersPage />} />

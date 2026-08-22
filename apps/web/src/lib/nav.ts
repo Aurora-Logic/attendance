@@ -1,4 +1,5 @@
 import {
+  LinkSimpleIcon,
   ArrowUUpLeftIcon,
   AddressBookIcon,
   ArchiveIcon,
@@ -437,6 +438,17 @@ export const MODULES: ModuleDef[] = [
 
             reqs: 'docs/15 REQ-AJ-01…13',
 
+          },
+          {
+            to: '/masters/portal-links',
+            label: 'Customer links',
+            shortLabel: 'Links',
+            icon: LinkSimpleIcon,
+            // Accounts and Admin hold it; the panel on a party page is the
+            // other way in, for when you already have the customer open.
+            permission: PERMISSIONS.PORTAL_MANAGE,
+            phase: 9,
+            reqs: 'docs/15 REQ-AL-01, REQ-AL-03, REQ-AL-07',
           },
           {
 

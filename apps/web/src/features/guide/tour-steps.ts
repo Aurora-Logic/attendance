@@ -450,6 +450,14 @@ const TRADING_INTROS: GuideStep[] = [
     body: 'Who owes what, how much of it is late, and what each customer promised. A promise is never marked kept here: the receipts Tally sends decide it, and a broken one flags the credit check without blocking an order.',
   },
   {
+    id: 'screen.portal-links',
+    route: '/masters/portal-links',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.PORTAL_MANAGE,
+    title: 'Customer links',
+    body: 'One read-only link per customer, showing them their own orders, dispatches, invoices and statement. There is no customer sign-in: the link is the credential, so it is shown once, lasts ninety days, and can be withdrawn the moment it should stop working.',
+  },
+  {
     id: 'screen.masters-duplicates',
     route: '/masters/duplicates',
     anchor: ANCHORS.screenHeader,
