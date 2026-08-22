@@ -22,3 +22,4 @@ export * from './projections.schema.js';
 export * from './task.schema.js';
 export * from './procurement.schema.js';
 export * from './pricing.schema.js';
+export * from './duplicates.schema.js';

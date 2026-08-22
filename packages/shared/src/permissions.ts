@@ -95,6 +95,9 @@ export const PERMISSIONS = {
   // 15 REQ-AN-10: price lists are drafted by one key and activated by another.
   PRICING_MANAGE: 'pricing.manage',
   PRICING_APPROVE: 'pricing.approve',
+  // 15 REQ-AO-14: duplicates are seen by one key and decided by another.
+  DUPLICATES_VIEW: 'duplicates.view',
+  DUPLICATES_MANAGE: 'duplicates.manage',
 
   /** 08 §2.2 / 13. Purchase and Accounts roles arrive with their phases; Admin holds these meanwhile. */
   PURCHASE_DOCUMENT_VIEW: 'purchase.document.view',
@@ -152,6 +155,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   'sales.credit.override': 'Release a sales order blocked by the party’s credit limit, with a reason',
   'pricing.manage': 'Draft and edit price lists and submit them for approval',
   'pricing.approve': 'Approve a price list into force',
+  'duplicates.view': 'See likely duplicate masters and the clusters behind them',
+  'duplicates.manage': 'Dismiss a duplicate cluster or mark it sent to Tally',
   'purchase.document.view': 'View purchase orders, GRNs and the procurement queue',
   'purchase.document.create': 'Raise purchase orders and record receipts',
   'purchase.document.approve': 'Approve a purchase order above the threshold, and short-close one',
@@ -265,6 +270,8 @@ const SALES_MANAGER_PERMISSIONS = [
   PERMISSIONS.SALES_DISCOUNT_APPROVE,
   PERMISSIONS.SALES_CREDIT_OVERRIDE,
   PERMISSIONS.PRICING_MANAGE,
+  PERMISSIONS.DUPLICATES_VIEW,
+  PERMISSIONS.DUPLICATES_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 /** 08 §2.2, the Purchase column: the procurement queue, POs and receipts, tasks, and the masters. */
@@ -294,6 +301,8 @@ const ACCOUNTS_PERMISSIONS = [
   PERMISSIONS.RECEIVABLES_VIEW,
   PERMISSIONS.REPORTS_EXCEPTIONS_NOTIFY,
   PERMISSIONS.REPORTS_MARGIN_VIEW,
+  PERMISSIONS.DUPLICATES_VIEW,
+  PERMISSIONS.DUPLICATES_MANAGE,
 ] as const satisfies readonly PermissionKey[];
 
 export const ROLE_PERMISSION_MATRIX: Record<SystemRoleName, readonly PermissionKey[]> = {

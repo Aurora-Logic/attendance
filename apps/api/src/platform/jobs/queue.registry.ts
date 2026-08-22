@@ -33,6 +33,18 @@ export const ALL_QUEUES: readonly QueueName[] = Object.values(QUEUES);
  */
 export interface JobPayloads {
   /**
+   * 15 REQ-AO-13: duplicate detection after a masters pull. Enqueued by the
+   * sync writer when a pull's final chunk lands, one job per organisation
+   * and entity type (deduplicated by id), never run on a list render.
+   */
+  'detect-duplicates': {
+    readonly orgId: string;
+    /** Both when absent. */
+    readonly entityType?: 'party' | 'stock_item';
+    readonly requestedAt: string;
+  };
+
+  /**
    * REQ-L-03. Subsumes §11's `purge-expired-photos` and `purge-expired-exports`:
    * both are rows in `files` with an `expires_at`, and two jobs running the
    * same query against the same table is two places for the retention rule to
@@ -263,6 +275,7 @@ export const JOB_QUEUE: Record<JobName, QueueName> = {
   'escalate-stale-approvals': QUEUES.NOTIFICATION,
   'send-task-reminders': QUEUES.NOTIFICATION,
   'link-sales-invoices': QUEUES.MAINTENANCE,
+  'detect-duplicates': QUEUES.MAINTENANCE,
   'raise-reorder-requirements': QUEUES.MAINTENANCE,
   'sweep-exception-reports': QUEUES.MAINTENANCE,
   'send-notification': QUEUES.NOTIFICATION,

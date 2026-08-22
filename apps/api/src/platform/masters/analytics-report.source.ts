@@ -68,7 +68,9 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
   }
 
   visibleDefinitions(principal: Principal): readonly ReportDefinition[] {
-    if (!hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW)) return [];
+    if (!hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW)) {
+      return hasPermission(principal, PERMISSIONS.DUPLICATES_VIEW) ? ANALYTICS_REPORTS.filter((report) => report.key === 'duplicate-clusters') : [];
+    }
     // D-46: the margin proxy has its own eyes.
     return hasPermission(principal, PERMISSIONS.REPORTS_MARGIN_VIEW)
       ? ANALYTICS_REPORTS
@@ -183,6 +185,29 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
             LEFT JOIN (SELECT connection_id, max(last_pulled_at) AS at FROM vouchers WHERE org_id = ${orgId} GROUP BY connection_id) p ON p.connection_id = ic.id
            WHERE ic.org_id = ${orgId} AND ic.deleted_at IS NULL
              AND (p.at IS NULL OR p.at < now() - interval '24 hours')
+        `;
+      case 'duplicate-clusters':
+        // 15 REQ-AO-15: what the detector holds, by master and confidence band, with the receivables behind the party clusters.
+        return sql`
+          WITH clusters AS (
+            SELECT c.entity_type, c.state, c.member_count,
+                   CASE WHEN c.confidence >= 0.95 THEN '1 Certain (0.95 and above)' WHEN c.confidence >= 0.85 THEN '2 High (0.85 to 0.95)' ELSE '3 Likely (below 0.85)' END AS band,
+                   CASE WHEN c.entity_type = 'party' THEN
+                     coalesce((SELECT sum(CASE WHEN b.ref_type ILIKE 'new%' THEN b.amount WHEN b.ref_type ILIKE 'agst%' THEN -b.amount ELSE 0 END)
+                                 FROM bill_allocations b WHERE b.org_id = c.org_id AND b.party_id IN (SELECT entity_id FROM duplicate_cluster_members m WHERE m.cluster_id = c.id)), 0)
+                   ELSE 0 END AS outstanding
+              FROM duplicate_clusters c
+             WHERE c.org_id = ${orgId} AND c.state IN ('open', 'sent_to_tally')
+          )
+          SELECT entity_type || ':' || band AS id,
+                 CASE entity_type WHEN 'party' THEN 'Party' ELSE 'Item' END AS kind,
+                 substr(band, 3) AS band,
+                 count(*)::int AS clusters,
+                 sum(member_count)::int AS records,
+                 count(*) FILTER (WHERE state = 'sent_to_tally')::int AS "sentToTally",
+                 sum(outstanding)::text AS outstanding
+            FROM clusters
+           GROUP BY entity_type, band
         `;
       case 'duplicate-masters':
         // Names that collapse to the same key once case, spaces and punctuation go.
@@ -658,6 +683,11 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
   }
 
   private requireHolder(principal: Principal, key?: ReportKey): void {
+    // 15 REQ-AO-15: the duplicates summary is the duplicates key's, or the receivables key's.
+    if (key === 'duplicate-clusters') {
+      if (!hasPermission(principal, PERMISSIONS.DUPLICATES_VIEW) && !hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW)) throw AppError.forbidden('This report needs duplicates.view.');
+      return;
+    }
     if (!hasPermission(principal, PERMISSIONS.RECEIVABLES_VIEW)) {
       throw AppError.forbidden('This report needs receivables.view.');
     }
@@ -685,6 +715,7 @@ const SORTABLE: Partial<Record<ReportKey, Record<string, string>>> = {
   'negative-stock': { item: '"item"', closingQty: '"closingQty"::numeric' },
   'stale-projections': { hoursStale: '"hoursStale"' },
   'duplicate-masters': { nameA: '"nameA"' },
+  'duplicate-clusters': { band: 'band', clusters: 'clusters', outstanding: '"outstanding"::numeric' },
   'customer-item-matrix': { partyName: '"partyName"', item: '"item"', value: '"value"::numeric', lastDate: '"lastDate"' },
   'purchase-rhythm': { partyName: '"partyName"', sales12m: '"sales12m"', daysSince: '"daysSince"' },
   'price-variance': { item: '"item"', spreadPct: '"spreadPct"::numeric' },
@@ -714,6 +745,7 @@ const DEFAULT_ORDER: Partial<Record<ReportKey, string>> = {
   'negative-stock': '"closingQty"::numeric ASC',
   'stale-projections': '"hoursStale" DESC NULLS FIRST',
   'duplicate-masters': '"kind" ASC, "nameA" ASC',
+  'duplicate-clusters': '"outstanding"::numeric DESC, kind ASC, band ASC',
   'customer-item-matrix': '"value"::numeric DESC',
   'purchase-rhythm': '"daysSince" DESC',
   'price-variance': '"spreadPct"::numeric DESC',

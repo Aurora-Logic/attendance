@@ -56,6 +56,7 @@ export const REPORT_KEYS = [
   'negative-stock',
   'stale-projections',
   'duplicate-masters',
+  'duplicate-clusters',
   'customer-item-matrix',
   'purchase-rhythm',
   'price-variance',
@@ -97,6 +98,7 @@ export const ANALYTICS_REPORT_KEYS = [
   'negative-stock',
   'stale-projections',
   'duplicate-masters',
+  'duplicate-clusters',
   'customer-item-matrix',
   'purchase-rhythm',
   'price-variance',
@@ -732,6 +734,16 @@ const STALE_PROJECTIONS_COLUMNS: readonly ReportColumnSpec[] = [
 ];
 
 /** 14 REQ-AH-12: near-matching master names. Vyuha flags; the accountant merges in Tally. */
+/** 15 REQ-AO-15: open clusters by entity type and confidence band, and the outstanding behind the party ones. */
+const DUPLICATE_CLUSTERS_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'kind', header: 'Master', type: 'text', width: 12 },
+  { key: 'band', header: 'Confidence', type: 'text', sortField: 'band', width: 16 },
+  { key: 'clusters', header: 'Open clusters', type: 'number', sortField: 'clusters', width: 12 },
+  { key: 'records', header: 'Records', type: 'number', width: 10 },
+  { key: 'sentToTally', header: 'Sent to Tally', type: 'number', width: 12, secondary: true },
+  { key: 'outstanding', header: 'Outstanding behind them', type: 'number', sortField: 'outstanding', width: 18 },
+];
+
 const DUPLICATE_MASTERS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'kind', header: 'Master', type: 'text', width: 10 },
   { key: 'nameA', header: 'Name', type: 'text', sortField: 'nameA', width: 30 },
@@ -1263,6 +1275,15 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     description: 'Companies whose last successful pull is older than a day — the figures under every other report.',
     columns: STALE_PROJECTIONS_COLUMNS,
     defaultSort: '-hoursStale',
+    filters: [],
+  },
+  'duplicate-clusters': {
+    key: 'duplicate-clusters',
+    category: 'Exceptions',
+    label: 'Duplicate clusters',
+    description: 'Likely duplicate parties and items the detector found after the last pull, by confidence band, with the receivables sitting behind the party clusters. Vyuha flags; the merge happens in Tally.',
+    columns: DUPLICATE_CLUSTERS_COLUMNS,
+    defaultSort: 'outstanding',
     filters: [],
   },
   'duplicate-masters': {
