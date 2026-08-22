@@ -18,6 +18,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ADMIN_GROUPS, MODULES, TOP_BAR_ITEMS, findModuleForPath, type ModuleDef, type NavItem } from '@/lib/nav';
 import { BOTTOM_NAV_SLOTS, useNavPreferencesStore } from '@/lib/nav-preferences-store';
 import { usePermissions } from '@/lib/session/permissions';
@@ -174,38 +175,48 @@ export function MobileBottomNav() {
               <div className="mb-4 flex flex-col gap-2">
                 <p className="text-muted-foreground text-xs font-medium">Modules</p>
                 {/*
-                  Wraps rather than scrolls sideways.
+                  Tabs, the same control the settings and report shells use.
+                  Choosing between modules is choosing between places, and the
+                  product should not have two different-looking ways to do
+                  that (CLAUDE.md section 4).
 
-                  Six modules do not fit across a phone, and a row that scrolls
-                  hides the ones nobody thought to look for -- Attendance sat
-                  off the right edge, which is the module most of the company
-                  uses. A sideways scroll is also the least discoverable
-                  gesture on a surface somebody opened *to see what exists*.
+                  Wrapping rather than scrolling sideways. Six modules do not
+                  fit across a phone, and a row that scrolls hides the ones
+                  nobody thought to look for -- Attendance sat off the right
+                  edge, which is the module most of the company uses. A
+                  sideways scroll is also the least discoverable gesture on a
+                  surface somebody opened *to see what exists*.
 
                   Wrapping was rejected for the settings tab strip and rightly:
                   a second row there pushes page content down on every visit.
                   That reasoning does not carry here. This is a sheet the
                   person opened deliberately, it already scrolls vertically,
-                  and a second row of modules costs one line of a surface whose
-                  whole job is to list things.
+                  and a second row costs one line of a surface whose whole job
+                  is to list things.
+
+                  No panels: the tabs navigate. Base UI is happy with a list
+                  and no content, and the alternative -- rendering each
+                  module's screen inside the sheet -- is not what a switcher
+                  is for.
                 */}
-                <div className="flex flex-wrap gap-2">
-                  {visibleModules.map((m) => (
-                    <Button
-                      key={m.id}
-                      variant={m.id === module.id ? 'default' : 'ghost'}
-                      size="sm"
-                      aria-current={m.id === module.id ? 'true' : undefined}
-                      onClick={() => {
-                        setMoreOpen(false);
-                        if (m.id !== module.id) void navigate(m.home);
-                      }}
-                    >
-                      <m.icon data-icon="inline-start" />
-                      {m.label}
-                    </Button>
-                  ))}
-                </div>
+                <Tabs
+                  value={module.id}
+                  onValueChange={(next: unknown) => {
+                    const chosen = visibleModules.find((m) => m.id === next);
+                    if (chosen === undefined) return;
+                    setMoreOpen(false);
+                    if (chosen.id !== module.id) void navigate(chosen.home);
+                  }}
+                >
+                  <TabsList variant="line" className="h-auto w-full flex-wrap justify-start">
+                    {visibleModules.map((m) => (
+                      <TabsTrigger key={m.id} value={m.id} className="flex-none px-3">
+                        <m.icon data-icon="inline-start" />
+                        {m.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
               </div>
             ) : null}
             {/* A grid of tiles rather than a single column of rows. One row per
