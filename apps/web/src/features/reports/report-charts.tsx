@@ -101,6 +101,21 @@ function Frame({ title, insight, children }: { title: string; insight: string | 
   );
 }
 
+/*
+ * Heights and overflow, together on purpose.
+ *
+ * The angled category labels claim 56px of the box and the values on the caps
+ * want 20 at the top, so an h-56 chart had about 148px left to actually plot
+ * in -- the bars got shorter while the furniture around them did not. Raised
+ * so the plot keeps the room it had before the labels arrived.
+ *
+ * `overflow-hidden` because a Recharts SVG does not clip itself: an angled
+ * label longer than its slot spilled past the bottom of the chart and sat over
+ * whatever came next. Clipping is the guard rather than the fix -- the height
+ * above is the fix, and if a label is ever cut it means the height is wrong
+ * again rather than that the clip is doing its job.
+ */
+
 /**
  * A slice's value, outside the ring on a leader line.
  *
@@ -142,7 +157,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       return (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Frame title="Where the value sits" insight={insight}>
-            <ChartContainer config={config} className="h-56 w-full">
+            <ChartContainer config={config} className="h-72 w-full overflow-hidden">
               <BarChart data={data} margin={AXIS_MARGIN}>
                 <CartesianGrid vertical={false} />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
@@ -169,7 +184,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       if (points.length === 0) return null;
       return (
         <Frame title="Inward against outward" insight={insight}>
-          <ChartContainer config={MOVEMENT_CONFIG} className="h-56 w-full">
+          <ChartContainer config={MOVEMENT_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={[...points]} margin={AXIS_MARGIN}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="month" tickLine={false} axisLine={false} />
@@ -192,7 +207,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       if (points.length === 0) return null;
       return (
         <Frame title="The pace, year against quarter" insight={insight}>
-          <ChartContainer config={VELOCITY_CONFIG} className="h-56 w-full">
+          <ChartContainer config={VELOCITY_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={[...points]} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="item" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
@@ -215,7 +230,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       if (points.length === 0) return null;
       return (
         <Frame title="How long the shelf has held it" insight={insight}>
-          <ChartContainer config={AGEING_CONFIG} className="h-56 w-full">
+          <ChartContainer config={AGEING_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={[...points]} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="item" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
@@ -246,7 +261,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       }));
       return (
         <Frame title="Revenue going quiet" insight={insight}>
-          <ChartContainer config={LAPSE_CONFIG} className="h-56 w-full">
+          <ChartContainer config={LAPSE_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={data} margin={AXIS_MARGIN}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="customer" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
@@ -278,7 +293,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
 export function MonthlyValueChart({ points, animate }: { points: readonly { label: string; value: number }[]; animate: boolean }) {
   if (points.length === 0) return null;
   return (
-    <ChartContainer config={VALUE_CONFIG} className="h-56 w-full">
+    <ChartContainer config={VALUE_CONFIG} className="h-72 w-full overflow-hidden">
       <BarChart data={[...points]} margin={AXIS_MARGIN}>
         <CartesianGrid vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} />
@@ -359,7 +374,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
   ]) as ChartConfig;
   return (
     <Frame title={`Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`} insight={null}>
-      <ChartContainer config={config} className="h-64 w-full">
+      <ChartContainer config={config} className="h-80 w-full overflow-hidden">
         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 56, top: 4 }}>
           <CartesianGrid horizontal={false} />
           <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={compactIndian} />
@@ -421,7 +436,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
     const data = points.map((point, index) => (compare ? { ...point, compare: Number(prev[index]?.[firstKey] ?? 0) } : point));
     return (
       <Frame title={`${headers.get(firstKey) ?? 'Value'} over time`} insight={null}>
-        <ChartContainer config={config} className="h-56 w-full">
+        <ChartContainer config={config} className="h-72 w-full overflow-hidden">
           <LineChart data={data} margin={{ left: 0, right: 24, top: 4 }}>
             <CartesianGrid vertical={false} />
             <XAxis dataKey="category" tickLine={false} axisLine={false} minTickGap={24} />
@@ -443,7 +458,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
     const config = { [yKey]: { label: headers.get(yKey) ?? yKey, color: 'var(--primary)' } } as ChartConfig;
     return (
       <Frame title={`${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`} insight={null}>
-        <ChartContainer config={config} className="h-64 w-full">
+        <ChartContainer config={config} className="h-80 w-full overflow-hidden">
           <ScatterChart margin={{ left: 0, right: 24, top: 8 }}>
             <CartesianGrid />
             <XAxis type="number" dataKey={xKey} name={headers.get(xKey) ?? xKey} tickLine={false} axisLine={false} />
