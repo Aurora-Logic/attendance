@@ -494,7 +494,7 @@ function PreviewRoleMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="outline" size="sm" className="ml-auto h-7 shrink-0 text-xs" />}
+        render={<Button variant="outline" size="sm" className="ml-auto shrink-0" />}
       >
         Preview: {roleLabel}
       </DropdownMenuTrigger>

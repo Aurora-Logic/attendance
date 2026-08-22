@@ -277,7 +277,7 @@ function DealSheetBody({ initial, record, onClose }: { initial: DealDraft; recor
                 <Button
                   type="button"
                   variant="outline"
-                  className="pointer-coarse:h-11 w-full justify-start font-normal"
+                  className="w-full justify-start font-normal"
                   onClick={() => {
                     setDraft((current) => ({ ...current, expectedCloseDate: toDateParam(new Date()) }));
                   }}

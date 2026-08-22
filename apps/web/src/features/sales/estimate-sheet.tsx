@@ -246,7 +246,7 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
                 <Button
                   type="button"
                   variant="outline"
-                  className="pointer-coarse:h-11 w-full justify-start font-normal"
+                  className="w-full justify-start font-normal"
                   disabled={!editable}
                   onClick={() => {
                     setDraft((current) => ({ ...current, validUntil: toDateParam(new Date(Date.now() + 30 * 86_400_000)) }));

@@ -277,7 +277,7 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="pointer-coarse:min-h-11 shrink-0"
+                        className="shrink-0"
                         aria-label={`Remove ${role.name} from ${name}`}
                         disabled={revoke.isPending}
                         onClick={() => {
@@ -335,7 +335,6 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
                 icon={<ShieldCheckIcon />}
               />
               <Button
-                className="pointer-coarse:h-11"
                 disabled={granting === null || assign.isPending}
                 onClick={() => {
                   assign.reset();

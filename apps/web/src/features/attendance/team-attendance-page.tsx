@@ -350,7 +350,6 @@ export function TeamAttendancePage() {
               variant="outline"
               size="icon"
               aria-label="Previous day"
-              className="pointer-coarse:size-11"
               onClick={() => {
                 setDate(addDays(date, -1));
               }}
@@ -373,7 +372,6 @@ export function TeamAttendancePage() {
               size="icon"
               aria-label="Next day"
               disabled={isToday(date)}
-              className="pointer-coarse:size-11"
               onClick={() => {
                 setDate(addDays(date, 1));
               }}

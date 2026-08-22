@@ -80,6 +80,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-16 | Screen audit | Source-level pass over every route (Chrome stays off by owner instruction), both skills' violation classes probed in bulk; see the findings table below | Done |
 | B-17 | Motion audit (emil-design-eng) | Every animated primitive and every pressable surface read against the decision framework; see the B-17 table below | Done |
 | B-18 | Raise the bar, round one | Sliding tab pill, tooltip delay with instant follow-on from one root provider, theme cross-fade through a view transition | Done |
+| B-19 | One button height on a phone | Buttons and toggles join the 44px coarse-pointer floor; the invisible-target scheme and 17 per-screen overrides removed; a source-scan test keeps them out | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -145,3 +146,15 @@ Verified: shared 41, api 1811 (107 files), web 505 (39 files) — all green;
 typecheck and lint clean in all three; production build of both apps clean.
 The corpus is absent from the built web bundle (`grep` over `apps/web/dist`
 finds no card id and no answer text, while the panel's own copy is present).
+
+### B-19 (owner: "button size on all the screens is different" on mobile), 22 Aug 2026
+
+Three mechanisms were deciding a button's height on a phone, and they disagreed. The primitive drew every size at its desktop height (32 / 28 / 24px) and grew an invisible pseudo-element to 44px, while the global floor in index.css raised every field, select, menu row and link to a visible 44px. Seventeen call sites - the sales dialogs, the org logo dialog, the document editor, attendance pickers, the bottom nav and more - then added `pointer-coarse:min-h-11` or `size-11` to their own buttons, so those screens showed 44px buttons and the rest showed 28 or 32 beside 44px fields.
+
+| Before | After | Why |
+| --- | --- | --- |
+| Button and Toggle excluded from the coarse-pointer floor, each growing a `::after` target instead | Both join the floor (`button:not([role=tab])`); the pseudo scheme is deleted; icon sizes keep `pointer-coarse:min-w-11` so they stay square | One floor, one height: a toolbar on a phone reads as one row instead of a 44px search box beside 28px buttons (thumb-reach: the floor keys on pointer and belongs to the primitive) |
+| 17 screens set `pointer-coarse:min-h-11` / `size-11` / `h-11` on their own buttons; one set `h-7` on a `sm` button | All removed; the primitive owns the height | No screen can be taller than its neighbour by accident (emil: unseen consistency compounds) |
+| Nothing stopped the next screen from doing it again | `button-height.test.ts` scans every screen's `<Button>` for height, size or coarse-pointer growth classes; five deliberate exceptions are named with their reasons (punch photo tile, calculator keys, profile fold rows, the 56px punch hero, the upload tile) | The class of bug, not the instance |
+
+Tab triggers stay out of the floor by design (the 32px strip carries its own tap target). `InputGroup` still carries its own addon growth; it is inside a 44px field either way. Desktop is untouched: the floor is a `pointer: coarse` query. Browser gate not run (owner instruction); verified through the emitted CSS selector, the scan test and 507 web tests.

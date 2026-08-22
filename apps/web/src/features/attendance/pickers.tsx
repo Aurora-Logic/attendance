@@ -319,7 +319,6 @@ export function DateRangeField({
               key={preset.label}
               variant="outline"
               size="sm"
-              className="pointer-coarse:min-h-11"
               onClick={() => {
                 onValueChange(preset.range());
                 setOpen(false);

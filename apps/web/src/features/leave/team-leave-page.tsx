@@ -328,7 +328,6 @@ export function TeamLeavePage() {
             variant="outline"
             size="icon"
             aria-label="Previous month"
-            className="pointer-coarse:size-11"
             onClick={() => {
               setMonth(addMonths(month, -1));
             }}
@@ -349,7 +348,6 @@ export function TeamLeavePage() {
             variant="outline"
             size="icon"
             aria-label="Next month"
-            className="pointer-coarse:size-11"
             onClick={() => {
               setMonth(addMonths(month, 1));
             }}

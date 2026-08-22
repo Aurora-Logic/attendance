@@ -68,7 +68,6 @@ export function DispatchNotifications({ dispatch }: { dispatch: Dispatch }) {
               {notification.status === 'pending' && canAct ? (
                 <Button
                   size="sm"
-                  className="pointer-coarse:min-h-11"
                   disabled={mark.isPending}
                   onClick={() => {
                     mark.mutate(
@@ -152,7 +151,6 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       <Button
         variant="outline"
         size="sm"
-        className="pointer-coarse:min-h-11"
         aria-label={outcome === 'copied' ? `${label} copied` : `Copy ${label}`}
         onClick={() => {
           void copy();

@@ -173,7 +173,7 @@ export function MobileBottomNav() {
                       key={m.id}
                       variant={m.id === module.id ? 'default' : 'outline'}
                       size="sm"
-                      className="pointer-coarse:min-h-11 shrink-0"
+                      className="shrink-0"
                       aria-current={m.id === module.id ? 'true' : undefined}
                       onClick={() => {
                         setMoreOpen(false);

@@ -384,7 +384,7 @@ function FooterLogos({ fileIds, canEdit, onChange }: { fileIds: readonly string[
           </span>
         ))}
         {canEdit && fileIds.length < 8 ? (
-          <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 h-16" disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
+          <Button type="button" variant="outline" size="sm" className="h-16" disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
             {upload.isPending ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
             Add logo
           </Button>

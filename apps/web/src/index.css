@@ -51,14 +51,12 @@
  * min-height rather than height, so it raises a small control to the floor
  * without shrinking a large one.
  *
- * Buttons and tab triggers are deliberately not in this list. Growing the box
- * is only one way to reach 44px, and for the controls that carry the most
- * visual weight it is the wrong one: a 32px button that reads as sleek on a
- * desktop becomes a slab at 44px, and a phone screen full of slabs is what
- * "bulky" means. Those two components expand a pseudo-element instead, so the
- * thing you press is 44px while the thing you see keeps its proportions --
- * the same trick the switch uses, and for the same reason. Anything else that
- * wants to stay small must do likewise rather than simply leaving the list.
+ * Tab triggers are the one deliberate exception (see TabsList). Buttons and
+ * toggles used to be excluded too, growing an invisible pseudo-element to
+ * 44px while the box stayed at its desktop size; that left a phone toolbar
+ * showing a 44px search field beside 28px buttons, and screens that minded
+ * the mismatch bolted their own min-height onto their own buttons, so no two
+ * screens agreed. One floor, one height.
  *
  * Note what :where() does and does not buy here. It keeps specificity at zero,
  * but these rules are unlayered, and unlayered beats every Tailwind layer
@@ -71,12 +69,10 @@
  */
 @media (pointer: coarse) {
   :where(
-    /* Every other button keeps the floor -- a Select trigger, a calendar day
-       and a sidebar row are all <button>, and none of them carries its own
-       expansion. Only the Button component and the tab trigger are excluded,
-       because those two do. */
-    button:not([data-slot='button'], [data-slot='toggle'], [data-slot='toggle-group-item'], [role='tab']),
-    [role='button']:not([data-slot='button']),
+    /* Only the tab trigger is excluded: the strip it sits in is drawn at one
+       height on every device and the trigger carries its own tap target. */
+    button:not([role='tab']),
+    [role='button'],
     [role='menuitem'],
     [role='menuitemradio'],
     [role='option'],

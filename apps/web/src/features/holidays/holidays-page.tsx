@@ -451,7 +451,6 @@ export function HolidaysPage() {
             size="icon"
             aria-label="Previous month"
             disabled={atEarliest}
-            className="pointer-coarse:size-11"
             onClick={() => {
               setMonth(addMonths(month, -1));
             }}
@@ -473,7 +472,6 @@ export function HolidaysPage() {
             size="icon"
             aria-label="Next month"
             disabled={atLatest}
-            className="pointer-coarse:size-11"
             onClick={() => {
               setMonth(addMonths(month, 1));
             }}

@@ -299,7 +299,6 @@ export function IntegrationsPage() {
           <Button
             variant="outline"
             size="sm"
-            className="pointer-coarse:min-h-11"
             // Without a credential nothing could ever claim the job; the
             // reason is stated where the button is, not discovered on press.
             disabled={!row.tokenIssued || pull.isPending}
@@ -321,7 +320,6 @@ export function IntegrationsPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="pointer-coarse:min-h-11"
             disabled={!row.tokenIssued}
             title={row.tokenIssued ? undefined : 'Issue the agent token first'}
             onClick={() => {
@@ -345,7 +343,6 @@ export function IntegrationsPage() {
             <Button
               variant="outline"
               size="sm"
-              className="pointer-coarse:min-h-11"
               disabled={issue.isPending}
               onClick={() => {
                 issue.reset();
@@ -361,7 +358,6 @@ export function IntegrationsPage() {
             <Button
               variant="outline"
               size="sm"
-              className="pointer-coarse:min-h-11"
               onClick={() => {
                 setSecret.reset();
                 setSecretDraft('');
@@ -537,7 +533,7 @@ export function IntegrationsPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="pointer-coarse:min-h-11 ml-auto"
+                      className="ml-auto"
                       onClick={() => {
                         resolve.reset();
                         setResolutionNote('');

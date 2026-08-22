@@ -297,7 +297,6 @@ export function MyAttendancePage() {
               variant="outline"
               size="icon"
               aria-label="Previous month"
-              className="pointer-coarse:size-11"
               onClick={() => {
                 step(-1);
               }}
@@ -324,7 +323,6 @@ export function MyAttendancePage() {
               // stepping into it is disabled rather than showing an empty grid
               // that looks like a loading failure.
               disabled={atCurrentMonth}
-              className="pointer-coarse:size-11"
               onClick={() => {
                 step(1);
               }}

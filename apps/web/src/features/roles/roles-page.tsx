@@ -155,7 +155,6 @@ function RolesTab() {
       {/* Toolbar row (PRD §6.2). */}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
-          className="pointer-coarse:h-11"
           onClick={() => {
             openRole(null);
           }}

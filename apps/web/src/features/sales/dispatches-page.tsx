@@ -195,7 +195,6 @@ export function DispatchesPage() {
             <Button
               variant="outline"
               size="sm"
-              className="pointer-coarse:min-h-11"
               onClick={() => {
                 setParam('order', null);
               }}

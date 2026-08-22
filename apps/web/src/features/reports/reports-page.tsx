@@ -673,7 +673,6 @@ export function ReportsPage() {
             variant="ghost"
             size="icon"
             aria-label="View the punch photo"
-            className="pointer-coarse:size-11"
             onClick={(event) => {
               event.stopPropagation();
               setSelectedPunch(row.punch);
@@ -844,7 +843,6 @@ export function ReportsPage() {
             <Button
               variant={isFiltered ? 'default' : 'outline'}
               size="sm"
-              className="pointer-coarse:min-h-11"
               onClick={() => {
                 setMobileFiltersOpen(true);
               }}
@@ -896,7 +894,7 @@ export function ReportsPage() {
                   <Button
                     key={action.label}
                     variant="ghost"
-                    className="min-h-11 justify-start"
+                    className="justify-start"
                     onClick={() => {
                       setExportSheetOpen(false);
                       action.run();
@@ -980,7 +978,6 @@ export function ReportsPage() {
                     <Button
                       variant="outline"
                       size="icon-sm"
-                      className="pointer-coarse:size-11"
                       aria-label={sort.startsWith('-') ? 'Sorted descending; switch to ascending' : 'Sorted ascending; switch to descending'}
                       onClick={() => {
                         const field = sort.startsWith('-') ? sort.slice(1) : sort;

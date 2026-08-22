@@ -69,7 +69,7 @@ export function InvoiceDialog({ open, onOpenChange, order, loading = false, load
       {loadError !== undefined && loadError !== null ? <QueryErrorAlert error={loadError} subject="that sales order" onRetry={onRetry ?? close} /> : null}
       {order === null ? (
         <ResponsiveDialogActions>
-          <Button variant="outline" className="pointer-coarse:min-h-11" onClick={close}>
+          <Button variant="outline" onClick={close}>
             <ACTION_ICONS.close data-icon="inline-start" />
             Close
           </Button>
@@ -222,12 +222,12 @@ function InvoiceForm({ order, onClose }: { order: Estimate; onClose: () => void 
       </FieldGroup>
 
       <ResponsiveDialogActions>
-        <Button variant="outline" className="pointer-coarse:min-h-11" onClick={onClose}>
+        <Button variant="outline" onClick={onClose}>
           <ACTION_ICONS.cancel data-icon="inline-start" />
           {invoiceable && lines.length > 0 ? 'Cancel' : 'Close'}
         </Button>
         {invoiceable && lines.length > 0 ? (
-          <Button className="pointer-coarse:min-h-11" disabled={!canSubmit} onClick={submit}>
+          <Button disabled={!canSubmit} onClick={submit}>
             {create.isPending ? <Spinner data-icon="inline-start" /> : <ReceiptIcon data-icon="inline-start" />}
             {create.isPending ? 'Raising' : 'Raise invoice'}
             <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />

@@ -195,7 +195,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
             {/* On a phone the bar stays one row: Preview beside an overflow that
                 opens as a bottom sheet (thumb-reach: a menu of rows arrives from
                 an edge); the page's own verbs move to a footer the thumb reaches. */}
-            <Button variant="outline" size="icon-sm" className="pointer-coarse:size-11 md:hidden" aria-label="More document actions" onClick={() => { setMobileMenuOpen(true); }}>
+            <Button variant="outline" size="icon-sm" className="md:hidden" aria-label="More document actions" onClick={() => { setMobileMenuOpen(true); }}>
               <DotsThreeVerticalIcon />
             </Button>
           </div>

@@ -197,7 +197,6 @@ function PeriodLockBody({ canLock, canUnlock }: { canLock: boolean; canUnlock: b
           />
           {canLock ? (
             <Button
-              className="pointer-coarse:h-11"
               disabled={already !== undefined}
               onClick={() => {
                 lock.reset();

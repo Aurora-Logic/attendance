@@ -369,12 +369,12 @@ function LinkInvoiceForm({ voucher, canLink, onClose }: { voucher: UnlinkedInvoi
         )}
       </FieldGroup>
       <ResponsiveDialogActions>
-        <Button variant="outline" className="pointer-coarse:min-h-11" onClick={onClose}>
+        <Button variant="outline" onClick={onClose}>
           <ACTION_ICONS.cancel data-icon="inline-start" />
           {canLink && voucher.candidateOrders.length > 0 ? 'Cancel' : 'Close'}
         </Button>
         {canLink && voucher.candidateOrders.length > 0 ? (
-          <Button className="pointer-coarse:min-h-11" disabled={order === null || link.isPending} onClick={submit}>
+          <Button disabled={order === null || link.isPending} onClick={submit}>
             {link.isPending ? <Spinner data-icon="inline-start" /> : <LinkIcon data-icon="inline-start" />}
             {link.isPending ? 'Linking' : 'Link'}
           </Button>

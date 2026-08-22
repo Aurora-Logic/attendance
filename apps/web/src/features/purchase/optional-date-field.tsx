@@ -33,7 +33,7 @@ export function OptionalDateField({
       <Button
         type="button"
         variant="outline"
-        className="pointer-coarse:h-11 w-full justify-start font-normal"
+        className="w-full justify-start font-normal"
         disabled={disabled}
         aria-label={label}
         onClick={() => {

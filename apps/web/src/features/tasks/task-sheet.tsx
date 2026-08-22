@@ -241,7 +241,7 @@ function TaskSheetBody({
               <Button
                 type="button"
                 variant="outline"
-                className="pointer-coarse:h-11 w-full justify-start font-normal"
+                className="w-full justify-start font-normal"
                 onClick={() => {
                   setDraft((current) => ({ ...current, dueDate: toDateParam(new Date()) }));
                 }}
