@@ -24,6 +24,9 @@ import { InvoiceService } from './invoices/invoice.service.js';
  * Nothing imported: the platform modules it leans on are `@Global()`, and
  * ESLint keeps it from reaching into `modules/crm` or `modules/purchase`.
  */
+// The database's sales rules, in words; registered before any handler can trip one.
+import './schema/constraint-messages.js';
+
 @Module({
   imports: [ApprovalModule],
   controllers: [EstimateController, SalesOrderController, FulfilmentController, DispatchController, InvoiceController],

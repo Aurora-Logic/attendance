@@ -11,6 +11,30 @@
 const UNIQUE_VIOLATION = '23505';
 
 /**
+ * `check_violation`, same table. A CHECK constraint is a business rule the
+ * database keeps when two requests race or a screen is stale -- "a line packs
+ * only what it has picked". Reaching the client as a 500 (owner, 22 Aug 2026:
+ * "Packing failed. Something went wrong on our side") told the person the
+ * product was broken when the data was simply ahead of the screen.
+ */
+const CHECK_VIOLATION = '23514';
+
+/**
+ * What each constraint means, in the words the module that owns it chose.
+ * The platform cannot know a sales rule, so the module registers the sentence
+ * at load and the exception filter looks it up by the constraint's name.
+ */
+const CONSTRAINT_MESSAGES = new Map<string, string>();
+
+export function describeConstraint(name: string, message: string): void {
+  CONSTRAINT_MESSAGES.set(name, message);
+}
+
+export function constraintMessage(name: string): string | null {
+  return CONSTRAINT_MESSAGES.get(name) ?? null;
+}
+
+/**
  * node-postgres raises this exact `Error` from `Pool._pulseQueue` when
  * `connectionTimeoutMillis` elapses with no free client. It carries no SQLSTATE
  * -- Postgres was never reached -- so the message is the only signal there is.
@@ -34,6 +58,16 @@ function errorCode(value: unknown): string | null {
 
 export function isUniqueViolation(error: unknown): boolean {
   return errorCode(error) === UNIQUE_VIOLATION;
+}
+
+export function isCheckViolation(error: unknown): boolean {
+  return errorCode(error) === CHECK_VIOLATION;
+}
+
+/** The CHECK constraint that refused the change, or null. */
+export function checkViolationConstraint(error: unknown): string | null {
+  if (!isCheckViolation(error)) return null;
+  return constraintName(error);
 }
 
 /**
@@ -71,6 +105,10 @@ export function isPoolConnectionTimeout(error: unknown): boolean {
  */
 export function uniqueViolationConstraint(error: unknown): string | null {
   if (!isUniqueViolation(error)) return null;
+  return constraintName(error);
+}
+
+function constraintName(error: unknown): string | null {
   return followCause(error, (current) =>
     'constraint' in current && typeof current.constraint === 'string' ? current.constraint : null,
   );
