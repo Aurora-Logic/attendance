@@ -1,4 +1,6 @@
-import { code128, type DocumentDesign, type DocumentProfile } from '@vyuha/shared';
+import { HANDLING_MARK_LABELS, code128, type DocumentDesign, type DocumentProfile } from '@vyuha/shared';
+
+import { HANDLING_MARK_ICONS } from '@/components/shared/entity-icons';
 
 import { cn } from '@/lib/utils';
 
@@ -37,8 +39,6 @@ function Barcode({ value, className, label }: { value: string; className?: strin
   );
 }
 
-const HANDLING = ['Fragile', 'This side up', 'Keep dry', 'Do not stack'] as const;
-
 function formatPacked(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -57,6 +57,7 @@ export interface PackingSlipPaperProps {
 
 export function PackingSlipPaper({ design, profile, orgName, model, box, className }: PackingSlipPaperProps) {
   const a4 = design.paperSize === 'A4';
+  const note = model.type === 'DELIVERY_NOTE';
   const businessName = profile.legalName.trim() === '' ? orgName : profile.legalName;
   const addressLines = profile.addressLines.split('\n').filter((l) => l.trim() !== '');
   const shipName = (model.shipTo?.name ?? '').trim() || model.buyer.name;
@@ -64,7 +65,7 @@ export function PackingSlipPaper({ design, profile, orgName, model, box, classNa
   const number = model.number ?? 'Draft';
   const boxCount = model.slip?.boxCount ?? 1;
   const lines = model.lines;
-  const shown = a4 ? lines : lines.slice(0, 6);
+  const shown = a4 || note ? lines : lines.slice(0, 6);
   const units = lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
 
   return (
@@ -72,7 +73,7 @@ export function PackingSlipPaper({ design, profile, orgName, model, box, classNa
       data-size={design.paperSize}
       className={cn('slip-paper grid gap-[4mm] p-[8mm] shadow-sm ring-1 ring-black/5', a4 && 'gap-[6mm] p-[12mm]', className)}
       style={{ gridTemplateRows: 'auto auto auto 1fr auto' }}
-      aria-label={`Packing slip ${number}, box ${String(box)} of ${String(boxCount)}`}
+      aria-label={note ? `Delivery note ${number}` : `Packing slip ${number}, box ${String(box)} of ${String(boxCount)}`}
     >
       <header className="flex items-start justify-between gap-[6mm] border-b-2 border-[#111] pb-[3mm]">
         <div className="flex min-w-0 flex-col gap-[1mm]">
@@ -85,7 +86,7 @@ export function PackingSlipPaper({ design, profile, orgName, model, box, classNa
           </small>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-[1mm] text-right">
-          <span className="text-[9pt] font-bold tracking-[0.14em] uppercase">Packing slip</span>
+          <span className="text-[9pt] font-bold tracking-[0.14em] uppercase">{note ? 'Delivery note' : 'Packing slip'}</span>
           <span className="tabular-nums text-[16pt] font-bold">{number}</span>
           <Barcode value={number} className={a4 ? 'h-[16mm]' : 'h-[12mm]'} />
         </div>
@@ -102,25 +103,46 @@ export function PackingSlipPaper({ design, profile, orgName, model, box, classNa
             {model.slip?.phone ? <div className="tabular-nums">{model.slip.phone}</div> : null}
           </div>
         </div>
-        <div className="flex min-w-[30mm] flex-col items-center justify-center border-2 border-[#111] px-[4mm] py-[2mm]">
-          <span className="text-[7pt] font-bold tracking-[0.14em] uppercase">Box</span>
-          <span className={cn('tabular-nums text-[30pt] leading-none font-bold', a4 && 'text-[40pt]')}>{box}</span>
-          <span className="text-[9pt] text-[#444]">of {boxCount}</span>
-        </div>
+        {note ? (
+          <div className="flex min-w-[30mm] flex-col items-center justify-center border-2 border-[#111] px-[4mm] py-[2mm] text-center">
+            <span className="text-[7pt] font-bold tracking-[0.14em] uppercase">Dispatched</span>
+            <span className={cn('tabular-nums text-[13pt] leading-tight font-bold', a4 && 'text-[16pt]')}>{model.date.split('-').reverse().join('-')}</span>
+            <span className="text-[8pt] text-[#444]">{model.statusLabel ?? ''}</span>
+          </div>
+        ) : (
+          <div className="flex min-w-[30mm] flex-col items-center justify-center border-2 border-[#111] px-[4mm] py-[2mm]">
+            <span className="text-[7pt] font-bold tracking-[0.14em] uppercase">Box</span>
+            <span className={cn('tabular-nums text-[30pt] leading-none font-bold', a4 && 'text-[40pt]')}>{box}</span>
+            <span className="text-[9pt] text-[#444]">of {boxCount}</span>
+          </div>
+        )}
       </section>
 
       <section className={cn('grid grid-cols-2 gap-x-[5mm] gap-y-[2mm] border-y border-[#111] py-[2.5mm] text-[9pt]', a4 && 'grid-cols-4 text-[10pt]')}>
         <Fact label="Order">
           <span className="tabular-nums">{model.details.buyersOrderNo ?? model.reference ?? ''}{model.details.buyersOrderDate ? ` · ${model.details.buyersOrderDate}` : ''}</span>
         </Fact>
-        <Fact label="Packed">
-          <span className="tabular-nums">{formatPacked(model.slip?.packedAt ?? model.date)}</span>
-          {model.slip?.packedByName ? ` · ${model.slip.packedByName}` : ''}
-        </Fact>
-        <Fact label="LR number" write />
-        <Fact label={a4 ? 'Transporter' : 'Vehicle / transporter'} write />
-        {a4 ? <Fact label="Vehicle" write /> : null}
-        {a4 ? <Fact label="Driver / contact" write /> : null}
+        {note ? (
+          <>
+            <Fact label="LR number" write={!(model.details.dispatchDocNo ?? '').trim()}>
+              <span className="tabular-nums">{model.details.dispatchDocNo ?? ''}</span>
+            </Fact>
+            <Fact label="Dispatched through" write={!(model.details.dispatchedThrough ?? '').trim()}>{model.details.dispatchedThrough ?? ''}</Fact>
+            <Fact label="Destination" write={!(model.details.destination ?? '').trim()}>{model.details.destination ?? ''}</Fact>
+            {model.validUntil ? <Fact label="Expected"><span className="tabular-nums">{model.validUntil.split('-').reverse().join('-')}</span></Fact> : a4 ? <Fact label="Expected" write /> : null}
+          </>
+        ) : (
+          <>
+            <Fact label="Packed">
+              <span className="tabular-nums">{formatPacked(model.slip?.packedAt ?? model.date)}</span>
+              {model.slip?.packedByName ? ` · ${model.slip.packedByName}` : ''}
+            </Fact>
+            <Fact label="LR number" write />
+            <Fact label={a4 ? 'Transporter' : 'Vehicle / transporter'} write />
+            {a4 ? <Fact label="Vehicle" write /> : null}
+            {a4 ? <Fact label="Driver / contact" write /> : null}
+          </>
+        )}
       </section>
 
       <section className={cn('text-[9pt]', a4 && 'text-[10pt]')}>
@@ -148,7 +170,7 @@ export function PackingSlipPaper({ design, profile, orgName, model, box, classNa
           </tbody>
         </table>
         <p className="pt-[1.5mm] text-[#444]">
-          {lines.length} line{lines.length === 1 ? '' : 's'} · {units} units in this packing
+          {lines.length} line{lines.length === 1 ? '' : 's'} · {units} units {note ? 'in this dispatch' : 'in this packing'}
           {shown.length < lines.length ? ` · ${String(lines.length - shown.length)} more on the delivery note` : ''}
           {a4 ? ' · quantities only, values are on the invoice' : ''}
         </p>
@@ -156,18 +178,25 @@ export function PackingSlipPaper({ design, profile, orgName, model, box, classNa
       </section>
 
       <footer className="flex flex-col gap-[2.5mm]">
-        <div className="flex flex-wrap items-center gap-[4mm] text-[8pt]">
-          {HANDLING.map((mark) => (
-            <span key={mark} className="inline-flex items-center gap-[1.5mm]">
-              <i className="inline-block size-[3.5mm] border-[1.5px] border-[#111]" aria-hidden />
-              {mark}
-            </span>
-          ))}
-        </div>
+        {/* The marks the organisation switched on, as glyphs a loader reads
+            before the word (owner, 22 Aug): no tick-boxes, the mark is the mark. */}
+        {design.handlingMarks.length > 0 ? (
+          <div className={cn('flex flex-wrap items-center gap-[5mm] text-[8pt] font-semibold', a4 && 'text-[9pt]')}>
+            {design.handlingMarks.map((mark) => {
+              const Glyph = HANDLING_MARK_ICONS[mark];
+              return (
+                <span key={mark} className="inline-flex items-center gap-[1.5mm]">
+                  <Glyph weight="bold" className={cn('size-[5mm]', a4 && 'size-[6mm]')} aria-hidden />
+                  {HANDLING_MARK_LABELS[mark]}
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
         <div className="flex items-end justify-between gap-[4mm] border-t-2 border-[#111] pt-[2.5mm] text-[8pt] text-[#444]">
           <div>
-            <b className="text-[#111]">Scan to ship or to mark delivered.</b>
-            {a4 ? (
+            <b className="text-[#111]">{note ? 'Scan to mark delivered.' : 'Scan to ship or to mark delivered.'}</b>
+            {a4 || note ? (
               <>
                 <br />Checked by ____________________ · Receiver's name and signature ________________________________ · Date ________
               </>

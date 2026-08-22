@@ -17,6 +17,7 @@ import { DesignRail } from './design-rail';
 import { DocumentForm } from './document-form';
 import { downloadDocumentFile } from './download';
 import { PackingSlipPaper } from './packing-slip-paper';
+import { SLIP_PAPER_TYPES } from './paper-support';
 import { DocumentPaper, type PaperEditing, type PaperModel } from './paper';
 import { useFooterLogoUrls, useSaveDocumentSettings } from './use-document-settings';
 
@@ -248,8 +249,8 @@ export function DocumentEditor(props: DocumentEditorProps) {
             // transform, which would otherwise give the stage a sideways scroll.
             <div className="overflow-x-clip">
               <div ref={paperRef} className={cn('relative left-1/2 w-[210mm] origin-top -translate-x-1/2', zoom.className)}>
-                {docType === 'PACKING_SLIP' ? (
-                  // D-47: the slip has its own paper; the screen previews box 1 of N.
+                {SLIP_PAPER_TYPES.includes(docType) ? (
+                  // D-47: the goods papers have their own paper; the slip previews box 1 of N.
                   <PackingSlipPaper design={design} profile={settings.draft.profile} orgName={branding.data?.name ?? ''} model={model} box={1} />
                 ) : (
                   <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />

@@ -12,24 +12,11 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { HANDLING_MARK_ICONS } from '@/components/shared/entity-icons';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useFooterLogoUrls, useUploadFooterLogo } from './use-document-settings';
 import { cn } from '@/lib/utils';
-import {
-  DOCUMENT_ACCENTS,
-  DOCUMENT_ACCENT_LABELS,
-  DOCUMENT_FONTS,
-  DOCUMENT_FONT_LABELS,
-  DOCUMENT_TEMPLATE_IDS,
-  DOCUMENT_TEMPLATE_LABELS,
-  type DocumentAccent,
-  type DocumentDesign,
-  type DocumentFont,
-  type DocumentProfile,
-  type DocumentSettings,
-  type DocumentTemplateId,
-  type PrintedDocumentType,
-} from '@vyuha/shared';
+import { DOCUMENT_ACCENTS, DOCUMENT_ACCENT_LABELS, DOCUMENT_FONTS, DOCUMENT_FONT_LABELS, DOCUMENT_TEMPLATE_IDS, DOCUMENT_TEMPLATE_LABELS, HANDLING_MARKS, HANDLING_MARK_LABELS, type DocumentAccent, type DocumentDesign, type DocumentFont, type DocumentProfile, type DocumentSettings, type DocumentTemplateId, type PrintedDocumentType } from '@vyuha/shared';
 
 /**
  * The design rail beside the paper: the five templates, the accent, what
@@ -128,7 +115,32 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
               </ToggleGroup>
             </Field>
 
-            {docType === 'PACKING_SLIP' ? (
+            {docType === 'PACKING_SLIP' || docType === 'DELIVERY_NOTE' ? (
+              <Field>
+                <FieldLabel>Handling marks</FieldLabel>
+                {/* D-47 (owner): the marks the slip prints, switched on here; each wears the glyph the paper prints. */}
+                <ToggleGroup
+                  variant="outline"
+                  aria-label="Handling marks"
+                  className="flex-wrap"
+                  value={[...design.handlingMarks]}
+                  onValueChange={(value: string[]) => {
+                    setDesign({ handlingMarks: HANDLING_MARKS.filter((mark) => value.includes(mark)) });
+                  }}
+                >
+                  {HANDLING_MARKS.map((mark) => {
+                    const Glyph = HANDLING_MARK_ICONS[mark];
+                    return (
+                      <ToggleGroupItem key={mark} value={mark} aria-label={HANDLING_MARK_LABELS[mark]} className="gap-1.5 data-pressed:border-primary">
+                        <Glyph />
+                        {HANDLING_MARK_LABELS[mark]}
+                      </ToggleGroupItem>
+                    );
+                  })}
+                </ToggleGroup>
+              </Field>
+            ) : null}
+            {docType === 'PACKING_SLIP' || docType === 'DELIVERY_NOTE' ? (
               <Field>
                 <FieldLabel htmlFor="design-paper-size">Paper size</FieldLabel>
                 {/* D-47: the slip alone has a size; the other papers are A4. */}

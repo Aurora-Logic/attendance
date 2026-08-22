@@ -34,6 +34,8 @@ import { DISPATCH_MODE_LABELS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SYNC_S
 import { DispatchDialog } from './dispatch-dialog';
 import { DocumentLinesEditor, type StockItemOption } from './document-lines-editor';
 import { FulfilmentBadge } from './fulfilment-badge';
+import { fulfilmentProgress } from './fulfilment-progress';
+import { FulfilmentSteps } from './fulfilment-steps';
 import { InvoiceDialog } from './invoice-dialog';
 import { formatMoney } from './money';
 import { PackDialog } from './pack-dialog';
@@ -375,7 +377,14 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
             dirty={dirty}
           />
 
-          {confirmed ? <FulfilmentSections record={record} packs={packs} dispatches={dispatches} /> : null}
+          {confirmed ? (
+            <FulfilmentSections
+              record={record}
+              packs={packs}
+              dispatches={dispatches}
+              verbs={canCreate && !altering ? { onPack: () => { setDialog('pack'); }, onInvoice: () => { setDialog('invoice'); }, onDispatch: () => { setDialog('dispatch'); } } : null}
+            />
+          ) : null}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
@@ -569,9 +578,31 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
  * the order (REQ-AA-12, D-38) and the pack records with the pickers'
  * comments (REQ-AA-08, AA-09). Every dispatch is one screen away (REQ-AA-31).
  */
-export function FulfilmentSections({ record, packs, dispatches }: { record: Estimate; packs: ReturnType<typeof usePackRecords>; dispatches: ReturnType<typeof useDispatches> }) {
+export function FulfilmentSections({
+  record,
+  packs,
+  dispatches,
+  verbs,
+}: {
+  record: Estimate;
+  packs: ReturnType<typeof usePackRecords>;
+  dispatches: ReturnType<typeof useDispatches>;
+  /** The four-step bar's verbs (owner, 22 Aug): absent when the reader may not act. */
+  verbs: { onPack: () => void; onInvoice: () => void; onDispatch: () => void } | null;
+}) {
+  const packList = packs.data ?? [];
+  const progress = fulfilmentProgress(record, packList, dispatches.data?.data ?? []);
+  const latestPack = packList.length === 0 ? null : (packList[packList.length - 1] ?? null);
   return (
     <>
+      <FulfilmentSteps
+        progress={progress}
+        latestPack={latestPack}
+        canAct={verbs !== null}
+        onPack={verbs?.onPack ?? (() => undefined)}
+        onInvoice={verbs?.onInvoice ?? (() => undefined)}
+        onDispatch={verbs?.onDispatch ?? (() => undefined)}
+      />
       <div className="flex flex-col gap-2">
         <SectionHeading title="Quantities" note="Every stage moves quantity from one column to the next; the balance is what the pick queue still owes." />
         {record.shortClosedAt !== null ? (

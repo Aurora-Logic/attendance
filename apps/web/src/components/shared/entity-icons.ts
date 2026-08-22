@@ -1,4 +1,10 @@
 import {
+  WineIcon,
+  UmbrellaIcon,
+  StackSimpleIcon,
+  ScissorsIcon,
+  BarbellIcon,
+  ArrowFatLinesUpIcon,
   ArchiveIcon,
   BooksIcon,
   BriefcaseIcon,
@@ -31,7 +37,7 @@ import {
   XIcon,
   type Icon,
 } from '@phosphor-icons/react';
-import type { ApprovalType, AttendanceStatus, PunchSource, ReportCategory } from '@vyuha/shared';
+import type { ApprovalType, AttendanceStatus, HandlingMark, PunchSource, ReportCategory } from '@vyuha/shared';
 
 import { ACTION_ICONS } from './action-icons';
 
@@ -91,6 +97,16 @@ export const REPORT_CATEGORY_ICONS: Record<ReportCategory, Icon> = {
   Vendors: ArchiveIcon,
   Fulfilment: TruckIcon,
   Exceptions: ScrollIcon,
+};
+
+/** D-47: the marks a carton wears; the slip prints icon and label, the Design rail shows the same glyphs to switch on. */
+export const HANDLING_MARK_ICONS: Record<HandlingMark, Icon> = {
+  fragile: WineIcon,
+  this_side_up: ArrowFatLinesUpIcon,
+  keep_dry: UmbrellaIcon,
+  do_not_stack: StackSimpleIcon,
+  heavy: BarbellIcon,
+  open_with_care: ScissorsIcon,
 };
 
 /** A bell row's glyph, by the event family its type names. */

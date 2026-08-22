@@ -427,7 +427,12 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
                   </AlertDescription>
                 </Alert>
               ) : null}
-              {confirmed ? <FulfilmentSections record={record} packs={packs} dispatches={dispatches} /> : null}
+              {confirmed ? <FulfilmentSections
+                record={record}
+                packs={packs}
+                dispatches={dispatches}
+                verbs={canCreate ? { onPack: () => { setDialog('pack'); }, onInvoice: () => { setDialog('invoice'); }, onDispatch: () => { setDialog('dispatch'); } } : null}
+              /> : null}
             </div>
           ) : undefined
         }

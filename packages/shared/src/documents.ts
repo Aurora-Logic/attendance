@@ -94,6 +94,18 @@ export const documentProfileSchema = z.object({
 });
 export type DocumentProfile = z.infer<typeof documentProfileSchema>;
 
+/** The marks a carton can carry (D-47). The icon for each lives in the web's glyph table; the paper prints icon and label. */
+export const HANDLING_MARKS = ['fragile', 'this_side_up', 'keep_dry', 'do_not_stack', 'heavy', 'open_with_care'] as const;
+export type HandlingMark = (typeof HANDLING_MARKS)[number];
+export const HANDLING_MARK_LABELS: Record<HandlingMark, string> = {
+  fragile: 'Fragile',
+  this_side_up: 'This side up',
+  keep_dry: 'Keep dry',
+  do_not_stack: 'Do not stack',
+  heavy: 'Heavy',
+  open_with_care: 'Open with care',
+};
+
 export const documentDesignSchema = z.object({
   templateId: z.preprocess((value) => (typeof value === 'string' && value in RETIRED_TEMPLATES ? RETIRED_TEMPLATES[value] : value), z.enum(DOCUMENT_TEMPLATE_IDS)),
   accent: z.enum(DOCUMENT_ACCENTS),
@@ -126,6 +138,8 @@ export const documentDesignSchema = z.object({
   defaultTerms: shortText(4000),
   /** D-47: the packing slip prints on A5 by default — the sticker that fits a carton face; A4 for pallets. Other papers stay A4. */
   paperSize: z.enum(['A4', 'A5']).default('A4'),
+  /** D-47 (owner): the handling marks the slip prints, as icons — switched on per organisation in the Design rail. */
+  handlingMarks: z.array(z.enum(HANDLING_MARKS)).default([]),
 });
 export type DocumentDesign = z.infer<typeof documentDesignSchema>;
 export type PaperSize = DocumentDesign['paperSize'];
@@ -138,6 +152,7 @@ export type DocumentSettings = z.infer<typeof documentSettingsSchema>;
 
 export const DEFAULT_DOCUMENT_DESIGN: DocumentDesign = {
   paperSize: 'A4',
+  handlingMarks: [],
   templateId: 'tally',
   accent: 'ink',
   fontFamily: 'sans',
@@ -192,7 +207,7 @@ export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
     SALES_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, footerNote: 'This is a Computer Generated Sales Order' },
     INVOICE: { ...DEFAULT_DOCUMENT_DESIGN, showBank: true },
     DELIVERY_NOTE: { ...GOODS_DESIGN, footerNote: 'This is a Computer Generated Delivery Note' },
-    PACKING_SLIP: { ...GOODS_DESIGN, showHsn: false, showDetailsGrid: false, footerNote: 'This is a Computer Generated Packing Slip', paperSize: 'A5' },
+    PACKING_SLIP: { ...GOODS_DESIGN, showHsn: false, showDetailsGrid: false, footerNote: 'This is a Computer Generated Packing Slip', paperSize: 'A5', handlingMarks: ['fragile', 'this_side_up'] },
     PURCHASE_ORDER: { ...DEFAULT_DOCUMENT_DESIGN, showDiscount: false, showDeclaration: false, footerNote: 'This is a Computer Generated Purchase Order' },
     RECEIPT_NOTE: { ...GOODS_DESIGN, showShipTo: false, footerNote: 'This is a Computer Generated Goods Receipt Note' },
   },
