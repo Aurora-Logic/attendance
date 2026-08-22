@@ -216,9 +216,12 @@ export function RecordTable<T>({
               className={cn('min-h-11 rounded-none', onRowActivate && 'cursor-pointer hover:bg-muted/50 active:bg-muted')}
             >
               <ItemContent className="min-w-0 gap-0.5">
-                <ItemTitle className="truncate">{mobilePrimary(row)}</ItemTitle>
+                {/* w-full min-w-0 overrides ItemTitle's base w-fit, which would
+                    otherwise size to the text and push a long name past 360px
+                    (measured: an estimate customer name overflowed to 366). */}
+                <ItemTitle className="w-full min-w-0 truncate">{mobilePrimary(row)}</ItemTitle>
                 {mobileSupporting ? (
-                  <ItemDescription className="truncate text-xs">
+                  <ItemDescription className="w-full min-w-0 truncate text-xs">
                     {mobileSupporting(row)}
                   </ItemDescription>
                 ) : null}
