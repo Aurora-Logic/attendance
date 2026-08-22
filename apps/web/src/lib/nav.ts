@@ -847,6 +847,11 @@ export interface Crumb {
  */
 const OFF_NAV_LABELS: Record<string, string> = {
   '/profile': 'Profile',
+  /* The shadcn-shaped second take on the reports dashboard. Deliberately not a
+     nav item -- it exists to be compared against /reports/dashboard, and two
+     entries called "Dashboard" in the same group would be a puzzle rather than
+     a choice. Named here so the header does not say "Not found" above it. */
+  '/reports/dashboard/v2': 'Dashboard (v2)',
   /* REQ-O-02's landing screen. Reached from the sidebar footer rather than
      being a destination inside a module, so it needs a name here for the same
      reason the three below do -- without it the header announced the page as
