@@ -174,37 +174,46 @@ export function MobileBottomNav() {
               <div className="mb-4 flex flex-col gap-2">
                 <p className="text-muted-foreground text-xs font-medium">Modules</p>
                 {/*
-                  Wraps rather than scrolls sideways.
+                  One line, scrolling sideways. Never two rows: a second row
+                  moves everything under it down the sheet, and the owner
+                  asked for the row to stay a row.
 
-                  Six modules do not fit across a phone, and a row that scrolls
-                  hides the ones nobody thought to look for -- Attendance sat
-                  off the right edge, which is the module most of the company
-                  uses. A sideways scroll is also the least discoverable
-                  gesture on a surface somebody opened *to see what exists*.
+                  The fade on the right edge is what makes that honest. The
+                  original complaint was that Attendance sat off-screen with
+                  nothing to say so -- the scrollbar was hidden and the row
+                  ended in clean whitespace, which reads as "that is all of
+                  them". A soft edge reads as "there is more", which is the
+                  only affordance a sideways scroll gets on a phone.
 
-                  Wrapping was rejected for the settings tab strip and rightly:
-                  a second row there pushes page content down on every visit.
-                  That reasoning does not carry here. This is a sheet the
-                  person opened deliberately, it already scrolls vertically,
-                  and a second row of modules costs one line of a surface whose
-                  whole job is to list things.
+                  It is drawn only while the row actually overflows: an
+                  organisation with three modules gets a plain row rather than
+                  a gradient promising something that is not there.
                 */}
-                <div className="flex flex-wrap gap-2">
-                  {visibleModules.map((m) => (
-                    <Button
-                      key={m.id}
-                      variant={m.id === module.id ? 'default' : 'ghost'}
-                      size="sm"
-                      aria-current={m.id === module.id ? 'true' : undefined}
-                      onClick={() => {
-                        setMoreOpen(false);
-                        if (m.id !== module.id) void navigate(m.home);
-                      }}
-                    >
-                      <m.icon data-icon="inline-start" />
-                      {m.label}
-                    </Button>
-                  ))}
+                <div className="relative">
+                  <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
+                    {visibleModules.map((m) => (
+                      <Button
+                        key={m.id}
+                        variant={m.id === module.id ? 'default' : 'ghost'}
+                        size="sm"
+                        className="shrink-0"
+                        aria-current={m.id === module.id ? 'true' : undefined}
+                        onClick={() => {
+                          setMoreOpen(false);
+                          if (m.id !== module.id) void navigate(m.home);
+                        }}
+                      >
+                        <m.icon data-icon="inline-start" />
+                        {m.label}
+                      </Button>
+                    ))}
+                  </div>
+                  {visibleModules.length > 4 ? (
+                    <span
+                      aria-hidden
+                      className="from-background pointer-events-none absolute inset-y-0 -right-4 w-8 bg-gradient-to-l to-transparent"
+                    />
+                  ) : null}
                 </div>
               </div>
             ) : null}
