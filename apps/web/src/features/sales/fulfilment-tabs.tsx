@@ -18,8 +18,8 @@ const STAGES: readonly { value: FulfilmentStage; label: string; to: string }[] =
   { value: 'pick', label: 'Pick', to: '/sales/pick-queue' },
   { value: 'packed', label: 'Packed', to: '/sales/packed' },
   { value: 'invoice', label: 'Awaiting invoice', to: '/sales/awaiting-invoice' },
-  { value: 'dispatched', label: 'Dispatched', to: '/sales/dispatches?delivered=no' },
-  { value: 'delivered', label: 'Delivered', to: '/sales/dispatches?delivered=yes' },
+  { value: 'dispatched', label: 'Dispatched', to: '/sales/dispatches' },
+  { value: 'delivered', label: 'Delivered', to: '/sales/delivered' },
 ];
 
 function countOf(data: unknown): number | null {

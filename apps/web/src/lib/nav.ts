@@ -35,6 +35,10 @@ import {
   UmbrellaIcon,
   UsersIcon,
   UsersThreeIcon,
+  BarcodeIcon,
+  CheckCircleIcon,
+  ReceiptXIcon,
+  TruckIcon,
 } from '@phosphor-icons/react';
 
 import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
@@ -517,18 +521,54 @@ export const MODULES: ModuleDef[] = [
       {
         label: 'Fulfilment',
         items: [
-          // Owner, 22 Aug 2026: one screen with stage tabs -- Pick, Packed,
-          // Awaiting invoice, Dispatched, Delivered -- in place of four
-          // destinations for one flow. The routes stay; the strip on each
-          // says where you are (features/sales/fulfilment-tabs).
+          // Owner, 22 Aug 2026: each stage is its own entry -- "we don't need
+          // one Fulfilment option" -- and Delivered is among them so it can be
+          // found. The strip on each screen (features/sales/fulfilment-tabs)
+          // still says where you are and what waits.
           {
             to: '/sales/pick-queue',
-            label: 'Fulfilment',
-            shortLabel: 'Fulfil',
+            label: 'Pick queue',
+            shortLabel: 'Pick',
+            icon: BarcodeIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-AA-05, REQ-AA-06, REQ-AA-07, D-48',
+          },
+          {
+            to: '/sales/packed',
+            label: 'Packed',
+            shortLabel: 'Packed',
             icon: PackageIcon,
             permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
             phase: 8,
-            reqs: 'REQ-AA-05…AA-24, D-47',
+            reqs: 'D-47',
+          },
+          {
+            to: '/sales/awaiting-invoice',
+            label: 'Awaiting invoice',
+            shortLabel: 'Billing',
+            icon: ReceiptXIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-AA-10, REQ-AA-12, REQ-AA-13',
+          },
+          {
+            to: '/sales/dispatches',
+            label: 'Dispatches',
+            shortLabel: 'Shipped',
+            icon: TruckIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'REQ-AA-17, REQ-AA-21, REQ-AA-24',
+          },
+          {
+            to: '/sales/delivered',
+            label: 'Delivered',
+            shortLabel: 'Delivered',
+            icon: CheckCircleIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'D-47',
           },
           {
             to: '/sales/scan',
@@ -804,12 +844,8 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/sales\/orders\/[^/]+$/u, parent: '/sales/orders', label: 'Sales order' },
   { pattern: /^\/sales\/invoices\/[^/]+$/u, parent: '/sales/invoices', label: 'Invoice' },
   { pattern: /^\/sales\/pick-queue\/[^/]+$/u, parent: '/sales/pick-queue', label: 'Pack' },
-  // B-37: the stages hang off the one Fulfilment entry; their routes stayed.
-  { pattern: /^\/sales\/packed$/u, parent: '/sales/pick-queue', label: 'Packed' },
-  { pattern: /^\/sales\/packs\/[^/]+$/u, parent: '/sales/pick-queue', label: 'Packing slip' },
-  { pattern: /^\/sales\/awaiting-invoice$/u, parent: '/sales/pick-queue', label: 'Awaiting invoice' },
-  { pattern: /^\/sales\/dispatches$/u, parent: '/sales/pick-queue', label: 'Dispatches' },
-  { pattern: /^\/sales\/dispatches\/[^/]+$/u, parent: '/sales/pick-queue', label: 'Dispatch' },
+  { pattern: /^\/sales\/packs\/[^/]+$/u, parent: '/sales/packed', label: 'Packing slip' },
+  { pattern: /^\/sales\/dispatches\/[^/]+$/u, parent: '/sales/dispatches', label: 'Dispatch' },
   { pattern: /^\/purchase\/orders\/[^/]+$/u, parent: '/purchase/orders', label: 'Purchase order' },
   { pattern: /^\/purchase\/grns\/[^/]+$/u, parent: '/purchase/grns', label: 'Goods receipt' },
 ];

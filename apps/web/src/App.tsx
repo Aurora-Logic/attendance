@@ -174,6 +174,7 @@ export default function App() {
               <Route path="sales/pick-queue/:id" element={<PickQueuePage />} />
               <Route path="sales/awaiting-invoice" element={<AwaitingInvoicePage />} />
               <Route path="sales/dispatches" element={<DispatchesPage />} />
+              <Route path="sales/delivered" element={<DispatchesPage stage="delivered" />} />
               <Route path="sales/dispatches/:id" element={<DispatchPaperPage />} />
               <Route path="sales/scan" element={<ScanPage />} />
               <Route path="sales/packed" element={<PackedPage />} />

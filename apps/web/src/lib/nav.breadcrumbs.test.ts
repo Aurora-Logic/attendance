@@ -31,9 +31,10 @@ describe('findBreadcrumbs', () => {
     expect(nameless).toEqual([]);
   });
 
-  it('hangs the fulfilment stages and the packing slip off the one Fulfilment entry', () => {
-    expect(findBreadcrumbs('/sales/packs/abc').map((c) => c.label)).toEqual(['Fulfilment', 'Packing slip']);
-    expect(findBreadcrumbs('/sales/dispatches').map((c) => c.label)).toEqual(['Fulfilment', 'Dispatches']);
-    expect(findBreadcrumbs('/sales/awaiting-invoice').map((c) => c.label)).toEqual(['Fulfilment', 'Awaiting invoice']);
+  it('names each fulfilment stage, the delivered screen, and the packing slip under Packed', () => {
+    expect(findBreadcrumbs('/sales/packs/abc').map((c) => c.label)).toEqual(['Fulfilment', 'Packed', 'Packing slip']);
+    expect(findBreadcrumbs('/sales/delivered').at(-1)?.label).toBe('Delivered');
+    expect(findBreadcrumbs('/sales/dispatches/abc').map((c) => c.label)).toEqual(['Fulfilment', 'Dispatches', 'Dispatch']);
+    expect(findBreadcrumbs('/sales/awaiting-invoice').at(-1)?.label).toBe('Awaiting invoice');
   });
 });

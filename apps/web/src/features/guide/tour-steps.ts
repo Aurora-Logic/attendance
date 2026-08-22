@@ -503,7 +503,15 @@ const TRADING_INTROS: GuideStep[] = [
     anchor: ANCHORS.screenHeader,
     permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
     title: 'Dispatches',
-    body: 'How each consignment leaves: local by carrier, on your own vehicle, or outstation. The flow ends at dispatch.',
+    body: 'How each consignment leaves: local by carrier, on your own vehicle, or outstation. What is still in transit lives here.',
+  },
+  {
+    id: 'screen.sales-delivered',
+    route: '/sales/delivered',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Delivered',
+    body: 'Every dispatch the customer has signed for, newest first. A consignment arrives here when its slip is scanned and marked delivered at the door.',
   },
   {
     id: 'screen.sales-packed',

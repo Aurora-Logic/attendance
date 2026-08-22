@@ -73,7 +73,9 @@ function ListSkeleton() {
   );
 }
 
-export function DispatchesPage() {
+/** `stage="delivered"` is the Delivered screen: the same list, only what the customer has signed for. */
+export function DispatchesPage({ stage }: { stage?: 'delivered' } = {}) {
+  const delivered = stage === 'delivered';
   const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
   const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
   const canView = canViewSelf || canViewAll;
@@ -114,7 +116,7 @@ export function DispatchesPage() {
     };
   }, [draft, q, setSearchParams]);
 
-  const query = useDispatches({ page, ...(q ? { q, delivered: searchParams.get('delivered') === 'yes' ? 'yes' : searchParams.get('delivered') === 'no' ? 'no' : undefined } : {}), ...(mode ? { mode } : {}), ...(syncState ? { syncState } : {}), ...(orderParam ? { documentId: orderParam } : {}) }, { enabled: canView });
+  const query = useDispatches({ page, ...(q ? { q } : {}), delivered: delivered ? 'yes' : 'no', ...(mode ? { mode } : {}), ...(syncState ? { syncState } : {}), ...(orderParam ? { documentId: orderParam } : {}) }, { enabled: canView });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
   function setParam(name: string, value: string | null) {
@@ -133,15 +135,15 @@ export function DispatchesPage() {
   if (!canView) {
     return (
       <>
-        <PageHeader description="Every dispatch in flight: mode, LR, photographs, and whether the customer has been told." />
-        <FulfilmentTabs current={searchParams.get('delivered') === 'yes' ? 'delivered' : 'dispatched'} />
+        <PageHeader description={delivered ? 'Every dispatch the customer has signed for, newest first.' : 'Every dispatch in flight: mode, LR, photographs, and whether the customer has been told.'} />
+        <FulfilmentTabs current={delivered ? 'delivered' : 'dispatched'} />
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <LockKeyIcon />
             </EmptyMedia>
-            <EmptyTitle>You cannot view dispatches</EmptyTitle>
-            <EmptyDescription>This needs sales.document.view.self or sales.document.view.all — the Sales role carries it.</EmptyDescription>
+            <EmptyTitle>{delivered ? 'Nothing delivered yet' : 'You cannot view dispatches'}</EmptyTitle>
+            <EmptyDescription>{delivered ? 'A dispatch arrives here once it is scanned and marked delivered at the door.' : 'This needs sales.document.view.self or sales.document.view.all — the Sales role carries it.'}</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </>
