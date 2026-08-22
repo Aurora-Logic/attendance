@@ -371,6 +371,7 @@ export function ReportsDashboardPage() {
 
         {canViewAttendance ? (
           <Panel>
+            <section className="flex flex-col gap-3">
             <SectionHeading
               icon={<SunHorizonIcon />}
               title="Attendance, last 30 days"
@@ -384,14 +385,24 @@ export function ReportsDashboardPage() {
               const oldest = (turnaround.data?.data ?? []).reduce((max, row) => Math.max(max, Number(row.cells.oldestPendingHours ?? 0)), 0);
               const pendingFlags = openFlags.data?.meta.total ?? 0;
               return (
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-                  <div>
-                    {onTimePct === null ? (
-                      <p className="text-muted-foreground text-xs">No worked days in the last 30 days.</p>
-                    ) : (
+                <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                  {/* The radial's cell is a tile in every state: an empty
+                      sentence floating in a 1fr column read as a layout bug. */}
+                  {onTimePct === null ? (
+                    <StatTile
+                      label="On time"
+                      value="—"
+                      hint="No worked days in the last 30 days"
+                      icon={<SunHorizonIcon />}
+                      onOpen={() => {
+                        open('report=on-time-rate');
+                      }}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center rounded-lg border px-4 py-3">
                       <RateRadial pct={onTimePct} label="On time" animate={intro} />
-                    )}
-                  </div>
+                    </div>
+                  )}
                   <div className="grid gap-2 sm:grid-cols-2">
                     <StatTile
                       label="Flagged punches waiting"
@@ -413,10 +424,13 @@ export function ReportsDashboardPage() {
                         open('report=approvals-turnaround');
                       }}
                     />
-                    <div className="sm:col-span-2">
-                      <p className="text-muted-foreground mb-1 text-xs">Longest early-arrival streaks</p>
+                    <div className="flex flex-col gap-1 rounded-lg border px-4 py-3 sm:col-span-2">
+                      <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                        <SunHorizonIcon />
+                        Longest early-arrival streaks
+                      </p>
                       {(streaks.data?.data ?? []).length === 0 ? (
-                        <p className="text-xs">Nobody is on a streak.</p>
+                        <p className="text-muted-foreground text-xs">Nobody is on a streak yet.</p>
                       ) : (
                         <ul className="flex flex-wrap gap-2">
                           {(streaks.data?.data ?? []).slice(0, 5).map((row) => (
@@ -432,6 +446,7 @@ export function ReportsDashboardPage() {
                 </div>
               );
             })()}
+            </section>
           </Panel>
         ) : null}
       </div>
