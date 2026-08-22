@@ -30,3 +30,4 @@ export * from './sync.js';
 export * from './tasks.js';
 export * from './opstally.js';
 export * from './notifications.js';
+export * from './voucher-paper.js';

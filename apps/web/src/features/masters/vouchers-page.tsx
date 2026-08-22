@@ -26,6 +26,7 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { useVoucher, useVouchers, type Voucher } from './use-vouchers';
+import { VoucherPaperPreview } from './voucher-paper-preview';
 
 /**
  * The books (Phase 6c): every voucher pulled from Tally, newest first, and
@@ -121,6 +122,10 @@ function VoucherSheet({ id, onClose }: { id: string | null; onClose: () => void 
           ) : null}
           {voucher ? (
             <>
+              {/* Owner, 22 Aug 2026: the voucher on the organisation's paper, here -- print, PDF, Excel. */}
+              <div className="mb-4">
+                <VoucherPaperPreview voucher={voucher} />
+              </div>
               <dl className="divide-border divide-y">
                 <Row label="Amount">
                   <span className="tabular-nums">{voucher.amount}</span>

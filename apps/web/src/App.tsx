@@ -54,6 +54,7 @@ import { StockItemsPage } from '@/features/masters/stock-items-page';
 import { StockItemPage } from '@/features/masters/item-page';
 import { PartyPage } from '@/features/masters/party-page';
 import { VouchersPage } from '@/features/masters/vouchers-page';
+import { VoucherPaperPage } from '@/features/masters/voucher-paper-page';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { OrgMastersPage } from '@/features/org-masters';
 import { ProfilePage } from '@/features/profile/profile-page';
@@ -156,6 +157,7 @@ export default function App() {
               <Route path="masters/price-lists" element={<PriceListsPage />} />
               <Route path="masters/vouchers" element={<VouchersPage />} />
               <Route path="masters/vouchers/:id" element={<VouchersPage />} />
+              <Route path="masters/vouchers/:id/paper" element={<VoucherPaperPage />} />
               <Route path="crm/contacts" element={<ContactsPage />} />
               <Route path="crm/contacts/:id" element={<ContactsPage />} />
               <Route path="crm/companies" element={<CompaniesPage />} />
