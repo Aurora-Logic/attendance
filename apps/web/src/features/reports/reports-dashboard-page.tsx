@@ -1,5 +1,5 @@
 import { currencySymbol } from '@/lib/format';
-import { ArrowRightIcon, ChartBarIcon, HourglassMediumIcon, LockKeyIcon, PackageIcon, SunHorizonIcon, TrendDownIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { ArrowRightIcon, ChartBarIcon, LockKeyIcon, PackageIcon, TrendDownIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -12,9 +12,6 @@ import { cn } from '@/lib/utils';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
-import { ACTION_ICONS } from '@/components/shared/action-icons';
-import { EarlyStreakBadge } from '@/features/attendance/status-badge';
-import { useApprovals } from '@/features/approvals/use-approvals';
 
 import { useReportRows } from './api';
 import { CompositionDonut, GenericReportChart, MonthlyValueChart, RateRadial, ReportChart, ShareRadialChart } from './report-charts';
@@ -37,7 +34,6 @@ const TWELVE_MONTHS_AGO = () => {
   return d.toLocaleDateString('en-CA');
 };
 const TODAY = () => new Date().toLocaleDateString('en-CA');
-const THIRTY_DAYS_AGO = () => new Date(Date.now() - 30 * 86_400_000).toLocaleDateString('en-CA');
 
 /** One bordered surface per block — a dashboard reads as tiles, not floating ink. */
 function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -67,16 +63,7 @@ function StatTile({ label, value, hint, icon, onOpen, tone }: { label: string; v
 export function ReportsDashboardPage() {
   const navigate = useNavigate();
   const canView = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
-  // Owner, 22 Aug 2026: the attendance block, for whoever may see the whole org's attendance.
-  const canViewAttendance = usePermission(PERMISSIONS.ATTENDANCE_VIEW_ALL);
   const page = { page: 1, pageSize: 200 } as const;
-  const onTime = useReportRows('on-time-rate', { ...page, from: THIRTY_DAYS_AGO(), to: TODAY() }, { enabled: canView && canViewAttendance });
-  const streaks = useReportRows('early-arrival-leaderboard', { page: 1, pageSize: 5, from: THIRTY_DAYS_AGO(), to: TODAY() }, { enabled: canView && canViewAttendance });
-  const turnaround = useReportRows('approvals-turnaround', { ...page, from: THIRTY_DAYS_AGO(), to: TODAY() }, { enabled: canView && canViewAttendance });
-  const openFlags = useApprovals(
-    { page: 1, pageSize: 1, view: 'inbox', type: 'FLAGGED_PUNCH', status: 'PENDING' },
-    { enabled: canView && canViewAttendance },
-  );
   const credit = useReportRows('credit-cycle', page, { enabled: canView });
   const breaches = useReportRows('credit-breaches', { page: 1, pageSize: 1 }, { enabled: canView });
   const lapse = useReportRows('customer-lapse', page, { enabled: canView });
@@ -363,87 +350,14 @@ export function ReportsDashboardPage() {
         </section>
         </Panel>
 
-        {canViewAttendance ? (
-          // No Panel here: the tiles are the boxes, and a bordered wrapper
-          // around bordered tiles is the box-in-box the constitution bans.
-          // The KPI row at the top stands the same way.
-          <section className="flex flex-col gap-3">
-            <SectionHeading
-              icon={<SunHorizonIcon />}
-              title="Attendance, last 30 days"
-              note="On time, what is flagged and waiting, and who keeps beating the shift. Each figure opens its report."
-            />
-            {(() => {
-              const rows = onTime.data?.data ?? [];
-              const worked = rows.reduce((sum, row) => sum + Number(row.cells.workedDays ?? 0), 0);
-              const late = rows.reduce((sum, row) => sum + Number(row.cells.lateDays ?? 0), 0);
-              const onTimePct = worked > 0 ? Math.round(((worked - late) / worked) * 1000) / 10 : null;
-              const oldest = (turnaround.data?.data ?? []).reduce((max, row) => Math.max(max, Number(row.cells.oldestPendingHours ?? 0)), 0);
-              const pendingFlags = openFlags.data?.meta.total ?? 0;
-              return (
-                <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-                  {/* The radial's cell is a tile in every state: an empty
-                      sentence floating in a 1fr column read as a layout bug. */}
-                  {onTimePct === null ? (
-                    <StatTile
-                      label="On time"
-                      value="—"
-                      hint="No worked days in the last 30 days"
-                      icon={<SunHorizonIcon />}
-                      onOpen={() => {
-                        open('report=on-time-rate');
-                      }}
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center rounded-lg border px-4 py-3">
-                      <RateRadial pct={onTimePct} label="On time" animate={intro} />
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-2">
-                    <StatTile
-                      label="Flagged punches waiting"
-                      value={String(pendingFlags)}
-                      hint="Late or out of window, not yet decided"
-                      icon={<ACTION_ICONS.flag />}
-                      tone={pendingFlags > 0 ? 'warn' : undefined}
-                      onOpen={() => {
-                        void navigate('/approvals?type=FLAGGED_PUNCH&status=PENDING');
-                      }}
-                    />
-                    <StatTile
-                      label="Oldest pending approval"
-                      value={oldest > 0 ? `${String(Math.round(oldest / 24))} d` : '—'}
-                      hint="Across every request type"
-                      icon={<HourglassMediumIcon />}
-                      tone={oldest > 72 ? 'bad' : undefined}
-                      onOpen={() => {
-                        open('report=approvals-turnaround');
-                      }}
-                    />
-                    <div className="flex flex-col gap-1 rounded-lg border px-4 py-3 sm:col-span-2">
-                      <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                        <SunHorizonIcon />
-                        Longest early-arrival streaks
-                      </p>
-                      {(streaks.data?.data ?? []).length === 0 ? (
-                        <p className="text-muted-foreground text-xs">Nobody is on a streak yet.</p>
-                      ) : (
-                        <ul className="flex flex-wrap gap-2">
-                          {(streaks.data?.data ?? []).slice(0, 5).map((row) => (
-                            <li key={row.id} className="flex items-center gap-1.5 text-xs">
-                              <span className="truncate">{String(row.cells.employeeName ?? '')}</span>
-                              <EarlyStreakBadge streak={Number(row.cells.currentStreak ?? 0)} />
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </section>
-        ) : null}
+        {/*
+          The attendance block that stood here is gone (owner, 22 Aug 2026).
+          On-time rate, flagged punches and early-arrival streaks are
+          attendance questions; this page answers who owes us what, and that
+          section was the one thing on it a person had not come for. Its four
+          queries went with it, so the page makes four fewer requests on every
+          load. It lives on in `dashboard-v2` only by not being there either.
+        */}
       </div>
     </>
   );

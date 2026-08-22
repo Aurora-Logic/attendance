@@ -81,6 +81,7 @@ const ReportsPage = lazy(() => import('@/features/reports').then((m) => ({ defau
 const DashboardPage = lazy(() => import('@/features/dashboard/dashboard-page').then((m) => ({ default: m.DashboardPage })));
 const LandingPage = lazy(() => import('@/features/dashboard/landing').then((m) => ({ default: m.LandingPage })));
 const ReportsDashboardPage = lazy(() => import('@/features/reports/reports-dashboard-page').then((m) => ({ default: m.ReportsDashboardPage })));
+const ReportsDashboardV2 = lazy(() => import('@/features/reports/dashboard-v2').then((m) => ({ default: m.ReportsDashboardV2 })));
 const AdministrationScreen = lazy(() => import('@/features/administration/administration-screen').then((m) => ({ default: m.AdministrationScreen })));
 const RolesPage = lazy(() => import('@/features/roles').then((m) => ({ default: m.RolesPage })));
 const SettingsPage = lazy(() => import('@/features/settings').then((m) => ({ default: m.SettingsPage })));
@@ -213,6 +214,9 @@ export default function App() {
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />
               <Route path="reports/dashboard" element={<ReportsDashboardPage />} />
+              {/* A second version, so the two can be compared before either is
+                  kept. Vanilla shadcn charts and cards, no project chart layer. */}
+              <Route path="reports/dashboard/v2" element={<ReportsDashboardV2 />} />
               <Route path="administration" element={<AdministrationScreen />} />
               <Route path="downloads" element={<DownloadsPage />} />
               <Route path="recycle-bin" element={<RecycleBinPage />} />
