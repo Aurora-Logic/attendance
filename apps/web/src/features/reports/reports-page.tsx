@@ -9,6 +9,7 @@ import {
   FileCsvIcon,
   FileXlsIcon,
   PrinterIcon,
+  SquareSplitVerticalIcon,
   TableIcon,
   DownloadSimpleIcon,
   ImageIcon,
@@ -927,7 +928,7 @@ export function ReportsPage() {
                   <ChartBarIcon />
                 </ToggleGroupItem>
                 <ToggleGroupItem value="both" aria-label="Both views">
-                  Both
+                  <SquareSplitVerticalIcon />
                 </ToggleGroupItem>
               </ToggleGroup>
             ) : null}
@@ -1144,6 +1145,7 @@ export function ReportsPage() {
                     Chart
                   </ToggleGroupItem>
                   <ToggleGroupItem value="both">
+                    <SquareSplitVerticalIcon data-icon="inline-start" />
                     Both
                   </ToggleGroupItem>
                 </ToggleGroup>
