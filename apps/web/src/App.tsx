@@ -3,7 +3,6 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 
 import { AppShell } from '@/app/layout/app-shell';
 import { SessionGate } from '@/app/session-gate';
-import { DashboardPage } from '@/features/dashboard/dashboard-page';
 import { EmployeeDetailPage, EmployeesPage } from '@/features/employees';
 import { ApprovalsPage } from '@/features/approvals';
 import { MyAttendancePage, TeamAttendancePage } from '@/features/attendance';
@@ -20,6 +19,7 @@ import { IntegrationsPage } from '@/features/integrations';
 import { PeriodLockPage } from '@/features/period-lock';
 import { RecycleBinPage } from '@/features/recycle-bin';
 import { ReportsPage } from '@/features/reports';
+import { LandingPage } from '@/features/dashboard/landing';
 import { ReportsDashboardPage } from '@/features/reports/reports-dashboard-page';
 import { AdministrationScreen } from '@/features/administration/administration-screen';
 import { RolesPage } from '@/features/roles';
@@ -133,7 +133,7 @@ export default function App() {
             <Route path="print/:kind/:id" element={<DocumentPrintPage />} />
 
             <Route element={<AppShell />}>
-              <Route index element={<DashboardPage />} />
+              <Route index element={<LandingPage />} />
 
               <Route path="employees" element={<EmployeesPage />} />
               <Route path="employees/:id" element={<EmployeeDetailPage />} />
