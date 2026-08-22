@@ -97,6 +97,20 @@ export function useCreateDispatch(): UseMutationResult<Dispatch, Error, CreateDi
   });
 }
 
+/** D-47: the door step — who received it and the photograph taken there. */
+export function useDeliverDispatch(): UseMutationResult<Dispatch, Error, { dispatchId: string; receivedBy: string; note: string | null; photos: readonly File[] }> {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ dispatchId, receivedBy, note, photos }) => {
+      const form = new FormData();
+      form.append('payload', JSON.stringify({ receivedBy, note }));
+      for (const file of photos) form.append('photo', file, file.name);
+      return postMultipart(`/sales/dispatches/${dispatchId}/deliver`, form, (body) => parseOrThrow(dispatchSchema, body, 'dispatch'));
+    },
+    onSuccess: invalidate,
+  });
+}
+
 /** REQ-AA-26: the person sent it (or could not); the record says so. */
 export function useMarkNotification(): UseMutationResult<Dispatch, Error, { dispatchId: string; notificationId: string; status: 'sent' | 'failed'; error?: string }> {
   const invalidate = useInvalidateSales();

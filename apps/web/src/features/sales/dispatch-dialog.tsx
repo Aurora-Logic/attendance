@@ -378,7 +378,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
   );
 }
 
-function TextField({
+export function TextField({
   id,
   label,
   value,
@@ -422,7 +422,7 @@ function TextField({
  * `capture` makes a phone open the camera and skip the gallery, and an LR
  * is often a scan that only exists in the gallery.
  */
-function PhotoPicker({
+export function PhotoPicker({
   label,
   hint,
   photos,

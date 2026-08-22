@@ -14,7 +14,7 @@ import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { usePermission } from '@/lib/session/permissions';
 import { DISPATCH_MODE_LABELS, PERMISSIONS } from '@vyuha/shared';
 
-import { DispatchNotifications, DispatchPhotographs } from './dispatch-sections';
+import { DispatchNotifications, DispatchPhotographs, DeliverSection } from './dispatch-sections';
 import { SyncStateBadge } from './sales-order-sheet';
 import { useDispatch, usePushDispatch } from './use-dispatches';
 import { useSalesOrder } from './use-estimates';
@@ -118,6 +118,7 @@ export function DispatchPaperPage() {
             {record.dispatchedByName ? ` · dispatched by ${record.dispatchedByName}` : ''}
             {record.syncState === 'PUSHED' ? `. In Tally as Delivery Note #${record.remoteVoucherNumber ?? '?'}.` : record.syncState === 'QUEUED' ? '. Queued: the agent pushes the Delivery Note on its next poll.' : '.'}
           </p>
+          <DeliverSection dispatch={record} />
           <DispatchPhotographs dispatch={record} />
           <DispatchNotifications dispatch={record} />
         </div>

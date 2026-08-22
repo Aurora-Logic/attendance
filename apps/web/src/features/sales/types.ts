@@ -235,6 +235,7 @@ export const dispatchNotificationSchema = z.object({
   channel: z.enum(['email', 'whatsapp']),
   recipient: z.string().nullable(),
   status: z.enum(['pending', 'sent', 'failed']),
+  event: z.enum(['dispatched', 'delivered']).optional(),
   composedText: z.string(),
   sentAt: z.string().nullable(),
   error: z.string().nullable(),
@@ -259,12 +260,18 @@ export const dispatchSchema = z.object({
   driverName: z.string().nullable(),
   expectedDeliveryDate: z.string().nullable(),
   notes: z.string().nullable(),
+  // D-47: shipped until the door step marks it delivered.
+  status: z.enum(['shipped', 'delivered']).default('shipped'),
+  deliveredAt: z.string().nullable().default(null),
+  deliveredByName: z.string().nullable().default(null),
+  receivedBy: z.string().nullable().default(null),
+  deliveryNote: z.string().nullable().default(null),
   syncState: z.enum(SYNC_STATES),
   remoteGuid: z.string().nullable(),
   remoteVoucherNumber: z.string().nullable(),
   lastError: z.string().nullable(),
   lines: z.array(z.object({ lineId: z.string(), description: z.string(), quantity: z.string(), unit: z.string().nullable() })),
-  attachments: z.array(z.object({ fileId: z.string(), kind: z.enum(['box', 'lr']) })),
+  attachments: z.array(z.object({ fileId: z.string(), kind: z.enum(['box', 'lr', 'delivery']) })),
   notifications: z.array(dispatchNotificationSchema),
 });
 export type Dispatch = z.infer<typeof dispatchSchema>;

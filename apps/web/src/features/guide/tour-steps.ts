@@ -506,6 +506,14 @@ const TRADING_INTROS: GuideStep[] = [
     body: 'How each consignment leaves: local by carrier, on your own vehicle, or outstation. The flow ends at dispatch.',
   },
   {
+    id: 'screen.sales-scan',
+    route: '/sales/scan',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_CREATE,
+    title: 'Scan a slip',
+    body: 'Point the camera at the barcode on a packing slip. It opens the pack: ship it with the LR number and photographs, or mark it delivered at the door.',
+  },
+  {
     id: 'screen.purchase-requirements',
     route: '/purchase/requirements',
     anchor: ANCHORS.screenHeader,
