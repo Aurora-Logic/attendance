@@ -355,7 +355,9 @@ export function MonthlyValueChart({ points, animate }: { points: readonly { labe
 }
 
 /** The five identity slots of the theme's ramp, in fixed order (dataviz: never cycled). */
-const SHARE_FILLS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'] as const;
+/* Slices, not ramp shades: five wedges of one hue read as one wedge with
+   seams in it, and the reader goes to the legend for every slice. */
+const SHARE_FILLS = ['var(--slice-1)', 'var(--slice-2)', 'var(--slice-3)', 'var(--slice-4)', 'var(--slice-5)'] as const;
 
 /**
  * The top five as rings of one whole (the shadcn radial pattern, via the

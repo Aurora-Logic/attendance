@@ -40,7 +40,7 @@ export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly Kpi
   return (
     <dl
       className={cn(
-        'grid grid-cols-1 gap-3 sm:grid-cols-2',
+        'grid grid-cols-2 gap-3 sm:grid-cols-2',
         columns === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3',
         className,
       )}
@@ -58,7 +58,7 @@ export function KpiTile({ label, value, current, previous, format, lowerIsBetter
   return (
     <Card
       className={cn(
-        'min-w-0 gap-0.5 px-3 py-2.5',
+        'min-w-0 gap-1 px-4 py-3.5',
         onOpen !== undefined && 'hover:bg-accent/40 focus-visible:ring-ring cursor-pointer outline-none focus-visible:ring-2',
       )}
       {...(onOpen === undefined

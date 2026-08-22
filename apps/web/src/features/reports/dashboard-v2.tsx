@@ -221,15 +221,15 @@ const BASKET_CONFIG = {
 const AGE_SLUGS = ['age0', 'age31', 'age61', 'age90'] as const;
 const AGEING_CONFIG = {
   value: { label: 'Outstanding' },
-  age0: { label: '0-30 days', color: 'var(--chart-1)' },
-  age31: { label: '31-60 days', color: 'var(--chart-2)' },
-  age61: { label: '61-90 days', color: 'var(--chart-3)' },
-  age90: { label: 'Over 90 days', color: 'var(--chart-4)' },
+  age0: { label: '0-30 days', color: 'var(--slice-1)' },
+  age31: { label: '31-60 days', color: 'var(--slice-2)' },
+  age61: { label: '61-90 days', color: 'var(--slice-3)' },
+  age90: { label: 'Over 90 days', color: 'var(--slice-4)' },
 } satisfies ChartConfig;
 const RISK_CONFIG = {
   value: { label: 'Revenue' },
-  lapsed: { label: 'Lapsed', color: 'var(--chart-3)' },
-  atRisk: { label: 'At risk', color: 'var(--chart-5)' },
+  lapsed: { label: 'Lapsed', color: 'var(--slice-1)' },
+  atRisk: { label: 'At risk', color: 'var(--slice-3)' },
 } satisfies ChartConfig;
 
 export function ReportsDashboardV2() {
