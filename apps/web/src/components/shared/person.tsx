@@ -12,14 +12,14 @@ import { EMPTY_VALUE } from '@/lib/format';
  */
 
 const PERSON_HUES = [
-  'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300',
-  'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300',
-  'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
-  'bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300',
-  'bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-300',
-  'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300',
-  'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
-  'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
+  'bg-tint-1/15 text-tint-1',
+  'bg-tint-2/15 text-tint-2',
+  'bg-tint-3/15 text-tint-3',
+  'bg-tint-4/15 text-tint-4',
+  'bg-tint-5/15 text-tint-5',
+  'bg-tint-6/15 text-tint-6',
+  'bg-tint-7/15 text-tint-7',
+  'bg-tint-8/15 text-tint-8',
 ] as const;
 
 function initialsOf(name: string): string {

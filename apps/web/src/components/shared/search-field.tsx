@@ -6,7 +6,6 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group';
-import { cn } from '@/lib/utils';
 
 interface SearchFieldProps {
   id: string;
@@ -50,7 +49,7 @@ export function SearchField({
       // on each screen that renders one, so a page guide gains a step by the
       // screen simply using the kit (features/guide/tour-steps).
       data-guide="screen.search"
-      className={cn('pointer-coarse:h-11', className)}
+      className={className}
     >
       <InputGroupAddon>
         <MagnifyingGlassIcon />

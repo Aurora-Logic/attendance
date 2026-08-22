@@ -80,7 +80,7 @@ export function DocumentsPanel() {
           <Field>
             <FieldLabel htmlFor="documents-type">Document</FieldLabel>
             <Select value={docType} onValueChange={(value: string | null) => { if (value !== null && (PRINTED_DOCUMENT_TYPES as readonly string[]).includes(value)) setDocType(value as PrintedDocumentType); }}>
-              <SelectTrigger id="documents-type" className="pointer-coarse:min-h-11 w-full" aria-label="Document type">
+              <SelectTrigger id="documents-type" className="w-full" aria-label="Document type">
                 <SelectValue>{(value: string) => PRINTED_DOCUMENT_TITLES[value as PrintedDocumentType]}</SelectValue>
               </SelectTrigger>
               <SelectContent>

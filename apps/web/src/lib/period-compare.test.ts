@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { comparisonRange, deltaOf, fyQuarterStart, fyStart, periodForGranularity } from './period-compare';
+import { comparisonRange, deltaOf, fyQuarterStart, fyStart, periodForGranularity } from '@/lib/period-compare';
 
 /** The April–March arithmetic, proven (data-analyst skill §3). */
 

@@ -1,5 +1,10 @@
 import { useState } from 'react';
-import { LockKeyIcon, ScrollIcon } from '@phosphor-icons/react';
+import {
+  CaretLeftIcon,
+  CaretRightIcon,
+  LockKeyIcon,
+  ScrollIcon,
+} from '@phosphor-icons/react';
 import { parseISO } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
@@ -36,7 +41,8 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { AuditEntrySheet } from './audit-entry-sheet';
-import { actorLabel, printInstant } from './format';
+import { actorLabel, olderAction, printInstant } from './format';
+import { ActorChip } from './actor-chip';
 import { EMPTY_FILTERS, humaniseAction, type AuditEntry, type AuditFilters } from './types';
 import { useAuditFacets, useAuditLog } from './use-audit-log';
 
@@ -66,7 +72,7 @@ const COLUMNS: RecordColumn<AuditEntry>[] = [
     cell: (row) => <span className="font-medium">{humaniseAction(row.action)}</span>,
   },
   { key: 'entityType', header: 'Entity', cell: (row) => row.entityType },
-  { key: 'actor', header: 'By', cell: (row) => actorLabel(row) },
+  { key: 'actor', header: 'By', cell: (row) => <ActorChip entry={row} /> },
   {
     key: 'impersonator',
     header: 'Acting as',
@@ -136,7 +142,7 @@ export function AuditLogPage() {
 }
 
 function AuditLogBody() {
-  const [filters, setFilters] = useState<AuditFilters>(EMPTY_FILTERS);
+  const [filters, setFiltersRaw] = useState<AuditFilters>(EMPTY_FILTERS);
   const [periodOpen, setPeriodOpen] = useState(false);
   const [open, setOpen] = useState<AuditEntry | null>(null);
 
@@ -146,8 +152,45 @@ function AuditLogBody() {
   const facets = useAuditFacets().data;
 
   const pages = query.data?.pages ?? [];
-  const rows = pages.flatMap((page) => page.value.data);
-  const sample = pages.some((page) => page.sample);
+  /*
+   * One page on screen at a time, rather than every page fetched so far.
+   *
+   * The trail is keyset-paged and stays that way -- technical design 6 says
+   * "cursor for the audit log", and the repository explains why: the trail
+   * grows while it is being read, so an OFFSET page two repeats rows page one
+   * already showed every time something is audited in between. A numbered
+   * jump-to-page needs an offset and a COUNT over an append-only table that
+   * only ever grows, and would buy that bug.
+   *
+   * What was actually wrong was the reading experience: "Load older entries"
+   * appended forever, so finding something from Tuesday meant scrolling past
+   * everything since. Paging through the cursor gives discrete pages with none
+   * of that -- Next fetches the next page only if it has not been fetched
+   * already, Previous is free because the page is still in the cache.
+   */
+  const [pageIndex, setPageIndex] = useState(0);
+
+  /**
+   * Changing a filter is always a return to page one.
+   *
+   * Wrapped rather than reset in an effect: an effect would set the page a
+   * render after the filter changed, which is a cascading render and, for one
+   * frame, page three of a result that may only have one page. Here the two
+   * move together and no caller can forget.
+   */
+  const setFilters: typeof setFiltersRaw = (next) => {
+    setFiltersRaw(next);
+    setPageIndex(0);
+  };
+  const older = olderAction({
+    pageIndex,
+    fetchedPages: pages.length,
+    hasNextPage: query.hasNextPage,
+    isFetching: query.isFetchingNextPage,
+  });
+  const current = pages[Math.min(pageIndex, Math.max(pages.length - 1, 0))];
+  const rows = current?.value.data ?? [];
+  const sample = current?.sample ?? false;
   const filtered =
     filters.action !== null ||
     filters.entityType !== null ||
@@ -207,7 +250,7 @@ function AuditLogBody() {
               >
                 <SelectTrigger
                   aria-label="Filter by action"
-                  className="pointer-coarse:h-11 min-w-0 flex-1 sm:w-56 sm:flex-none"
+                  className="min-w-0 flex-1 sm:w-56 sm:flex-none"
                 >
                   <SelectValue>
                     {(value: string) => (value === ALL ? 'All actions' : humaniseAction(value))}
@@ -238,7 +281,7 @@ function AuditLogBody() {
               >
                 <SelectTrigger
                   aria-label="Filter by entity"
-                  className="pointer-coarse:h-11 min-w-0 flex-1 sm:w-44 sm:flex-none"
+                  className="min-w-0 flex-1 sm:w-44 sm:flex-none"
                 >
                   <SelectValue>
                     {(value: string) => (value === ALL ? 'All entities' : value)}
@@ -328,22 +371,49 @@ function AuditLogBody() {
 
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-muted-foreground min-w-0 flex-1 text-xs">
-                {rows.length} entr{rows.length === 1 ? 'y' : 'ies'} loaded, newest first. Open a row
-                for the before and after.
+                Page {pageIndex + 1}
+                {/*
+                  No "of N". A total needs a COUNT over a table that grows
+                  forever, and the answer would be stale before it rendered.
+                  Saying how many pages there are when we cannot know is worse
+                  than not saying it.
+                */}
+                {' · '}
+                {rows.length} entr{rows.length === 1 ? 'y' : 'ies'}, newest first. Open a row for
+                the before and after.
               </p>
-              {query.hasNextPage ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={query.isFetchingNextPage}
-                  onClick={() => {
-                    void query.fetchNextPage();
-                  }}
-                >
-                  {query.isFetchingNextPage ? <Spinner data-icon="inline-start" /> : null}
-                  {query.isFetchingNextPage ? 'Loading' : 'Load older entries'}
-                </Button>
-              ) : null}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pageIndex === 0}
+                onClick={() => {
+                  setPageIndex((index) => Math.max(0, index - 1));
+                }}
+              >
+                <CaretLeftIcon data-icon="inline-start" />
+                Newer
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={older === 'disabled'}
+                onClick={() => {
+                  // Already fetched: move. Not yet: fetch, then move, so the
+                  // button never lands on an empty page while the request is
+                  // still in flight.
+                  if (older === 'advance') {
+                    setPageIndex((index) => index + 1);
+                    return;
+                  }
+                  void query.fetchNextPage().then(() => {
+                    setPageIndex((index) => index + 1);
+                  });
+                }}
+              >
+                {query.isFetchingNextPage ? <Spinner data-icon="inline-start" /> : null}
+                Older
+                <CaretRightIcon data-icon="inline-end" />
+              </Button>
             </div>
           </>
         ) : null}

@@ -270,6 +270,12 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
         validUntil: (
           <DateField label="Valid until" value={draft.validUntil ? fromDateParam(draft.validUntil) : addDays(new Date(), 30)} onValueChange={(next) => { setDraft((current) => ({ ...current, validUntil: toDateParam(next) })); }} yearsBack={0} yearsForward={2} className="paper-field h-auto min-h-0 px-0 py-0 shadow-none" />
         ),
+        setDate: (iso) => {
+          setDraft((current) => ({ ...current, date: iso }));
+        },
+        setValidUntil: (iso) => {
+          setDraft((current) => ({ ...current, validUntil: iso }));
+        },
         itemPicker: (line) => {
           const draftLine = draft.lines.find((l) => l.key === line.key);
           return canSeeParties ? (
@@ -360,7 +366,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
           <>
             {record !== null && transitions.length > 0 && !dirty ? (
               <Select value={record.status} onValueChange={(value: string | null) => { if (value !== null && isEstimateStatus(value) && value !== record.status) move(value); }}>
-                <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Status" disabled={busy}>
+                <SelectTrigger className="w-40" aria-label="Status" disabled={busy}>
                   <SelectValue>{(value: string) => (isEstimateStatus(value) ? SALES_DOCUMENT_STATUS_LABELS[value] : value)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>

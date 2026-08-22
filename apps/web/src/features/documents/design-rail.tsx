@@ -12,24 +12,11 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { HANDLING_MARK_ICONS } from '@/components/shared/entity-icons';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useFooterLogoUrls, useUploadFooterLogo } from './use-document-settings';
 import { cn } from '@/lib/utils';
-import {
-  DOCUMENT_ACCENTS,
-  DOCUMENT_ACCENT_LABELS,
-  DOCUMENT_FONTS,
-  DOCUMENT_FONT_LABELS,
-  DOCUMENT_TEMPLATE_IDS,
-  DOCUMENT_TEMPLATE_LABELS,
-  type DocumentAccent,
-  type DocumentDesign,
-  type DocumentFont,
-  type DocumentProfile,
-  type DocumentSettings,
-  type DocumentTemplateId,
-  type PrintedDocumentType,
-} from '@vyuha/shared';
+import { DOCUMENT_ACCENTS, DOCUMENT_ACCENT_LABELS, DOCUMENT_FONTS, DOCUMENT_FONT_LABELS, DOCUMENT_TEMPLATE_IDS, DOCUMENT_TEMPLATE_LABELS, HANDLING_MARKS, HANDLING_MARK_LABELS, type DocumentAccent, type DocumentDesign, type DocumentFont, type DocumentProfile, type DocumentSettings, type DocumentTemplateId, type PrintedDocumentType } from '@vyuha/shared';
 
 /**
  * The design rail beside the paper: the five templates, the accent, what
@@ -121,18 +108,60 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
                 className="flex-wrap gap-2"
               >
                 {DOCUMENT_ACCENTS.map((accent) => (
-                  <ToggleGroupItem key={accent} value={accent} aria-label={DOCUMENT_ACCENT_LABELS[accent]} className="pointer-coarse:size-11 size-9 p-0 data-pressed:ring-2 data-pressed:ring-ring">
+                  <ToggleGroupItem key={accent} value={accent} aria-label={DOCUMENT_ACCENT_LABELS[accent]} className="size-9 p-0 data-pressed:ring-2 data-pressed:ring-ring">
                     <span className={cn('size-5 rounded-full', ACCENT_SWATCH[accent])} />
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>
             </Field>
 
+            {docType === 'PACKING_SLIP' || docType === 'DELIVERY_NOTE' ? (
+              <Field>
+                <FieldLabel>Handling marks</FieldLabel>
+                {/* D-47 (owner): the marks the slip prints, switched on here; each wears the glyph the paper prints. */}
+                <ToggleGroup
+                  variant="outline"
+                  aria-label="Handling marks"
+                  multiple
+                  className="flex-wrap"
+                  value={[...design.handlingMarks]}
+                  onValueChange={(value: string[]) => {
+                    setDesign({ handlingMarks: HANDLING_MARKS.filter((mark) => value.includes(mark)) });
+                  }}
+                >
+                  {HANDLING_MARKS.map((mark) => {
+                    const Glyph = HANDLING_MARK_ICONS[mark];
+                    return (
+                      <ToggleGroupItem key={mark} value={mark} aria-label={HANDLING_MARK_LABELS[mark]} className="gap-1.5 data-pressed:border-primary">
+                        <Glyph />
+                        {HANDLING_MARK_LABELS[mark]}
+                      </ToggleGroupItem>
+                    );
+                  })}
+                </ToggleGroup>
+              </Field>
+            ) : null}
+            {docType === 'PACKING_SLIP' || docType === 'DELIVERY_NOTE' ? (
+              <Field>
+                <FieldLabel htmlFor="design-paper-size">Paper size</FieldLabel>
+                {/* D-47: the slip alone has a size; the other papers are A4. */}
+                <Select value={design.paperSize} onValueChange={(value: string | null) => { if (value === 'A4' || value === 'A5') setDesign({ paperSize: value }); }}>
+                  <SelectTrigger id="design-paper-size" className="w-full" aria-label="Paper size">
+                    <SelectValue>{(value: string) => (value === 'A5' ? 'A5 — sticker, one per carton' : 'A4 — sheet, for pallets')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="A5">A5 — sticker, one per carton</SelectItem>
+                    <SelectItem value="A4">A4 — sheet, for pallets</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-3">
               <Field>
                 <FieldLabel htmlFor="design-logo">Logo</FieldLabel>
                 <Select value={design.logoPlacement} onValueChange={(value: string | null) => { if (value === 'left' || value === 'right' || value === 'none') setDesign({ logoPlacement: value }); }}>
-                  <SelectTrigger id="design-logo" className="pointer-coarse:min-h-11 w-full" aria-label="Logo placement">
+                  <SelectTrigger id="design-logo" className="w-full" aria-label="Logo placement">
                     <SelectValue>{(value: string) => (value === 'left' ? 'Left' : value === 'right' ? 'Right' : 'Hidden')}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -153,9 +182,9 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
                     if (next === 'sm' || next === 'md' || next === 'lg') setDesign({ fontScale: next });
                   }}
                 >
-                  <ToggleGroupItem value="sm" aria-label="Small" className="pointer-coarse:min-h-11 flex-1">S</ToggleGroupItem>
-                  <ToggleGroupItem value="md" aria-label="Medium" className="pointer-coarse:min-h-11 flex-1">M</ToggleGroupItem>
-                  <ToggleGroupItem value="lg" aria-label="Large" className="pointer-coarse:min-h-11 flex-1">L</ToggleGroupItem>
+                  <ToggleGroupItem value="sm" aria-label="Small" className="flex-1">S</ToggleGroupItem>
+                  <ToggleGroupItem value="md" aria-label="Medium" className="flex-1">M</ToggleGroupItem>
+                  <ToggleGroupItem value="lg" aria-label="Large" className="flex-1">L</ToggleGroupItem>
                 </ToggleGroup>
               </Field>
             </div>
@@ -163,7 +192,7 @@ export function DesignRail({ docType, settings, onChange, canSave, dirty, saving
             <Field>
               <FieldLabel htmlFor="design-font">Typeface</FieldLabel>
               <Select value={design.fontFamily} onValueChange={(value: string | null) => { if (value !== null && (DOCUMENT_FONTS as readonly string[]).includes(value)) setDesign({ fontFamily: value as DocumentFont }); }}>
-                <SelectTrigger id="design-font" className="pointer-coarse:min-h-11 w-full" aria-label="Typeface">
+                <SelectTrigger id="design-font" className="w-full" aria-label="Typeface">
                   <SelectValue>{(value: string) => DOCUMENT_FONT_LABELS[value as DocumentFont].label}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -384,7 +413,7 @@ function FooterLogos({ fileIds, canEdit, onChange }: { fileIds: readonly string[
           </span>
         ))}
         {canEdit && fileIds.length < 8 ? (
-          <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 h-16" disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
+          <Button type="button" variant="outline" size="sm" className="h-16" disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
             {upload.isPending ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
             Add logo
           </Button>

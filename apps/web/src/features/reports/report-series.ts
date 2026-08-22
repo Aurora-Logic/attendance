@@ -1,3 +1,5 @@
+import { heatGridOf, heatmapStep, type HeatGrid } from '@/components/shared/heat-grid';
+import { currencySymbol, formatCount } from '@/lib/format';
 import type { ReportCellValue, ReportColumnSpec, ReportDefinition, ReportKey } from '@vyuha/shared';
 
 /**
@@ -35,9 +37,9 @@ function text(value: ReportCellValue | undefined): string {
   return typeof value === 'string' ? value : '';
 }
 
-/** en-IN grouping for an insight figure that is read, never computed on. */
+/** A headline figure, grouped the way the workspace writes numbers (lib/format). */
 export function inr(value: number): string {
-  return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(value);
+  return formatCount(value);
 }
 
 // ---------------------------------------------------------------- sales analysis
@@ -186,7 +188,7 @@ export function lapseSeries(rows: readonly ChartRow[]): { points: LapsePoint[]; 
   const lapsed = points.filter((p) => p.state === 'LAPSED').length;
   return {
     points,
-    insight: `₹${inr(atRisk)} of last year's revenue is going quiet — ${String(lapsed)} of these ${String(points.length)} customers have fully lapsed.`,
+    insight: `${currencySymbol()}${inr(atRisk)} of last year's revenue is going quiet — ${String(lapsed)} of these ${String(points.length)} customers have fully lapsed.`,
   };
 }
 
@@ -430,38 +432,8 @@ export function formSeries(spec: ChartFormSpec, rows: readonly ChartRow[]): Form
  * July whatever order the rows arrived in; categories keep the report's
  * order (its sort is the ranking the reader asked for).
  */
-export function heatmapGrid(points: readonly FormPoint[], valueKey: string): {
-  readonly months: readonly string[];
-  readonly rows: readonly { readonly category: string; readonly rowId: string; readonly cells: readonly (number | null)[] }[];
-  readonly max: number;
-} {
-  const months = [...new Set(points.map((point) => String(point.month)).filter((month) => month !== ''))].sort();
-  const byCategory = new Map<string, { rowId: string; values: Map<string, number> }>();
-  for (const point of points) {
-    const category = String(point.category);
-    const entry = byCategory.get(category) ?? { rowId: String(point.__rowId ?? ''), values: new Map<string, number>() };
-    entry.values.set(String(point.month), (entry.values.get(String(point.month)) ?? 0) + Number(point[valueKey] ?? 0));
-    byCategory.set(category, entry);
-  }
-  let max = 0;
-  const rows = [...byCategory.entries()].map(([category, entry]) => {
-    const cells = months.map((month) => {
-      const value = entry.values.get(month);
-      if (value !== undefined && value > max) max = value;
-      return value ?? null;
-    });
-    return { category, rowId: entry.rowId, cells };
-  });
-  return { months, rows, max };
+export function heatmapGrid(points: readonly FormPoint[], valueKey: string): HeatGrid {
+  return heatGridOf(points.map((point) => ({ category: String(point.category), month: String(point.month), value: Number(point[valueKey] ?? 0), rowId: String(point.__rowId ?? '') })));
 }
 
-/** Which of the five ramp steps a cell takes: quantiles of the grid's own maximum, never the palette cycled. */
-export function heatmapStep(value: number | null, max: number): 0 | 1 | 2 | 3 | 4 | 5 {
-  if (value === null || value <= 0 || max <= 0) return 0;
-  const share = value / max;
-  if (share > 0.8) return 5;
-  if (share > 0.6) return 4;
-  if (share > 0.4) return 3;
-  if (share > 0.2) return 2;
-  return 1;
-}
+export { heatmapStep };

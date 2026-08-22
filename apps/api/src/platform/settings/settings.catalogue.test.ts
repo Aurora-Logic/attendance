@@ -8,6 +8,18 @@ import {
   DEFAULT_ATTENDANCE_POLICY,
   DEFAULT_PHOTO_POLICY,
   PHOTO_SETTINGS,
+  SECURITY_SETTINGS,
+  DEFAULT_SECURITY_POLICY,
+  securityPolicySchema,
+  APPEARANCE_SETTINGS,
+  DEFAULT_APPEARANCE_POLICY,
+  appearancePolicySchema,
+  LOCALE_SETTINGS,
+  DEFAULT_LOCALE_POLICY,
+  localePolicySchema,
+  RETENTION_SETTINGS,
+  DEFAULT_RETENTION_POLICY,
+  retentionPolicySchema,
   WRITABLE_SETTING_KEYS,
   attendancePolicySchema,
   photoPolicySchema,
@@ -47,6 +59,14 @@ describe('the catalogue and its schemas describe the same fields', () => {
     // The refined schema wraps the object, so the fields come from the
     // defaults, which the next block proves satisfy the schema.
     expect(Object.keys(PHOTO_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_PHOTO_POLICY).sort());
+    expect(Object.keys(SECURITY_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_SECURITY_POLICY).sort());
+    expect(securityPolicySchema.safeParse(DEFAULT_SECURITY_POLICY).success).toBe(true);
+    expect(Object.keys(APPEARANCE_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_APPEARANCE_POLICY).sort());
+    expect(appearancePolicySchema.safeParse(DEFAULT_APPEARANCE_POLICY).success).toBe(true);
+    expect(Object.keys(LOCALE_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_LOCALE_POLICY).sort());
+    expect(localePolicySchema.safeParse(DEFAULT_LOCALE_POLICY).success).toBe(true);
+    expect(Object.keys(RETENTION_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_RETENTION_POLICY).sort());
+    expect(retentionPolicySchema.safeParse(DEFAULT_RETENTION_POLICY).success).toBe(true);
   });
 });
 
@@ -69,7 +89,7 @@ describe('defaults', () => {
 });
 
 describe('keys', () => {
-  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS)];
+  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS)];
 
   it('are unique', () => {
     const keys = all.map((descriptor) => descriptor.key);

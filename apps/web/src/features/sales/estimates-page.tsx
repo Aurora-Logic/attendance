@@ -186,7 +186,7 @@ export function EstimatesPage() {
               );
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Status">
+            <SelectTrigger className="w-40" aria-label="Status">
               <SelectValue>{(value: string) => (value === ALL ? 'Any status' : SALES_DOCUMENT_STATUS_LABELS[value as EstimateStatus])}</SelectValue>
             </SelectTrigger>
             <SelectContent>

@@ -3,10 +3,9 @@ import { WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
-import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { SectionHeading } from '@/components/shared/section-heading';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -14,46 +13,25 @@ import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import type { PurchaseSettings } from '@vyuha/shared';
 
 import { usePurchaseSettings, useSavePurchaseSettings } from './use-purchase';
 
 /**
- * The two purchasing thresholds (REQ-X-16, REQ-AA-15), set by an approver.
- * A dialog off the purchase orders page rather than a tab under Settings:
- * the person who owns the approval line is the purchase approver, not the
- * organisation administrator, and the number is read next to the orders it
- * decides.
+ * The two purchasing thresholds (REQ-X-16, REQ-AA-15), on the Settings
+ * screen's Purchase tab (owner, 22 Aug 2026: every module's settings in
+ * one place). Its own endpoint and its own Save, because the line belongs
+ * to the purchase approver, who may not hold settings.manage.
  */
 
 const AMOUNT = /^\d{1,12}(\.\d{1,2})?$/u;
 
-export function PurchaseSettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        {open ? (
-          <PurchaseSettingsBody
-            onClose={() => {
-              onOpenChange(false);
-            }}
-          />
-        ) : null}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function PurchaseSettingsBody({ onClose }: { onClose: () => void }) {
+export function PurchaseSettingsPanel() {
   const settings = usePurchaseSettings();
   const save = useSavePurchaseSettings();
   return (
-    <ShortcutLayer id="modal:purchase-settings">
-      <DialogHeader>
-        <DialogTitle>Purchase settings</DialogTitle>
-        <DialogDescription>Where approval starts, and how long packed goods may wait for an invoice.</DialogDescription>
-      </DialogHeader>
+    <div className="flex flex-col gap-4 border p-4">
+      <SectionHeading title="Purchase" note="Where approval starts, and how long packed goods may wait for an invoice." />
       {settings.isPending ? (
         <div role="status" aria-busy="true" aria-label="Loading purchase settings" className="flex flex-col gap-3">
           <Skeleton className="h-9" />
@@ -69,12 +47,12 @@ function PurchaseSettingsBody({ onClose }: { onClose: () => void }) {
           }}
         />
       ) : null}
-      {settings.isSuccess ? <PurchaseSettingsForm key={JSON.stringify(settings.data)} saved={settings.data} save={save} onClose={onClose} /> : null}
-    </ShortcutLayer>
+      {settings.isSuccess ? <PurchaseSettingsForm key={JSON.stringify(settings.data)} saved={settings.data} save={save} /> : null}
+    </div>
   );
 }
 
-function PurchaseSettingsForm({ saved, save, onClose }: { saved: PurchaseSettings; save: ReturnType<typeof useSavePurchaseSettings>; onClose: () => void }) {
+function PurchaseSettingsForm({ saved, save }: { saved: PurchaseSettings; save: ReturnType<typeof useSavePurchaseSettings> }) {
   const [threshold, setThreshold] = useState(saved.approvalThreshold ?? '');
   const [hours, setHours] = useState(String(saved.invoiceWaitingHours));
 
@@ -93,7 +71,6 @@ function PurchaseSettingsForm({ saved, save, onClose }: { saved: PurchaseSetting
           title: 'Purchase settings saved',
           description: result.approvalThreshold === null ? 'No PO needs approval by value.' : `POs at or above ${result.approvalThreshold} wait for approval.`,
         });
-        onClose();
       },
     });
   }
@@ -102,7 +79,6 @@ function PurchaseSettingsForm({ saved, save, onClose }: { saved: PurchaseSetting
 
   return (
     <>
-      <SaveShortcut onSave={submit} />
       <Form onSubmit={submit}>
         <FieldGroup>
           {save.isError ? (
@@ -117,7 +93,7 @@ function PurchaseSettingsForm({ saved, save, onClose }: { saved: PurchaseSetting
             <Input
               id="purchase-threshold"
               inputMode="decimal"
-              className="pointer-coarse:h-11 tabular-nums"
+              className="tabular-nums"
               placeholder="None"
               aria-invalid={thresholdOk ? undefined : true}
               value={threshold}
@@ -132,7 +108,7 @@ function PurchaseSettingsForm({ saved, save, onClose }: { saved: PurchaseSetting
             <Input
               id="purchase-invoice-hours"
               inputMode="numeric"
-              className="pointer-coarse:h-11 tabular-nums"
+              className="tabular-nums"
               aria-invalid={hoursOk ? undefined : true}
               value={hours}
               onChange={(event) => {
@@ -143,22 +119,13 @@ function PurchaseSettingsForm({ saved, save, onClose }: { saved: PurchaseSetting
           </Field>
         </FieldGroup>
       </Form>
-      <DialogFooter className="flex-row justify-end gap-2">
-        <Button variant="outline" className="flex-1 sm:flex-none" onClick={onClose}>
-          <ACTION_ICONS.cancel data-icon="inline-start" />
-          Cancel
-        </Button>
-        <Button className="flex-1 sm:flex-none" disabled={!canSubmit} onClick={submit}>
+      <div className="flex justify-end">
+        <Button size="sm" disabled={!canSubmit} onClick={submit}>
           {save.isPending ? <Spinner data-icon="inline-start" /> : <ACTION_ICONS.save data-icon="inline-start" />}
-          {save.isPending ? 'Saving' : 'Save'}
-          <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
+          {save.isPending ? 'Saving' : 'Save purchase settings'}
         </Button>
-      </DialogFooter>
+      </div>
     </>
   );
 }
 
-function SaveShortcut({ onSave }: { onSave: () => void }) {
-  useShortcut({ id: 'purchase-settings.save', keys: 'ctrl+a', label: 'Accept / Save', scope: 'modal', allowInInput: true, run: onSave });
-  return null;
-}

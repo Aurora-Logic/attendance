@@ -420,6 +420,8 @@ export interface EmployeeAccount {
   readonly email: string;
   readonly status: UserStatus;
   readonly lastLoginAt: string | null;
+  /** REQ-B-09: an authenticator is confirmed on the account. */
+  readonly mfaEnabled: boolean;
 }
 
 /**

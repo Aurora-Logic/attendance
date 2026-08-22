@@ -5,6 +5,8 @@ import type Redis from 'ioredis';
 import { z } from 'zod';
 
 import { AuditService } from '../audit/audit.service.js';
+import { DEFAULT_SECURITY_POLICY, SECURITY_SETTINGS, securityPolicySchema } from '../settings/settings.catalogue.js';
+import { WorkspacePolicyReader } from '../settings/workspace-policy.reader.js';
 import { env } from '../common/env.js';
 import { AppError, describeError } from '../common/errors.js';
 import { InjectDatabase, type Database } from '../db/db.provider.js';
@@ -38,6 +40,8 @@ const REVOCATION_REASONS = {
 } as const;
 
 export interface IssuedSession {
+  /** The refresh cookie's life; null means the browser session (end on close). */
+  readonly cookieMaxAgeMs: number | null;
   readonly sessionId: string;
   readonly familyId: string;
   readonly refreshToken: string;
@@ -86,6 +90,7 @@ const replayEntrySchema = z.object({
   familyId: z.uuid(),
   refreshToken: z.string().min(1),
   expiresAt: z.iso.datetime(),
+  cookieMaxAgeMs: z.number().nullable().default(env.JWT_REFRESH_TTL_SECONDS * 1000),
   userId: z.uuid(),
   orgId: z.uuid(),
   previousSessionId: z.uuid(),
@@ -99,6 +104,7 @@ export class SessionService {
     @InjectDatabase() private readonly db: Database,
     @InjectRedis() private readonly redis: Redis,
     private readonly audit: AuditService,
+    private readonly policies: WorkspacePolicyReader,
   ) {}
 
   /**
@@ -129,8 +135,16 @@ export class SessionService {
     return hashOpaqueToken(TOKEN_PURPOSES.REFRESH, token, env.JWT_REFRESH_SECRET);
   }
 
-  private expiry(from: Date): Date {
-    return new Date(from.getTime() + env.JWT_REFRESH_TTL_SECONDS * 1000);
+  /**
+   * Owner, 22 Aug 2026: the window is the organisation's setting, read at
+   * sign-in and at every rotation so a change takes effect from the next
+   * request; the env value is the ceiling. The cookie lasts the window, or
+   * the browser session when the organisation ends sign-ins on close.
+   */
+  private async window(orgId: string): Promise<{ ttlMs: number; cookieMaxAgeMs: number | null }> {
+    const policy = await this.policies.read(orgId, securityPolicySchema, SECURITY_SETTINGS, DEFAULT_SECURITY_POLICY);
+    const ttlMs = Math.min(policy.sessionHours * 60 * 60, env.JWT_REFRESH_TTL_SECONDS) * 1000;
+    return { ttlMs, cookieMaxAgeMs: policy.endSessionOnClose ? null : ttlMs };
   }
 
   /** A fresh family. Called on login and nowhere else. */
@@ -141,6 +155,7 @@ export class SessionService {
   ): Promise<IssuedSession> {
     const token = generateOpaqueToken();
     const now = new Date();
+    const window = await this.window(orgId);
     const rows = await this.db
       .insert(sessions)
       .values({
@@ -152,7 +167,7 @@ export class SessionService {
         familyId: sql`uuid_generate_v7()`,
         ip: context.ip,
         userAgent: context.userAgent,
-        expiresAt: this.expiry(now),
+        expiresAt: new Date(now.getTime() + window.ttlMs),
       })
       .returning({ id: sessions.id, familyId: sessions.familyId, expiresAt: sessions.expiresAt });
 
@@ -164,6 +179,7 @@ export class SessionService {
       familyId: row.familyId,
       refreshToken: token,
       expiresAt: row.expiresAt,
+      cookieMaxAgeMs: window.cookieMaxAgeMs,
     };
   }
 
@@ -271,6 +287,7 @@ export class SessionService {
     await tx.update(sessions).set({ usedAt: now }).where(eq(sessions.id, row.id));
 
     const token = generateOpaqueToken();
+    const window = await this.window(row.orgId);
     const inserted = await tx
       .insert(sessions)
       .values({
@@ -283,7 +300,7 @@ export class SessionService {
         userAgent: context.userAgent,
         // Rolling, not fixed to the family's original expiry: an active user
         // is not signed out mid-shift thirty days after they first logged in.
-        expiresAt: this.expiry(now),
+        expiresAt: new Date(now.getTime() + window.ttlMs),
       })
       .returning({ id: sessions.id, expiresAt: sessions.expiresAt });
 
@@ -297,6 +314,7 @@ export class SessionService {
         familyId: row.familyId,
         refreshToken: token,
         expiresAt: child.expiresAt,
+        cookieMaxAgeMs: window.cookieMaxAgeMs,
         userId: row.userId,
         orgId: row.orgId,
         previousSessionId: row.id,

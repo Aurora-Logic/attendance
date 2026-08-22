@@ -24,6 +24,10 @@ import { Spinner } from '@/components/ui/spinner';
 import { SignInTourOffer } from '@/features/guide';
 import { ApiError } from '@/lib/api/client';
 import { useLogin } from '@/lib/session/use-session';
+import { isMfaChallenge } from '@vyuha/shared';
+
+import { AuthShell, LegalConsent, SubmitLabel } from './auth-shell';
+import { MfaStep } from './mfa-step';
 
 /**
  * REQ-B-01: sign in with a work email and password.
@@ -89,6 +93,8 @@ export function LoginPage() {
   const login = useLogin();
   const [submitError, setSubmitError] = useState<unknown>(null);
   const [revealed, setRevealed] = useState(false);
+  // REQ-B-09: set when the password was right and a code is next.
+  const [challenge, setChallenge] = useState<string | null>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -98,7 +104,8 @@ export function LoginPage() {
   async function onSubmit(values: FormValues) {
     setSubmitError(null);
     try {
-      await login.mutateAsync(values);
+      const result = await login.mutateAsync(values);
+      if (isMfaChallenge(result)) setChallenge(result.challengeToken);
     } catch (error: unknown) {
       setSubmitError(error);
     }
@@ -106,22 +113,22 @@ export function LoginPage() {
 
   const problem = submitError ? messageFor(submitError) : null;
 
-  return (
-    <main className="flex min-h-dvh items-center justify-center p-4">
-      <div className="flex w-full max-w-sm flex-col gap-6">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <span
-            aria-hidden
-            className="bg-primary text-primary-foreground flex size-10 items-center justify-center text-base font-semibold"
-          >
-            V
-          </span>
-          <div className="flex flex-col gap-1">
-            <h1 className="text-xl font-semibold tracking-tight">Sign in to Vyuha</h1>
-            <p className="text-muted-foreground text-sm">Attendance</p>
-          </div>
-        </div>
+  if (challenge !== null) {
+    return (
+      <AuthShell title="One more step" lead="Your account uses an authenticator app.">
+        <MfaStep
+          challengeToken={challenge}
+          onBack={() => {
+            setChallenge(null);
+            form.setValue('password', '');
+          }}
+        />
+      </AuthShell>
+    );
+  }
 
+  return (
+    <AuthShell title="Welcome back" lead="Sign in with your work email.">
         {problem ? (
           // aria-live so a screen reader hears the failure; without it the only
           // signal is a visual change the user may not be looking at.
@@ -192,13 +199,16 @@ export function LoginPage() {
             {/* Stays enabled while submitting, per the interface guidelines: a
                 disabled submit button is indistinguishable from a broken one. */}
             <Button type="submit" className="w-full">
-              {login.isPending ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <SignInIcon data-icon="inline-start" />
-              )}
-              {login.isPending ? 'Signing in' : 'Sign in'}
+              <SubmitLabel state={login.isPending ? 'pending' : 'idle'}>
+                {login.isPending ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <SignInIcon data-icon="inline-start" />
+                )}
+                {login.isPending ? 'Signing in' : 'Sign in'}
+              </SubmitLabel>
             </Button>
+            <LegalConsent verb="signing in" />
           </FieldGroup>
         </Form>
 
@@ -207,7 +217,6 @@ export function LoginPage() {
         </p>
 
         <SignInTourOffer />
-      </div>
-    </main>
+    </AuthShell>
   );
 }

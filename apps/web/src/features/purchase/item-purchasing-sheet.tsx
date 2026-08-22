@@ -198,7 +198,7 @@ function SettingsSection({ stockItemId, canEdit }: { stockItemId: string; canEdi
           <Input
             id="item-reorder-level"
             inputMode="decimal"
-            className="pointer-coarse:h-11 tabular-nums"
+            className="tabular-nums"
             placeholder="None"
             disabled={!canEdit || availability.isPending}
             value={draft.reorderLevel}
@@ -213,7 +213,7 @@ function SettingsSection({ stockItemId, canEdit }: { stockItemId: string; canEdi
           <Input
             id="item-moq"
             inputMode="decimal"
-            className="pointer-coarse:h-11 tabular-nums"
+            className="tabular-nums"
             placeholder="None"
             disabled={!canEdit || availability.isPending}
             value={draft.minimumOrderQty}
@@ -376,7 +376,7 @@ function VendorsSection({ stockItemId, canEdit }: { stockItemId: string; canEdit
               <Input
                 aria-label={`Vendor ${String(index + 1)} lead time in days`}
                 inputMode="numeric"
-                className="pointer-coarse:h-11 tabular-nums"
+                className="tabular-nums"
                 placeholder="Lead time, days"
                 disabled={!canEdit}
                 value={row.leadTimeDays}
@@ -441,10 +441,10 @@ function HistorySection({ stockItemId, partyId }: { stockItemId: string; partyId
                 if (next === 'vendor' || next === 'all') setScope(next);
               }}
             >
-              <ToggleGroupItem value="vendor" className="pointer-coarse:h-11">
+              <ToggleGroupItem value="vendor">
                 This vendor
               </ToggleGroupItem>
-              <ToggleGroupItem value="all" className="pointer-coarse:h-11">
+              <ToggleGroupItem value="all">
                 All vendors
               </ToggleGroupItem>
             </ToggleGroup>

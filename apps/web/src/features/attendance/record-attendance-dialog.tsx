@@ -131,7 +131,7 @@ function RecordAttendanceForm({ onClose }: { onClose: () => void }) {
             className="w-full"
           >
             {PUNCH_TYPES.map((candidate) => (
-              <ToggleGroupItem key={candidate} value={candidate} className="pointer-coarse:min-h-11 flex-1">
+              <ToggleGroupItem key={candidate} value={candidate} className="flex-1">
                 {candidate === 'IN' ? 'Punch in' : 'Punch out'}
               </ToggleGroupItem>
             ))}

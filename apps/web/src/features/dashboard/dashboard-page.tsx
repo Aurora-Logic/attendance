@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useRef, useState } from 'react';
-import { ArrowRightIcon, ChartBarIcon, DatabaseIcon, InfoIcon } from '@phosphor-icons/react';
+import { ArrowRightIcon, ChartBarIcon, DatabaseIcon, FingerprintIcon, InfoIcon } from '@phosphor-icons/react';
 import { endOfMonth, startOfMonth, subDays } from 'date-fns';
 import { Link } from 'react-router';
 
@@ -326,14 +326,13 @@ export function DashboardPage() {
                 title="Today"
                 action={
                   <Button
-                    variant="outline"
                     size="sm"
                     nativeButton={false}
                     render={<Link to="/punch" />}
                     className={PRESS}
                   >
+                    <FingerprintIcon data-icon="inline-start" />
                     Punch
-                    <ArrowRightIcon />
                   </Button>
                 }
               />
@@ -486,7 +485,7 @@ export function DashboardPage() {
                           // CLAUDE.md 3.1 as written and the route sweep,
                           // which measures the element. Same idiom the muster
                           // toolbar uses for its select.
-                          className={cn('pointer-coarse:h-11 px-2.5', PRESS)}
+                          className={cn(' px-2.5', PRESS)}
                         >
                           {String(option)}d
                         </ToggleGroupItem>

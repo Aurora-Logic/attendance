@@ -275,7 +275,7 @@ function AdjustmentBody({ onClose }: { onClose: () => void }) {
                 if (next !== null) setYear(Number(next));
               }}
             >
-              <SelectTrigger id="adjust-year" aria-label="Leave year" className="pointer-coarse:h-11 w-full">
+              <SelectTrigger id="adjust-year" aria-label="Leave year" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

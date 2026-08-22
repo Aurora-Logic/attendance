@@ -69,6 +69,8 @@ export class SmtpMailer extends Mailer implements OnApplicationShutdown {
         to: mail.to,
         subject: mail.subject,
         text,
+        ...(mail.html === undefined ? {} : { html: mail.html }),
+        ...(mail.replyTo === undefined ? {} : { replyTo: mail.replyTo }),
       });
 
       // A server can accept the envelope and reject a recipient inside it. That

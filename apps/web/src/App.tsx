@@ -40,6 +40,8 @@ import { InvoiceEditorPage } from '@/features/sales/invoice-editor-page';
 import { PickQueuePage } from '@/features/sales/pick-queue-page';
 import { AwaitingInvoicePage } from '@/features/sales/awaiting-invoice-page';
 import { DispatchesPage } from '@/features/sales/dispatches-page';
+import { ScanPage } from '@/features/sales/scan-page';
+import { PackedPage } from '@/features/sales/packed-page';
 import { RequirementsPage } from '@/features/purchase/requirements-page';
 import { GrnPaperPage } from '@/features/purchase/grn-paper-page';
 import { PurchaseOrderEditorPage } from '@/features/purchase/purchase-order-editor-page';
@@ -49,6 +51,8 @@ import { PartiesPage } from '@/features/masters/parties-page';
 import { TasksPage } from '@/features/tasks/tasks-page';
 import { PriceListsPage } from '@/features/masters/price-lists-page';
 import { StockItemsPage } from '@/features/masters/stock-items-page';
+import { StockItemPage } from '@/features/masters/item-page';
+import { PartyPage } from '@/features/masters/party-page';
 import { VouchersPage } from '@/features/masters/vouchers-page';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { OrgMastersPage } from '@/features/org-masters';
@@ -146,7 +150,9 @@ export default function App() {
               <Route path="roles" element={<RolesPage />} />
               <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="masters/parties" element={<PartiesPage />} />
+              <Route path="masters/parties/:id" element={<PartyPage />} />
               <Route path="masters/items" element={<StockItemsPage />} />
+              <Route path="masters/items/:id" element={<StockItemPage />} />
               <Route path="masters/price-lists" element={<PriceListsPage />} />
               <Route path="masters/vouchers" element={<VouchersPage />} />
               <Route path="masters/vouchers/:id" element={<VouchersPage />} />
@@ -170,7 +176,10 @@ export default function App() {
               <Route path="sales/pick-queue/:id" element={<PickQueuePage />} />
               <Route path="sales/awaiting-invoice" element={<AwaitingInvoicePage />} />
               <Route path="sales/dispatches" element={<DispatchesPage />} />
+              <Route path="sales/delivered" element={<DispatchesPage stage="delivered" />} />
               <Route path="sales/dispatches/:id" element={<DispatchPaperPage />} />
+              <Route path="sales/scan" element={<ScanPage />} />
+              <Route path="sales/packed" element={<PackedPage />} />
               <Route path="sales/packs/:id" element={<PackingSlipPage />} />
               <Route path="purchase/requirements" element={<RequirementsPage />} />
               <Route path="purchase/orders" element={<PurchaseOrdersPage />} />

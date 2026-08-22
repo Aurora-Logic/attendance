@@ -2,7 +2,7 @@ import type { PurchaseOrder, Grn } from '@/features/purchase/types';
 import type { Dispatch, Estimate, PackRecord } from '@/features/sales/types';
 import { DISPATCH_MODE_LABELS, PURCHASE_ORDER_STATUS_LABELS, SALES_DOCUMENT_STATUS_LABELS, SYNC_STATE_LABELS, type PrintedDocumentType } from '@vyuha/shared';
 
-import type { PaperModel } from './paper';
+import type { PaperModel, PaperSlipFacts } from './paper';
 
 /**
  * Every record that prints, read into one shape. The sales documents and
@@ -30,11 +30,14 @@ export interface PaperRecord {
   readonly grandTotal: string;
   readonly notes: string | null;
   readonly terms: string | null;
+  /** D-47: present on a packing slip only; the party's phone joins it in paperModelOf. */
+  readonly slip?: Omit<PaperSlipFacts, 'phone'>;
 }
 
 interface PartyFacts {
   readonly address?: string | null;
   readonly gstin?: string | null;
+  readonly phone?: string | null;
 }
 
 /** The PaperModel the paper draws, from a record and what is known of its party. */
@@ -59,6 +62,7 @@ export function paperModelOf(type: PrintedDocumentType, record: PaperRecord, par
     totals: { subtotal: record.subtotal, discountTotal: record.discountTotal, taxTotal: record.taxTotal, grandTotal: record.grandTotal, preview: false },
     notes: record.notes ?? '',
     terms: record.terms ?? '',
+    ...(record.slip === undefined ? {} : { slip: { ...record.slip, phone: party?.phone ?? null } }),
   };
 }
 
@@ -148,6 +152,7 @@ export function packAsPaper(pack: PackRecord, order: Estimate): PaperRecord {
     ...ZERO_TOTALS,
     notes: pack.comment,
     terms: null,
+    slip: { boxCount: pack.boxCount, packedAt: pack.packedAt, packedByName: pack.packedByName },
   };
 }
 

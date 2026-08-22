@@ -51,14 +51,15 @@
  * min-height rather than height, so it raises a small control to the floor
  * without shrinking a large one.
  *
- * Buttons and tab triggers are deliberately not in this list. Growing the box
- * is only one way to reach 44px, and for the controls that carry the most
- * visual weight it is the wrong one: a 32px button that reads as sleek on a
- * desktop becomes a slab at 44px, and a phone screen full of slabs is what
- * "bulky" means. Those two components expand a pseudo-element instead, so the
- * thing you press is 44px while the thing you see keeps its proportions --
- * the same trick the switch uses, and for the same reason. Anything else that
- * wants to stay small must do likewise rather than simply leaving the list.
+ * Four controls are excluded because they grow a 44px target of their own:
+ * the Button, the Toggle (and the toggle-group item built on it), the Select
+ * trigger, and the tab trigger. Each is drawn at its desktop height on a
+ * phone and extends an invisible pseudo-element to the floor, so the thing
+ * you press is 44px while the thing you see keeps its proportions. Raising
+ * their boxes instead was tried (B-19): every pressable control at 44px read
+ * as bulky across the whole product, and the owner said so. What made
+ * buttons differ from screen to screen was never the primitive but screens
+ * bolting their own heights on; those are gone and a test keeps them gone.
  *
  * Note what :where() does and does not buy here. It keeps specificity at zero,
  * but these rules are unlayered, and unlayered beats every Tailwind layer
@@ -71,16 +72,22 @@
  */
 @media (pointer: coarse) {
   :where(
-    /* Every other button keeps the floor -- a Select trigger, a calendar day
-       and a sidebar row are all <button>, and none of them carries its own
-       expansion. Only the Button component and the tab trigger are excluded,
-       because those two do. */
-    button:not([data-slot='button'], [data-slot='toggle'], [data-slot='toggle-group-item'], [role='tab']),
-    [role='button']:not([data-slot='button']),
+    /* The four that carry their own expansion (above) stay out, by the
+       data-own-target attribute they set rather than by data-slot: a Button
+       rendered through a trigger's `render` prop carries the trigger's
+       data-slot, and keyed on that the saved-views and columns buttons fell
+       into the floor as 44px boxes. Everything else that is a <button> -- a
+       calendar day, a sidebar row, a menu item rendered as one -- keeps it. */
+    button:not([data-own-target]),
+    [role='button']:not([data-own-target]),
     [role='menuitem'],
     [role='menuitemradio'],
     [role='option'],
-    a[href],
+    /* A Button rendered as a Link is an <a href>; it grows its own target
+       like any Button and was the one pressable left standing in the floor,
+       which is why the dashboard's section links were 44px beside 32px
+       controls. */
+    a[href]:not([data-own-target]),
     summary,
     select,
     /* Text entry was missing from this list, which is why the employee search
@@ -110,6 +117,22 @@
      44x32 lozenge. */
   :where([data-slot='sidebar-trigger']) {
     min-width: 44px;
+  }
+}
+
+/* The theme switch cross-fades through a view transition (theme-provider).
+   The page is a snapshot for the duration, so it stays short. Under reduced
+   motion the provider never starts one; this rule is the belt to that brace. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }
 
@@ -152,9 +175,25 @@
        decelerate in, the way a real object does. Currently only the guided
        tour's cutout, which slides from one control to the next. */
     --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+    /* Tailwind's stock spinner turns once a second. A faster spin makes the
+       same wait feel shorter, which is the only lever a spinner has. */
+    --animate-spin: spin 0.6s linear infinite;
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
     --font-heading: var(--font-sans);
     --font-sans: 'Inter Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
+    --color-tint-1: var(--tint-1);
+    --color-tint-2: var(--tint-2);
+    --color-tint-3: var(--tint-3);
+    --color-tint-4: var(--tint-4);
+    --color-tint-5: var(--tint-5);
+    --color-tint-6: var(--tint-6);
+    --color-tint-7: var(--tint-7);
+    --color-tint-8: var(--tint-8);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-accent: var(--sidebar-accent);
@@ -210,21 +249,73 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * Workspace appearance (owner, 22 Aug 2026). The accent is one hue and one
+ * chroma at the lightness the theme was measured at, so a custom accent
+ * keeps the contrast the shipped indigo had; every neutral shares one hue
+ * and a chroma multiplier, so the base reads stone, cool or warm as one
+ * surface. The shell sets these four from the organisation's setting
+ * (appearance-effect.tsx); nothing else in the product names a hue.
+ */
+:root {
+    --accent-h: 277;
+    --accent-c: 0.24;
+    /* Stone, and the same stone the preset below sets, so there is no shift
+       between the pre-hydration paint and the applied appearance. */
+    --base-h: 58;
+    --base-k: 1;
+}
+
+/* The five neutral ramps shadcn ships. Hue and chroma are read from Tailwind
+   v4's own theme.css, not matched by eye: --base-k is a multiplier over the
+   steps in this file, which were authored against stone, so stone is 1 and
+   the rest are their chroma over stone's 0.013. Neutral is 0 -- no hue at
+   all, which is what neutral means.
+
+   `cool` and `warm` used to live here. They are gone from the enum but a
+   stored value still resolves, in resolveAppearanceBase: cool to gray, warm
+   to stone, by nearest hue. */
+[data-base='stone'] {
+    --base-h: 58;
+    --base-k: 1;
+}
+[data-base='zinc'] {
+    --base-h: 286;
+    --base-k: 1.23;
+}
+[data-base='neutral'] {
+    --base-h: 0;
+    --base-k: 0;
+}
+[data-base='gray'] {
+    --base-h: 264;
+    --base-k: 2.08;
+}
+[data-base='slate'] {
+    --base-h: 257;
+    --base-k: 3.54;
+}
+/* Density scales every spacing utility through Tailwind's --spacing; type
+   stays its size, and the 44px touch floor is in px and stays too. */
+[data-density='compact'] {
+    --spacing: 0.2rem;
+}
+
 :root {
     --background: oklch(1 0 0);
-    --foreground: oklch(0.147 0.004 49.25);
+    --foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.147 0.004 49.25);
+    --card-foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.147 0.004 49.25);
-    --primary: oklch(0.457 0.24 277.023);
-    --primary-foreground: oklch(0.962 0.018 272.314);
-    --secondary: oklch(0.967 0.001 286.375);
-    --secondary-foreground: oklch(0.21 0.006 285.885);
-    --muted: oklch(0.97 0.001 106.424);
-    --muted-foreground: oklch(0.553 0.013 58.071);
-    --accent: oklch(0.97 0.001 106.424);
-    --accent-foreground: oklch(0.216 0.006 56.043);
+    --popover-foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
+    --primary: oklch(0.457 var(--accent-c) var(--accent-h));
+    --primary-foreground: oklch(0.962 0.018 var(--accent-h));
+    --secondary: oklch(0.967 calc(0.001 * var(--base-k)) var(--base-h));
+    --secondary-foreground: oklch(0.21 calc(0.006 * var(--base-k)) var(--base-h));
+    --muted: oklch(0.97 calc(0.001 * var(--base-k)) var(--base-h));
+    --muted-foreground: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
+    --accent: oklch(0.97 calc(0.001 * var(--base-k)) var(--base-h));
+    --accent-foreground: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
     --destructive: oklch(0.577 0.245 27.325);
     /* The same red as a *fill* rather than as ink, for the one place the PRD
        names a colour: REQ-K-05's unread badge is white text on a red dot.
@@ -255,9 +346,21 @@
     --flag-no-location: oklch(0.58 0.17 40);
     --flag-mock-location: oklch(0.58 0.17 350);
     --flag-clock-skew: oklch(0.58 0.17 220);
-    --border: oklch(0.923 0.003 48.717);
-    --input: oklch(0.923 0.003 48.717);
-    --ring: oklch(0.709 0.01 56.259);
+    /* Eight identity tints for things that are many of a kind -- kanban
+       columns, deal stages, the people avatars -- assigned in fixed order
+       and never cycled (dataviz). Ink colours; surfaces take them at /15.
+       They are not the accent: a rebrand moves the accent and leaves these. */
+    --tint-1: oklch(0.5 0.15 235);
+    --tint-2: oklch(0.5 0.15 295);
+    --tint-3: oklch(0.52 0.15 70);
+    --tint-4: oklch(0.5 0.13 180);
+    --tint-5: oklch(0.52 0.17 345);
+    --tint-6: oklch(0.5 0.17 275);
+    --tint-7: oklch(0.5 0.14 155);
+    --tint-8: oklch(0.52 0.18 15);
+    --border: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
+    --input: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
+    --ring: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
     --chart-1: oklch(0.81 0.117 11.638);
     --chart-2: oklch(0.645 0.246 16.439);
     --chart-3: oklch(0.586 0.253 17.585);
@@ -268,31 +371,31 @@
        --border-radius from it, so leaving it at 0.625rem left the toast as the
        only rounded surface in the app. */
     --radius: 0;
-    --sidebar: oklch(0.985 0.001 106.423);
-    --sidebar-foreground: oklch(0.147 0.004 49.25);
-    --sidebar-primary: oklch(0.511 0.262 276.966);
-    --sidebar-primary-foreground: oklch(0.962 0.018 272.314);
-    --sidebar-accent: oklch(0.97 0.001 106.424);
-    --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
-    --sidebar-border: oklch(0.923 0.003 48.717);
-    --sidebar-ring: oklch(0.709 0.01 56.259);
+    --sidebar: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
+    --sidebar-foreground: oklch(0.147 calc(0.004 * var(--base-k)) var(--base-h));
+    --sidebar-primary: oklch(0.511 calc(var(--accent-c) * 1.09) var(--accent-h));
+    --sidebar-primary-foreground: oklch(0.962 0.018 var(--accent-h));
+    --sidebar-accent: oklch(0.97 calc(0.001 * var(--base-k)) var(--base-h));
+    --sidebar-accent-foreground: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
+    --sidebar-border: oklch(0.923 calc(0.003 * var(--base-k)) var(--base-h));
+    --sidebar-ring: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
 }
 
 .dark {
     --background: oklch(0.147 0.004 49.25);
-    --foreground: oklch(0.985 0.001 106.423);
+    --foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
     --card: oklch(0.216 0.006 56.043);
-    --card-foreground: oklch(0.985 0.001 106.423);
+    --card-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
     --popover: oklch(0.216 0.006 56.043);
-    --popover-foreground: oklch(0.985 0.001 106.423);
-    --primary: oklch(0.398 0.195 277.366);
-    --primary-foreground: oklch(0.962 0.018 272.314);
-    --secondary: oklch(0.274 0.006 286.033);
+    --popover-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
+    --primary: oklch(0.398 calc(var(--accent-c) * 0.81) var(--accent-h));
+    --primary-foreground: oklch(0.962 0.018 var(--accent-h));
+    --secondary: oklch(0.274 calc(0.006 * var(--base-k)) var(--base-h));
     --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.268 0.007 34.298);
-    --muted-foreground: oklch(0.709 0.01 56.259);
-    --accent: oklch(0.268 0.007 34.298);
-    --accent-foreground: oklch(0.985 0.001 106.423);
+    --muted: oklch(0.268 calc(0.007 * var(--base-k)) var(--base-h));
+    --muted-foreground: oklch(0.709 calc(0.01 * var(--base-k)) var(--base-h));
+    --accent: oklch(0.268 calc(0.007 * var(--base-k)) var(--base-h));
+    --accent-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
     --destructive: oklch(0.704 0.191 22.216);
     /* Deliberately *not* lifted with --destructive above: see the note in the
        light block. A badge is a filled shape carrying white text, so lifting
@@ -318,22 +421,30 @@
     --flag-no-location: oklch(0.74 0.16 40);
     --flag-mock-location: oklch(0.74 0.16 350);
     --flag-clock-skew: oklch(0.74 0.16 220);
+    --tint-1: oklch(0.8 0.12 235);
+    --tint-2: oklch(0.8 0.12 295);
+    --tint-3: oklch(0.82 0.13 70);
+    --tint-4: oklch(0.8 0.11 180);
+    --tint-5: oklch(0.8 0.13 345);
+    --tint-6: oklch(0.8 0.13 275);
+    --tint-7: oklch(0.8 0.12 155);
+    --tint-8: oklch(0.8 0.14 15);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.553 0.013 58.071);
+    --ring: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
     --chart-1: oklch(0.81 0.117 11.638);
     --chart-2: oklch(0.645 0.246 16.439);
     --chart-3: oklch(0.586 0.253 17.585);
     --chart-4: oklch(0.514 0.222 16.935);
     --chart-5: oklch(0.455 0.188 13.697);
-    --sidebar: oklch(0.216 0.006 56.043);
-    --sidebar-foreground: oklch(0.985 0.001 106.423);
-    --sidebar-primary: oklch(0.585 0.233 277.117);
-    --sidebar-primary-foreground: oklch(0.962 0.018 272.314);
-    --sidebar-accent: oklch(0.268 0.007 34.298);
-    --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
+    --sidebar: oklch(0.216 calc(0.006 * var(--base-k)) var(--base-h));
+    --sidebar-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
+    --sidebar-primary: oklch(0.585 calc(var(--accent-c) * 0.97) var(--accent-h));
+    --sidebar-primary-foreground: oklch(0.962 0.018 var(--accent-h));
+    --sidebar-accent: oklch(0.268 calc(0.007 * var(--base-k)) var(--base-h));
+    --sidebar-accent-foreground: oklch(0.985 calc(0.001 * var(--base-k)) var(--base-h));
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.553 0.013 58.071);
+    --sidebar-ring: oklch(0.553 calc(0.013 * var(--base-k)) var(--base-h));
 }
 
 @layer base {
@@ -345,7 +456,31 @@
     }
   html {
     @apply font-sans;
+    /* Owner, 22 Aug 2026: no zoom of any kind on a phone. pan-x pan-y is
+       every touch gesture except pinch and double-tap zoom; the viewport
+       meta (maximum-scale=1) stops iOS zooming into a focused field; the
+       gesturestart guard in main.tsx covers iOS pinch, which ignores the
+       meta for accessibility reasons. */
+    touch-action: pan-x pan-y;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     }
+}
+
+/*
+ * A screen arriving. 120ms, four pixels, ease-out, on the content column
+ * keyed by pathname -- long enough to read as continuity, short enough
+ * that a keyboard navigator never waits on it. Reduced motion: none.
+ */
+@keyframes screen-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.screen-enter {
+  animation: screen-enter 120ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen-enter { animation: none; }
 }
 /*
  * The printed page. One sheet of A4 on screen and on paper: 210mm wide, the
@@ -407,7 +542,25 @@
   .print-hidden { display: none !important; }
   .a4-paper { width: 210mm; min-height: 297mm; margin: 0; box-shadow: none !important; border: 0 !important; break-after: page; }
   .a4-paper:last-child { break-after: auto; }
+  .slip-paper { margin: 0; box-shadow: none !important; border: 0 !important; break-after: page; }
+  .slip-paper:last-child { break-after: auto; }
 }
+
+/*
+ * The packing slip (D-47): one sheet per box, A5 by default so it goes on a
+ * carton face, A4 for a pallet. Black on white because it prints on stickers
+ * and thermal paper; the design's accent is not used. The print page sets
+ * @page to the same size, so the dialog offers the sheet the slip was drawn for.
+ */
+.slip-paper {
+  color: #111;
+  background: #fff;
+  width: min(148mm, 100%);
+  min-height: 210mm;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+.slip-paper[data-size='A4'] { width: min(210mm, 100%); min-height: 297mm; }
+.slip-paper .tabular-nums { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; font-variant-numeric: tabular-nums; }
 
 /*
  * Scrollbars, product-wide: thin, rounded, translucent — furniture, not
@@ -439,6 +592,21 @@
 }
 @media print {
   :root { scrollbar-width: none; }
+}
+
+/*
+ * REQ-B-09: recovery codes as a PDF. The codes are shown once and never
+ * stored in the clear, so the sheet is printed from the screen that holds
+ * them: while body carries data-print="recovery", everything else goes
+ * invisible and the sheet takes the page, black on white. The browser's
+ * print-to-PDF is the renderer (D-46: no server PDF).
+ */
+.recovery-sheet { display: none; }
+@media print {
+  body[data-print='recovery'] * { visibility: hidden !important; }
+  body[data-print='recovery'] .recovery-sheet,
+  body[data-print='recovery'] .recovery-sheet * { visibility: visible !important; }
+  body[data-print='recovery'] .recovery-sheet { display: block; position: fixed; inset: 0; padding: 18mm 16mm; color: #111; background: #fff; }
 }
 
 /*

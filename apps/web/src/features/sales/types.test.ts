@@ -22,6 +22,7 @@ const line = (over: Partial<SalesLine>): SalesLine => ({
   taxPct: '18.00',
   amount: '41505.00',
   taxAmount: '7470.90',
+  pickedQty: '0.000',
   packedQty: '0.000',
   invoicedQty: '0.000',
   dispatchedQty: '0.000',
@@ -32,18 +33,24 @@ const line = (over: Partial<SalesLine>): SalesLine => ({
 
 describe('lineBalances', () => {
   it('moves quantity from one stage to the next (12 §7: 100 ordered, 60 packed/invoiced/dispatched leaves 40 to pack)', () => {
-    const b = lineBalances(line({ quantity: '100.000', packedQty: '60.000', invoicedQty: '60.000', dispatchedQty: '60.000' }));
-    expect(b).toEqual({ toPack: 40, toInvoice: 0, invoicing: 0, toDispatch: 0 });
+    const b = lineBalances(line({ quantity: '100.000', pickedQty: '100.000', packedQty: '60.000', invoicedQty: '60.000', dispatchedQty: '60.000' }));
+    expect(b).toEqual({ toPick: 0, toPack: 40, toInvoice: 0, invoicing: 0, toDispatch: 0 });
   });
 
   it('an invoice in flight holds its quantity: packed 60, none accepted yet, 60 in flight leaves nothing to invoice (P8-2)', () => {
-    const b = lineBalances(line({ quantity: '100.000', packedQty: '60.000', invoicingQty: '60.000' }));
-    expect(b).toEqual({ toPack: 40, toInvoice: 0, invoicing: 60, toDispatch: 0 });
+    const b = lineBalances(line({ quantity: '100.000', pickedQty: '100.000', packedQty: '60.000', invoicingQty: '60.000' }));
+    expect(b).toEqual({ toPick: 0, toPack: 40, toInvoice: 0, invoicing: 60, toDispatch: 0 });
   });
 
   it('never goes negative when the database has already advanced a later stage', () => {
-    const b = lineBalances(line({ quantity: '5.000', packedQty: '5.000', invoicedQty: '5.000', dispatchedQty: '5.000' }));
-    expect(b).toEqual({ toPack: 0, toInvoice: 0, invoicing: 0, toDispatch: 0 });
+    const b = lineBalances(line({ quantity: '5.000', pickedQty: '5.000', packedQty: '5.000', invoicedQty: '5.000', dispatchedQty: '5.000' }));
+    expect(b).toEqual({ toPick: 0, toPack: 0, toInvoice: 0, invoicing: 0, toDispatch: 0 });
+  });
+
+  it('D-48: the shelf owes what is not picked, and a box takes only what is picked', () => {
+    const b = lineBalances(line({ quantity: '10.000', pickedQty: '4.000' }));
+    expect(b.toPick).toBe(6);
+    expect(b.toPack).toBe(4);
   });
 
   it('parses the line view with its three stage quantities', () => {

@@ -90,7 +90,7 @@ export function PolicyNumberField({
         min={min}
         max={max}
         disabled={disabled}
-        className="pointer-coarse:h-11 tabular-nums"
+        className="tabular-nums"
         value={String(value)}
         onChange={(event) => {
           const next = Number(event.target.value);
@@ -141,7 +141,7 @@ export function PolicyChoiceField<T extends string>({
           if (next !== null) onValueChange(next as T);
         }}
       >
-        <SelectTrigger id={id} aria-label={label} className="pointer-coarse:h-11 w-full">
+        <SelectTrigger id={id} aria-label={label} className="w-full">
           <SelectValue>
             {(current: string) =>
               options.find((option) => option.value === current)?.label ?? current

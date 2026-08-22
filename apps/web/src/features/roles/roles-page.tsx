@@ -102,11 +102,11 @@ export function RolesPage() {
 
       <Tabs defaultValue="roles" className="gap-4">
         <TabsList>
-          <TabsTrigger value="roles" className="pointer-coarse:min-h-11 px-3">
+          <TabsTrigger value="roles" className="px-3">
             <ShieldCheckIcon data-icon="inline-start" />
             Roles
           </TabsTrigger>
-          <TabsTrigger value="permissions" className="pointer-coarse:min-h-11 px-3">
+          <TabsTrigger value="permissions" className="px-3">
             <ListChecksIcon data-icon="inline-start" />
             Permissions
           </TabsTrigger>
@@ -155,7 +155,6 @@ function RolesTab() {
       {/* Toolbar row (PRD §6.2). */}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
-          className="pointer-coarse:h-11"
           onClick={() => {
             openRole(null);
           }}

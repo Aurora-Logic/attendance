@@ -313,12 +313,19 @@ describe('pick, pack, and the billing handshake (12 §3.2, §3.3; 13 REQ-X-08)',
     const entry = queue.body.find((e) => e.documentId === bigId);
     expect(entry).toMatchObject({ balanceQty: '100.000', balanceLines: 1, waitingOnRequirements: 0, fulfilment: 'open' });
 
+    // D-48: the shelf first. A pick beyond the order is refused in the same voice a pack is.
+    const overPick = await harness.post<ErrorBody>(`/sales/orders/${bigId}/picks`, { token: salesToken, body: { lines: [{ lineId, quantity: '120' }] } });
+    expect(overPick.status).toBe(400);
+    expect(overPick.body.error.message).toContain('100.000 left to pick');
+    const picked = await harness.post(`/sales/orders/${bigId}/picks`, { token: salesToken, body: { lines: [{ lineId, quantity: '100' }] } });
+    expect(picked.status).toBe(201);
+
     const tooMany = await harness.post<ErrorBody>(`/sales/orders/${bigId}/packs`, {
       token: salesToken,
       body: { boxCount: 3, lines: [{ lineId, quantity: '120' }] },
     });
     expect(tooMany.status).toBe(400);
-    expect(tooMany.body.error.message).toContain('100.000 left to pack');
+    expect(tooMany.body.error.message).toContain('100.000 picked and not yet packed');
 
     const packed = await harness.post<PackRecordView>(`/sales/orders/${bigId}/packs`, {
       token: salesToken,
@@ -400,6 +407,7 @@ describe('pick, pack, and the billing handshake (12 §3.2, §3.3; 13 REQ-X-08)',
     const created = await harness.post<SalesDocumentView>('/sales/orders', { token: salesToken, body: { partyId, lines: [{ stockItemId: cableId, quantity: '10', rate: '1' }] } });
     await harness.post(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
     const line = created.body.lines[0]?.id ?? '';
+    await harness.post(`/sales/orders/${created.body.id}/picks`, { token: salesToken, body: { lines: [{ lineId: line, quantity: '4' }] } });
     await harness.post(`/sales/orders/${created.body.id}/packs`, { token: salesToken, body: { lines: [{ lineId: line, quantity: '4' }] } });
 
     const refused = await harness.post<ErrorBody>(`/sales/orders/${created.body.id}/short-close`, { token: salesToken, body: { reason: 'Customer cancelled the rest' } });
@@ -436,6 +444,7 @@ describe('dispatch (12 §3.4, §3.5)', () => {
     orderIdD = created.body.id;
     lineIdD = created.body.lines[0]?.id ?? '';
     await harness.post(`/sales/orders/${orderIdD}/confirm`, { token: salesToken });
+    await harness.post(`/sales/orders/${orderIdD}/picks`, { token: salesToken, body: { lines: [{ lineId: lineIdD, quantity: '10' }] } });
     await harness.post(`/sales/orders/${orderIdD}/packs`, { token: salesToken, body: { lines: [{ lineId: lineIdD, quantity: '10' }] } });
     // Invoice for 6 of the 10, by narration.
     const voucher = await harness.db.execute<{ id: string }>(sql`
@@ -519,6 +528,52 @@ describe('dispatch (12 §3.4, §3.5)', () => {
     expect(board.body.data.map((d) => d.number)).toEqual(['DN-0001']);
   });
 
+  it('the door step (D-47): delivered once, with who received it and the photograph; the delivered notice joins the dispatch notice', async () => {
+    const board = await harness.get<Paginated<DispatchView>>('/sales/dispatches?mode=outstation', { token: salesToken });
+    const id = board.body.data[0]?.id ?? '';
+    expect(board.body.data[0]?.status).toBe('shipped');
+
+    const noPhoto = await multipart<ErrorBody>(`/sales/dispatches/${id}/deliver`, salesToken, { receivedBy: 'Rakesh Shah' });
+    expect(noPhoto.status).toBe(400);
+
+    const delivered = await multipart<DispatchView>(`/sales/dispatches/${id}/deliver`, salesToken, { receivedBy: 'Rakesh Shah', note: 'Left at the counter' }, [{ field: 'photo', bytes: jpeg }]);
+    expect(delivered.status).toBe(200);
+    expect(delivered.body.status).toBe('delivered');
+    expect(delivered.body.receivedBy).toBe('Rakesh Shah');
+    expect(delivered.body.deliveryNote).toBe('Left at the counter');
+    expect(delivered.body.deliveredAt).not.toBeNull();
+    expect(delivered.body.attachments.map((a) => a.kind).sort()).toEqual(['box', 'delivery', 'lr']);
+    const deliveredNotices = delivered.body.notifications.filter((n) => n.event === 'delivered');
+    expect(deliveredNotices.map((n) => [n.channel, n.recipient, n.status])).toEqual([['email', null, 'pending'], ['whatsapp', '9811122333', 'pending']]);
+    expect(deliveredNotices[0]?.composedText).toContain('received by Rakesh Shah');
+    expect(await harness.waitForAuditAction('sales.dispatch.delivered')).toBe(true);
+
+    const again = await multipart<ErrorBody>(`/sales/dispatches/${id}/deliver`, salesToken, { receivedBy: 'Someone else' }, [{ field: 'photo', bytes: jpeg }]);
+    expect(again.status).toBe(409);
+  });
+
+  it('a scanned slip resolves to its pack by order number and the last four of the pack id (D-47)', async () => {
+    const packs = await harness.get<PackRecordView[]>(`/sales/orders/${orderIdD}/packs`, { token: salesToken });
+    const pack = packs.body[0];
+    expect(pack).toBeDefined();
+    const order = await harness.get<SalesDocumentView>(`/sales/orders/${orderIdD}`, { token: salesToken });
+    const slip = `${order.body.number}/${(pack?.id ?? '').slice(-4).toUpperCase()}`;
+    const found = await harness.get<PackRecordView>(`/sales/packs/by-slip/${encodeURIComponent(slip)}`, { token: salesToken });
+    expect(found.status).toBe(200);
+    expect(found.body.id).toBe(pack?.id);
+    const unknown = await harness.get<ErrorBody>(`/sales/packs/by-slip/${encodeURIComponent(`${order.body.number}/ZZZZ`)}`, { token: salesToken });
+    expect(unknown.status).toBe(404);
+
+    // D-47: the Packed screen lists every pack across orders, naming order and slip.
+    const packed = await harness.get<Paginated<PackRecordView>>('/sales/packs?page=1&pageSize=10', { token: salesToken });
+    expect(packed.status).toBe(200);
+    const listed = packed.body.data.find((p) => p.id === pack?.id);
+    expect(listed?.orderNumber).toBe(order.body.number);
+    expect(listed?.slipNumber).toBe(slip);
+    const narrowed = await harness.get<Paginated<PackRecordView>>(`/sales/packs?page=1&q=${encodeURIComponent(order.body.number)}`, { token: salesToken });
+    expect(narrowed.body.data.every((p) => p.orderNumber === order.body.number)).toBe(true);
+  });
+
   it('a local auto dispatch of the remaining invoiced 2 needs no LR and no photographs; the second dispatch shows in the order history', async () => {
     const created = await multipart<DispatchView>(`/sales/orders/${orderIdD}/dispatches`, salesToken, { mode: 'local_auto', lines: [{ lineId: lineIdD, quantity: '2' }] });
     expect(created.status).toBe(201);
@@ -551,6 +606,7 @@ describe('invoices raised here (D-38: both places, kept in sync)', () => {
     const nothing = await harness.post<ErrorBody>(`/sales/orders/${orderIdI}/invoices`, { token: salesToken, body: {} });
     expect(nothing.status).toBe(409);
     await harness.post(`/sales/orders/${orderIdI}/confirm`, { token: salesToken });
+    await harness.post(`/sales/orders/${orderIdI}/picks`, { token: salesToken, body: { lines: [{ lineId: lineIdI, quantity: '6' }] } });
     await harness.post(`/sales/orders/${orderIdI}/packs`, { token: salesToken, body: { lines: [{ lineId: lineIdI, quantity: '6' }] } });
 
     const tooMany = await harness.post<ErrorBody>(`/sales/orders/${orderIdI}/invoices`, { token: salesToken, body: { lines: [{ lineId: lineIdI, quantity: '7' }] } });
@@ -812,6 +868,7 @@ describe('the accountant’s reminder (12 REQ-AA-15)', () => {
       });
       const lineId = created.body.lines[0]?.id ?? '';
       await harness.post(`/sales/orders/${created.body.id}/confirm`, { token: salesToken });
+      await harness.post(`/sales/orders/${created.body.id}/picks`, { token: salesToken, body: { lines: [{ lineId, quantity: '3' }] } });
       await harness.post(`/sales/orders/${created.body.id}/packs`, { token: salesToken, body: { lines: [{ lineId, quantity: '3' }] } });
 
       const fulfilment = harness.resolve(FulfilmentService);

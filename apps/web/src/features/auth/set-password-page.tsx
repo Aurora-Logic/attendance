@@ -25,6 +25,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { ApiError, apiRequest } from '@/lib/api/client';
 import { MIN_PASSWORD_LENGTH } from '@vyuha/shared';
 
+import { AuthShell, LegalConsent, SubmitLabel } from './auth-shell';
 import type { SetPasswordMode, SetPasswordTarget } from './set-password-route';
 
 /**
@@ -192,24 +193,7 @@ export function SetPasswordPage({ mode, token }: SetPasswordPageProps) {
   const problem = failure === null ? null : messageFor(failure, mode);
 
   return (
-    <main className="flex min-h-dvh items-center justify-center p-4">
-      <div className="flex w-full max-w-sm flex-col gap-6">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <span
-            aria-hidden
-            className="bg-primary text-primary-foreground flex size-10 items-center justify-center text-base font-semibold"
-          >
-            V
-          </span>
-          <div className="flex flex-col gap-1">
-            <h1 className="text-xl font-semibold tracking-tight">
-              {done ? copy.doneTitle : copy.heading}
-            </h1>
-            <p className="text-muted-foreground text-sm">
-              {token.length === 0 ? 'This link cannot be read.' : done ? copy.doneBody : copy.lead}
-            </p>
-          </div>
-        </div>
+    <AuthShell title={done ? copy.doneTitle : copy.heading} lead={token.length === 0 ? 'This link cannot be read.' : done ? copy.doneBody : copy.lead}>
 
         {/* A path that is not a token at all never becomes a request. The
             server would refuse it, but only after a round trip that says
@@ -319,19 +303,21 @@ export function SetPasswordPage({ mode, token }: SetPasswordPageProps) {
                     guidelines: a disabled submit is indistinguishable from a
                     broken one. */}
                 <Button type="submit" className="w-full">
-                  {submitting ? (
-                    <Spinner data-icon="inline-start" />
-                  ) : (
-                    <KeyIcon data-icon="inline-start" />
-                  )}
-                  {submitting ? copy.submitting : copy.submit}
+                  <SubmitLabel state={submitting ? 'pending' : 'idle'}>
+                    {submitting ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <KeyIcon data-icon="inline-start" />
+                    )}
+                    {submitting ? copy.submitting : copy.submit}
+                  </SubmitLabel>
                 </Button>
+                <LegalConsent verb="setting your password" />
               </FieldGroup>
             </Form>
           </>
         )}
-      </div>
-    </main>
+    </AuthShell>
   );
 }
 

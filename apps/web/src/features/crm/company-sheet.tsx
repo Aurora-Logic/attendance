@@ -152,7 +152,6 @@ function CompanySheetBody({
               id="company-name"
               autoFocus
               autoComplete="organization"
-              className="pointer-coarse:h-11"
               value={draft.name}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));
@@ -168,7 +167,6 @@ function CompanySheetBody({
                 type="tel"
                 inputMode="tel"
                 autoComplete="off"
-                className="pointer-coarse:h-11"
                 value={draft.phone}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, phone: event.target.value }));
@@ -182,7 +180,6 @@ function CompanySheetBody({
                 type="email"
                 inputMode="email"
                 autoComplete="off"
-                className="pointer-coarse:h-11"
                 value={draft.email}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, email: event.target.value }));
@@ -198,7 +195,6 @@ function CompanySheetBody({
                 id="company-website"
                 inputMode="url"
                 autoComplete="off"
-                className="pointer-coarse:h-11"
                 placeholder="acme.example"
                 value={draft.website}
                 onChange={(event) => {
@@ -211,7 +207,6 @@ function CompanySheetBody({
               <Input
                 id="company-city"
                 autoComplete="off"
-                className="pointer-coarse:h-11"
                 value={draft.city}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, city: event.target.value }));

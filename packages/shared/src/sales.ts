@@ -134,6 +134,7 @@ export interface SalesLineView {
   readonly taxAmount: string;
   readonly hsnCode: string | null;
   /** REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate. */
+  readonly pickedQty: string;
   readonly packedQty: string;
   readonly invoicedQty: string;
   readonly dispatchedQty: string;
@@ -511,6 +512,23 @@ export type VoucherPushPayload = z.infer<typeof voucherPushPayloadSchema>;
 const qtyText = z.string().trim().regex(/^\d{1,12}(\.\d{1,3})?$/u, 'a quantity with up to three decimals');
 
 /** REQ-AA-06/AA-07/AA-08/AA-09: one packing session. Lines not named are untouched. */
+/** D-48: a picking session — who took how much off the shelf. */
+export const createPickRecordSchema = z.object({
+  comment: z.string().trim().max(2000).nullish(),
+  lines: z.array(z.object({ lineId: z.uuid(), quantity: qtyText, comment: z.string().trim().max(1000).nullish() })).min(1).max(200),
+});
+export type CreatePickRecordInput = z.infer<typeof createPickRecordSchema>;
+
+export interface PickRecordView {
+  readonly id: string;
+  readonly documentId: string;
+  readonly pickedById: string | null;
+  readonly pickedByName: string | null;
+  readonly pickedAt: string;
+  readonly comment: string | null;
+  readonly lines: readonly { lineId: string; description: string; quantity: string; comment: string | null }[];
+}
+
 export const createPackRecordSchema = z.object({
   boxCount: z.number().int().min(1).max(999).default(1),
   comment: z.string().trim().max(2000).nullish(),
@@ -521,6 +539,11 @@ export type CreatePackRecordInput = z.infer<typeof createPackRecordSchema>;
 export interface PackRecordView {
   readonly id: string;
   readonly documentId: string;
+  /** D-47: a pack is read across orders on the Packed screen, so it names its order and customer. */
+  readonly orderNumber: string;
+  readonly customerName: string;
+  /** The slip number the paper prints and the scan reads: order number / last four of the pack id. */
+  readonly slipNumber: string;
   readonly boxCount: number;
   readonly packedById: string | null;
   readonly packedByName: string | null;
@@ -528,6 +551,12 @@ export interface PackRecordView {
   readonly comment: string | null;
   readonly lines: readonly { lineId: string; description: string; quantity: string; comment: string | null }[];
 }
+
+/** D-47: the Packed screen's query — every pack record, newest first, optionally narrowed by order number or customer. */
+export const packListQuerySchema = pageQuerySchema.extend({
+  q: z.string().trim().min(1).max(80).optional(),
+});
+export type PackListQuery = z.infer<typeof packListQuerySchema>;
 
 /** REQ-AA-06: an open order with something left to pack, as the picker sees it. */
 export interface PickQueueEntry {
@@ -586,12 +615,14 @@ export interface StockAvailability {
 
 // ------------------------------------------------------------------ dispatch
 
-export const DISPATCH_MODES = ['local_auto', 'local_own_vehicle', 'outstation'] as const;
+/** D-47 (owner, 22 Aug 2026): `customer_collects` is the counter pickup — goods ready, the customer told, the door step when they collect. */
+export const DISPATCH_MODES = ['local_auto', 'local_own_vehicle', 'outstation', 'customer_collects'] as const;
 export type DispatchMode = (typeof DISPATCH_MODES)[number];
 export const DISPATCH_MODE_LABELS: Record<DispatchMode, string> = {
   local_auto: 'Local — auto',
   local_own_vehicle: 'Local — own vehicle',
   outstation: 'Outstation',
+  customer_collects: 'Customer collects',
 };
 
 /**
@@ -641,12 +672,26 @@ export interface DispatchLineView {
 
 export interface DispatchAttachmentView {
   readonly fileId: string;
-  readonly kind: 'box' | 'lr';
+  /** D-47: 'delivery' is the photograph at the door. */
+  readonly kind: 'box' | 'lr' | 'delivery';
 }
+
+/** D-47: the door step — who took the goods, with an optional note; the photograph rides as a multipart part. */
+export const deliverDispatchSchema = z.object({
+  receivedBy: z.string().trim().min(1, 'Who received it?').max(120),
+  note: z.string().trim().max(1000).nullish(),
+});
+export type DeliverDispatchInput = z.infer<typeof deliverDispatchSchema>;
+
+export const DISPATCH_STATUSES = ['shipped', 'delivered'] as const;
+export type DispatchStatus = (typeof DISPATCH_STATUSES)[number];
+export const DISPATCH_STATUS_LABELS: Record<DispatchStatus, string> = { shipped: 'On its way', delivered: 'Delivered' };
 
 export interface DispatchNotificationView {
   readonly id: string;
   readonly channel: 'email' | 'whatsapp';
+  /** D-47: the moment the message is about. Absent on a purchase order's notices, which have one moment only. */
+  readonly event?: 'dispatched' | 'delivered';
   readonly recipient: string | null;
   /** `pending` until somebody sends it by hand (`manual`, REQ-AA-26); `sent`; `failed`. */
   readonly status: 'pending' | 'sent' | 'failed';
@@ -672,6 +717,12 @@ export interface DispatchView {
   readonly driverName: string | null;
   readonly expectedDeliveryDate: string | null;
   readonly notes: string | null;
+  /** D-47: shipped until the door step marks it delivered. */
+  readonly status: DispatchStatus;
+  readonly deliveredAt: string | null;
+  readonly deliveredByName: string | null;
+  readonly receivedBy: string | null;
+  readonly deliveryNote: string | null;
   readonly syncState: DocumentSyncState;
   readonly remoteGuid: string | null;
   readonly remoteVoucherNumber: string | null;

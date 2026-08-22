@@ -120,7 +120,7 @@ function HistoryBody({
                 variant="ghost"
                 size="icon"
                 aria-label="Back to the history list"
-                className="pointer-coarse:size-11 -ml-2 shrink-0"
+                className="-ml-2 shrink-0"
                 onClick={() => {
                   setSelected(null);
                 }}
@@ -224,7 +224,7 @@ function HistoryBody({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="pointer-coarse:min-h-11 self-start"
+                      className="self-start"
                       disabled={query.isFetchingNextPage}
                       onClick={() => {
                         void query.fetchNextPage();
@@ -260,7 +260,6 @@ export function RecordHistoryButton({
     <Button
       variant="outline"
       size="sm"
-      className="pointer-coarse:min-h-11"
       disabled={disabled}
       onClick={onClick}
     >

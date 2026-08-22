@@ -249,6 +249,9 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
           </div>
         ),
         date: <DateField label="Order date" value={fromDateParam(draft.date)} onValueChange={(next) => { setDraft((current) => ({ ...current, date: toDateParam(next) })); }} yearsBack={1} yearsForward={1} className="paper-field h-auto min-h-0 px-0 py-0 shadow-none" />,
+        setDate: (iso) => {
+          setDraft((current) => ({ ...current, date: iso }));
+        },
         validUntil: <OptionalDateField label="Expected date" emptyLabel="No date yet" value={draft.expectedDate} onValueChange={(next) => { setDraft((current) => ({ ...current, expectedDate: next })); }} />,
         itemPicker: (line) => {
           const draftLine = draft.lines.find((l) => l.key === line.key);

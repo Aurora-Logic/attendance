@@ -205,7 +205,6 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
               <FieldLabel htmlFor="office-maps-link">Paste a Google Maps link</FieldLabel>
               <Input
                 id="office-maps-link"
-                className="pointer-coarse:h-11"
                 placeholder="https://www.google.com/maps/@19.0759837,72.8776559,17z"
                 disabled={!canManage}
                 value={link}
@@ -256,7 +255,7 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                 min={-90}
                 max={90}
                 disabled={!canManage}
-                className="pointer-coarse:h-11 tabular-nums"
+                className="tabular-nums"
                 value={draft.latitude}
                 onChange={(event) => {
                   office.edit({ latitude: event.target.value });
@@ -275,7 +274,7 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                 min={-180}
                 max={180}
                 disabled={!canManage}
-                className="pointer-coarse:h-11 tabular-nums"
+                className="tabular-nums"
                 value={draft.longitude}
                 onChange={(event) => {
                   office.edit({ longitude: event.target.value });
@@ -298,7 +297,7 @@ export function OfficeLocationPanel({ office, behaviour, saveError }: OfficeLoca
                 // accepts a number nothing will ever read is worse than one
                 // that says so.
                 disabled={!canManage || noCentre}
-                className="pointer-coarse:h-11 tabular-nums md:max-w-xs"
+                className="tabular-nums md:max-w-xs"
                 value={draft.radiusM}
                 onChange={(event) => {
                   office.edit({ radiusM: event.target.value });

@@ -1,4 +1,5 @@
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { compactCount, stackTotal, valueCaps } from '@/components/shared/chart-labels';
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis, LabelList } from 'recharts';
 
 import {
   ChartContainer,
@@ -118,7 +119,10 @@ const MAX_DATE_TICKS = 5;
  * the panel; the right margin moves the last column in far enough for its own
  * label.
  */
-const AXIS_MARGIN = { left: 0, right: 16, top: 4 } as const;
+/* `top` is room for the value on a bar cap or a line end. At 4px the
+   tallest mark had its label sliced off by the plot edge -- the marks
+   that most need reading were the ones cut in half. */
+const AXIS_MARGIN = { left: 0, right: 16, top: 20 } as const;
 
 /**
  * The axis label colour, set here rather than inherited.
@@ -258,7 +262,9 @@ export function StatusBandsChart({ points, animate }: ChartProps<BandPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...stackTotal([...points], ['work', 'leave', 'absent', 'other'])} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -307,7 +313,9 @@ export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('workedMinutes', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -359,7 +367,9 @@ export function TimekeepingChart({ points, animate }: ChartProps<TimekeepingPoin
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('lateMinutes', compactCount)} />
+        </Bar>
         <Bar
           dataKey="earlyExitMinutes"
           fill="var(--color-earlyExitMinutes)"
@@ -367,7 +377,9 @@ export function TimekeepingChart({ points, animate }: ChartProps<TimekeepingPoin
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('earlyExitMinutes', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );

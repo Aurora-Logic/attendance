@@ -1,12 +1,16 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
 import {
   PERMISSIONS,
   createPackRecordSchema,
+  createPickRecordSchema,
   linkInvoiceSchema,
+  packListQuerySchema,
   shortCloseSchema,
   type AwaitingInvoiceEntry,
   type PackRecordView,
+  type Paginated,
   type PickQueueEntry,
+  type PickRecordView,
   type SalesDocumentView,
   type UnlinkedInvoice,
 } from '@vyuha/shared';
@@ -22,8 +26,11 @@ import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { FulfilmentService } from './fulfilment.service.js';
 
 class CreatePackRecordDto extends createZodDto(createPackRecordSchema) {}
+class CreatePickRecordDto extends createZodDto(createPickRecordSchema) {}
 class LinkInvoiceDto extends createZodDto(linkInvoiceSchema) {}
 class ShortCloseDto extends createZodDto(shortCloseSchema) {}
+
+class PackListQueryDto extends createZodDto(packListQuerySchema) {}
 
 const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL] as const;
 
@@ -55,6 +62,20 @@ export class FulfilmentController {
     return this.fulfilment.unlinkedInvoices(principal);
   }
 
+  /** D-47: the Packed screen — every pack across the orders this person may see. */
+  @Get('packs')
+  @RequirePermission(...VIEW)
+  allPacks(@CurrentUser() principal: Principal, @Query() query: PackListQueryDto): Promise<Paginated<PackRecordView>> {
+    return this.fulfilment.listAllPacks(principal, query);
+  }
+
+  /** D-48: every picking session against one order. */
+  @Get('orders/:id/picks')
+  @RequirePermission(...VIEW)
+  picks(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PickRecordView[]> {
+    return this.fulfilment.listPicks(principal, id);
+  }
+
   @Get('orders/:id/packs')
   @RequirePermission(...VIEW)
   packs(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PackRecordView[]> {
@@ -62,6 +83,13 @@ export class FulfilmentController {
   }
 
   /** One pack record: the packing slip's page. */
+  /** D-47: what a scanned slip resolves to. Declared before packs/:id so the literal wins. */
+  @Get('packs/by-slip/:number')
+  @RequirePermission(...VIEW)
+  findPackBySlip(@CurrentUser() principal: Principal, @Param('number') number: string): Promise<PackRecordView> {
+    return this.fulfilment.findPackBySlip(principal, decodeURIComponent(number));
+  }
+
   @Get('packs/:id')
   @RequirePermission(...VIEW)
   findPack(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PackRecordView> {
@@ -85,6 +113,14 @@ export class FulfilmentController {
       notes: pack.comment,
       terms: null,
     });
+  }
+
+  /** D-48: the picking step -- what came off the shelf; a line packs only what it has picked. */
+  @Post('orders/:id/picks')
+  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_CREATE)
+  @HttpCode(HttpStatus.CREATED)
+  pick(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() body: CreatePickRecordDto): Promise<PickRecordView> {
+    return this.fulfilment.pick(principal, id, body);
   }
 
   @Post('orders/:id/packs')

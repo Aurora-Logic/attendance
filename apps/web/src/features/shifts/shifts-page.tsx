@@ -12,6 +12,7 @@ import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
+import { PersonChip } from '@/components/shared/person';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { RowActions, type RowAction } from '@/components/shared/row-actions';
@@ -136,7 +137,7 @@ const ROSTER_COLUMNS: RecordColumn<RosterEntry>[] = [
   {
     key: 'employee',
     header: 'Employee',
-    cell: (row) => <span className="font-medium">{row.employee.name}</span>,
+    cell: (row) => <PersonChip name={row.employee.name} className="font-medium" />,
   },
   {
     key: 'code',
@@ -702,7 +703,7 @@ function RosterTab() {
         >
           <SelectTrigger
             aria-label="Filter by department"
-            className="pointer-coarse:h-11 w-full sm:w-44"
+            className="w-full sm:w-44"
           >
             <SelectValue>
               {(value: string) =>

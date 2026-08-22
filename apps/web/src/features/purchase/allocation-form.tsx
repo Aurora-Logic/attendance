@@ -101,7 +101,7 @@ export function AllocationForm({ grn, onAllocated, footer }: AllocationFormProps
                   <Input
                     aria-label={`Quantity for ${waiting.salesOrderNumber ?? 'stock'}`}
                     inputMode="decimal"
-                    className="pointer-coarse:h-11 w-28 tabular-nums"
+                    className="w-28 tabular-nums"
                     placeholder="0"
                     disabled={!canApprove}
                     aria-invalid={value.trim() !== '' && (!QTY.test(value.trim()) || Number(value) > Number(waiting.outstandingQty) + 1e-9) ? true : undefined}

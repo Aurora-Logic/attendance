@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeftIcon, ArrowsInIcon, DotsThreeVerticalIcon, EyeIcon, FileXlsIcon, PaintBrushIcon, PencilSimpleIcon, PrinterIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { type CSSProperties, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowLeftIcon, ArrowsInIcon, DotsThreeVerticalIcon, EyeIcon, FileXlsIcon, ListIcon, PaintBrushIcon, PencilSimpleIcon, PrinterIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -14,7 +14,11 @@ import { cn } from '@/lib/utils';
 import { PERMISSIONS, type DocumentSettings, type PrintedDocumentType } from '@vyuha/shared';
 
 import { DesignRail } from './design-rail';
+import { HandlingMarksControl } from './handling-marks-control';
+import { DocumentForm } from './document-form';
 import { downloadDocumentFile } from './download';
+import { PackingSlipPaper } from './packing-slip-paper';
+import { SLIP_PAPER_TYPES } from './paper-support';
 import { DocumentPaper, type PaperEditing, type PaperModel } from './paper';
 import { useFooterLogoUrls, useSaveDocumentSettings } from './use-document-settings';
 
@@ -32,15 +36,34 @@ import { useFooterLogoUrls, useSaveDocumentSettings } from './use-document-setti
 /** 210mm at CSS pixels. */
 const A4_WIDTH_PX = 794;
 
-/** Zoom steps the fit chooses from — classes, not a computed transform, so nothing is styled inline. */
+/**
+ * Zoom steps the fit chooses from — classes, not a computed transform, so
+ * nothing is styled inline. A transform rather than CSS `zoom`: engines
+ * disagree on whether a zoomed box's layout size is the scaled one, and on
+ * the owner's phone the sheet sat against the left edge under both a
+ * centred zoomed box and a zoomed centring container. A transform never
+ * changes layout, so the sheet is centred with left-1/2 and a -50%
+ * translate in every engine; what the transform leaves behind is layout
+ * height, which the stage gives back by sizing the sheet's box to the
+ * measured sheet times the step (owner, 22 Aug 2026: a margin sized to A4
+ * pulled the caption up behind the shorter packing slip). Steps are close
+ * together at the small end, where a phone lives.
+ */
 const ZOOMS = [
-  { value: 0.4, className: '[zoom:0.4]' },
-  { value: 0.45, className: '[zoom:0.45]' },
-  { value: 0.55, className: '[zoom:0.55]' },
-  { value: 0.65, className: '[zoom:0.65]' },
-  { value: 0.75, className: '[zoom:0.75]' },
-  { value: 0.85, className: '[zoom:0.85]' },
-  { value: 1, className: '[zoom:1]' },
+  { value: 0.4, className: 'scale-[0.4] mb-[calc(297mm*-0.6)]' },
+  { value: 0.42, className: 'scale-[0.42] mb-[calc(297mm*-0.58)]' },
+  { value: 0.45, className: 'scale-[0.45] mb-[calc(297mm*-0.55)]' },
+  { value: 0.48, className: 'scale-[0.48] mb-[calc(297mm*-0.52)]' },
+  { value: 0.5, className: 'scale-[0.5] mb-[calc(297mm*-0.5)]' },
+  { value: 0.55, className: 'scale-[0.55] mb-[calc(297mm*-0.45)]' },
+  { value: 0.6, className: 'scale-[0.6] mb-[calc(297mm*-0.4)]' },
+  { value: 0.65, className: 'scale-[0.65] mb-[calc(297mm*-0.35)]' },
+  { value: 0.7, className: 'scale-[0.7] mb-[calc(297mm*-0.3)]' },
+  { value: 0.75, className: 'scale-[0.75] mb-[calc(297mm*-0.25)]' },
+  { value: 0.8, className: 'scale-[0.8] mb-[calc(297mm*-0.2)]' },
+  { value: 0.85, className: 'scale-[0.85] mb-[calc(297mm*-0.15)]' },
+  { value: 0.9, className: 'scale-[0.9] mb-[calc(297mm*-0.1)]' },
+  { value: 1, className: 'scale-100' },
 ] as const;
 
 export interface DocumentEditorProps {
@@ -82,6 +105,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [fit, setFit] = useState(true);
   const [zoomIndex, setZoomIndex] = useState(ZOOMS.length - 1);
+  const [sheetHeight, setSheetHeight] = useState<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const paperRef = useRef<HTMLDivElement>(null);
   const saveSettings = useSaveDocumentSettings();
@@ -91,6 +115,11 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const settingsDirty = JSON.stringify(settings.draft) !== JSON.stringify(settings.saved);
   const showEditing = preview ? undefined : editing;
   const hasExtras = extras !== undefined;
+  // A phone draws the document as a form (DocumentForm) and shows the paper
+  // only on request, so the toggle exists there even for a document nobody
+  // can edit; on a desk the paper is the editor and the toggle is Preview.
+  const formOnPhone = isMobile && !preview;
+  const previewToggle = isMobile || (canPreview && editing !== undefined);
 
   // Fit: the largest zoom step at which the whole sheet stands in the stage — by height on a desk; by width on a
   // phone, where the stage scrolls and a squashed A4 grid would be unreadable.
@@ -102,9 +131,9 @@ export function DocumentEditor(props: DocumentEditorProps) {
     const measure = () => {
       const availableHeight = stage.clientHeight - 32;
       const availableWidth = stage.clientWidth - (isMobile ? 24 : 32);
-      const current = ZOOMS[zoomIndex]?.value ?? 1;
-      const rect = paper.getBoundingClientRect();
-      const naturalHeight = rect.height / current;
+      // offsetHeight is the layout height, which the transform leaves alone.
+      const naturalHeight = paper.offsetHeight;
+      setSheetHeight((prev) => (prev === naturalHeight ? prev : naturalHeight));
       // The sheet is 210mm wide unless the stage has squashed it, so the width is known rather than measured.
       const naturalWidth = A4_WIDTH_PX;
       if (naturalHeight === 0 || availableWidth <= 0) return;
@@ -123,10 +152,11 @@ export function DocumentEditor(props: DocumentEditorProps) {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(stage);
+    observer.observe(paper);
     return () => {
       observer.disconnect();
     };
-  }, [fit, isMobile, zoomIndex, design.templateId, design.fontScale, model.lines.length, hasExtras]);
+  }, [fit, isMobile, preview, zoomIndex, design.templateId, design.fontScale, model.lines.length, hasExtras]);
 
   async function exportXlsx() {
     if (excel === null) return;
@@ -141,25 +171,38 @@ export function DocumentEditor(props: DocumentEditorProps) {
   return (
     <>
       <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100dvh-3.5rem)] flex-col md:-mx-6 md:-mt-6 md:-mb-6">
-        <div className="bg-background/85 supports-[backdrop-filter]:bg-background/70 flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 backdrop-blur md:px-6">
+        <div
+          // The guide's anchor for every document screen. This toolbar is the
+          // one thing all seven of them share — four editors and three paper
+          // views all render DocumentEditor — and none of them renders the
+          // PageHeader the rest of the product is anchored on.
+          data-guide="screen.document"
+          // One row on a phone: the back arrow alone, the title truncating,
+          // Preview and the overflow at the thumb's edge. Wrapping put the
+          // actions on a second row with a blank band beside them.
+          className="bg-background/85 supports-[backdrop-filter]:bg-background/70 flex shrink-0 items-center gap-2 border-b px-3 py-2 backdrop-blur md:flex-wrap md:px-6"
+        >
           <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={backTo} />}>
             <ArrowLeftIcon data-icon="inline-start" />
-            {backLabel}
+            <span className="max-md:sr-only">{backLabel}</span>
           </Button>
-          <div className="flex min-w-0 items-center gap-2">
+          {/* The badges may wrap under the title on a phone; this block is
+              flex-1, so wrapping inside it never moves the actions beside it.
+              Measured: an 'Awaiting invoice' pill pushed the page to 391px at 360. */}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="truncate text-sm font-semibold">{title}</span>
             {badges}
             {dirty ? <Badge variant="secondary">Unsaved</Badge> : null}
           </div>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
             <Button variant={fit ? 'default' : 'outline'} size="sm" className="hidden md:inline-flex" aria-pressed={fit} aria-label="Fit the page to the screen" onClick={() => { setFit((v) => !v); }}>
               <ArrowsInIcon data-icon="inline-start" />
               {fit ? `Fit ${String(Math.round(zoom.value * 100))}%` : '100%'}
             </Button>
-            {canPreview && editing !== undefined ? (
+            {previewToggle ? (
               <Button variant={preview ? 'default' : 'outline'} size="sm" aria-pressed={preview} onClick={() => { setPreview((v) => !v); }}>
-                {preview ? <PencilSimpleIcon data-icon="inline-start" /> : <EyeIcon data-icon="inline-start" />}
-                {preview ? 'Edit' : 'Preview'}
+                {preview ? (editing !== undefined ? <PencilSimpleIcon data-icon="inline-start" /> : <ListIcon data-icon="inline-start" />) : <EyeIcon data-icon="inline-start" />}
+                {preview ? (editing !== undefined ? 'Edit' : 'Details') : 'Preview'}
               </Button>
             ) : null}
             <div className="hidden items-center gap-2 md:flex">
@@ -188,13 +231,13 @@ export function DocumentEditor(props: DocumentEditorProps) {
             {/* On a phone the bar stays one row: Preview beside an overflow that
                 opens as a bottom sheet (thumb-reach: a menu of rows arrives from
                 an edge); the page's own verbs move to a footer the thumb reaches. */}
-            <Button variant="outline" size="icon-sm" className="pointer-coarse:size-11 md:hidden" aria-label="More document actions" onClick={() => { setMobileMenuOpen(true); }}>
+            <Button variant="outline" size="icon-sm" className="md:hidden" aria-label="More document actions" onClick={() => { setMobileMenuOpen(true); }}>
               <DotsThreeVerticalIcon />
             </Button>
           </div>
         </div>
 
-        <div ref={stageRef} className="bg-muted/40 min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6">
+        <div ref={stageRef} className={cn('min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6', formOnPhone ? 'bg-background' : 'bg-muted/40')}>
           {failure ? (
             <Alert variant="destructive" className="mx-auto mb-4 max-w-[210mm]">
               <WarningCircleIcon />
@@ -203,9 +246,40 @@ export function DocumentEditor(props: DocumentEditorProps) {
             </Alert>
           ) : null}
           {hint ? <p className="text-muted-foreground mx-auto mb-3 max-w-[210mm] text-xs">{hint}</p> : null}
-          <div ref={paperRef} className={cn('mx-auto w-fit max-w-full', zoom.className)}>
-            <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
-          </div>
+          {/* D-47 (owner): the marks are set here, on the slip, not inside Design. */}
+          {SLIP_PAPER_TYPES.includes(docType) ? (
+            <div className="mx-auto mb-4 max-w-[210mm]">
+              <HandlingMarksControl
+                docType={docType}
+                settings={settings.draft}
+                onDraft={settings.setDraft}
+                canManage={canManageSettings}
+                onSave={(next) => {
+                  saveSettings.mutate(next);
+                }}
+              />
+            </div>
+          ) : null}
+          {formOnPhone ? (
+            <DocumentForm model={model} design={design} editing={editing} />
+          ) : (
+            // overflow-x-clip: the sheet keeps its 210mm layout width under the
+            // transform, which would otherwise give the stage a sideways scroll.
+            <div
+              className={cn('overflow-x-clip', zoom.value < 1 && sheetHeight !== null && 'h-[calc(var(--sheet-height)*var(--sheet-scale))]')}
+              // Measured values reach CSS as custom properties, the way the toggle group passes its gap.
+              style={{ '--sheet-height': `${String(sheetHeight ?? 0)}px`, '--sheet-scale': String(zoom.value) } as CSSProperties}
+            >
+              <div ref={paperRef} className={cn('relative left-1/2 w-[210mm] origin-top -translate-x-1/2', zoom.className)}>
+                {SLIP_PAPER_TYPES.includes(docType) ? (
+                  // D-47: the goods papers have their own paper; the slip previews box 1 of N.
+                  <PackingSlipPaper design={design} profile={settings.draft.profile} orgName={branding.data?.name ?? ''} model={model} box={1} />
+                ) : (
+                  <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
+                )}
+              </div>
+            </div>
+          )}
           {extras ? <div className="mx-auto mt-6 max-w-[210mm]">{extras}</div> : null}
         </div>
 

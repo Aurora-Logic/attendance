@@ -123,7 +123,6 @@ function ColumnsBody() {
             <div className="flex gap-2">
               <Input
                 id="new-column-name"
-                className="pointer-coarse:h-11"
                 placeholder="Waiting on customer"
                 value={newName}
                 onChange={(event) => {
@@ -169,7 +168,7 @@ function ColumnRow({
     <li className="flex flex-wrap items-center gap-2 px-3 py-2">
       <Input
         aria-label={`Name of ${column.name}`}
-        className="pointer-coarse:h-11 min-w-0 flex-1"
+        className="min-w-0 flex-1"
         value={name}
         onChange={(event) => {
           setName(event.target.value);

@@ -127,7 +127,7 @@ export function AccessWindowPanel({ window: state, saveError }: { window: Access
               className="flex-wrap"
             >
               {DAYS.map((day) => (
-                <ToggleGroupItem key={day.value} value={String(day.value)} aria-label={day.long} className="pointer-coarse:h-11 min-w-12">
+                <ToggleGroupItem key={day.value} value={String(day.value)} aria-label={day.long} className="min-w-12">
                   {day.short}
                 </ToggleGroupItem>
               ))}

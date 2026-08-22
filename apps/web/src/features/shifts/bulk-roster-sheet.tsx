@@ -213,7 +213,7 @@ function BulkRosterSheetBody({
                 setDepartmentId(next);
               }}
             >
-              <SelectTrigger aria-label="Department" className="pointer-coarse:h-11 w-full">
+              <SelectTrigger aria-label="Department" className="w-full">
                 <SelectValue>
                   {(value: string) =>
                     departments.find((row) => row.id === value)?.name ?? 'Choose a department'
@@ -244,7 +244,7 @@ function BulkRosterSheetBody({
                 setShiftId(next);
               }}
             >
-              <SelectTrigger aria-label="Shift" className="pointer-coarse:h-11 w-full">
+              <SelectTrigger aria-label="Shift" className="w-full">
                 <SelectValue>
                   {(value: string) => {
                     const shift = shifts.find((row) => row.id === value);

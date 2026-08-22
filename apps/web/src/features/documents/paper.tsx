@@ -95,6 +95,16 @@ export interface PaperModel {
   readonly terms: string;
   /** "Original for Recipient" and the like, on an invoice's copies. */
   readonly copyLabel?: string | null;
+  /** D-47: what the packing slip knows that other papers do not — set only by the pack record. */
+  readonly slip?: PaperSlipFacts;
+}
+
+export interface PaperSlipFacts {
+  readonly boxCount: number;
+  readonly packedAt: string;
+  readonly packedByName: string | null;
+  /** The consignee's phone from the parties master, for the loader and the transporter. */
+  readonly phone: string | null;
 }
 
 /** What the page hands the paper when it is the editor. Absent = print. */
@@ -102,6 +112,14 @@ export interface PaperEditing {
   readonly customer: ReactNode;
   readonly date: ReactNode;
   readonly validUntil?: ReactNode;
+  /**
+   * ISO-date setters for the phone form, which draws its own date controls
+   * rather than reusing the paper-styled slots above (those are drawn to sit
+   * on the sheet and look wrong in a form). Absent when the page cannot
+   * change the date, in which case the form falls back to the slot.
+   */
+  readonly setDate?: (iso: string) => void;
+  readonly setValidUntil?: (iso: string) => void;
   readonly itemPicker: (line: PaperLine) => ReactNode;
   /** The i beside a line: what this customer was charged for the item before (REQ-W-02). */
   readonly itemHistory?: (line: PaperLine) => ReactNode;

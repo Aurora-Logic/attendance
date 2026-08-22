@@ -122,7 +122,6 @@ function StagesBody({ pipeline }: { pipeline: Pipeline }) {
             <div className="flex gap-2">
               <Input
                 id="new-stage-name"
-                className="pointer-coarse:h-11"
                 placeholder="Demo given"
                 value={newName}
                 onChange={(event) => {
@@ -182,7 +181,7 @@ function StageRow({
     <li className="flex flex-wrap items-center gap-2 px-3 py-2">
       <Input
         aria-label={`Name of ${stage.name}`}
-        className="pointer-coarse:h-11 min-w-32 flex-1"
+        className="min-w-32 flex-1"
         value={name}
         onChange={(event) => {
           setName(event.target.value);
@@ -198,7 +197,7 @@ function StageRow({
       <Input
         aria-label={`Probability of ${stage.name}`}
         inputMode="numeric"
-        className="pointer-coarse:h-11 w-16 tabular-nums"
+        className="w-16 tabular-nums"
         value={probability}
         onChange={(event) => {
           setProbability(event.target.value);
@@ -219,7 +218,7 @@ function StageRow({
           else if (next === 'lost') onSave({ isWon: false, isLost: true });
         }}
       >
-        <SelectTrigger aria-label={`Outcome of ${stage.name}`} className="pointer-coarse:h-11 w-24" disabled={busy}>
+        <SelectTrigger aria-label={`Outcome of ${stage.name}`} className="w-24" disabled={busy}>
           <SelectValue>{(value: Outcome) => OUTCOME_LABELS[value]}</SelectValue>
         </SelectTrigger>
         <SelectContent>

@@ -1,3 +1,4 @@
+import { mfaCodeOnlySchema, mfaVerifySchema, type MfaChallengeResponse, type MfaSummary } from '@vyuha/shared';
 import { z } from 'zod';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
@@ -74,12 +75,19 @@ export const confirmPasswordResetSchema = z.object({
 });
 export class ConfirmPasswordResetDto extends createZodDto(confirmPasswordResetSchema) {}
 
+/** REQ-B-09: the code step, and the code a person types to change their own enrolment. */
+export class MfaVerifyDto extends createZodDto(mfaVerifySchema) {}
+export class MfaCodeDto extends createZodDto(mfaCodeOnlySchema) {}
+
 export interface LoginResponse {
   readonly accessToken: string;
   readonly tokenType: 'Bearer';
   readonly expiresInSeconds: number;
   readonly user: { readonly id: string; readonly email: string };
 }
+
+/** A correct password answers with a session, or with the five minutes in which a code is next. */
+export type LoginOutcome = LoginResponse | MfaChallengeResponse;
 
 export interface MeResponse {
   readonly user: {
@@ -102,6 +110,8 @@ export interface MeResponse {
   readonly permissions: readonly string[];
   /** 12 REQ-AB-05: when today's sign-in window closes, so the client can warn fifteen minutes ahead; exempt holders are never warned. */
   readonly accessWindow: { readonly closesInMinutes: number | null; readonly exempt: boolean };
+  /** REQ-B-09: whether this person has an authenticator, must have one, and so must enrol before anything else. */
+  readonly mfa: MfaSummary;
 }
 
 /** Minimum password length, echoed so the web client shows one number, not two. */

@@ -159,7 +159,7 @@ function RosterEditBody({
                 if (next !== null) setShiftId(next);
               }}
             >
-              <SelectTrigger aria-label="Shift" className="pointer-coarse:h-11 w-full">
+              <SelectTrigger aria-label="Shift" className="w-full">
                 <SelectValue>
                   {(value: string) => {
                     const shift = shifts.find((row) => row.id === value);

@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import {
   BuildingsIcon,
-  CameraIcon,
   ClockIcon,
   EnvelopeSimpleIcon,
   LockKeyIcon,
   MapPinAreaIcon,
   FileTextIcon,
-  MoonIcon,
   PaperPlaneTiltIcon,
-  WarningCircleIcon,
-} from '@phosphor-icons/react';
+  WarningCircleIcon, PaintBrushIcon, ReceiptIcon, ShieldCheckIcon, ShoppingCartIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
@@ -46,11 +43,17 @@ import {
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DEVICE_BINDING_MODES, PERMISSIONS } from '@vyuha/shared';
+import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS, NUMBER_FORMATS, NUMBER_FORMAT_LABELS, CURRENCY_SYMBOLS, SESSION_HOURS_MIN, SESSION_HOURS_MAX } from '@vyuha/shared';
 
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
 import { OfficeLocationPanel } from './office-location-panel';
+import { PurchaseSettingsPanel } from '@/features/purchase/purchase-settings-panel';
+import { SalesSettingsPanel } from '@/features/sales/sales-settings-panel';
+
+import { AppearancePanel } from './appearance-panel';
+import { useSearchParams } from 'react-router';
+
 import { PolicyChoiceField, PolicyDurationField, PolicyNumberField, PolicyToggleField } from './policy-fields';
 import {
   DATE_FORMATS,
@@ -64,8 +67,7 @@ import {
   type OrgProfile,
   type OrgSettings,
   type PhotoPolicy,
-  type SettingsPatch,
-} from './types';
+  type SettingsPatch, type SecurityPolicy, type Appearance, type WorkspaceLocale, type RetentionPolicy } from './types';
 import { useAccessWindowDraft, useSaveAccessWindow } from './use-access-window';
 import { useOfficeGeofence, useSaveGeofence } from './use-office-location';
 import { useSaveSettings, useSettings, useTestEmail } from './use-settings';
@@ -94,6 +96,10 @@ interface Draft {
   organisation: OrgProfile;
   attendance: AttendancePolicy;
   photo: PhotoPolicy;
+  security: SecurityPolicy;
+  appearance: Appearance;
+  locale: WorkspaceLocale;
+  retention: RetentionPolicy;
 }
 
 function draftOf(settings: OrgSettings): Draft {
@@ -101,6 +107,10 @@ function draftOf(settings: OrgSettings): Draft {
     organisation: settings.organisation,
     attendance: settings.attendance,
     photo: settings.photo,
+    security: settings.security,
+    appearance: settings.appearance,
+    locale: settings.locale,
+    retention: settings.retention,
   };
 }
 
@@ -129,6 +139,10 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
   }
   if (!sameGroup(draft.attendance, saved.attendance)) patch.attendance = draft.attendance;
   if (!sameGroup(draft.photo, saved.photo)) patch.photo = draft.photo;
+  if (!sameGroup(draft.security, saved.security)) patch.security = draft.security;
+  if (!sameGroup(draft.appearance, saved.appearance)) patch.appearance = draft.appearance;
+  if (!sameGroup(draft.locale, saved.locale)) patch.locale = draft.locale;
+  if (!sameGroup(draft.retention, saved.retention)) patch.retention = draft.retention;
 
   return patch;
 }
@@ -149,16 +163,46 @@ function FormSkeleton() {
   );
 }
 
+/**
+ * Owner, 22 Aug 2026: every module's settings live here, one tab each. The
+ * tab is in the URL so the sales and purchase list pages can deep-link to
+ * theirs, and so a reload lands where the person was.
+ */
+const TABS = ['organisation', 'appearance', 'office', 'attendance', 'sales', 'purchase', 'documents', 'email', 'access'] as const;
+type SettingsTab = (typeof TABS)[number];
+
+function useSettingsTab(): [SettingsTab, (next: SettingsTab) => void] {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const param = searchParams.get('tab');
+  const tab: SettingsTab = TABS.includes(param as SettingsTab) ? (param as SettingsTab) : 'organisation';
+  const setTab = (next: SettingsTab) => {
+    setSearchParams(
+      (current) => {
+        const params = new URLSearchParams(current);
+        if (next === 'organisation') params.delete('tab');
+        else params.set('tab', next);
+        return params;
+      },
+      { replace: true },
+    );
+  };
+  return [tab, setTab];
+}
+
 export function SettingsPage() {
   const canManage = usePermission(PERMISSIONS.SETTINGS_MANAGE);
+  const canSales = usePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE);
+  const canPurchase = usePermission(PERMISSIONS.PURCHASE_DOCUMENT_APPROVE);
   const query = useSettings({ enabled: canManage });
   const saved = query.data?.value ?? null;
 
   return (
     <>
-      <PageHeader description="Organisation profile, attendance policy, photo retention, outbound email and the sign-in window." />
+      <PageHeader description="Every module's settings in one place: the organisation, how it looks, attendance and photos, sales and purchase thresholds, documents, email, security and the sign-in window." />
 
-      {canManage ? (
+      {!canManage && (canSales || canPurchase) ? (
+        <ModuleSettingsOnly canSales={canSales} canPurchase={canPurchase} />
+      ) : canManage ? (
         <div className="flex flex-col gap-4">
           {query.data?.sample ? <SampleDataNotice what="settings" /> : null}
 
@@ -174,7 +218,7 @@ export function SettingsPage() {
             />
           ) : null}
 
-          {saved ? <SettingsForm key={saved.organisation.id} saved={saved} /> : null}
+          {saved ? <SettingsForm key={saved.organisation.id} saved={saved} canSales={canSales} canPurchase={canPurchase} /> : null}
         </div>
       ) : (
         <Empty className="border">
@@ -194,7 +238,49 @@ export function SettingsPage() {
   );
 }
 
-function SettingsForm({ saved }: { saved: OrgSettings }) {
+/** A sales or purchase approver without settings.manage: their tabs, nothing else. */
+function ModuleSettingsOnly({ canSales, canPurchase }: { canSales: boolean; canPurchase: boolean }) {
+  const [tab, setTab] = useSettingsTab();
+  const first: SettingsTab = canSales ? 'sales' : 'purchase';
+  const value = (tab === 'sales' && canSales) || (tab === 'purchase' && canPurchase) ? tab : first;
+  return (
+    <Tabs
+      value={value}
+      onValueChange={(next: unknown) => {
+        if (next === 'sales' || next === 'purchase') setTab(next);
+      }}
+      className="gap-4"
+    >
+      <TabsList className="no-scrollbar max-w-full overflow-x-auto">
+        {canSales ? (
+          <TabsTrigger value="sales" className="px-3">
+            <ReceiptIcon data-icon="inline-start" />
+            Sales
+          </TabsTrigger>
+        ) : null}
+        {canPurchase ? (
+          <TabsTrigger value="purchase" className="px-3">
+            <ShoppingCartIcon data-icon="inline-start" />
+            Purchase
+          </TabsTrigger>
+        ) : null}
+      </TabsList>
+      {canSales ? (
+        <TabsContent value="sales">
+          <SalesSettingsPanel />
+        </TabsContent>
+      ) : null}
+      {canPurchase ? (
+        <TabsContent value="purchase">
+          <PurchaseSettingsPanel />
+        </TabsContent>
+      ) : null}
+    </Tabs>
+  );
+}
+
+function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; canSales: boolean; canPurchase: boolean }) {
+  const [tab, setTab] = useSettingsTab();
   const [draft, setDraft] = useState<Draft>(() => draftOf(saved));
   const [historyOpen, setHistoryOpen] = useState(false);
   const save = useSaveSettings();
@@ -277,6 +363,18 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
   function patchAttendance(next: Partial<AttendancePolicy>) {
     setDraft((current) => ({ ...current, attendance: { ...current.attendance, ...next } }));
   }
+  function patchAppearance(next: Partial<Appearance>) {
+    setDraft((current) => (current === null ? current : { ...current, appearance: { ...current.appearance, ...next } }));
+  }
+  function patchLocale(next: Partial<WorkspaceLocale>) {
+    setDraft((current) => (current === null ? current : { ...current, locale: { ...current.locale, ...next } }));
+  }
+  function patchRetention(next: Partial<RetentionPolicy>) {
+    setDraft((current) => (current === null ? current : { ...current, retention: { ...current.retention, ...next } }));
+  }
+  function patchSecurity(next: Partial<SecurityPolicy>) {
+    setDraft((current) => (current === null ? current : { ...current, security: { ...current.security, ...next } }));
+  }
   function patchPhoto(next: Partial<PhotoPolicy>) {
     setDraft((current) => ({ ...current, photo: { ...current.photo, ...next } }));
   }
@@ -356,7 +454,13 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         </Button>
       </div>
 
-      <Tabs defaultValue="organisation" className="gap-4">
+      <Tabs
+        value={tab}
+        onValueChange={(next: unknown) => {
+          if (TABS.includes(next as SettingsTab)) setTab(next as SettingsTab);
+        }}
+        className="gap-4"
+      >
         {/* Scrolls rather than stretching the page.
             Four labelled tabs do not fit in 360px, and a TabsList that
             overflows widens the document -- which then drags the fixed bottom
@@ -373,6 +477,10 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
             <BuildingsIcon data-icon="inline-start" />
             Organisation
           </TabsTrigger>
+          <TabsTrigger value="appearance" className="px-3">
+            <PaintBrushIcon data-icon="inline-start" />
+            Appearance
+          </TabsTrigger>
           <TabsTrigger value="office" className="px-3">
             <MapPinAreaIcon data-icon="inline-start" />
             Office location
@@ -381,17 +489,25 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
             <ClockIcon data-icon="inline-start" />
             Attendance
           </TabsTrigger>
-          <TabsTrigger value="photos" className="px-3">
-            <CameraIcon data-icon="inline-start" />
-            Photos
-          </TabsTrigger>
+          {canSales ? (
+            <TabsTrigger value="sales" className="px-3">
+              <ReceiptIcon data-icon="inline-start" />
+              Sales
+            </TabsTrigger>
+          ) : null}
+          {canPurchase ? (
+            <TabsTrigger value="purchase" className="px-3">
+              <ShoppingCartIcon data-icon="inline-start" />
+              Purchase
+            </TabsTrigger>
+          ) : null}
           <TabsTrigger value="email" className="px-3">
             <EnvelopeSimpleIcon data-icon="inline-start" />
             Email
           </TabsTrigger>
           <TabsTrigger value="access" className="px-3">
-            <MoonIcon data-icon="inline-start" />
-            Access window
+            <ShieldCheckIcon data-icon="inline-start" />
+            Security &amp; access
           </TabsTrigger>
           <TabsTrigger value="documents" className="px-3">
             <FileTextIcon data-icon="inline-start" />
@@ -400,6 +516,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         </TabsList>
 
         <TabsContent value="organisation">
+          <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Organisation profile"
@@ -410,7 +527,6 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                 <FieldLabel htmlFor="org-name">Name</FieldLabel>
                 <Input
                   id="org-name"
-                  className="pointer-coarse:h-11"
                   value={draft.organisation.name}
                   onChange={(event) => {
                     patchOrganisation({ name: event.target.value });
@@ -423,7 +539,6 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
                 <FieldLabel htmlFor="org-legal-name">Legal name</FieldLabel>
                 <Input
                   id="org-legal-name"
-                  className="pointer-coarse:h-11"
                   value={draft.organisation.legalName ?? ''}
                   onChange={(event) => {
                     const next = event.target.value.trim();
@@ -486,6 +601,61 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
               />
             </FieldGroup>
           </div>
+
+          <div className="flex flex-col gap-4 border p-4">
+            <SectionHeading title="Numbers and money" note="How every figure is written on screen and in exports." />
+            <FieldGroup className="grid gap-5 md:grid-cols-2">
+              <PolicyChoiceField
+                id="org-number-format"
+                label="Grouping"
+                value={draft.locale.numberFormat}
+                options={NUMBER_FORMATS.map((value) => ({ value, label: NUMBER_FORMAT_LABELS[value] }))}
+                enforcedBy={saved.enforcement.locale.numberFormat}
+                onValueChange={(next) => {
+                  patchLocale({ numberFormat: next });
+                }}
+              />
+              <PolicyChoiceField
+                id="org-currency"
+                label="Currency symbol"
+                value={draft.locale.currencySymbol}
+                options={CURRENCY_SYMBOLS.map((value) => ({ value, label: value }))}
+                enforcedBy={saved.enforcement.locale.currencySymbol}
+                onValueChange={(next) => {
+                  patchLocale({ currencySymbol: next });
+                }}
+              />
+            </FieldGroup>
+          </div>
+
+          <div className="flex flex-col gap-4 border p-4">
+            <SectionHeading title="Data retention" note="Punch photos have their own retention under Attendance. The audit trail is append-only and is not retained by policy." />
+            <FieldGroup className="grid gap-5 md:grid-cols-2">
+              <PolicyNumberField
+                id="retention-exports"
+                label="Keep downloads for"
+                unit="days"
+                help="An export in the Downloads tray is removed after this."
+                min={1}
+                max={365}
+                value={draft.retention.exportsDays}
+                enforcedBy={saved.enforcement.retention.exportsDays}
+                onValueChange={(next) => {
+                  patchRetention({ exportsDays: next });
+                }}
+              />
+            </FieldGroup>
+          </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="appearance">
+          <AppearancePanel
+            value={draft.appearance}
+            saved={saved.appearance}
+            enforcedBy={saved.enforcement.appearance.accentHue}
+            onChange={patchAppearance}
+          />
         </TabsContent>
 
         <TabsContent value="office">
@@ -500,6 +670,7 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         </TabsContent>
 
         <TabsContent value="attendance">
+          <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Attendance policy"
@@ -634,9 +805,6 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
               />
             </FieldGroup>
           </div>
-        </TabsContent>
-
-        <TabsContent value="photos">
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Punch photos"
@@ -717,14 +885,80 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
               ) : null}
             </FieldGroup>
           </div>
+          </div>
         </TabsContent>
+
+
+        {canSales ? (
+          <TabsContent value="sales">
+            <SalesSettingsPanel />
+          </TabsContent>
+        ) : null}
+        {canPurchase ? (
+          <TabsContent value="purchase">
+            <PurchaseSettingsPanel />
+          </TabsContent>
+        ) : null}
 
         <TabsContent value="email">
           <EmailTab settings={saved} />
         </TabsContent>
 
         <TabsContent value="access">
-          <AccessWindowPanel window={accessWindow} saveError={saveWindow.error} />
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-4 border p-4">
+              <SectionHeading
+                title="Two-step sign-in"
+                note="An authenticator app after the password. Anyone may turn it on from their profile; this is who must."
+              />
+              <FieldGroup className="grid gap-5 md:grid-cols-2">
+                <PolicyChoiceField
+                  id="policy-mfa"
+                  label="Required for"
+                  value={draft.security.mfaPolicy}
+                  options={MFA_POLICIES.map((value) => ({ value, label: MFA_POLICY_LABELS[value] }))}
+                  enforcedBy={saved.enforcement.security.mfaPolicy}
+                  onValueChange={(next) => {
+                    patchSecurity({ mfaPolicy: next });
+                  }}
+                >
+                  <FieldDescription>
+                    A person whose role is named here is asked to set up the app at their next sign-in, before any screen.
+                  </FieldDescription>
+                </PolicyChoiceField>
+              </FieldGroup>
+            </div>
+
+            <div className="flex flex-col gap-4 border p-4">
+              <SectionHeading title="Sessions" note="How long a sign-in lasts, and whether closing the browser ends it." />
+              <FieldGroup className="grid gap-5 md:grid-cols-2">
+                <PolicyNumberField
+                  id="policy-session-hours"
+                  label="A sign-in lasts"
+                  unit="hours"
+                  help="Renewed by use: an active person is not signed out mid-shift. 720 is thirty days."
+                  min={SESSION_HOURS_MIN}
+                  max={SESSION_HOURS_MAX}
+                  value={draft.security.sessionHours}
+                  enforcedBy={saved.enforcement.security.sessionHours}
+                  onValueChange={(next) => {
+                    patchSecurity({ sessionHours: next });
+                  }}
+                />
+                <PolicyToggleField
+                  id="policy-session-close"
+                  label="Sign out when the browser closes"
+                  help="The sign-in cookie lasts the browser session instead of the hours above. A shared computer wants this on."
+                  value={draft.security.endSessionOnClose}
+                  enforcedBy={saved.enforcement.security.endSessionOnClose}
+                  onValueChange={(next) => {
+                    patchSecurity({ endSessionOnClose: next });
+                  }}
+                />
+              </FieldGroup>
+            </div>
+            <AccessWindowPanel window={accessWindow} saveError={saveWindow.error} />
+          </div>
         </TabsContent>
 
         <TabsContent value="documents">

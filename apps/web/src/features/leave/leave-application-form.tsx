@@ -279,7 +279,7 @@ export function LeaveApplicationForm({
             <SelectTrigger
               id="leave-type"
               aria-invalid={attempted && Boolean(errors.leaveType)}
-              className="w-full pointer-coarse:h-11"
+              className="w-full"
             >
               <SelectValue>
                 {(value: string | null) =>
@@ -407,7 +407,7 @@ export function LeaveApplicationForm({
             than everything it explains. */}
         <Field className="sm:col-span-2" data-disabled>
           <FieldLabel htmlFor="leave-attachment">Attachment</FieldLabel>
-          <Input id="leave-attachment" type="file" disabled className="pointer-coarse:h-11" />
+          <Input id="leave-attachment" type="file" disabled />
           <FieldDescription>
             Optional, and not available yet: there is no file upload endpoint on the server, so an
             attachment chosen here could not be sent. The rest of the application submits without

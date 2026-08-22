@@ -18,6 +18,8 @@ export const salesLineSchema = z.object({
   taxAmount: z.string(),
   hsnCode: z.string().nullable().default(null),
   // REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate.
+  // D-48: picked sits between ordered and packed. Absent on older fixtures.
+  pickedQty: z.string().default('0.000'),
   packedQty: z.string(),
   invoicedQty: z.string(),
   dispatchedQty: z.string(),
@@ -26,11 +28,16 @@ export const salesLineSchema = z.object({
 });
 export type SalesLine = z.infer<typeof salesLineSchema>;
 
-/** REQ-AA-29: the four figures and the balance every order screen shows per line. */
-export function lineBalances(line: SalesLine): { toPack: number; toInvoice: number; invoicing: number; toDispatch: number } {
+/**
+ * REQ-AA-29: the figures and the balances every order screen shows per line.
+ * D-48 (owner's flow): ordered → picked → packed → invoiced → dispatched;
+ * each step may take only what the one before it released.
+ */
+export function lineBalances(line: SalesLine): { toPick: number; toPack: number; toInvoice: number; invoicing: number; toDispatch: number } {
   const invoicing = Number(line.invoicingQty);
   return {
-    toPack: Math.max(0, Number(line.quantity) - Number(line.packedQty)),
+    toPick: Math.max(0, Number(line.quantity) - Number(line.pickedQty)),
+    toPack: Math.max(0, Number(line.pickedQty) - Number(line.packedQty)),
     // What an invoice raised now may take: packed, less invoiced, less what an invoice in flight already holds (P8-2).
     toInvoice: Math.max(0, Number(line.packedQty) - Number(line.invoicedQty) - invoicing),
     invoicing,
@@ -216,9 +223,24 @@ export const unlinkedInvoiceSchema = z.object({
 export type UnlinkedInvoice = z.infer<typeof unlinkedInvoiceSchema>;
 
 /** REQ-AA-09: one packing session. */
+/** D-48: one picking session — who took how much off the shelf. */
+export const pickRecordSchema = z.object({
+  id: z.string(),
+  documentId: z.string(),
+  pickedById: z.string().nullable(),
+  pickedByName: z.string().nullable(),
+  pickedAt: z.string(),
+  comment: z.string().nullable(),
+  lines: z.array(z.object({ lineId: z.string(), description: z.string(), quantity: z.string(), comment: z.string().nullable() })),
+});
+export type PickRecord = z.infer<typeof pickRecordSchema>;
+
 export const packRecordSchema = z.object({
   id: z.string(),
   documentId: z.string(),
+  orderNumber: z.string(),
+  customerName: z.string(),
+  slipNumber: z.string(),
   boxCount: z.number(),
   packedById: z.string().nullable(),
   packedByName: z.string().nullable(),
@@ -228,6 +250,10 @@ export const packRecordSchema = z.object({
 });
 export type PackRecord = z.infer<typeof packRecordSchema>;
 
+/** D-47: the Packed screen's page of pack records. */
+export const packedListSchema = z.object({ data: z.array(packRecordSchema), meta: z.object({ page: z.number(), pageSize: z.number(), total: z.number() }) });
+export type PackedList = z.infer<typeof packedListSchema>;
+
 // ------------------------------------------------------------------ dispatch
 
 export const dispatchNotificationSchema = z.object({
@@ -235,6 +261,7 @@ export const dispatchNotificationSchema = z.object({
   channel: z.enum(['email', 'whatsapp']),
   recipient: z.string().nullable(),
   status: z.enum(['pending', 'sent', 'failed']),
+  event: z.enum(['dispatched', 'delivered']).optional(),
   composedText: z.string(),
   sentAt: z.string().nullable(),
   error: z.string().nullable(),
@@ -259,12 +286,18 @@ export const dispatchSchema = z.object({
   driverName: z.string().nullable(),
   expectedDeliveryDate: z.string().nullable(),
   notes: z.string().nullable(),
+  // D-47: shipped until the door step marks it delivered.
+  status: z.enum(['shipped', 'delivered']).default('shipped'),
+  deliveredAt: z.string().nullable().default(null),
+  deliveredByName: z.string().nullable().default(null),
+  receivedBy: z.string().nullable().default(null),
+  deliveryNote: z.string().nullable().default(null),
   syncState: z.enum(SYNC_STATES),
   remoteGuid: z.string().nullable(),
   remoteVoucherNumber: z.string().nullable(),
   lastError: z.string().nullable(),
   lines: z.array(z.object({ lineId: z.string(), description: z.string(), quantity: z.string(), unit: z.string().nullable() })),
-  attachments: z.array(z.object({ fileId: z.string(), kind: z.enum(['box', 'lr']) })),
+  attachments: z.array(z.object({ fileId: z.string(), kind: z.enum(['box', 'lr', 'delivery']) })),
   notifications: z.array(dispatchNotificationSchema),
 });
 export type Dispatch = z.infer<typeof dispatchSchema>;

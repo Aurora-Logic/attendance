@@ -12,7 +12,6 @@ import {
   TableIcon,
   DownloadSimpleIcon,
   ImageIcon,
-  SwapIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
 import { endOfMonth, startOfMonth, subDays } from 'date-fns';
@@ -65,6 +64,7 @@ import { cn } from '@/lib/utils';
 import {
   DEFAULT_PAGE_SIZE,
   PERMISSIONS,
+  REPORT_CATEGORIES,
   REPORT_KEYS,
   REPORT_DEFINITIONS,
   defaultVisibleColumns,
@@ -98,7 +98,7 @@ import { ColumnChooser } from './column-chooser';
 import { ReportCatalogue } from './report-catalogue';
 import { GenericReportChart, ReportChart, type ChartDrill } from './report-charts';
 import { chartKindOf, primaryNumericColumn } from './report-series';
-import { comparisonRange, deltaOf, periodForGranularity, type CompareMode, type Granularity } from './period-compare';
+import { comparisonRange, deltaOf, periodForGranularity, type CompareMode, type Granularity } from '@/lib/period-compare';
 import { ReportFilterBar, type ReportFilterState } from './filter-bar';
 import { periodFor, periodModeOf } from './period';
 import { ScheduleDialog } from './schedule-dialog';
@@ -186,7 +186,9 @@ function ReportSwitcher({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden p-0" showCloseButton={false}>
+      {/* instant: this opens from Ctrl+G and the title, dozens of times a
+          day; a surface used that often must not animate. */}
+      <DialogContent className="overflow-hidden p-0" showCloseButton={false} instant>
         <DialogTitle className="sr-only">Switch report</DialogTitle>
         <DialogDescription className="sr-only">
           Pick the report to show. PRD section 6.4 gives this Ctrl+G.
@@ -195,23 +197,27 @@ function ReportSwitcher({
           <CommandInput placeholder="Switch to a report" />
           <CommandList>
             <CommandEmpty>No report matches.</CommandEmpty>
-            <CommandGroup heading="Reports">
-              {reports.map((report) => (
-                <CommandItem
-                  key={report.key}
-                  value={`${report.label} ${report.description}`}
-                  onSelect={() => {
-                    onSelect(report.key);
-                    onOpenChange(false);
-                  }}
-                >
-                  <ChartBarIcon />
-                  <span className={cn(report.key === current && 'font-medium')}>
-                    {report.label}
-                  </span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
+            {REPORT_CATEGORIES.filter((category) => reports.some((report) => report.category === category)).map((category) => (
+              <CommandGroup key={category} heading={category}>
+                {reports
+                  .filter((report) => report.category === category)
+                  .map((report) => (
+                    <CommandItem
+                      key={report.key}
+                      value={`${report.label} ${report.description} ${category}`}
+                      onSelect={() => {
+                        onSelect(report.key);
+                        onOpenChange(false);
+                      }}
+                    >
+                      <ChartBarIcon />
+                      <span className={cn(report.key === current && 'font-medium')}>
+                        {report.label}
+                      </span>
+                    </CommandItem>
+                  ))}
+              </CommandGroup>
+            ))}
           </CommandList>
         </Command>
       </DialogContent>
@@ -673,7 +679,6 @@ export function ReportsPage() {
             variant="ghost"
             size="icon"
             aria-label="View the punch photo"
-            className="pointer-coarse:size-11"
             onClick={(event) => {
               event.stopPropagation();
               setSelectedPunch(row.punch);
@@ -728,24 +733,64 @@ export function ReportsPage() {
 
   if (browsing) return <ReportCatalogue reports={catalogue.data ?? []} loading={catalogue.isPending} />;
 
+  // Rendered in the phone row and in the desktop bar; one element each, so
+  // the two surfaces cannot drift apart in what they offer.
+  const savedViewsControl = (
+    <SavedViews
+      views={savedViews.data ?? []}
+      isLoading={savedViews.isPending}
+      currentConfig={{ filters: exportFilters, columns: visibleColumns, sort }}
+      isSaving={saveView.isPending}
+      onApply={applyView}
+      onSave={async (input) => {
+        await saveView.mutateAsync({ reportKey, ...input });
+      }}
+      onDelete={async (view) => {
+        await deleteView.mutateAsync(view.id);
+      }}
+    />
+  );
+  const columnChooserControl = (
+    <ColumnChooser
+      columns={definition?.columns ?? []}
+      visible={visibleColumns}
+      open={chooserOpen}
+      onOpenChange={setChooserOpen}
+      onVisibleChange={(next) => {
+        patchParams((params) => {
+          params.set('columns', next.join(','));
+        }, true);
+      }}
+      onReset={() => {
+        patchParams((params) => {
+          params.set('columns', defaultVisibleColumns(reportKey).join(','));
+        }, true);
+      }}
+    />
+  );
+
   return (
     <>
       <PageHeader
+        eyebrow={definition?.category}
+        // The report's name is the title, and the title is the switcher:
+        // one element says what this is and lets you change it (Ctrl+G).
+        title={
+          <Button
+            variant="ghost"
+            className="-ml-2.5 h-auto gap-1.5 px-2.5 py-1 text-base font-semibold"
+            onClick={() => {
+              setSwitcherOpen(true);
+            }}
+          >
+            {definition?.label ?? 'Report'}
+            <CaretDownIcon className="text-muted-foreground" />
+            <ShortcutHint keys="ctrl+g" className="hidden md:inline-flex" />
+          </Button>
+        }
         description={definition?.description ?? 'Every report shares one shell.'}
         action={
           <>
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={() => {
-                setSwitcherOpen(true);
-              }}
-            >
-              <SwapIcon data-icon="inline-start" />
-              <span className="hidden sm:inline">{definition?.label ?? 'Report'}</span>
-              <ShortcutHint keys="ctrl+g" className="hidden md:inline-flex" />
-            </Button>
-
             {/*
               REQ-J-03 is titled "Excel export", so Excel is what the button
               does and CSV is the alternative behind the caret -- rather than a
@@ -843,8 +888,6 @@ export function ReportsPage() {
           <div className="flex items-center gap-2">
             <Button
               variant={isFiltered ? 'default' : 'outline'}
-              size="sm"
-              className="pointer-coarse:min-h-11"
               onClick={() => {
                 setMobileFiltersOpen(true);
               }}
@@ -853,6 +896,8 @@ export function ReportsPage() {
               Filters
               {isFiltered ? <Badge variant="secondary" className="ml-1">on</Badge> : null}
             </Button>
+            {savedViewsControl}
+            {columnChooserControl}
             {chartKind !== 'none' ? (
               <ToggleGroup
                 variant="outline"
@@ -864,13 +909,13 @@ export function ReportsPage() {
                   if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
                 }}
               >
-                <ToggleGroupItem value="table" aria-label="Table view" className="pointer-coarse:min-h-11">
+                <ToggleGroupItem value="table" aria-label="Table view">
                   <TableIcon />
                 </ToggleGroupItem>
-                <ToggleGroupItem value="chart" aria-label="Chart view" className="pointer-coarse:min-h-11">
+                <ToggleGroupItem value="chart" aria-label="Chart view">
                   <ChartBarIcon />
                 </ToggleGroupItem>
-                <ToggleGroupItem value="both" aria-label="Both views" className="pointer-coarse:min-h-11">
+                <ToggleGroupItem value="both" aria-label="Both views">
                   Both
                 </ToggleGroupItem>
               </ToggleGroup>
@@ -896,7 +941,7 @@ export function ReportsPage() {
                   <Button
                     key={action.label}
                     variant="ghost"
-                    className="min-h-11 justify-start"
+                    className="justify-start"
                     onClick={() => {
                       setExportSheetOpen(false);
                       action.run();
@@ -943,7 +988,7 @@ export function ReportsPage() {
                         });
                       }}
                     >
-                      <SelectTrigger className="pointer-coarse:min-h-11 w-full" aria-label="Compare against">
+                      <SelectTrigger className="w-full" aria-label="Compare against">
                         <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
@@ -962,7 +1007,7 @@ export function ReportsPage() {
                         if (value !== null) setSort(sort === `-${value}` ? `-${value}` : value);
                       }}
                     >
-                      <SelectTrigger className="pointer-coarse:min-h-11 flex-1" aria-label="Sort by">
+                      <SelectTrigger className="flex-1" aria-label="Sort by">
                         <SelectValue>
                           {(value: string) => `Sort: ${definition.columns.find((column) => column.sortField === value)?.header ?? 'Default'}`}
                         </SelectValue>
@@ -980,7 +1025,6 @@ export function ReportsPage() {
                     <Button
                       variant="outline"
                       size="icon-sm"
-                      className="pointer-coarse:size-11"
                       aria-label={sort.startsWith('-') ? 'Sorted descending; switch to ascending' : 'Sorted ascending; switch to descending'}
                       onClick={() => {
                         const field = sort.startsWith('-') ? sort.slice(1) : sort;
@@ -996,133 +1040,127 @@ export function ReportsPage() {
           </Sheet>
         </div>
 
-        <div className="hidden flex-wrap items-start justify-between gap-2 md:flex">
-          <ReportFilterBar
-            available={definition?.filters ?? []}
-            periodMode={periodMode}
-            value={filters}
-            onChange={setFilters}
-            departments={departments.data ?? []}
-            locations={locations.data ?? []}
-            parties={partyOptions}
-            partiesLoading={parties.isPending}
-            periodOpen={periodOpen}
-            onPeriodOpenChange={setPeriodOpen}
-            onClear={clearFilters}
-            isFiltered={isFiltered}
-          />
-
-          </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-
-            <SavedViews
-              views={savedViews.data ?? []}
-              isLoading={savedViews.isPending}
-              currentConfig={{ filters: exportFilters, columns: visibleColumns, sort }}
-              isSaving={saveView.isPending}
-              onApply={applyView}
-              onSave={async (input) => {
-                await saveView.mutateAsync({ reportKey, ...input });
-              }}
-              onDelete={async (view) => {
-                await deleteView.mutateAsync(view.id);
-              }}
+        {/* One control bar on a desk (PRD §6.2): the period and the report's
+            own filters on the left; what shapes the reading -- granularity,
+            comparison, saved views, columns and the table/chart choice -- on
+            the right. It used to be three rows before the first figure. */}
+        <div className="hidden flex-col gap-2 md:flex">
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportFilterBar
+              available={definition?.filters ?? []}
+              periodMode={periodMode}
+              value={filters}
+              onChange={setFilters}
+              departments={departments.data ?? []}
+              locations={locations.data ?? []}
+              parties={partyOptions}
+              partiesLoading={parties.isPending}
+              periodOpen={periodOpen}
+              onPeriodOpenChange={setPeriodOpen}
+              onClear={clearFilters}
+              isFiltered={isFiltered}
             />
-
-            <ColumnChooser
-              columns={definition?.columns ?? []}
-              visible={visibleColumns}
-              open={chooserOpen}
-              onOpenChange={setChooserOpen}
-              onVisibleChange={(next) => {
-                patchParams((params) => {
-                  params.set('columns', next.join(','));
-                }, true);
-              }}
-              onReset={() => {
-                patchParams((params) => {
-                  params.set('columns', defaultVisibleColumns(reportKey).join(','));
-                }, true);
-              }}
-            />
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              {hasPeriod ? (
+                <>
+                  <Select
+                    value={granularity ?? 'custom'}
+                    onValueChange={(value: string | null) => {
+                      if (value === null) return;
+                      patchParams((params) => {
+                        if (value === 'month' || value === 'quarter' || value === 'year') {
+                          const range = periodForGranularity(value, new Date().toLocaleDateString('en-CA'));
+                          params.set('granularity', value);
+                          params.set('from', range.from);
+                          params.set('to', range.to);
+                        } else {
+                          params.delete('granularity');
+                        }
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="w-36" aria-label="Period granularity">
+                      <SelectValue>{(value: string) => (value === 'month' ? 'This month' : value === 'quarter' ? 'This quarter' : value === 'year' ? 'This FY' : 'Custom period')}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="custom">Custom period</SelectItem>
+                      <SelectItem value="month">This month</SelectItem>
+                      <SelectItem value="quarter">This quarter</SelectItem>
+                      <SelectItem value="year">This FY (Apr–Mar)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={compare}
+                    onValueChange={(value: string | null) => {
+                      if (value === null) return;
+                      patchParams((params) => {
+                        if (value === 'previous' || value === 'lastYear') params.set('compare', value);
+                        else params.delete('compare');
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="w-44" aria-label="Compare against">
+                      <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="off">No comparison</SelectItem>
+                      <SelectItem value="previous">vs previous period</SelectItem>
+                      <SelectItem value="lastYear">vs same period last FY</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              ) : null}
+              {savedViewsControl}
+              {columnChooserControl}
+              {chartKind !== 'none' ? (
+                <ToggleGroup
+                  variant="outline"
+                  aria-label="How the report shows"
+                  value={[viewMode]}
+                  onValueChange={(value: string[]) => {
+                    const next = value[0];
+                    if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
+                  }}
+                >
+                  <ToggleGroupItem value="table">
+                    <TableIcon data-icon="inline-start" />
+                    Table
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="chart">
+                    <ChartBarIcon data-icon="inline-start" />
+                    Chart
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="both">
+                    Both
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              ) : null}
+            </div>
           </div>
+          {hasPeriod ? (
+            <p className="text-muted-foreground text-xs tabular-nums">
+              {compare !== 'off' && compareRange !== null ? (
+                <span>
+                  against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}
+                  {currentRange !== null ? ', to date' : ''}
+                  {/* The party filter above scopes both periods, which is what
+                      lets one customer or vendor be compared across them. */}
+                  {definition?.filters.includes('partyId')
+                    ? filters.partyId
+                      ? `, for ${partyOptions.find((option) => option.id === filters.partyId)?.label ?? 'one party'}`
+                      : ' · whole business — filter by party to compare one'
+                    : ''}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
+        </div>
 
         {/* What this report is showing, in words, so a shared link explains
             itself and matches the block at the top of the exported file. */}
         <p className="text-muted-foreground text-xs">
           {captions.map((caption) => `${caption.label}: ${caption.value}`).join('  ·  ')}
         </p>
-
-        {/* Sort is on the toolbar rather than on the header cells: at 360px the
-            table becomes stacked rows with no header to click. One Select and
-            one direction button, not a loose row of text buttons. */}
-        {definition !== undefined && (definition.columns.some((column) => column.sortField !== undefined) || hasPeriod) ? (
-          <div className="hidden flex-wrap items-center gap-1.5 md:flex">
-            {hasPeriod ? (
-              <>
-                <Select
-                  value={granularity ?? 'custom'}
-                  onValueChange={(value: string | null) => {
-                    if (value === null) return;
-                    patchParams((params) => {
-                      if (value === 'month' || value === 'quarter' || value === 'year') {
-                        const range = periodForGranularity(value, new Date().toLocaleDateString('en-CA'));
-                        params.set('granularity', value);
-                        params.set('from', range.from);
-                        params.set('to', range.to);
-                      } else {
-                        params.delete('granularity');
-                      }
-                    });
-                  }}
-                >
-                  <SelectTrigger size="sm" className="pointer-coarse:min-h-11 w-36" aria-label="Period granularity">
-                    <SelectValue>{(value: string) => (value === 'month' ? 'This month' : value === 'quarter' ? 'This quarter' : value === 'year' ? 'This FY' : 'Custom period')}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="custom">Custom period</SelectItem>
-                    <SelectItem value="month">This month</SelectItem>
-                    <SelectItem value="quarter">This quarter</SelectItem>
-                    <SelectItem value="year">This FY (Apr–Mar)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={compare}
-                  onValueChange={(value: string | null) => {
-                    if (value === null) return;
-                    patchParams((params) => {
-                      if (value === 'previous' || value === 'lastYear') params.set('compare', value);
-                      else params.delete('compare');
-                    });
-                  }}
-                >
-                  <SelectTrigger size="sm" className="pointer-coarse:min-h-11 w-44" aria-label="Compare against">
-                    <SelectValue>{(value: string) => (value === 'previous' ? 'vs previous period' : value === 'lastYear' ? 'vs same period last FY' : 'No comparison')}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="off">No comparison</SelectItem>
-                    <SelectItem value="previous">vs previous period</SelectItem>
-                    <SelectItem value="lastYear">vs same period last FY</SelectItem>
-                  </SelectContent>
-                </Select>
-                {compare !== 'off' && compareRange !== null ? (
-                  <span className="text-muted-foreground text-xs tabular-nums">
-                    against {formatDate(compareRange.from)} – {formatDate(compareRange.to)}
-                    {currentRange !== null ? ', to date' : ''}
-                    {/* The party filter above scopes both periods, which is what
-                        lets one customer or vendor be compared across them. */}
-                    {definition?.filters.includes('partyId')
-                      ? filters.partyId
-                        ? `, for ${partyOptions.find((option) => option.id === filters.partyId)?.label ?? 'one party'}`
-                        : ' · whole business — filter by party to compare one'
-                      : ''}
-                  </span>
-                ) : null}
-              </>
-            ) : null}
-          </div>
-        ) : null}
 
         {unknownReport ? (
           <Alert variant="destructive">
@@ -1222,30 +1260,6 @@ export function ReportsPage() {
 
         {rows.length > 0 ? (
           <>
-            {chartKind !== 'none' ? (
-              <ToggleGroup
-                variant="outline"
-                aria-label="How the report shows"
-                className="max-md:hidden"
-                value={[viewMode]}
-                onValueChange={(value: string[]) => {
-                  const next = value[0];
-                  if (next === 'table' || next === 'chart' || next === 'both') setViewMode(next);
-                }}
-              >
-                <ToggleGroupItem value="table" className="pointer-coarse:h-11">
-                  <TableIcon data-icon="inline-start" />
-                  Table
-                </ToggleGroupItem>
-                <ToggleGroupItem value="chart" className="pointer-coarse:h-11">
-                  <ChartBarIcon data-icon="inline-start" />
-                  Chart
-                </ToggleGroupItem>
-                <ToggleGroupItem value="both" className="pointer-coarse:h-11">
-                  Both
-                </ToggleGroupItem>
-              </ToggleGroup>
-            ) : null}
             {viewMode !== 'table' && chartKind === 'bespoke' ? <ReportChart reportKey={reportKey} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} /> : null}
             {viewMode !== 'table' && chartKind === 'generic' && definition !== undefined ? (
               <GenericReportChart reportKey={reportKey} definition={definition} rows={chartRows} animate={chartIntro} compare={compare === 'off' || !comparison.isSuccess ? undefined : { rows: comparison.data.data, label: compare === 'lastYear' ? 'Last FY' : 'Previous' }} onDrill={drillToSegment} />

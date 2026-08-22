@@ -189,7 +189,7 @@ export function ScheduleDialog({
                 setCadence(next as ScheduleCadence);
               }}
             >
-              <SelectTrigger id="schedule-cadence" className="pointer-coarse:h-11 w-full">
+              <SelectTrigger id="schedule-cadence" className="w-full">
                 <SelectValue>
                   {(current: string) => SCHEDULE_CADENCE_LABELS[current as ScheduleCadence]}
                 </SelectValue>
@@ -215,7 +215,7 @@ export function ScheduleDialog({
                   if (next !== null) setWeekday(next);
                 }}
               >
-                <SelectTrigger id="schedule-weekday" className="pointer-coarse:h-11 w-full">
+                <SelectTrigger id="schedule-weekday" className="w-full">
                   <SelectValue>
                     {(current: string) => SCHEDULE_WEEKDAY_LABELS[Number(current)] ?? 'Monday'}
                   </SelectValue>
@@ -240,7 +240,7 @@ export function ScheduleDialog({
                   if (next !== null) setDayOfMonth(next);
                 }}
               >
-                <SelectTrigger id="schedule-day" className="pointer-coarse:h-11 w-full">
+                <SelectTrigger id="schedule-day" className="w-full">
                   <SelectValue>{(current: string) => current}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -273,7 +273,7 @@ export function ScheduleDialog({
                 setFormat(next as ExportFormat);
               }}
             >
-              <SelectTrigger id="schedule-format" className="pointer-coarse:h-11 w-full">
+              <SelectTrigger id="schedule-format" className="w-full">
                 <SelectValue>
                   {(current: string) => EXPORT_FORMAT_LABELS[current as ExportFormat]}
                 </SelectValue>

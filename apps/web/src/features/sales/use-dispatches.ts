@@ -21,6 +21,8 @@ export interface DispatchFilters {
   documentId?: string;
   mode?: DispatchMode;
   syncState?: DocumentSyncState;
+  /** The board's Dispatched (no) and Delivered (yes) tabs. */
+  delivered?: 'yes' | 'no';
 }
 
 export function useDispatches(filters: DispatchFilters, options: { enabled?: boolean } = {}): UseQueryResult<DispatchesResponse, Error> {
@@ -29,6 +31,7 @@ export function useDispatches(filters: DispatchFilters, options: { enabled?: boo
   if (filters.documentId) params.set('documentId', filters.documentId);
   if (filters.mode) params.set('mode', filters.mode);
   if (filters.syncState) params.set('syncState', filters.syncState);
+  if (filters.delivered) params.set('delivered', filters.delivered);
   const key = params.toString();
   return useQuery({
     enabled: options.enabled ?? true,
@@ -92,6 +95,20 @@ export function useCreateDispatch(): UseMutationResult<Dispatch, Error, CreateDi
       for (const file of box) form.append('box', file, file.name);
       for (const file of lr) form.append('lr', file, file.name);
       return postMultipart(`/sales/orders/${documentId}/dispatches`, form, (body) => parseOrThrow(dispatchSchema, body, 'dispatch'));
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** D-47: the door step — who received it and the photograph taken there. */
+export function useDeliverDispatch(): UseMutationResult<Dispatch, Error, { dispatchId: string; receivedBy: string; note: string | null; photos: readonly File[] }> {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ dispatchId, receivedBy, note, photos }) => {
+      const form = new FormData();
+      form.append('payload', JSON.stringify({ receivedBy, note }));
+      for (const file of photos) form.append('photo', file, file.name);
+      return postMultipart(`/sales/dispatches/${dispatchId}/deliver`, form, (body) => parseOrThrow(dispatchSchema, body, 'dispatch'));
     },
     onSuccess: invalidate,
   });

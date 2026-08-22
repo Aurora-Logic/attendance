@@ -138,7 +138,6 @@ function HolidaySheetBody({ initial, onClose }: { initial: HolidayDraft; onClose
             <Input
               id="holiday-name"
               autoFocus
-              className="pointer-coarse:h-11"
               value={draft.name}
               onChange={(event) => {
                 setDraft((current) => ({ ...current, name: event.target.value }));

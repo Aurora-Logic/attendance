@@ -1,7 +1,6 @@
 import {
   DEVICE_BINDING_MODES,
-  type DeviceBindingMode,
-} from '@vyuha/shared';
+  type DeviceBindingMode, MFA_POLICIES, appearanceSchema, type Appearance, localeSchema, retentionSchema, type WorkspaceLocale, type RetentionPolicy } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -74,6 +73,22 @@ export const emailSettingsSchema = z.object({
 
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 
+/** The workspace's accent, base and density, as the API keeps them. */
+export { appearanceSchema };
+export type { Appearance };
+
+/** REQ-B-09, and the sign-in window's length (owner, 22 Aug 2026). */
+export const securityPolicySchema = z.object({
+  mfaPolicy: z.enum(MFA_POLICIES),
+  sessionHours: z.number().int(),
+  endSessionOnClose: z.boolean(),
+});
+
+export { localeSchema, retentionSchema };
+export type { WorkspaceLocale, RetentionPolicy };
+
+export type SecurityPolicy = z.infer<typeof securityPolicySchema>;
+
 /** Field name to the feature that reads it today, or null when nothing does. */
 const enforcementSchema = z.record(z.string(), z.string().nullable());
 
@@ -81,8 +96,19 @@ export const orgSettingsSchema = z.object({
   organisation: orgProfileSchema,
   attendance: attendancePolicySchema,
   photo: photoPolicySchema,
+  security: securityPolicySchema,
+  appearance: appearanceSchema,
+  locale: localeSchema,
+  retention: retentionSchema,
   email: emailSettingsSchema,
-  enforcement: z.object({ attendance: enforcementSchema, photo: enforcementSchema }),
+  enforcement: z.object({
+    attendance: enforcementSchema,
+    photo: enforcementSchema,
+    security: enforcementSchema,
+    appearance: enforcementSchema,
+    locale: enforcementSchema,
+    retention: enforcementSchema,
+  }),
   unreadableKeys: z.array(z.string()),
 });
 
@@ -100,6 +126,10 @@ export interface SettingsPatch {
   organisation?: Partial<Omit<OrgProfile, 'id' | 'logoKey'>>;
   attendance?: Partial<AttendancePolicy>;
   photo?: Partial<PhotoPolicy>;
+  security?: Partial<SecurityPolicy>;
+  appearance?: Partial<Appearance>;
+  locale?: Partial<WorkspaceLocale>;
+  retention?: Partial<RetentionPolicy>;
 }
 
 export const GEOFENCE_LABELS: Record<GeofenceBehaviour, string> = {

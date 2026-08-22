@@ -111,7 +111,11 @@ describe('availability (13 §2, REQ-AC-03/04)', () => {
 
 describe('shortage → requirement → PO → GRN → allocation (13 §1)', () => {
   it('two short packs raise two requirements carrying their orders; the queue shows who waits', async () => {
+    // D-48: the shelf first; the shortage is what was not there to pick.
+    await harness.post(`/sales/orders/${orderA}/picks`, { token: salesToken, body: { lines: [{ lineId: lineA, quantity: '6' }] } });
     await harness.post(`/sales/orders/${orderA}/packs`, { token: salesToken, body: { lines: [{ lineId: lineA, quantity: '6' }] } });
+    // D-48: the shelf first; the shortage is what was not there to pick.
+    await harness.post(`/sales/orders/${orderB}/picks`, { token: salesToken, body: { lines: [{ lineId: lineB, quantity: '6' }] } });
     await harness.post(`/sales/orders/${orderB}/packs`, { token: salesToken, body: { lines: [{ lineId: lineB, quantity: '6' }] } });
     const queue = await harness.get<RequirementView[]>('/purchase/requirements?state=open', { token: adminToken });
     const mine = queue.body.filter((r) => r.stockItemId === cableId);

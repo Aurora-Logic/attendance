@@ -1,5 +1,7 @@
 import { format, formatDistanceToNow, parseISO } from 'date-fns';
 
+import { DEFAULT_LOCALE, groupDigits, type WorkspaceLocale } from '@vyuha/shared';
+
 /**
  * How dates are written on screen.
  *
@@ -14,6 +16,38 @@ export const DATE_FORMAT = 'dd-MM-yyyy';
 /** What a column shows when a nullable date is not set. Not the empty string:
  *  a blank cell reads as a rendering failure, an em dash reads as "none". */
 export const EMPTY_VALUE = '—';
+
+/**
+ * The workspace's number format and currency symbol, set once by the shell
+ * from the branding read (appearance-effect.tsx) and read by every
+ * formatter below. A module-level value rather than context, because the
+ * formatters are called from table cells, chart labels and toasts, none of
+ * which should need a hook to write a number.
+ */
+let locale: WorkspaceLocale = DEFAULT_LOCALE;
+
+export function setWorkspaceLocale(next: WorkspaceLocale): void {
+  locale = next;
+}
+
+export function currencySymbol(): string {
+  return locale.currencySymbol;
+}
+
+/** A decimal string as the API sends it, grouped the way the workspace writes figures; two decimals. */
+export function formatAmount(value: string | null): string {
+  if (value === null) return EMPTY_VALUE;
+  const negative = value.startsWith('-');
+  const [whole = '0', fraction] = value.replace(/^-/u, '').split('.');
+  const decimals = fraction === undefined ? '00' : fraction.padEnd(2, '0').slice(0, 2);
+  return `${negative ? '−' : ''}${groupDigits(whole, locale.numberFormat)}.${decimals}`;
+}
+
+/** A whole number for a headline: grouped, no decimals. */
+export function formatCount(value: number): string {
+  const rounded = Math.round(Math.abs(value));
+  return `${value < 0 ? '−' : ''}${groupDigits(String(rounded), locale.numberFormat)}`;
+}
 
 /**
  * Formats an API date.

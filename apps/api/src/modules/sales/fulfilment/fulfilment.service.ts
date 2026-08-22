@@ -3,10 +3,16 @@ import {
   DEFAULT_PURCHASE_SETTINGS,
   NOTIFICATION_EVENTS,
   PERMISSIONS,
+  pageSlice,
+  paginated,
   type AwaitingInvoiceEntry,
   type CreatePackRecordInput,
+  type CreatePickRecordInput,
+  type PackListQuery,
   type PackRecordView,
+  type Paginated,
   type PickQueueEntry,
+  type PickRecordView,
   type SalesDocumentView,
   type UnlinkedInvoice,
 } from '@vyuha/shared';
@@ -165,25 +171,62 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
     return pack;
   }
 
-  private async packRecords(principal: Principal, where: SQL): Promise<PackRecordView[]> {
+  /**
+   * D-47: the slip's number is the order number and the last four characters
+   * of the pack id ("SO-0007/AB12"), because that is what the paper prints
+   * and the phone scans. The suffix alone is not unique; with the order it is.
+   */
+  async findPackBySlip(principal: Principal, slipNumber: string): Promise<PackRecordView> {
+    const match = /^(.+)\/([0-9A-Fa-f]{4})$/u.exec(slipNumber.trim());
+    if (match === null) throw AppError.notFound('Packing slip', slipNumber);
+    const [, orderNumber = '', suffix = ''] = match;
+    const rows = await this.packRecords(
+      principal,
+      sql`p.document_id = (SELECT id FROM sales_documents WHERE org_id = ${principal.orgId} AND number = ${orderNumber} AND deleted_at IS NULL LIMIT 1)
+          AND upper(right(p.id::text, 4)) = ${suffix.toUpperCase()}`,
+    );
+    const pack = rows[0];
+    if (pack === undefined) throw AppError.notFound('Packing slip', slipNumber);
+    await this.order(principal, pack.documentId);
+    return pack;
+  }
+
+  /** D-47: the Packed screen — every pack across the orders this person may see, newest first. */
+  async listAllPacks(principal: Principal, query: PackListQuery): Promise<Paginated<PackRecordView>> {
+    const scope = this.scopes.resolve(principal, GRANTS, sql`d.owner_id`).where;
+    const needle = query.q === undefined ? null : `%${query.q}%`;
+    const where = sql`${scope} AND d.deleted_at IS NULL${needle === null ? sql`` : sql` AND (d.number ILIKE ${needle} OR d.customer_name ILIKE ${needle})`}`;
+    const counted = await this.db.execute<{ total: number }>(sql`
+      SELECT count(*)::int AS total FROM pack_records p JOIN sales_documents d ON d.id = p.document_id
+       WHERE p.org_id = ${principal.orgId} AND p.deleted_at IS NULL AND ${where}
+    `);
+    const { limit, offset } = pageSlice(query);
+    const rows = await this.packRecords(principal, where, sql`ORDER BY p.packed_at DESC LIMIT ${limit} OFFSET ${offset}`);
+    return paginated(rows, query, counted.rows[0]?.total ?? 0);
+  }
+
+  private async packRecords(principal: Principal, where: SQL, order: SQL = sql`ORDER BY p.packed_at`): Promise<PackRecordView[]> {
     const rows = await this.db.execute<{
-      id: string; document_id: string; box_count: number; packed_by: string | null; packed_by_name: string | null; packed_at: Date; comment: string | null;
+      id: string; document_id: string; order_number: string; customer_name: string; box_count: number; packed_by: string | null; packed_by_name: string | null; packed_at: Date; comment: string | null;
       lines: { lineId: string; description: string; quantity: string; comment: string | null }[];
     }>(sql`
-      SELECT p.id, p.document_id, p.box_count, p.packed_by,
+      SELECT p.id, p.document_id, d.number AS order_number, d.customer_name, p.box_count, p.packed_by,
              CASE WHEN e.id IS NULL THEN NULL ELSE concat_ws(' ', e.first_name, e.last_name) END AS packed_by_name,
              p.packed_at, p.comment,
              COALESCE((
                SELECT json_agg(json_build_object('lineId', pl.line_id, 'description', l.description, 'quantity', pl.quantity::text, 'comment', pl.comment) ORDER BY l.line_no)
                  FROM pack_record_lines pl JOIN sales_document_lines l ON l.id = pl.line_id WHERE pl.pack_record_id = p.id
              ), '[]'::json) AS lines
-        FROM pack_records p LEFT JOIN employees e ON e.id = p.packed_by
+        FROM pack_records p JOIN sales_documents d ON d.id = p.document_id LEFT JOIN employees e ON e.id = p.packed_by
        WHERE p.org_id = ${principal.orgId} AND ${where} AND p.deleted_at IS NULL
-       ORDER BY p.packed_at
+       ${order}
     `);
     return rows.rows.map((r) => ({
       id: r.id,
       documentId: r.document_id,
+      orderNumber: r.order_number,
+      customerName: r.customer_name,
+      slipNumber: `${r.order_number}/${r.id.slice(-4).toUpperCase()}`,
       boxCount: Number(r.box_count),
       packedById: r.packed_by,
       packedByName: r.packed_by_name,
@@ -200,6 +243,71 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
    * the unpacked balance becomes (or updates, or closes) its shortage
    * requirement (REQ-X-08).
    */
+  /** D-48: a picking session — the balance moves ordered → picked; a line packs only what it has picked. */
+  async pick(principal: Principal, documentId: string, input: CreatePickRecordInput): Promise<PickRecordView> {
+    const order = await this.order(principal, documentId);
+    if (order.status !== 'CONFIRMED') throw AppError.conflict(`${order.number} is ${order.status.toLowerCase()}; only a confirmed order is picked.`);
+    if (order.shortClosedAt !== null) throw AppError.conflict(`${order.number} was short-closed.`);
+    const byId = new Map(order.lines.map((line) => [line.id, line]));
+    for (const entry of input.lines) {
+      const line = byId.get(entry.lineId);
+      if (line === undefined) throw AppError.validation('A pick line names a line that is not on this order.', { lineId: entry.lineId });
+      const balance = Number(line.quantity) - Number(line.pickedQty);
+      if (Number(entry.quantity) > balance + 1e-9) {
+        throw AppError.validation(`Line ${String(line.lineNo)} (${line.description}) has ${balance.toFixed(3)} left to pick, not ${entry.quantity}.`, {
+          fields: [{ path: `lines.${String(input.lines.indexOf(entry))}.quantity`, message: 'exceeds the balance' }],
+        });
+      }
+    }
+    const ctx = orgContextOf(principal);
+    const pickId = await this.db.transaction(async (tx) => {
+      const inserted = await tx.execute<{ id: string }>(sql`
+        INSERT INTO pick_records (org_id, document_id, picked_by, comment, created_by, updated_by)
+        VALUES (${ctx.orgId}, ${documentId}, ${principal.employeeId}, ${input.comment ?? null}, ${ctx.actorUserId}, ${ctx.actorUserId})
+        RETURNING id
+      `);
+      const id = inserted.rows[0]?.id;
+      if (id === undefined) throw new Error('Pick record insert returned no row.');
+      for (const entry of input.lines) {
+        await tx.execute(sql`INSERT INTO pick_record_lines (org_id, pick_record_id, line_id, quantity, comment, created_by, updated_by) VALUES (${ctx.orgId}, ${id}, ${entry.lineId}, ${entry.quantity}, ${entry.comment ?? null}, ${ctx.actorUserId}, ${ctx.actorUserId})`);
+        await tx.execute(sql`UPDATE sales_document_lines SET picked_qty = picked_qty + ${entry.quantity}::numeric, updated_at = now(), updated_by = ${ctx.actorUserId} WHERE id = ${entry.lineId} AND document_id = ${documentId}`);
+      }
+      return id;
+    });
+    this.auditContext.record({ action: 'sales.order.picked', entityType: 'sales_document', entityId: documentId, before: null, after: { pickRecordId: pickId, lines: input.lines } });
+    const picks = await this.listPicks(principal, documentId);
+    const created = picks.find((p) => p.id === pickId);
+    if (created === undefined) throw new Error('Pick record vanished after insert.');
+    return created;
+  }
+
+  /** REQ-AA-31 for picks: every picking session against one order. */
+  async listPicks(principal: Principal, documentId: string): Promise<PickRecordView[]> {
+    await this.order(principal, documentId);
+    const rows = await this.db.execute<{
+      id: string; document_id: string; picked_by: string | null; picked_by_name: string | null; picked_at: Date; comment: string | null;
+      lines: { lineId: string; description: string; quantity: string; comment: string | null }[];
+    }>(sql`
+      SELECT p.id, p.document_id, p.picked_by,
+             CASE WHEN e.id IS NULL THEN NULL ELSE concat_ws(' ', e.first_name, e.last_name) END AS picked_by_name,
+             p.picked_at, p.comment,
+             COALESCE((SELECT json_agg(json_build_object('lineId', pl.line_id, 'description', l.description, 'quantity', pl.quantity::text, 'comment', pl.comment) ORDER BY l.line_no)
+                         FROM pick_record_lines pl JOIN sales_document_lines l ON l.id = pl.line_id WHERE pl.pick_record_id = p.id), '[]'::json) AS lines
+        FROM pick_records p LEFT JOIN employees e ON e.id = p.picked_by
+       WHERE p.org_id = ${principal.orgId} AND p.document_id = ${documentId} AND p.deleted_at IS NULL
+       ORDER BY p.picked_at
+    `);
+    return rows.rows.map((r) => ({
+      id: r.id,
+      documentId: r.document_id,
+      pickedById: r.picked_by,
+      pickedByName: r.picked_by_name,
+      pickedAt: new Date(r.picked_at).toISOString(),
+      comment: r.comment,
+      lines: r.lines,
+    }));
+  }
+
   async pack(principal: Principal, documentId: string, input: CreatePackRecordInput): Promise<PackRecordView> {
     const order = await this.order(principal, documentId);
     if (order.status !== 'CONFIRMED') throw AppError.conflict(`${order.number} is ${order.status.toLowerCase()}; only a confirmed order is picked.`);
@@ -208,9 +316,10 @@ export class FulfilmentService implements JobHandler<'link-sales-invoices'>, OnM
     for (const entry of input.lines) {
       const line = byId.get(entry.lineId);
       if (line === undefined) throw AppError.validation('A pack line names a line that is not on this order.', { lineId: entry.lineId });
-      const balance = Number(line.quantity) - Number(line.packedQty);
+      // D-48: pack only what is picked; the constraint packed <= picked enforces it, this names it.
+      const balance = Number(line.pickedQty) - Number(line.packedQty);
       if (Number(entry.quantity) > balance + 1e-9) {
-        throw AppError.validation(`Line ${String(line.lineNo)} (${line.description}) has ${balance.toFixed(3)} left to pack, not ${entry.quantity}.`, {
+        throw AppError.validation(`Line ${String(line.lineNo)} (${line.description}) has ${balance.toFixed(3)} picked and not yet packed, not ${entry.quantity}.`, {
           fields: [{ path: `lines.${String(input.lines.indexOf(entry))}.quantity`, message: 'exceeds the balance' }],
         });
       }

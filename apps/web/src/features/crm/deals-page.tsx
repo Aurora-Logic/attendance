@@ -21,7 +21,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { useTaskViewStore, type TaskViewMode } from '@/features/tasks/task-view-store';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatAmount } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
@@ -48,15 +48,15 @@ const STATUS_LABELS: Record<DealStatusFilter, string> = { open: 'Open', won: 'Wo
  * green, lost always rose. Full literal classes, for Tailwind.
  */
 const STAGE_HUES = [
-  'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
-  'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
-  'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
-  'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300',
-  'bg-pink-100 text-pink-700 dark:bg-pink-500/15 dark:text-pink-300',
-  'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300',
+  'bg-tint-1/15 text-tint-1',
+  'bg-tint-2/15 text-tint-2',
+  'bg-tint-3/15 text-tint-3',
+  'bg-tint-4/15 text-tint-4',
+  'bg-tint-5/15 text-tint-5',
+  'bg-tint-6/15 text-tint-6',
 ] as const;
-const WON_HUE = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300';
-const LOST_HUE = 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300';
+const WON_HUE = 'bg-success/15 text-success';
+const LOST_HUE = 'bg-destructive/10 text-destructive';
 
 /** Won a seal, lost a cross; an open stage a circle filling with its probability. */
 function stageIcon(stage: { isWon: boolean; isLost: boolean; probability: number }, className: string) {
@@ -67,14 +67,11 @@ function stageIcon(stage: { isWon: boolean; isLost: boolean; probability: number
   return <CircleDashedIcon className={className} />;
 }
 
-/** en-IN grouping (last three, then twos) for a figure that is read, never computed on. */
+/** A deal's value, written the way the workspace writes figures; a whole rupee stays whole. */
 function formatValue(value: string | null): string {
   if (value === null) return EMPTY_VALUE;
-  const [whole = '0', fraction] = value.split('.');
-  const last3 = whole.slice(-3);
-  const rest = whole.slice(0, -3);
-  const grouped = rest === '' ? last3 : `${rest.replace(/\B(?=(\d{2})+(?!\d))/gu, ',')},${last3}`;
-  return fraction === undefined || /^0*$/u.test(fraction) ? grouped : `${grouped}.${fraction.padEnd(2, '0').slice(0, 2)}`;
+  const amount = formatAmount(value);
+  return amount.endsWith('.00') ? amount.slice(0, -3) : amount;
 }
 
 const COLUMNS: RecordColumn<Deal>[] = [
@@ -275,7 +272,7 @@ export function DealsPage() {
                 setParam('pipeline', value);
               }}
             >
-              <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Pipeline">
+              <SelectTrigger className="w-40" aria-label="Pipeline">
                 <SelectValue>{(value: string) => pipelineList.find((p) => p.id === value)?.name ?? 'Pipeline'}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -299,7 +296,7 @@ export function DealsPage() {
               }}
             >
               {DEAL_STATUSES.map((s) => (
-                <ToggleGroupItem key={s} value={s} className="pointer-coarse:h-11">
+                <ToggleGroupItem key={s} value={s}>
                   {STATUS_LABELS[s]}
                 </ToggleGroupItem>
               ))}
@@ -313,7 +310,7 @@ export function DealsPage() {
                 setParam('stage', value === null || value === 'all' ? null : value);
               }}
             >
-              <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Stage">
+              <SelectTrigger className="w-40" aria-label="Stage">
                 <SelectValue>{(value: string) => (value === 'all' ? 'Any stage' : (pipeline.stages.find((st) => st.id === value)?.name ?? 'Stage'))}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -333,7 +330,7 @@ export function DealsPage() {
               setParam('owner', value === null || value === 'all' ? null : value);
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Owner">
+            <SelectTrigger className="w-40" aria-label="Owner">
               <SelectValue>{(value: string) => (value === 'all' ? 'Any owner' : ((owners.data ?? []).find((o) => o.id === value)?.name ?? 'Owner'))}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -487,7 +484,7 @@ export function DealsPage() {
                     </span>
                   )}
                   {deal.expectedCloseDate === null ? null : (
-                    <span className={cn('flex items-center gap-1 tabular-nums', deal.status === 'open' && deal.expectedCloseDate < todayParam && 'text-amber-600 dark:text-amber-400')}>
+                    <span className={cn('flex items-center gap-1 tabular-nums', deal.status === 'open' && deal.expectedCloseDate < todayParam && 'text-warning')}>
                       <CalendarBlankIcon className="shrink-0" />
                       {formatDate(deal.expectedCloseDate)}
                     </span>

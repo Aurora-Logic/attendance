@@ -26,3 +26,26 @@ export function actorLabel(entry: AuditEntry): string {
   if (entry.actor === null) return 'System';
   return entry.actor.name ?? entry.actor.email ?? entry.actor.id;
 }
+
+/**
+ * What the "Older" button should do, given what has been fetched.
+ *
+ * Extracted from the component because it is the only part of keyset paging
+ * with a wrong answer: `advance` when the page is already in the cache,
+ * `fetch` when it is not but the server says there is more, and `disabled` at
+ * the end. Getting the middle case wrong shows an empty page for as long as
+ * the request takes; getting the last one wrong offers a page that does not
+ * exist. Neither is visible in a type.
+ */
+export type OlderAction = 'advance' | 'fetch' | 'disabled';
+
+export function olderAction(input: {
+  pageIndex: number;
+  fetchedPages: number;
+  hasNextPage: boolean;
+  isFetching: boolean;
+}): OlderAction {
+  if (input.isFetching) return 'disabled';
+  if (input.pageIndex < input.fetchedPages - 1) return 'advance';
+  return input.hasNextPage ? 'fetch' : 'disabled';
+}

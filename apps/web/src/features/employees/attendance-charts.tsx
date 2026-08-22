@@ -1,3 +1,4 @@
+import { compactCount, endpointLabel, valueCaps } from '@/components/shared/chart-labels';
 import { useMemo, type ReactNode } from 'react';
 import {
   Bar,
@@ -127,7 +128,7 @@ export function WorkedHoursChart({ points, delayMs = 0 }: { points: WorkedPoint[
 
   return (
     <ChartContainer config={WORKED_CONFIG} className="aspect-auto h-56 w-full">
-      <ComposedChart accessibilityLayer data={points} margin={{ top: 8, right: 4, left: 0 }}>
+      <ComposedChart accessibilityLayer data={points} margin={{ top: 20, right: 8, left: 0 }}>
         <CartesianGrid vertical={false} />
         <XAxis
           dataKey="date"
@@ -195,7 +196,9 @@ export function WorkedHoursChart({ points, delayMs = 0 }: { points: WorkedPoint[
           // visible, and weakening every bar to match a typing limitation
           // would be the wrong way round.
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...endpointLabel('scheduled', points)} />
+        </Line>
       </ComposedChart>
     </ChartContainer>
   );
@@ -278,7 +281,7 @@ export function StatusSplitChart({ slices, delayMs = 0 }: { slices: StatusSlice[
         STATUS_CHART_HEIGHT[Math.min(data.length, STATUS_CHART_HEIGHT.length) - 1],
       )}
     >
-      <BarChart accessibilityLayer data={data} layout="vertical" margin={{ left: 0, right: 24 }}>
+      <BarChart accessibilityLayer data={data} layout="vertical" margin={{ left: 0, right: 56 }}>
         <YAxis
           dataKey="status"
           type="category"
@@ -334,7 +337,7 @@ export function LateMinutesChart({ points, delayMs = 0 }: { points: LatePoint[];
 
   return (
     <ChartContainer config={LATE_CONFIG} className="aspect-auto h-40 w-full">
-      <BarChart accessibilityLayer data={points} margin={{ top: 8, right: 4, left: 0 }}>
+      <BarChart accessibilityLayer data={points} margin={{ top: 20, right: 8, left: 0 }}>
         <CartesianGrid vertical={false} />
         <XAxis
           dataKey="date"
@@ -357,7 +360,9 @@ export function LateMinutesChart({ points, delayMs = 0 }: { points: LatePoint[];
           animationBegin={beginMs}
           animationDuration={durationMs}
           animationEasing={CHART_EASING}
-        />
+        >
+          <LabelList {...valueCaps('lateMinutes', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );

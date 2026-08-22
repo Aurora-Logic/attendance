@@ -74,7 +74,7 @@ export function DispatchDialog({ open, onOpenChange, order, loading = false, loa
       {loadError !== undefined && loadError !== null ? <QueryErrorAlert error={loadError} subject="that sales order" onRetry={onRetry ?? close} /> : null}
       {order === null ? (
         <ResponsiveDialogActions>
-          <Button variant="outline" className="pointer-coarse:min-h-11" onClick={close}>
+          <Button variant="outline" onClick={close}>
             <ACTION_ICONS.close data-icon="inline-start" />
             Close
           </Button>
@@ -223,7 +223,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
                       aria-label={`Line ${String(line.lineNo)} dispatched quantity`}
                       aria-invalid={problem !== null || undefined}
                       inputMode="decimal"
-                      className="pointer-coarse:h-11 max-w-[7rem] tabular-nums"
+                      className="max-w-[7rem] tabular-nums"
                       placeholder="Qty"
                       disabled={!dispatchable}
                       value={quantities[line.id] ?? ''}
@@ -247,7 +247,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
                     if (next) setMode(next);
                   }}
                 >
-                  <SelectTrigger id="dispatch-mode" className="pointer-coarse:min-h-11 w-full" aria-label="Mode" disabled={!dispatchable}>
+                  <SelectTrigger id="dispatch-mode" className="w-full" aria-label="Mode" disabled={!dispatchable}>
                     <SelectValue>{(value: string) => DISPATCH_MODE_LABELS[value as DispatchMode]}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -259,7 +259,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
                   </SelectContent>
                 </Select>
                 <FieldDescription>
-                  {mode === 'local_auto' ? 'Nothing more is needed.' : mode === 'local_own_vehicle' ? 'Vehicle and driver are recorded.' : 'LR, transporter, and both photographs.'}
+                  {mode === 'local_auto' ? 'Nothing more is needed.' : mode === 'local_own_vehicle' ? 'Vehicle and driver are recorded.' : mode === 'customer_collects' ? 'Nothing more is needed; the customer is told it is ready to collect.' : 'LR, transporter, and both photographs.'}
                 </FieldDescription>
               </Field>
               {mode === 'outstation' ? (
@@ -362,12 +362,12 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
       </FieldGroup>
 
       <ResponsiveDialogActions>
-        <Button variant="outline" className="pointer-coarse:min-h-11" onClick={onClose}>
+        <Button variant="outline" onClick={onClose}>
           <ACTION_ICONS.cancel data-icon="inline-start" />
           {dispatchable && lines.length > 0 ? 'Cancel' : 'Close'}
         </Button>
         {dispatchable && lines.length > 0 ? (
-          <Button className="pointer-coarse:min-h-11" disabled={!canSubmit} onClick={submit}>
+          <Button disabled={!canSubmit} onClick={submit}>
             {create.isPending ? <Spinner data-icon="inline-start" /> : <TruckIcon data-icon="inline-start" />}
             {create.isPending ? 'Dispatching' : 'Dispatch'}
             <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
@@ -378,7 +378,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
   );
 }
 
-function TextField({
+export function TextField({
   id,
   label,
   value,
@@ -402,7 +402,6 @@ function TextField({
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Input
         id={id}
-        className="pointer-coarse:h-11"
         aria-invalid={error !== null || undefined}
         inputMode={inputMode}
         placeholder={placeholder}
@@ -423,7 +422,7 @@ function TextField({
  * `capture` makes a phone open the camera and skip the gallery, and an LR
  * is often a scan that only exists in the gallery.
  */
-function PhotoPicker({
+export function PhotoPicker({
   label,
   hint,
   photos,
@@ -513,11 +512,11 @@ function PhotoPicker({
             void chosen(event.target.files, event.currentTarget);
           }}
         />
-        <Button variant="outline" size="sm" className="pointer-coarse:min-h-11" disabled={disabled || reading || full} onClick={() => cameraRef.current?.click()}>
+        <Button variant="outline" size="sm" disabled={disabled || reading || full} onClick={() => cameraRef.current?.click()}>
           {reading ? <Spinner data-icon="inline-start" /> : <CameraIcon data-icon="inline-start" />}
           Camera
         </Button>
-        <Button variant="outline" size="sm" className="pointer-coarse:min-h-11" disabled={disabled || reading || full} onClick={() => galleryRef.current?.click()}>
+        <Button variant="outline" size="sm" disabled={disabled || reading || full} onClick={() => galleryRef.current?.click()}>
           <ImagesIcon data-icon="inline-start" />
           Gallery
         </Button>

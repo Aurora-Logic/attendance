@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { LockKeyIcon, TruckIcon } from '@phosphor-icons/react';
+import { LockKeyIcon, ScanIcon, TruckIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
+import { FulfilmentTabs } from './fulfilment-tabs';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
@@ -72,7 +73,9 @@ function ListSkeleton() {
   );
 }
 
-export function DispatchesPage() {
+/** `stage="delivered"` is the Delivered screen: the same list, only what the customer has signed for. */
+export function DispatchesPage({ stage }: { stage?: 'delivered' } = {}) {
+  const delivered = stage === 'delivered';
   const canViewSelf = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_SELF);
   const canViewAll = usePermission(PERMISSIONS.SALES_DOCUMENT_VIEW_ALL);
   const canView = canViewSelf || canViewAll;
@@ -113,7 +116,7 @@ export function DispatchesPage() {
     };
   }, [draft, q, setSearchParams]);
 
-  const query = useDispatches({ page, ...(q ? { q } : {}), ...(mode ? { mode } : {}), ...(syncState ? { syncState } : {}), ...(orderParam ? { documentId: orderParam } : {}) }, { enabled: canView });
+  const query = useDispatches({ page, ...(q ? { q } : {}), delivered: delivered ? 'yes' : 'no', ...(mode ? { mode } : {}), ...(syncState ? { syncState } : {}), ...(orderParam ? { documentId: orderParam } : {}) }, { enabled: canView });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
   function setParam(name: string, value: string | null) {
@@ -132,14 +135,15 @@ export function DispatchesPage() {
   if (!canView) {
     return (
       <>
-        <PageHeader description="Every dispatch in flight: mode, LR, photographs, and whether the customer has been told." />
+        <PageHeader description={delivered ? 'Every dispatch the customer has signed for, newest first.' : 'Every dispatch in flight: mode, LR, photographs, and whether the customer has been told.'} />
+        <FulfilmentTabs current={delivered ? 'delivered' : 'dispatched'} />
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <LockKeyIcon />
             </EmptyMedia>
-            <EmptyTitle>You cannot view dispatches</EmptyTitle>
-            <EmptyDescription>This needs sales.document.view.self or sales.document.view.all — the Sales role carries it.</EmptyDescription>
+            <EmptyTitle>{delivered ? 'Nothing delivered yet' : 'You cannot view dispatches'}</EmptyTitle>
+            <EmptyDescription>{delivered ? 'A dispatch arrives here once it is scanned and marked delivered at the door.' : 'This needs sales.document.view.self or sales.document.view.all — the Sales role carries it.'}</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </>
@@ -150,7 +154,16 @@ export function DispatchesPage() {
 
   return (
     <>
-      <PageHeader description="Every dispatch, newest first. Each is its own record with its own lines; it pushes to Tally as a Delivery Note, and the customer's message is composed here and sent by hand." />
+      <PageHeader
+        description="Every dispatch, newest first. Each is its own record with its own lines; it pushes to Tally as a Delivery Note, the customer's mail goes by itself, and WhatsApp is one tap."
+        action={
+          // D-47: the scan is one tap from the screens a person holds a box on.
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/sales/scan" />}>
+            <ScanIcon data-icon="inline-start" />
+            Scan a slip
+          </Button>
+        }
+      />
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -161,7 +174,7 @@ export function DispatchesPage() {
               setParam('mode', value);
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-44" aria-label="Mode">
+            <SelectTrigger className="w-44" aria-label="Mode">
               <SelectValue>{(value: string) => (value === ALL ? 'Any mode' : DISPATCH_MODE_LABELS[value as DispatchMode])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -179,7 +192,7 @@ export function DispatchesPage() {
               setParam('sync', value);
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-44" aria-label="Tally state">
+            <SelectTrigger className="w-44" aria-label="Tally state">
               <SelectValue>{(value: string) => (value === ALL ? 'Any Tally state' : SYNC_STATE_LABELS[value as DocumentSyncState])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -195,7 +208,6 @@ export function DispatchesPage() {
             <Button
               variant="outline"
               size="sm"
-              className="pointer-coarse:min-h-11"
               onClick={() => {
                 setParam('order', null);
               }}

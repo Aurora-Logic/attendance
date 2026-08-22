@@ -25,13 +25,15 @@ function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
 
 function DialogOverlay({
   className,
+  instant = false,
   ...props
-}: DialogPrimitive.Backdrop.Props) {
+}: DialogPrimitive.Backdrop.Props & { instant?: boolean }) {
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/10 duration-200 ease-out-strong data-closed:duration-150 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        instant ? "duration-0" : "duration-200 ease-out-strong data-closed:duration-150",
         className
       )}
       {...props}
@@ -43,13 +45,20 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  instant = false,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  /**
+   * Opens and closes with no animation. For surfaces summoned from the
+   * keyboard and used many times a day (the Go To palette): a 200ms arrival
+   * on something pressed a hundred times reads as lag, not as polish.
+   */
+  instant?: boolean
 }) {
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay instant={instant} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
@@ -59,7 +68,8 @@ function DialogContent({
           // faster than enter. A modal keeps its centre origin deliberately —
           // it is not anchored to a trigger, so scaling from a corner would be
           // a lie about where it came from.
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-none bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 duration-200 ease-out-strong outline-none data-closed:duration-150 sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-none bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          instant ? "duration-0" : "duration-200 ease-out-strong data-closed:duration-150",
           className
         )}
         {...props}

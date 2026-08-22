@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
+import { SettingsModule } from '../settings/settings.module.js';
 
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { DeliverPasswordResetHandler } from './handlers/deliver-password-reset.handler.js';
 import { LoginRateLimiter } from './login-rate-limit.service.js';
+import { MfaService } from './mfa.service.js';
 import { PasswordResetRateLimiter } from './password-reset-rate-limit.service.js';
 import { RateLimitDbFallback } from './rate-limit-db-fallback.service.js';
 import { SessionService } from './session.service.js';
@@ -19,11 +21,13 @@ import { SessionService } from './session.service.js';
  * work also owns the consumer of it.
  */
 @Module({
+  imports: [SettingsModule],
   controllers: [AuthController],
   providers: [
     AuthService,
     SessionService,
     LoginRateLimiter,
+    MfaService,
     PasswordResetRateLimiter,
     RateLimitDbFallback,
     DeliverPasswordResetHandler,

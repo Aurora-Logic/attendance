@@ -122,6 +122,30 @@ export class MastersService {
    * its item is a number without a noun; sorted by item then level so one
    * item's levels read together.
    */
+  async findStockItem(principal: Principal, id: string): Promise<StockItemView> {
+    const rows = await this.db
+      .select()
+      .from(stockItems)
+      .where(and(eq(stockItems.orgId, principal.orgId), eq(stockItems.id, id)))
+      .limit(1);
+    const row = rows[0];
+    if (row === undefined) throw AppError.notFound('Stock item', id);
+    return {
+      id: row.id,
+      connectionId: row.connectionId,
+      name: row.name,
+      alias: row.alias,
+      unit: row.unit,
+      parentGroup: row.parentGroup,
+      gstRate: row.gstRate,
+      closingQty: row.closingQty,
+      salePrice: row.salePrice,
+      costPrice: row.costPrice,
+      absentInTally: row.absentInTally,
+      lastPulledAt: row.lastPulledAt.toISOString(),
+    };
+  }
+
   async listPriceListEntries(
     principal: Principal,
     query: PriceListListQuery,

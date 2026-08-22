@@ -1,6 +1,14 @@
 import type { ReactNode } from 'react';
 
 interface PageHeaderProps {
+  /** A small muted line above the title: the category a report belongs to. */
+  eyebrow?: string;
+  /**
+   * The subject chosen within the page — a report's name — when the
+   * breadcrumb can only say which screen this is. Not the page's h1: the
+   * breadcrumb carries that, and this is a control or a label below it.
+   */
+  title?: ReactNode;
   description?: string;
   /** The primary action, rendered right-aligned (PRD §6.2). */
   action?: ReactNode;
@@ -18,8 +26,8 @@ interface PageHeaderProps {
  * built in week 1 (CLAUDE.md §3 rule 4). Nothing here is wrapped in a Card —
  * the page surface is the surface (rule 3).
  */
-export function PageHeader({ description, action }: PageHeaderProps) {
-  if (!description && !action) return null;
+export function PageHeader({ eyebrow, title, description, action }: PageHeaderProps) {
+  if (!eyebrow && !title && !description && !action) return null;
 
   return (
     <div
@@ -30,8 +38,12 @@ export function PageHeader({ description, action }: PageHeaderProps) {
       data-guide="screen.header"
       className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2"
     >
-      {description ? (
-        <p className="text-muted-foreground max-w-prose text-sm">{description}</p>
+      {eyebrow || title || description ? (
+        <div className="flex min-w-0 flex-col gap-0.5">
+          {eyebrow ? <p className="text-muted-foreground text-xs font-medium">{eyebrow}</p> : null}
+          {title ? <div className="flex min-w-0 items-center text-base font-semibold">{title}</div> : null}
+          {description ? <p className="text-muted-foreground max-w-prose text-sm">{description}</p> : null}
+        </div>
       ) : null}
       {action ? <div className="ml-auto flex shrink-0 items-center gap-2">{action}</div> : null}
     </div>

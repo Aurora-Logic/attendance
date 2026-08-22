@@ -10,7 +10,7 @@ import { ERROR_CODES, type ErrorCode } from '@vyuha/shared';
 import type { Request, Response } from 'express';
 import { ZodError } from 'zod';
 
-import { isPoolConnectionTimeout } from '../db/pg-error.js';
+import { checkViolationConstraint, constraintMessage, isCheckViolation, isPoolConnectionTimeout } from '../db/pg-error.js';
 import { AppError, describeError, toErrorBody } from './errors.js';
 import { REQUEST_ID_HEADER, requestIdOf } from './request-id.js';
 
@@ -163,6 +163,22 @@ export class AppExceptionFilter implements ExceptionFilter {
         details: { retryAfterSeconds: DEPENDENCY_RETRY_AFTER_SECONDS },
         expected: true,
         dependency: true,
+      };
+    }
+
+    // A CHECK constraint is a rule the database keeps; tripping it means the
+    // screen was behind the data, which is a conflict the person can resolve
+    // by looking again, not a fault of ours. The module that owns the rule
+    // supplies the sentence; an unregistered one still answers 409.
+    if (isCheckViolation(exception)) {
+      const constraint = checkViolationConstraint(exception);
+      const known = constraint === null ? null : constraintMessage(constraint);
+      return {
+        status: HttpStatus.CONFLICT,
+        code: ERROR_CODES.CONFLICT,
+        message: known ?? 'The change breaks a rule the records keep. Refresh and look again.',
+        details: constraint === null ? undefined : { constraint },
+        expected: true,
       };
     }
 

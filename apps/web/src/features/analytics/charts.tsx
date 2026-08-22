@@ -1,4 +1,5 @@
-import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
+import { compactCount, compactIndian, endpointLabel, stackTotal, valueCaps, valueTips } from '@/components/shared/chart-labels';
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis, LabelList } from 'recharts';
 
 import {
   ChartContainer,
@@ -92,8 +93,11 @@ const NAME_TICK = { className: 'fill-muted-foreground', width: 400 } as const;
  * the right margin exists so a centred last tick has room for its own label
  * instead of hanging outside the panel at 360px.
  */
-const AXIS_MARGIN = { left: 0, right: 16, top: 4 } as const;
-const LINE_MARGIN = { left: 0, right: 24, top: 8 } as const;
+/* `top` is room for the value on a bar cap or a line end. At 4px the
+   tallest mark had its label sliced off by the plot edge -- the marks
+   that most need reading were the ones cut in half. */
+const AXIS_MARGIN = { left: 0, right: 16, top: 20 } as const;
+const LINE_MARGIN = { left: 0, right: 24, top: 20 } as const;
 /** A horizontal bar's value label sits to the right of the bar; leave it room. */
 const ROW_MARGIN = { left: 0, right: 36, top: 4, bottom: 4 } as const;
 
@@ -271,7 +275,9 @@ export function AttendanceRateChart({ points, animate }: ChartProps<RatePoint>) 
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...endpointLabel('rate', points)} />
+        </Line>
       </LineChart>
     </ChartContainer>
   );
@@ -304,7 +310,9 @@ export function WeekdayAbsenceChart({ points, animate }: ChartProps<WeekdayPoint
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('rate', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -342,7 +350,9 @@ export function LateSpreadChart({ points, animate }: ChartProps<LateBucket>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueCaps('days', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -384,7 +394,9 @@ export function RepeatLateChart({ points, animate }: ChartProps<PersonPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueTips('value', compactIndian)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -438,7 +450,9 @@ export function OvertimeChart({ points, animate }: ChartProps<PersonPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueTips('value', compactIndian)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -527,7 +541,9 @@ export function PunchSourceChart({ points, animate }: ChartProps<SourcePoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...stackTotal([row], ['MOBILE', 'WEB', 'OFFLINE_SYNC', 'ADMIN_ENTRY'])} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -595,7 +611,9 @@ export function FlagVolumeChart({ points, animate }: ChartProps<FlagPoint>) {
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...valueTips('punches', compactCount)} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );
@@ -655,7 +673,9 @@ export function HeadcountChart({ points, animate }: ChartProps<DepartmentPoint>)
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList {...stackTotal([...points], ['permanent', 'fixedTerm'])} />
+        </Bar>
       </BarChart>
     </ChartContainer>
   );

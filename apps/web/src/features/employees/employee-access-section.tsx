@@ -10,6 +10,7 @@ import {
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { SectionHeading } from '@/components/shared/section-heading';
+import { MfaResetButton } from '@/features/auth/mfa-reset-button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -221,16 +222,19 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
               </dd>
             </dl>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setManageCredentialsOpen(true);
-              }}
-            >
-              <KeyIcon data-icon="inline-start" />
-              Manage credentials / password
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {account.mfaEnabled ? <MfaResetButton userId={account.id} employeeId={access.data.employeeId} name={name} /> : null}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setManageCredentialsOpen(true);
+                }}
+              >
+                <KeyIcon data-icon="inline-start" />
+                Manage credentials / password
+              </Button>
+            </div>
           </div>
 
           {account.status === 'SUSPENDED' ? (
@@ -277,7 +281,7 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="pointer-coarse:min-h-11 shrink-0"
+                        className="shrink-0"
                         aria-label={`Remove ${role.name} from ${name}`}
                         disabled={revoke.isPending}
                         onClick={() => {
@@ -335,7 +339,6 @@ export function EmployeeAccessSection({ employee }: EmployeeAccessSectionProps) 
                 icon={<ShieldCheckIcon />}
               />
               <Button
-                className="pointer-coarse:h-11"
                 disabled={granting === null || assign.isPending}
                 onClick={() => {
                   assign.reset();

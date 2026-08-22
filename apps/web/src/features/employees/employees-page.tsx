@@ -421,7 +421,7 @@ export function EmployeesPage() {
           <Select value={status ?? ALL_STATUSES} onValueChange={setStatus}>
             <SelectTrigger
               aria-label="Filter by status"
-              className="pointer-coarse:h-11 min-w-0 flex-1 sm:w-40 sm:flex-none"
+              className="min-w-0 flex-1 sm:w-40 sm:flex-none"
             >
               <SelectValue>
                 {(value: string) =>
@@ -447,7 +447,7 @@ export function EmployeesPage() {
             <Select value={departmentId ?? ALL_DEPARTMENTS} onValueChange={setDepartment}>
               <SelectTrigger
                 aria-label="Filter by department"
-                className="pointer-coarse:h-11 min-w-0 flex-1 sm:w-48 sm:flex-none"
+                className="min-w-0 flex-1 sm:w-48 sm:flex-none"
               >
                 <SelectValue>
                   {(value: string) =>

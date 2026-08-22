@@ -93,7 +93,7 @@ function FlagReviewForm({
                 if (next === 'FIRST_HALF' || next === 'SECOND_HALF') setHalf(next);
               }}
             >
-              <SelectTrigger id="flag-half" className="pointer-coarse:min-h-11">
+              <SelectTrigger id="flag-half">
                 <SelectValue>{(value: string) => HALF_LABELS[value as HalfDayPart]}</SelectValue>
               </SelectTrigger>
               <SelectContent>

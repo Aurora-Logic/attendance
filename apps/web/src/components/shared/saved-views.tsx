@@ -66,9 +66,9 @@ export function SavedViews({ storageKey, current, onApply }: { storageKey: strin
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <Button variant={active === undefined ? 'outline' : 'default'} size="sm" aria-label="Saved views">
+          <Button variant={active === undefined ? 'outline' : 'default'} aria-label="Saved views">
             <BookmarkSimpleIcon data-icon="inline-start" />
-            {active?.name ?? 'Views'}
+            <span className="max-md:sr-only">{active?.name ?? 'Views'}</span>
           </Button>
         }
       />

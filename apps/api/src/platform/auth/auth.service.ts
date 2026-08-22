@@ -31,12 +31,14 @@ import { PrincipalService } from '../rbac/principal.service.js';
 import type {
   CreateInvitationDto,
   LoginDto,
+  LoginOutcome,
   LoginResponse,
   MeResponse,
 } from './auth.dto.js';
 import { AccessWindowService } from './access-window.service.js';
 import { signAccessToken } from './jwt.js';
 import { LoginRateLimiter } from './login-rate-limit.service.js';
+import { MfaService } from './mfa.service.js';
 import { PasswordResetRateLimiter } from './password-reset-rate-limit.service.js';
 import {
   generateOpaqueToken,
@@ -83,14 +85,25 @@ const COUNTED_AGAINST_THE_ADDRESS: ReadonlySet<string> = new Set([
 const INVITATION_TTL_MS = INVITATION_TTL_HOURS * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
 
+/**
+ * A correct password ends in a session, or -- once an authenticator is
+ * confirmed and this browser is not remembered -- in a challenge that
+ * carries no session at all (REQ-B-09). The controller sets the refresh
+ * cookie only when there is a token to set.
+ */
 export interface LoginResult {
-  readonly response: LoginResponse;
-  readonly refreshToken: string;
+  readonly response: LoginOutcome;
+  readonly refreshToken: string | null;
+  /** The refresh cookie's life; null is a session cookie. */
+  readonly cookieMaxAgeMs?: number | null;
+  /** Set when the code step asked for this browser to be remembered. */
+  readonly trustToken?: string | null;
 }
 
 export interface RefreshResult {
   readonly response: LoginResponse;
   readonly refreshToken: string;
+  readonly cookieMaxAgeMs: number | null;
 }
 
 /**
@@ -118,6 +131,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly jobs: JobRunner,
     private readonly accessWindow: AccessWindowService,
+    private readonly mfa: MfaService,
   ) {}
 
   // ---------------------------------------------------------------- login
@@ -129,11 +143,11 @@ export class AuthService {
    * `LoginRateLimiter`). The claim is what makes the attempt cost budget, so
    * the failure branches below no longer record anything of their own.
    */
-  async login(input: LoginDto, context: SessionRequestContext): Promise<LoginResult> {
+  async login(input: LoginDto, context: SessionRequestContext, trustToken: string | null = null): Promise<LoginResult> {
     const claim = await this.rateLimiter.claimAttempt(context.ip);
 
     try {
-      return await this.attemptLogin(input, context);
+      return await this.attemptLogin(input, context, trustToken);
     } catch (error: unknown) {
       // A refusal this limiter exists to count keeps its slot. Anything else --
       // a database blip, a bug -- hands it back, so an outage cannot spend an
@@ -148,6 +162,7 @@ export class AuthService {
   private async attemptLogin(
     input: LoginDto,
     context: SessionRequestContext,
+    trustToken: string | null,
   ): Promise<LoginResult> {
     const user = await this.findByEmail(input.email);
     const now = new Date();
@@ -207,6 +222,48 @@ export class AuthService {
       }
     }
 
+    // REQ-B-09: the password was right. With an authenticator confirmed and
+    // no remembered browser, what follows is the code step, not a session.
+    // The failure counters are not reset here: the account is not signed in
+    // until the code is, and a guessed password must not clear them.
+    if (user.totpConfirmedAt !== null && !(await this.mfa.isTrusted(user.id, trustToken))) {
+      const challenge = await this.mfa.issueChallenge(user.orgId, user.id, context.ip);
+      return {
+        refreshToken: null,
+        response: { mfaRequired: true, challengeToken: challenge.token, expiresInSeconds: challenge.expiresInSeconds },
+      };
+    }
+
+    return this.openSession(user, context, input.password);
+  }
+
+  /**
+   * REQ-B-09: the code step. The challenge names the account and proves the
+   * password was already right; a correct code is the second factor, and
+   * only then does a session exist.
+   */
+  async completeMfa(challengeToken: string, code: string, trustDevice: boolean, context: SessionRequestContext): Promise<LoginResult> {
+    const redeemed = await this.mfa.redeemChallenge(challengeToken, code, trustDevice, context);
+    const rows = await this.db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, redeemed.userId), isNull(users.deletedAt)))
+      .limit(1);
+    const user = rows[0];
+    if (user === undefined || user.status !== 'ACTIVE') {
+      throw new AppError(ERROR_CODES.ACCOUNT_INACTIVE, 'This account is not active.');
+    }
+    const result = await this.openSession(user, context, null);
+    return { ...result, trustToken: redeemed.trustToken };
+  }
+
+  /** What a proven sign-in does: the session family, the counters, the trail. */
+  private async openSession(
+    user: { id: string; orgId: string; email: string; passwordHash: string | null },
+    context: SessionRequestContext,
+    plaintextPassword: string | null,
+  ): Promise<LoginResult> {
+    const now = new Date();
     const session = await this.sessions.startFamily(user.orgId, user.id, context);
 
     await this.db
@@ -219,8 +276,8 @@ export class AuthService {
         // ADR 0002: "password hashes carry their parameters so old hashes stay
         // verifiable after a change". A successful login is the only moment
         // the plaintext is available to upgrade one.
-        ...(needsRehash(user.passwordHash)
-          ? { passwordHash: await hashPassword(input.password) }
+        ...(plaintextPassword !== null && needsRehash(user.passwordHash)
+          ? { passwordHash: await hashPassword(plaintextPassword) }
           : {}),
       })
       .where(eq(users.id, user.id));
@@ -236,6 +293,7 @@ export class AuthService {
 
     return {
       refreshToken: session.refreshToken,
+      cookieMaxAgeMs: session.cookieMaxAgeMs,
       response: await this.accessResponse(user.orgId, user.id, user.email, session.sessionId),
     };
   }
@@ -390,6 +448,7 @@ export class AuthService {
 
     return {
       refreshToken: rotated.refreshToken,
+      cookieMaxAgeMs: rotated.cookieMaxAgeMs,
       response: await this.accessResponse(
         principal.orgId,
         principal.userId,
@@ -445,7 +504,7 @@ export class AuthService {
    */
   async readSignInAccount(principal: Principal, employeeId: string): Promise<SignInAccount> {
     const rows = await this.db
-      .select({ email: users.email, status: users.status })
+      .select({ email: users.email, status: users.status, totpConfirmedAt: users.totpConfirmedAt })
       .from(users)
       .innerJoin(employees, eq(employees.id, users.employeeId))
       .where(
@@ -462,7 +521,7 @@ export class AuthService {
     const row = rows[0];
     // No row is the ordinary answer, not an error: REQ-A-06 imports create
     // employees with no login at all, and that is exactly who gets invited.
-    return { employeeId, account: row === undefined ? null : { email: row.email, status: row.status } };
+    return { employeeId, account: row === undefined ? null : { email: row.email, status: row.status, mfaEnabled: row.totpConfirmedAt !== null } };
   }
 
   /**
@@ -1079,7 +1138,12 @@ export class AuthService {
   // ------------------------------------------------------------------- me
 
   async me(principal: Principal): Promise<MeResponse> {
-    const [employee, verdict] = await Promise.all([this.loadEmployee(principal), this.accessWindow.verdict(principal.orgId)]);
+    const [employee, verdict, enrolledRows] = await Promise.all([
+      this.loadEmployee(principal),
+      this.accessWindow.verdict(principal.orgId),
+      this.db.select({ confirmedAt: users.totpConfirmedAt }).from(users).where(eq(users.id, principal.userId)).limit(1),
+    ]);
+    const enrolled = enrolledRows[0]?.confirmedAt != null;
 
     return {
       user: {
@@ -1095,6 +1159,7 @@ export class AuthService {
         closesInMinutes: verdict.closesInMinutes,
         exempt: principal.permissions.has(PERMISSIONS.ACCESS_OUTSIDE_WINDOW),
       },
+      mfa: await this.mfa.summaryFor(principal.orgId, principal.userId, enrolled, principal.roles.map((role) => role.name)),
     };
   }
 

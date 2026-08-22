@@ -24,6 +24,11 @@ export const ERROR_CODES = {
   // Auth (REQ-B-01…B-10)
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  /** REQ-B-09: the code step after the password. */
+  MFA_CODE_INVALID: 'MFA_CODE_INVALID',
+  MFA_CHALLENGE_EXPIRED: 'MFA_CHALLENGE_EXPIRED',
+  MFA_NOT_ENROLLED: 'MFA_NOT_ENROLLED',
+  MFA_ALREADY_ENROLLED: 'MFA_ALREADY_ENROLLED',
   /** 12 Area AB: outside the sign-in window, and not exempt. */
   ACCESS_WINDOW_CLOSED: 'ACCESS_WINDOW_CLOSED',
   /** 08 REQ-W-09: the party is over its credit limit; released only with sales.credit.override and a reason. */

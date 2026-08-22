@@ -182,7 +182,6 @@ export function OrgLogoDialog({ open, onOpenChange, monogram }: OrgLogoDialogPro
             <Button
               variant="outline"
               size="sm"
-              className="pointer-coarse:min-h-11"
               disabled={reading || busy}
               onClick={() => inputRef.current?.click()}
             >
@@ -202,7 +201,7 @@ export function OrgLogoDialog({ open, onOpenChange, monogram }: OrgLogoDialogPro
           {stored !== null && pending === null ? (
             <Button
               variant="ghost"
-              className="pointer-coarse:min-h-11 mr-auto"
+              className="mr-auto"
               disabled={busy}
               onClick={clear}
             >
@@ -210,11 +209,10 @@ export function OrgLogoDialog({ open, onOpenChange, monogram }: OrgLogoDialogPro
               {remove.isPending ? 'Removing' : 'Remove'}
             </Button>
           ) : null}
-          <Button variant="outline" className="pointer-coarse:min-h-11" disabled={busy} onClick={close}>
+          <Button variant="outline" disabled={busy} onClick={close}>
             Cancel
           </Button>
           <Button
-            className="pointer-coarse:min-h-11"
             disabled={pending === null || busy}
             onClick={save}
           >

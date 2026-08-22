@@ -342,3 +342,79 @@ Customer lapse shipped with the doc's recommended default: expected gap =
 the customer's own median gap between Sales vouchers, at-risk past one
 gap, lapsed past two, three sales minimum. Not yet configurable; say the
 word if the multiplier or the minimum should be a setting.
+
+## P-HELP-1 — A support answer panel has no REQ ID anywhere (proposed REQ-AJ-01…05)
+
+Owner, 22 Aug 2026: "add a chatbot in header for support". Built, but not as
+a chatbot and not in the header — the reasoning is worth recording because
+three parts of it are decisions, not implementation details.
+
+**It answers, it does not converse.** The corpus is written as answer cards
+of one to three sentences, so nothing has to summarise them at read time and
+the panel can be deterministic. That removes an LLM, and with it: the first
+outbound HTTP call this API would ever make, the prompt-injection surface
+through `sales_documents.last_error` (Tally-authored text, echoed verbatim,
+created outside our validation because masters are Tally-owned per REQ-R-04),
+a new class of employee free text leaving the box with none of the consent
+machinery `0012_consent_acceptances` and `0013_consent_promises` exist to
+provide, and an eval harness for a non-deterministic feature in a codebase
+whose Definition of Done assumes assertions.
+
+**The corpus is API-side, never in the web bundle.** `docker/Caddyfile` serves
+the SPA from `handle { root * /srv }` with no auth directive; only `/api/*` is
+proxied to the guarded API. A corpus shipped in the bundle would be readable
+by anyone who resolves the domain, and these cards name which controls are
+switched off. So `help.cards.ts` lives in `apps/api` and reaches the client
+only through an authenticated, permission-filtered endpoint.
+
+**It sits on Ctrl+F1, not on a new key or a new header control.** PRD §6.4
+calls that key "contextual help / shortcut sheet" and the table has no free
+slot — `docs/06` §3 records the Guide refusing to invent one for the same
+reason. The header already renders four controls and P-22 spent a pass
+removing chrome from it.
+
+Three things to confirm:
+
+1. **REQ IDs.** `AJ` is the next free prefix; nothing is written into
+   `01-product-requirements.md` yet. Proposed: AJ-01 the panel, AJ-02 the
+   card catalogue, AJ-03 permission filtering, AJ-04 the error-code hook,
+   AJ-05 the unanswered-question path.
+2. **The unanswered-question path is not built.** On a miss the panel says so
+   and offers the nearest cards. Recording the miss would give the usage
+   signal `07-launch-plan.md` §0a says does not exist yet — but it stores
+   employee free text, so it needs an explicit "send this to your
+   administrator" action rather than silent logging, plus a table and a
+   notification. Say the word and it is one increment.
+3. **Who writes new cards.** Same answer as G-7 for the changelog — whoever
+   closes the phase. The risk is the one `changelog.test.ts` already
+   demonstrates: it passes 13/13 over a changelog stale at v0.9.0 while this
+   branch sits 97 commits ahead, because the guard catches deletion and not
+   divergence. `help.cards.test.ts` therefore asserts route and permission
+   references resolve, which catches a card pointing at a screen that was
+   renamed or a key that was deleted — the A-01 failure mode, where
+   `regularization.raise` left the catalogue entirely.
+
+## Legal pages (22 Aug 2026, owner's request: terms and privacy, accepted by signing in)
+
+`/legal/terms` and `/legal/privacy` exist and are linked from the consent line under Sign in and Set password. The wording in `apps/web/src/features/legal/legal-content.ts` is a working draft written from what the product records and does; it has **not been reviewed by counsel**. Three things only the owner can supply, and the draft says "ask your administrator" in their place until they arrive:
+
+1. The operator's legal entity name and registered address (governs the jurisdiction clause).
+2. The grievance officer's name and contact, which the Digital Personal Data Protection Act, 2023 expects a data fiduciary's processor to publish.
+3. Whether the photo retention and recycle-bin windows stated match what each organisation configures (the draft states the defaults: twelve months, and "a set window").
+
+Recommended default: keep the draft live (it is accurate about the product) and have counsel review before the first external organisation signs in.
+
+## Two-step sign-in (REQ-B-09, 22 Aug 2026)
+
+Built as the owner decided. Two things to know before it meets real users:
+
+1. **A correct code is accepted again within its window.** The server validates a code one step either side of now and does not remember the last step it accepted, so the same six digits work twice inside ninety seconds. Closing it is one column on `users` (`totp_last_step`) and one comparison; recommended before Tally goes live, not needed for a pilot.
+2. **No SMS or email fallback.** The owner chose an authenticator app; a lost phone is answered by the ten recovery codes and the Admin reset. If a fallback is ever wanted, the challenge table already carries what a second method would need.
+
+Recommended default: ship as is; add the last-step column in the next auth increment.
+
+## Audit-trail retention (22 Aug 2026, from the appearance brief's "data retention: exports and audit trail")
+
+Not built, on purpose. `audit_logs` carries the `vyuha_forbid_mutation` trigger: the database refuses UPDATE and DELETE on the trail, which is the product's tamper-evidence guarantee (a purge attempt in the test suite was refused by it). A retention policy that deleted trail entries would need that guarantee loosened -- a SECURITY DEFINER path the trigger lets through -- and that is a decision about what the trail promises, for the owner and counsel, not a setting.
+
+Recommended default: keep the trail append-only; if storage ever matters, add "archive older than N months to cold storage and keep a hash chain" rather than deletion. Export retention (the download tray) is a setting and is built.

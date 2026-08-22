@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
+import { PersonChip } from '@/components/shared/person';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
@@ -89,7 +90,7 @@ const COLUMNS: RecordColumn<AttendanceDay>[] = [
   {
     key: 'employee',
     header: 'Employee',
-    cell: (row) => <span className="font-medium">{row.employee.name}</span>,
+    cell: (row) => <PersonChip name={row.employee.name} className="font-medium" />,
   },
   { key: 'shift', header: 'Shift', cell: (row) => row.shiftName ?? EMPTY_VALUE },
   { key: 'in', header: 'In', cell: (row) => formatClock(row.firstIn), numeric: true },
@@ -350,7 +351,6 @@ export function TeamAttendancePage() {
               variant="outline"
               size="icon"
               aria-label="Previous day"
-              className="pointer-coarse:size-11"
               onClick={() => {
                 setDate(addDays(date, -1));
               }}
@@ -373,7 +373,6 @@ export function TeamAttendancePage() {
               size="icon"
               aria-label="Next day"
               disabled={isToday(date)}
-              className="pointer-coarse:size-11"
               onClick={() => {
                 setDate(addDays(date, 1));
               }}
@@ -414,7 +413,7 @@ export function TeamAttendancePage() {
           >
             <SelectTrigger
               aria-label="Filter by department"
-              className="pointer-coarse:h-11 w-full sm:w-44"
+              className="w-full sm:w-44"
             >
               <SelectValue>
                 {(value: string) =>
@@ -446,7 +445,7 @@ export function TeamAttendancePage() {
           >
             <SelectTrigger
               aria-label="Filter by status"
-              className="pointer-coarse:h-11 w-full sm:w-40"
+              className="w-full sm:w-40"
             >
               <SelectValue>
                 {(value: string) =>

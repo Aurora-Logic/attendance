@@ -8,6 +8,7 @@ import {
   MegaphoneIcon,
   MonitorIcon,
   MoonIcon,
+  QuestionIcon,
   SignOutIcon,
   SunIcon,
   UserCircleIcon,
@@ -20,6 +21,8 @@ import { HeaderTooltip } from '@/components/shared/header-tooltip';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
 import { useTheme } from '@/components/theme-provider';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AppearanceEffect } from '@/components/shared/appearance-effect';
+import { ThemeToggleGroup } from '@/components/shared/theme-toggle-group';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -46,7 +49,6 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import { Toaster, toast } from '@/components/ui/toast';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CalculatorButton, CalculatorPanel, useCalculatorStore } from '@/features/calculator';
 import { GuideOverlay } from '@/features/guide';
 import { NotificationBell } from '@/features/notifications';
@@ -110,6 +112,26 @@ function ThemeSection() {
  * record is only guaranteed a first name (the contract makes lastName
  * nullable) and a signed-in user may have no employee record at all.
  */
+/**
+ * One destination in the account sheet's grid: a 44px row, glyph on the
+ * left, the label allowed two lines, the whole tile the target. The same
+ * tile the More and Customise sheets use; stacking the glyph over the label
+ * made an 80px slab of each (B-23).
+ */
+function SheetTile({ icon, label, dot, onClick }: { icon: React.ReactNode; label: string; dot?: boolean; onClick: () => void }) {
+  return (
+    <Button
+      variant="outline"
+      className="relative h-auto min-h-11 justify-start gap-2 px-2 py-1.5 text-left whitespace-normal"
+      onClick={onClick}
+    >
+      {icon}
+      <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-tight">{label}</span>
+      {dot ? <span className="bg-primary absolute top-2 right-2 size-2 rounded-full" aria-hidden /> : null}
+    </Button>
+  );
+}
+
 function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/u).filter(Boolean);
   const first = words[0]?.charAt(0) ?? '';
@@ -117,45 +139,6 @@ function initialsOf(name: string): string {
   return (first + last).toUpperCase() || '?';
 }
 
-/**
- * The same three choices as ThemeSection, laid out for a phone.
- *
- * A ToggleGroup rather than three buttons with hand-managed pressed state:
- * three mutually exclusive options is exactly what it is for, and it carries
- * the radio semantics and arrow-key movement for free.
- *
- * The guard on an empty selection matters — Base UI reports the group value as
- * an array and will hand back an empty one if the pressed item is pressed
- * again. There is no such thing as "no theme", so that deselect is ignored.
- */
-function ThemeToggleGroup() {
-  const { theme, setTheme } = useTheme();
-
-  return (
-    <ToggleGroup
-      variant="outline"
-      className="w-full"
-      value={[theme]}
-      onValueChange={(value) => {
-        const next = value[0];
-        if (next) setTheme(next as 'light' | 'dark' | 'system');
-      }}
-    >
-      <ToggleGroupItem value="light" className="min-h-11 flex-1">
-        <SunIcon />
-        Light
-      </ToggleGroupItem>
-      <ToggleGroupItem value="dark" className="min-h-11 flex-1">
-        <MoonIcon />
-        Dark
-      </ToggleGroupItem>
-      <ToggleGroupItem value="system" className="min-h-11 flex-1">
-        <MonitorIcon />
-        System
-      </ToggleGroupItem>
-    </ToggleGroup>
-  );
-}
 
 /**
  * Who is signed in, and the way out.
@@ -193,6 +176,10 @@ function UserMenu() {
   // The action alone, which is a stable reference, so opening or closing the
   // calculator never re-renders the header. Selecting the whole store would.
   const openCalculator = useCalculatorStore((s) => s.openPanel);
+  // The action alone, for the same reason the calculator takes only its
+  // opener: selecting the whole store would re-render the header every time
+  // the answer panel opened or closed.
+  const openShortcuts = useUiStore((s) => s.setShortcutsOpen);
   /*
    * The unread dot.
    *
@@ -284,76 +271,66 @@ function UserMenu() {
               <ThemeToggleGroup />
             </div>
 
-            <div className="flex flex-col gap-2 border-t p-4">
-              <Button
-                variant="outline"
-                className="w-full"
+            {/* Six destinations as a grid of tiles rather than six rows: a
+                row spends the whole width on one word and pushes the tail
+                below the fold (thumb-reach). Two columns at 360, three from
+                sm. Three of these exist only because a phone has no keyboard
+                and hides the header buttons below sm: the answer panel and the
+                per-screen guide live on Ctrl+F1, the calculator on Ctrl+N
+                (REQ-N-03), and without a tile here each would be built
+                responsive and then be unreachable at the width that was for. */}
+            <div className="grid grid-cols-2 gap-2 border-t p-4 sm:grid-cols-3">
+              <SheetTile icon={<UserCircleIcon className="size-5" />} label="Profile" onClick={goToProfile} />
+              <SheetTile
+                icon={<MegaphoneIcon className="size-5" />}
+                label="Updates"
+                dot={unread}
                 onClick={() => {
                   setSheetOpen(false);
                   void navigate('/updates');
                 }}
-              >
-                <MegaphoneIcon data-icon="inline-start" />
-                Updates
-                {unread ? (
-                  <span className="bg-primary ml-auto size-2 rounded-full" aria-hidden />
-                ) : null}
-              </Button>
-              {/* The same reasoning as the Calculator row below, and the same
-                  bug it was written to prevent: the per-screen guide is offered
-                  from the shortcut sheet, whose header button is hidden below
-                  sm and whose Ctrl+F1 needs a keyboard this device does not
-                  have. Without this row the feature would exist and be
-                  unreachable at the width most people use. */}
-              <Button
-                variant="outline"
-                className="w-full"
+              />
+              <SheetTile
+                icon={<QuestionIcon className="size-5" />}
+                label="Ask a question"
+                onClick={() => {
+                  setSheetOpen(false);
+                  openShortcuts(true);
+                }}
+              />
+              <SheetTile
+                icon={<MapPinIcon className="size-5" />}
+                label="Guide to this screen"
                 onClick={() => {
                   setSheetOpen(false);
                   startPageGuide();
                 }}
-              >
-                <MapPinIcon data-icon="inline-start" />
-                Guide to this screen
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full"
+              />
+              <SheetTile
+                icon={<CompassIcon className="size-5" />}
+                label="Take the tour"
                 onClick={() => {
                   setSheetOpen(false);
                   startTour();
                 }}
-              >
-                <CompassIcon data-icon="inline-start" />
-                Take the tour
-              </Button>
-              {/* REQ-N-03 asks for the calculator on any screen, and on a phone
-                  this is the only way in: the header button that carries the
-                  shortcut hint is hidden below sm, and Ctrl+N needs a keyboard
-                  the device does not have. Without this row the panel would be
-                  built responsive and then be unreachable at the width the
-                  responsiveness was for. */}
-              <Button
-                variant="outline"
-                className="w-full"
+              />
+              <SheetTile
+                icon={<CalculatorIcon className="size-5" />}
+                label="Calculator"
                 onClick={() => {
                   setSheetOpen(false);
                   openCalculator();
                 }}
-              >
-                <CalculatorIcon data-icon="inline-start" />
-                Calculator
-              </Button>
+              />
             </div>
 
-            <SheetFooter className="flex-row gap-2 border-t">
-              <Button variant="outline" className="flex-1" onClick={goToProfile}>
-                <UserCircleIcon data-icon="inline-start" />
-                Profile
-              </Button>
+            <SheetFooter className="border-t">
+              {/* Alone on the bottom edge, and not a confirm: signing back in
+                  costs one form, and a dialog on a reversible action is
+                  friction, not safety. */}
               <Button
                 variant="ghost"
-                className="text-destructive hover:text-destructive flex-1"
+                className="text-destructive hover:text-destructive w-full"
                 disabled={logout.isPending}
                 onClick={() => {
                   logout.mutate();
@@ -494,7 +471,7 @@ function PreviewRoleMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="outline" size="sm" className="ml-auto h-7 shrink-0 text-xs" />}
+        render={<Button variant="outline" size="sm" className="ml-auto shrink-0" />}
       >
         Preview: {roleLabel}
       </DropdownMenuTrigger>
@@ -530,6 +507,7 @@ export function AppShell() {
 
   return (
     <SidebarProvider>
+      <AppearanceEffect />
       {/* First focusable element in the document, and it has to be: it used to
           sit inside SidebarInset, which renders after the sidebar, so the first
           Tab landed on the organisation brand and a keyboard user still had to
@@ -604,11 +582,17 @@ export function AppShell() {
               </Button>
             </HeaderTooltip>
 
-            <HeaderTooltip label="Keyboard shortcuts" keys="ctrl+f1" alias="f1">
+            {/* "Help and shortcuts", not "Keyboard shortcuts". The key is
+                still PRD §6.4's, and the icon still says which key -- but the
+                sheet behind it now answers questions as well as listing keys,
+                and nobody looking for help clicks a keyboard. The label is
+                where that is cheapest to say: the icon stays, so the header
+                gains no width and the tour anchor keeps its target. */}
+            <HeaderTooltip label="Help and shortcuts" keys="ctrl+f1" alias="f1">
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="Keyboard shortcuts"
+                aria-label="Help and shortcuts"
                 data-guide="header.shortcuts"
                 className="hidden sm:inline-flex"
                 onClick={toggleShortcuts}
@@ -669,7 +653,11 @@ export function AppShell() {
             tabIndex={-1}
             // pb-24 clears the fixed bottom bar on a phone. Without it the last
             // row of any list sits under the bar and cannot be reached.
-            className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 outline-none md:p-6 md:pb-6"
+            // Keyed by pathname so each screen arrives with the 120ms enter
+            // (index.css .screen-enter); the ErrorBoundary inside was already
+            // keyed the same way, so nothing new remounts that did not before.
+            key={location.pathname}
+            className="screen-enter flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 outline-none md:p-6 md:pb-6"
           >
             {/* Inside the shell rather than around it, so a screen that throws
                 takes only itself down and the navigation is still there to

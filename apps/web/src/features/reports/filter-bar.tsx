@@ -36,7 +36,7 @@ import { DateField, DateRangeField, MonthField, type RangePreset } from '@/featu
 import { subDays } from 'date-fns';
 
 import { fromDateParam } from '@/features/attendance/format';
-import { periodForGranularity } from './period-compare';
+import { periodForGranularity } from '@/lib/period-compare';
 
 import { monthRange, type PeriodMode } from './period';
 
@@ -118,7 +118,7 @@ function OptionSelect({
         onValueChange(next === null || next === ALL ? null : next);
       }}
     >
-      <SelectTrigger aria-label={label} className="pointer-coarse:h-11 w-full sm:w-44">
+      <SelectTrigger aria-label={label} className="w-full sm:w-44">
         <SelectValue>
           {(current: string) =>
             options.find((option) => option.id === current)?.name ?? placeholder
@@ -226,7 +226,7 @@ export function ReportFilterBar({
             onChange({ groupBy: next === null || next === 'party' ? null : next });
           }}
         >
-          <SelectTrigger aria-label="Group by" className="pointer-coarse:h-11 w-full sm:w-40">
+          <SelectTrigger aria-label="Group by" className="w-full sm:w-40">
             <SelectValue>{(current: SalesAnalysisDimension) => SALES_ANALYSIS_DIMENSION_LABELS[current]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -280,7 +280,7 @@ export function ReportFilterBar({
             onChange({ status: next === null || next === ALL ? null : next });
           }}
         >
-          <SelectTrigger aria-label="Filter by status" className="pointer-coarse:h-11 w-full sm:w-40">
+          <SelectTrigger aria-label="Filter by status" className="w-full sm:w-40">
             <SelectValue>
               {(current: string) => (current === ALL ? 'All statuses' : humaniseEnum(current))}
             </SelectValue>
@@ -305,7 +305,7 @@ export function ReportFilterBar({
             onChange({ flags: next === null || next === ALL ? null : next });
           }}
         >
-          <SelectTrigger aria-label="Filter by flag" className="pointer-coarse:h-11 w-full sm:w-40">
+          <SelectTrigger aria-label="Filter by flag" className="w-full sm:w-40">
             <SelectValue>
               {(current: string) => (
                 <span className="inline-flex items-center gap-1.5 [&_svg]:size-3.5">
@@ -338,7 +338,7 @@ export function ReportFilterBar({
         >
           <SelectTrigger
             aria-label="Filter by direction"
-            className="pointer-coarse:h-11 w-full sm:w-36"
+            className="w-full sm:w-36"
           >
             <SelectValue>
               {(current: string) => (current === ALL ? 'In and out' : humaniseEnum(current))}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowSquareOutIcon, CheckIcon, CopyIcon, EnvelopeSimpleIcon, WhatsappLogoIcon } from '@phosphor-icons/react';
+import { ArrowSquareOutIcon, CheckIcon, CopyIcon, EnvelopeSimpleIcon, PackageIcon, WhatsappLogoIcon } from '@phosphor-icons/react';
 
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Badge } from '@/components/ui/badge';
@@ -12,8 +12,11 @@ import { formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
+import { PhotoPicker, TextField } from './dispatch-dialog';
+import type { PreparedPhoto } from './dispatch-photo';
+import { ResponsiveDialog, ResponsiveDialogActions } from './responsive-dialog';
 import type { Dispatch, DispatchNotification } from './types';
-import { useAttachmentUrl, useMarkNotification } from './use-dispatches';
+import { useAttachmentUrl, useDeliverDispatch, useMarkNotification } from './use-dispatches';
 
 /**
  * What sits under a dispatch's delivery note (REQ-AA-16, AA-31): the
@@ -65,10 +68,34 @@ export function DispatchNotifications({ dispatch }: { dispatch: Dispatch }) {
             <Textarea readOnly rows={6} aria-label={`${notification.channel} message`} className="font-mono" value={notification.composedText} />
             <div className="flex flex-wrap items-center justify-end gap-2">
               <CopyButton text={notification.composedText} label={`${notification.channel} message`} />
+              {/* D-47: click-to-send. Opens the conversation with the message typed;
+                  the person taps send there, and coming back marks it sent here. */}
+              {notification.channel === 'whatsapp' && notification.status === 'pending' && notification.recipient && canAct ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={mark.isPending}
+                  onClick={() => {
+                    const digits = (notification.recipient ?? '').replace(/\D/gu, '');
+                    const number = digits.length === 10 ? `91${digits}` : digits;
+                    window.open(`https://wa.me/${number}?text=${encodeURIComponent(notification.composedText)}`, '_blank', 'noopener');
+                    mark.mutate(
+                      { dispatchId: dispatch.id, notificationId: notification.id, status: 'sent' },
+                      {
+                        onSuccess: () => {
+                          toast.add({ type: 'success', title: 'WhatsApp opened', description: `Marked sent against ${dispatch.number}; undo by marking it failed if the message did not go.` });
+                        },
+                      },
+                    );
+                  }}
+                >
+                  <WhatsappLogoIcon data-icon="inline-start" />
+                  Send on WhatsApp
+                </Button>
+              ) : null}
               {notification.status === 'pending' && canAct ? (
                 <Button
                   size="sm"
-                  className="pointer-coarse:min-h-11"
                   disabled={mark.isPending}
                   onClick={() => {
                     mark.mutate(
@@ -152,7 +179,6 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       <Button
         variant="outline"
         size="sm"
-        className="pointer-coarse:min-h-11"
         aria-label={outcome === 'copied' ? `${label} copied` : `Copy ${label}`}
         onClick={() => {
           void copy();
@@ -162,5 +188,100 @@ function CopyButton({ text, label }: { text: string; label: string }) {
         Copy
       </Button>
     </>
+  );
+}
+
+/**
+ * D-47: the door step. A shipped dispatch offers "Mark delivered"; the form
+ * asks only for what the system cannot know — who took the goods, a note,
+ * the photograph at the door — and the delivered notice follows by itself.
+ * A delivered dispatch states the fact and stops offering the verb.
+ */
+export function DeliverSection({ dispatch }: { dispatch: Dispatch }) {
+  const canAct = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
+  const deliver = useDeliverDispatch();
+  const [open, setOpen] = useState(false);
+  const [receivedBy, setReceivedBy] = useState('');
+  const [note, setNote] = useState('');
+  const [photos, setPhotos] = useState<PreparedPhoto[]>([]);
+  const [tried, setTried] = useState(false);
+  const missingName = tried && receivedBy.trim() === '' ? 'Who received it?' : null;
+  const missingPhoto = tried && photos.length === 0 ? 'A photograph at the door is required.' : null;
+
+  function submit() {
+    setTried(true);
+    if (receivedBy.trim() === '' || photos.length === 0) return;
+    deliver.mutate(
+      { dispatchId: dispatch.id, receivedBy: receivedBy.trim(), note: note.trim() === '' ? null : note.trim(), photos: photos.map((p) => p.file) },
+      {
+        onSuccess: (delivered) => {
+          setOpen(false);
+          const mail = delivered.notifications.find((n) => n.channel === 'email' && n.event === 'delivered');
+          toast.add({
+            type: 'success',
+            title: `${dispatch.number} delivered`,
+            description: mail?.status === 'sent' ? `Received by ${receivedBy.trim()}. The customer has been mailed.` : mail?.recipient ? `Received by ${receivedBy.trim()}. The mail ${mail.status === 'failed' ? 'failed — see the notice below' : 'is pending'}.` : `Received by ${receivedBy.trim()}. No email on file to tell them.`,
+          });
+        },
+        onError: (error: Error) => {
+          toast.add({ type: 'error', title: 'Not marked delivered', description: error.message });
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <SectionHeading
+        title={dispatch.status === 'delivered' ? 'Delivered' : 'On its way'}
+        note={
+          dispatch.status === 'delivered'
+            ? `Received by ${dispatch.receivedBy ?? 'the customer'}${dispatch.deliveredAt ? ` ${formatRelativeAge(dispatch.deliveredAt)}` : ''}${dispatch.deliveredByName ? `, marked by ${dispatch.deliveredByName}` : ''}${dispatch.deliveryNote ? `. ${dispatch.deliveryNote}` : '.'}`
+            : 'Mark it delivered at the door: who received it, and a photograph. The customer is told by mail.'
+        }
+        action={
+          dispatch.status === 'shipped' && canAct ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                setOpen(true);
+              }}
+            >
+              <PackageIcon data-icon="inline-start" />
+              Mark delivered
+            </Button>
+          ) : undefined
+        }
+      />
+      <ResponsiveDialog open={open} onOpenChange={setOpen} title={`Deliver ${dispatch.number}`} description={`${dispatch.customerName} · ${dispatch.orderNumber}`}>
+        <div className="flex flex-col gap-4">
+          <TextField id="deliver-received-by" label="Received by" value={receivedBy} onChange={setReceivedBy} error={missingName} disabled={deliver.isPending} placeholder="Name at the door" />
+          <PhotoPicker
+            label="Photograph at the door"
+            hint="The goods as handed over. One is required; up to three."
+            photos={photos}
+            max={3}
+            error={missingPhoto}
+            disabled={deliver.isPending}
+            onAdd={(photo) => {
+              setPhotos((current) => [...current, photo]);
+            }}
+            onRemove={(index) => {
+              setPhotos((current) => current.filter((_, i) => i !== index));
+            }}
+          />
+          <Textarea aria-label="Note" placeholder="Anything to note — left at the counter, one carton opened to check" rows={2} value={note} onChange={(event) => { setNote(event.target.value); }} />
+          <ResponsiveDialogActions>
+            <Button variant="outline" onClick={() => { setOpen(false); }} disabled={deliver.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={deliver.isPending}>
+              {deliver.isPending ? <Spinner data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
+              Delivered
+            </Button>
+          </ResponsiveDialogActions>
+        </div>
+      </ResponsiveDialog>
+    </div>
   );
 }

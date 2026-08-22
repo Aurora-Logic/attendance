@@ -25,6 +25,12 @@ export interface GuideStep {
   id: string;
   /** Navigated to before the step draws. Omitted means "stay where you are". */
   route?: string;
+  /**
+   * For a screen reached with an id in the path, e.g. `/sales/orders/:id`.
+   * Matched segment by segment, with `:name` matching any single segment.
+   * A screen with both keeps `route` as the one the tour navigates to.
+   */
+  routePattern?: string;
   /** Matched as `[data-guide="…"]`. See ANCHORS below. */
   anchor: string;
   /** Used instead of `anchor` below the 768px breakpoint. */
@@ -68,6 +74,7 @@ export const ANCHORS = {
   headerBreadcrumb: 'header.breadcrumb',
   headerAccount: 'header.account',
   screenHeader: 'screen.header',
+  screenDocument: 'screen.document',
   screenSearch: 'screen.search',
   screenTable: 'screen.table',
   screenTableCards: 'screen.table-cards',
@@ -496,7 +503,31 @@ const TRADING_INTROS: GuideStep[] = [
     anchor: ANCHORS.screenHeader,
     permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
     title: 'Dispatches',
-    body: 'How each consignment leaves: local by carrier, on your own vehicle, or outstation. The flow ends at dispatch.',
+    body: 'How each consignment leaves: local by carrier, on your own vehicle, or outstation. What is still in transit lives here.',
+  },
+  {
+    id: 'screen.sales-delivered',
+    route: '/sales/delivered',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Delivered',
+    body: 'Every dispatch the customer has signed for, newest first. A consignment arrives here when its slip is scanned and marked delivered at the door.',
+  },
+  {
+    id: 'screen.sales-packed',
+    route: '/sales/packed',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Packed',
+    body: 'Every pack across your orders, newest first, with its slips one tap away. This is where a box waits between packing and the door.',
+  },
+  {
+    id: 'screen.sales-scan',
+    route: '/sales/scan',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SALES_DOCUMENT_CREATE,
+    title: 'Scan a slip',
+    body: 'Point the camera at the barcode on a packing slip. It opens the pack: ship it with the LR number and photographs, or mark it delivered at the door.',
   },
   {
     id: 'screen.purchase-requirements',
@@ -524,30 +555,192 @@ const TRADING_INTROS: GuideStep[] = [
   },
 ];
 
+/**
+ * Screens reached with something in the path, or from somewhere other than the
+ * sidebar.
+ *
+ * These are the ones the header pin used to do nothing on. They are not in
+ * `lib/nav.ts`, so the coverage test that reads the navigation could not see
+ * them — a detail page, a document editor and the account screens are all
+ * routed, all wear the shell, and all offered a button that silently did
+ * nothing when pressed.
+ */
+const DETAIL_INTROS: GuideStep[] = [
+  {
+    id: 'screen.employee-detail',
+    routePattern: '/employees/:id',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.EMPLOYEE_VIEW,
+    title: 'This employee',
+    body: 'Everything on record for one person, and their attendance read as a trend rather than a list of days.',
+  },
+  {
+    id: 'screen.administration',
+    route: '/administration',
+    anchor: ANCHORS.screenHeader,
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    title: 'Administration',
+    body: 'Settings, people and records that belong to the whole workspace rather than to one module.',
+  },
+  {
+    id: 'screen.notifications',
+    route: '/notifications',
+    anchor: ANCHORS.screenHeader,
+    title: 'Notifications',
+    body: 'Everything the product has told you, newest first. The bell in the header carries the unread count.',
+  },
+  {
+    id: 'screen.profile',
+    route: '/profile',
+    anchor: ANCHORS.screenHeader,
+    title: 'Your profile',
+    body: 'Your own record and sign-in details. Changing what an employee record says about you is HR’s to do, not yours.',
+  },
+  {
+    id: 'screen.updates',
+    route: '/updates',
+    anchor: ANCHORS.screenHeader,
+    title: 'Updates',
+    body: 'What changed in the product and when, with a way into the screen each change touched.',
+  },
+  /*
+   * The document screens: four editors and three paper views.
+   *
+   * One step serves all seven because all seven render `DocumentEditor`, and
+   * none of them renders a `PageHeader` — so `screen.header` is absent and the
+   * toolbar is the anchor instead. Separate entries only because each one
+   * navigates from a different list.
+   */
+  {
+    id: 'screen.estimate-editor',
+    routePattern: '/sales/estimates/:id',
+    anchor: ANCHORS.screenDocument,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Writing an estimate',
+    body: 'The document as it will be read. Picking an item shows what this party was quoted and invoiced before, and nothing here reaches Tally.',
+  },
+  {
+    id: 'screen.sales-order-editor',
+    routePattern: '/sales/orders/:id',
+    anchor: ANCHORS.screenDocument,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Writing a sales order',
+    body: 'Once accepted this is read-only except through an explicit Alter, which re-pushes against the stored GUID rather than creating a second voucher.',
+  },
+  {
+    id: 'screen.invoice-editor',
+    routePattern: '/sales/invoices/:id',
+    anchor: ANCHORS.screenDocument,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'The invoice',
+    body: 'What the customer receives. The sync state shown here is reported by the agent, never inferred.',
+  },
+  {
+    id: 'screen.purchase-order-editor',
+    routePattern: '/purchase/orders/:id',
+    anchor: ANCHORS.screenDocument,
+    permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+    title: 'Writing a purchase order',
+    body: 'Raised on a vendor, standalone or against a sales order so the requirement carries through.',
+  },
+  {
+    id: 'screen.packing-slip',
+    routePattern: '/sales/packs/:id',
+    anchor: ANCHORS.screenDocument,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Packing slip',
+    body: 'What goes in the box, as the person packing it needs to read it.',
+  },
+  {
+    id: 'screen.dispatch-paper',
+    routePattern: '/sales/dispatches/:id',
+    anchor: ANCHORS.screenDocument,
+    permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+    title: 'Dispatch note',
+    body: 'The consignment as it leaves, ready to print and to travel with the goods.',
+  },
+  {
+    id: 'screen.grn-paper',
+    routePattern: '/purchase/grns/:id',
+    anchor: ANCHORS.screenDocument,
+    permission: PERMISSIONS.PURCHASE_DOCUMENT_VIEW,
+    title: 'Goods receipt',
+    body: 'What arrived against what was ordered, which is where a short or excess delivery is caught.',
+  },
+];
+
 /** Everything, in sidebar order. The whole-product tour. */
+/*
+ * The whole-product tour is the sidebar, and only the sidebar.
+ *
+ * Detail pages, document editors and the account screens are deliberately not
+ * in it: a tour that stopped on "writing a sales order" between two list
+ * screens would be describing somewhere you cannot get to from where you are.
+ * They are reachable through the page guide, which is where they belong.
+ */
 export const MAIN_TOUR: GuideStep[] = [...SHELL_STEPS, ...SCREEN_INTROS, ...TRADING_INTROS];
+
+/** Every screen the guide can introduce, whether or not the sidebar lists it. */
+const EVERY_INTRO: GuideStep[] = [...SCREEN_INTROS, ...TRADING_INTROS, ...DETAIL_INTROS];
 
 /** Every step the registry can produce, in either scope. */
 export const ALL_STEPS: GuideStep[] = [
   ...SHELL_STEPS,
   ...SCREEN_INTROS,
   ...TRADING_INTROS,
+  ...DETAIL_INTROS,
   ...FURNITURE_STEPS,
 ];
 
 /** The intro for a route, if it has one. */
+/** `/sales/orders/:id` against `/sales/orders/abc123`. */
+function patternMatches(pattern: string, path: string): boolean {
+  const a = pattern.split('/');
+  const b = path.split('/');
+  if (a.length !== b.length) return false;
+  return a.every((seg, i) => seg.startsWith(':') || seg === b[i]);
+}
+
+/**
+ * The intro **declared** for a route, exactly.
+ *
+ * Strict on purpose. This is what the coverage test asks, and a lookup that
+ * quietly fell back to a parent would let a screen ship with no guide of its
+ * own while the test reported it covered.
+ */
 export function introFor(route: string): GuideStep | undefined {
   // A nav link may carry a query (the report catalogue's categories); the
   // screen it lands on — and therefore its guide — is the pathname's.
   const pathname = route.split('?')[0] ?? route;
-  return [...SCREEN_INTROS, ...TRADING_INTROS].find((step) => step.route === pathname);
+  return (
+    EVERY_INTRO.find((step) => step.route === pathname) ??
+    EVERY_INTRO.find((step) => step.routePattern && patternMatches(step.routePattern, pathname))
+  );
+}
+
+/**
+ * The intro to actually use for a path the browser is on.
+ *
+ * Forgiving where `introFor` is strict, and the difference is deliberate.
+ * Several screens render the same component for the list and for one selected
+ * row — `/crm/deals` and `/crm/deals/abc` are the same page with a panel open —
+ * so rather than declare a near-duplicate entry for each, an unmatched path
+ * falls back to its parent. `/sales/orders/new` still gets the editor's own
+ * entry, because an explicit match is tried first.
+ */
+export function introForPath(pathname: string): GuideStep | undefined {
+  const direct = introFor(pathname);
+  if (direct) return direct;
+
+  const parent = pathname.replace(/\/[^/]+$/u, '');
+  return parent && parent !== pathname ? introFor(parent) : undefined;
 }
 
 /** Every route the tour knows how to introduce. */
 export function guidedRoutes(): string[] {
-  return [...SCREEN_INTROS, ...TRADING_INTROS]
-    .map((step) => step.route)
-    .filter((r): r is string => Boolean(r));
+  return EVERY_INTRO.map((step) => step.route ?? step.routePattern).filter(
+    (r): r is string => Boolean(r),
+  );
 }
 
 function permitted(step: GuideStep, granted: ReadonlySet<PermissionKey>): boolean {
@@ -590,7 +783,7 @@ export function resolvePageSteps(
   isMobile: boolean,
   isPresent: (anchor: string) => boolean,
 ): GuideStep[] {
-  const intro = introFor(route);
+  const intro = introForPath(route);
   if (!intro || !permitted(intro, granted)) return [];
 
   const furniture = FURNITURE_STEPS.filter(

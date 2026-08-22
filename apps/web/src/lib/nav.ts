@@ -1,7 +1,6 @@
 import {
   AddressBookIcon,
   ArchiveIcon,
-  BarcodeIcon,
   BooksIcon,
   BuildingsIcon,
   CalendarBlankIcon,
@@ -25,7 +24,6 @@ import {
   PackageIcon,
   PlugIcon,
   ReceiptIcon,
-  ReceiptXIcon,
   ScrollIcon,
   ShieldCheckIcon,
   ShoppingCartIcon,
@@ -34,10 +32,14 @@ import {
   TrashIcon,
   TrayIcon,
   TreePalmIcon,
-  TruckIcon,
+  ScanIcon,
   UmbrellaIcon,
   UsersIcon,
   UsersThreeIcon,
+  BarcodeIcon,
+  CheckCircleIcon,
+  ReceiptXIcon,
+  TruckIcon,
 } from '@phosphor-icons/react';
 
 import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
@@ -79,6 +81,8 @@ export interface ModuleDef {
   icon: Icon;
   /** Where `Ctrl+G` lands when this module is chosen. */
   home: string;
+  /** The phone bottom bar's default four, in order, when nobody has customised it: the screens held in a hand on the floor, not the office's. Absent = the module's first four. */
+  readonly phoneBar?: readonly string[];
   /** Undefined means every signed-in account sees it. */
   permission?: PermissionKey;
   groups: NavGroup[];
@@ -493,6 +497,8 @@ export const MODULES: ModuleDef[] = [
     label: 'Sales',
     icon: FileTextIcon,
     home: '/sales/estimates',
+    // Owner, 22 Aug: the phone is the floor's device - the process is what it carries.
+    phoneBar: ['/sales/pick-queue', '/sales/packed', '/sales/scan', '/sales/dispatches'],
     permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
     groups: [
       {
@@ -528,6 +534,10 @@ export const MODULES: ModuleDef[] = [
       {
         label: 'Fulfilment',
         items: [
+          // Owner, 22 Aug 2026: each stage is its own entry -- "we don't need
+          // one Fulfilment option" -- and Delivered is among them so it can be
+          // found. The strip on each screen (features/sales/fulfilment-tabs)
+          // still says where you are and what waits.
           {
             to: '/sales/pick-queue',
             label: 'Pick queue',
@@ -535,7 +545,16 @@ export const MODULES: ModuleDef[] = [
             icon: BarcodeIcon,
             permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
             phase: 8,
-            reqs: 'REQ-AA-05, REQ-AA-06, REQ-AA-07',
+            reqs: 'REQ-AA-05, REQ-AA-06, REQ-AA-07, D-48',
+          },
+          {
+            to: '/sales/packed',
+            label: 'Packed',
+            shortLabel: 'Packed',
+            icon: PackageIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'D-47',
           },
           {
             to: '/sales/awaiting-invoice',
@@ -549,10 +568,29 @@ export const MODULES: ModuleDef[] = [
           {
             to: '/sales/dispatches',
             label: 'Dispatches',
+            shortLabel: 'Shipped',
             icon: TruckIcon,
             permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
             phase: 8,
             reqs: 'REQ-AA-17, REQ-AA-21, REQ-AA-24',
+          },
+          {
+            to: '/sales/delivered',
+            label: 'Delivered',
+            shortLabel: 'Delivered',
+            icon: CheckCircleIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
+            phase: 8,
+            reqs: 'D-47',
+          },
+          {
+            to: '/sales/scan',
+            label: 'Scan a slip',
+            shortLabel: 'Scan',
+            icon: ScanIcon,
+            permission: PERMISSIONS.SALES_DOCUMENT_CREATE,
+            phase: 8,
+            reqs: 'D-47',
           },
         ],
       },
@@ -809,6 +847,8 @@ const OFF_NAV_LABELS: Record<string, string> = {
 const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }[] = [
   { pattern: /^\/employees\/[^/]+$/u, parent: '/employees', label: 'Employee' },
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
+  { pattern: /^\/masters\/parties\/[^/]+$/u, parent: '/masters/parties', label: 'Party' },
+  { pattern: /^\/masters\/items\/[^/]+$/u, parent: '/masters/items', label: 'Stock item' },
   { pattern: /^\/crm\/contacts\/[^/]+$/u, parent: '/crm/contacts', label: 'Contact' },
   { pattern: /^\/crm\/companies\/[^/]+$/u, parent: '/crm/companies', label: 'Company' },
   { pattern: /^\/tasks\/[^/]+$/u, parent: '/tasks', label: 'Task' },
@@ -817,6 +857,7 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/sales\/orders\/[^/]+$/u, parent: '/sales/orders', label: 'Sales order' },
   { pattern: /^\/sales\/invoices\/[^/]+$/u, parent: '/sales/invoices', label: 'Invoice' },
   { pattern: /^\/sales\/pick-queue\/[^/]+$/u, parent: '/sales/pick-queue', label: 'Pack' },
+  { pattern: /^\/sales\/packs\/[^/]+$/u, parent: '/sales/packed', label: 'Packing slip' },
   { pattern: /^\/sales\/dispatches\/[^/]+$/u, parent: '/sales/dispatches', label: 'Dispatch' },
   { pattern: /^\/purchase\/orders\/[^/]+$/u, parent: '/purchase/orders', label: 'Purchase order' },
   { pattern: /^\/purchase\/grns\/[^/]+$/u, parent: '/purchase/grns', label: 'Goods receipt' },

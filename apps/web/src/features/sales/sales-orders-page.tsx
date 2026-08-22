@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { FileTextIcon, GearIcon, LockKeyIcon, PlusIcon } from '@phosphor-icons/react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams, Link } from 'react-router';
 
 import { PersonChip } from '@/components/shared/person';
 import { PageHeader } from '@/components/shared/page-header';
@@ -15,13 +15,13 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { formatDate } from '@/lib/format';
+import { formatDate, EMPTY_VALUE } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
 import { SyncStateBadge } from './sales-order-sheet';
-import { SalesSettingsDialog } from './sales-settings-dialog';
+import { FulfilmentBadge } from './fulfilment-badge';
 import { formatMoney } from './money';
 import type { EstimateSummary } from './types';
 import { useSalesOrders } from './use-estimates';
@@ -43,6 +43,7 @@ const COLUMNS: RecordColumn<EstimateSummary>[] = [
   { key: 'customer', header: 'Customer', cell: (row) => row.customerName },
   { key: 'date', header: 'Date', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
   { key: 'status', header: 'Status', cell: (row) => <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[row.status]}</Badge> },
+  { key: 'fulfilment', header: 'Fulfilment', cell: (row) => (row.fulfilment ? <FulfilmentBadge state={row.fulfilment} /> : EMPTY_VALUE) },
   { key: 'sync', header: 'Tally', cell: (row) => <SyncStateBadge record={row} /> },
   { key: 'total', header: 'Total', cell: (row) => formatMoney(row.grandTotal), numeric: true },
   { key: 'owner', header: 'Owner', cell: (row) => <PersonChip name={row.ownerName} />, secondary: true },
@@ -72,7 +73,6 @@ export function SalesOrdersPage() {
   const canView = canViewSelf || canViewAll;
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const canApproveDiscount = usePermission(PERMISSIONS.SALES_DISCOUNT_APPROVE);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -167,9 +167,8 @@ export function SalesOrdersPage() {
                   size="sm"
                   variant="outline"
                   aria-label="Sales settings"
-                  onClick={() => {
-                    setSettingsOpen(true);
-                  }}
+                  nativeButton={false}
+                  render={<Link to="/settings?tab=sales" />}
                 >
                   <GearIcon data-icon="inline-start" />
                   <span className="hidden sm:inline">Settings</span>
@@ -205,7 +204,7 @@ export function SalesOrdersPage() {
               );
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-40" aria-label="Status">
+            <SelectTrigger className="w-40" aria-label="Status">
               <SelectValue>{(value: string) => (value === ALL ? 'Any status' : SALES_DOCUMENT_STATUS_LABELS[value as SalesOrderStatus])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -232,7 +231,7 @@ export function SalesOrdersPage() {
               );
             }}
           >
-            <SelectTrigger className="pointer-coarse:min-h-11 w-44" aria-label="Tally state">
+            <SelectTrigger className="w-44" aria-label="Tally state">
               <SelectValue>{(value: string) => (value === ALL ? 'Any Tally state' : SYNC_STATE_LABELS[value as DocumentSyncState])}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -294,8 +293,6 @@ export function SalesOrdersPage() {
           </>
         ) : null}
       </div>
-
-      <SalesSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   );
 }

@@ -288,7 +288,7 @@ export function AnalyticsPage() {
                   // vendored shadcn variant keeps the box at 32px and grows an
                   // invisible ::after hit area instead. That satisfies a thumb
                   // and fails the route sweep, which measures the element.
-                  className={cn('pointer-coarse:h-11 px-2.5', PRESS)}
+                  className={cn(' px-2.5', PRESS)}
                 >
                   {String(option)}d
                 </ToggleGroupItem>
@@ -303,7 +303,7 @@ export function AnalyticsPage() {
               setDepartmentId(next === null || next === ALL ? null : next);
             }}
           >
-            <SelectTrigger aria-label="Filter by department" className="pointer-coarse:h-11 w-full sm:w-48">
+            <SelectTrigger aria-label="Filter by department" className="w-full sm:w-48">
               <SelectValue>
                 {(value: string) =>
                   departmentOptions.find((option) => option.id === value)?.name ?? 'All departments'

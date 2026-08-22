@@ -3,10 +3,9 @@ import { WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
-import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { SectionHeading } from '@/components/shared/section-heading';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -14,45 +13,25 @@ import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import type { SalesSettings } from '@vyuha/shared';
 
 import { useSalesSettings, useSaveSalesSettings } from './use-estimates';
 
 /**
- * The discount threshold (REQ-W-08), set by a discount approver. Off the
- * sales orders page for the same reason the purchase thresholds sit off the
- * PO page: the Sales manager owns the line, and reads it beside the orders
- * it decides.
+ * The discount threshold (REQ-W-08), on the Settings screen's Sales tab
+ * (owner, 22 Aug 2026: every module's settings in one place). Its own
+ * endpoint and its own Save, because the line belongs to whoever holds
+ * sales.discount.approve, who may not hold settings.manage at all.
  */
 
 const PERCENT = /^\d{1,3}(\.\d{1,2})?$/u;
 
-export function SalesSettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        {open ? (
-          <SalesSettingsBody
-            onClose={() => {
-              onOpenChange(false);
-            }}
-          />
-        ) : null}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function SalesSettingsBody({ onClose }: { onClose: () => void }) {
+export function SalesSettingsPanel() {
   const settings = useSalesSettings();
   const save = useSaveSalesSettings();
   return (
-    <ShortcutLayer id="modal:sales-settings">
-      <DialogHeader>
-        <DialogTitle>Sales settings</DialogTitle>
-        <DialogDescription>Where a discount stops being the salesperson&rsquo;s call.</DialogDescription>
-      </DialogHeader>
+    <div className="flex flex-col gap-4 border p-4">
+      <SectionHeading title="Sales" note="Where a discount stops being the salesperson\u2019s call." />
       {settings.isPending ? (
         <div role="status" aria-busy="true" aria-label="Loading sales settings" className="flex flex-col gap-3">
           <Skeleton className="h-9" />
@@ -67,12 +46,12 @@ function SalesSettingsBody({ onClose }: { onClose: () => void }) {
           }}
         />
       ) : null}
-      {settings.isSuccess ? <SalesSettingsForm key={JSON.stringify(settings.data)} saved={settings.data} save={save} onClose={onClose} /> : null}
-    </ShortcutLayer>
+      {settings.isSuccess ? <SalesSettingsForm key={JSON.stringify(settings.data)} saved={settings.data} save={save} /> : null}
+    </div>
   );
 }
 
-function SalesSettingsForm({ saved, save, onClose }: { saved: SalesSettings; save: ReturnType<typeof useSaveSalesSettings>; onClose: () => void }) {
+function SalesSettingsForm({ saved, save }: { saved: SalesSettings; save: ReturnType<typeof useSaveSalesSettings> }) {
   const [pct, setPct] = useState(saved.discountApprovalPct === null ? '' : String(saved.discountApprovalPct));
   const trimmed = pct.trim();
   const pctOk = trimmed === '' || (PERCENT.test(trimmed) && Number(trimmed) <= 100);
@@ -89,7 +68,6 @@ function SalesSettingsForm({ saved, save, onClose }: { saved: SalesSettings; sav
           title: 'Sales settings saved',
           description: result.discountApprovalPct === null ? 'No discount needs approval.' : `Discounts above ${String(result.discountApprovalPct)}% wait for a Sales manager.`,
         });
-        onClose();
       },
     });
   }
@@ -98,7 +76,6 @@ function SalesSettingsForm({ saved, save, onClose }: { saved: SalesSettings; sav
 
   return (
     <>
-      <SaveShortcut onSave={submit} />
       <Form onSubmit={submit}>
         <FieldGroup>
           {save.isError ? (
@@ -113,7 +90,7 @@ function SalesSettingsForm({ saved, save, onClose }: { saved: SalesSettings; sav
             <Input
               id="sales-discount-pct"
               inputMode="decimal"
-              className="pointer-coarse:h-11 tabular-nums"
+              className="tabular-nums"
               placeholder="None"
               aria-invalid={pctOk ? undefined : true}
               value={pct}
@@ -125,22 +102,13 @@ function SalesSettingsForm({ saved, save, onClose }: { saved: SalesSettings; sav
           </Field>
         </FieldGroup>
       </Form>
-      <DialogFooter className="flex-row justify-end gap-2">
-        <Button variant="outline" className="flex-1 sm:flex-none" onClick={onClose}>
-          <ACTION_ICONS.cancel data-icon="inline-start" />
-          Cancel
-        </Button>
-        <Button className="flex-1 sm:flex-none" disabled={!canSubmit} onClick={submit}>
+      <div className="flex justify-end">
+        <Button size="sm" disabled={!canSubmit} onClick={submit}>
           {save.isPending ? <Spinner data-icon="inline-start" /> : <ACTION_ICONS.save data-icon="inline-start" />}
-          {save.isPending ? 'Saving' : 'Save'}
-          <ShortcutHint keys="ctrl+a" className="ml-1 hidden md:inline-flex" />
+          {save.isPending ? 'Saving' : 'Save sales settings'}
         </Button>
-      </DialogFooter>
+      </div>
     </>
   );
 }
 
-function SaveShortcut({ onSave }: { onSave: () => void }) {
-  useShortcut({ id: 'sales-settings.save', keys: 'ctrl+a', label: 'Accept / Save', scope: 'modal', allowInInput: true, run: onSave });
-  return null;
-}

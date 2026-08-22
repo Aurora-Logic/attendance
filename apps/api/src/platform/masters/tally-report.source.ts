@@ -2,6 +2,10 @@ import { Injectable, type OnModuleInit } from '@nestjs/common';
 import {
   PERMISSIONS,
   TALLY_REPORTS,
+  AgeingSource,
+  PaymentAnalysisSource,
+  ageingCell,
+  paymentAnalysisCell,
   creditCycleCell,
   customerLapseCell,
   customerStatementCell,
@@ -66,7 +70,7 @@ const classifiedCase = sql`voucher_type = ANY(${sql.raw(`ARRAY['${[...DEBIT_TYPE
 
 interface TallyReportPage extends ReportSourcePage {
   readonly key: ReportKey;
-  readonly rows: readonly (VoucherReconciliationSource | CustomerStatementSource | CreditCycleSource | SalesAnalysisSource | LowStockSource | DayBookSource | CustomerLapseSource)[];
+  readonly rows: readonly (VoucherReconciliationSource | CustomerStatementSource | CreditCycleSource | AgeingSource | PaymentAnalysisSource | SalesAnalysisSource | LowStockSource | DayBookSource | CustomerLapseSource)[];
 }
 
 @Injectable()
@@ -146,6 +150,10 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
              GROUP BY ${this.dimensionKey(usable.groupBy ?? 'party')}
           ) grouped
         `);
+      case 'ageing':
+        return this.scalar(sql`SELECT count(*)::int AS value FROM (${this.openBills(principal.orgId, usable)}) t`);
+      case 'payment-analysis':
+        return this.scalar(sql`SELECT count(*)::int AS value FROM (${this.paymentBehaviour(principal.orgId, usable)}) t`);
       case 'low-stock':
         return this.scalar(sql`SELECT count(*)::int AS value FROM (${this.lowStockQuery(principal.orgId)}) t`);
       case 'day-book':
@@ -177,6 +185,10 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
         return this.wrap(key, total, await this.creditRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
       case 'sales-analysis':
         return this.wrap(key, total, await this.salesRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
+      case 'ageing':
+        return this.wrap(key, total, await this.ageingRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
+      case 'payment-analysis':
+        return this.wrap(key, total, await this.paymentRows(principal.orgId, usable, filters.sort, limit, offset, asOf));
       case 'low-stock':
         return this.wrap(key, total, await this.lowStockRows(principal.orgId, filters.sort, limit, offset));
       case 'day-book':
@@ -205,6 +217,10 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
           return customerStatementCell(row as CustomerStatementSource, column.key);
         case 'credit-cycle':
           return creditCycleCell(row as CreditCycleSource, column.key);
+        case 'ageing':
+          return ageingCell(row as AgeingSource, column.key);
+        case 'payment-analysis':
+          return paymentAnalysisCell(row as PaymentAnalysisSource, column.key);
         case 'sales-analysis':
           return salesAnalysisCell(row as SalesAnalysisSource, column.key);
         case 'low-stock':
@@ -333,6 +349,187 @@ export class TallyReportSource implements ReportSource, OnModuleInit {
   }
 
   // --------------------------------------------------------- credit cycle
+
+  /**
+   * Every bill with something still on it.
+   *
+   * A bill is its allocation rows summed: the `new` row raises it and each
+   * `against` row settles part of it, all signed against the party. What is
+   * left is the outstanding, and a bill nets to zero when it is paid -- so
+   * "open" is `sum <> 0` and there is no paid flag to drift.
+   *
+   * `advance` and `on_account` are excluded. They are money with no bill
+   * attached, which is a real thing a customer does but not something that can
+   * age -- there is no date to age from. They belong on the statement, and the
+   * statement has them.
+   *
+   * Rounded to two places before the comparison, because a hundredth of a
+   * rupee left by a part payment is not an open bill and would otherwise sit
+   * in 90+ forever.
+   */
+  private openBills(orgId: string, filters: ReportFilters): SQL {
+    return sql`
+      SELECT b.party_id,
+             max(b.party_name) AS party_name,
+             b.bill_name,
+             min(b.bill_date) AS bill_date,
+             max(b.due_date) AS due_date,
+             round(sum(b.amount), 2) AS outstanding
+        FROM bill_allocations b
+       WHERE b.org_id = ${orgId}
+         AND b.ref_type IN ('new', 'against')
+         ${filters.partyId === undefined ? sql`` : sql`AND b.party_id = ${filters.partyId}`}
+       GROUP BY b.party_id, b.bill_name
+      HAVING round(sum(b.amount), 2) <> 0
+    `;
+  }
+
+  private async ageingRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<AgeingSource[]> {
+    const orderBy =
+      sort === 'partyName' ? sql`party_name ASC, bill_date ASC`
+      : sort === '-partyName' ? sql`party_name DESC, bill_date ASC`
+      : sort === 'ageDays' ? sql`age_days ASC, party_name ASC`
+      : sort === 'outstanding' ? sql`outstanding ASC, party_name ASC`
+      : sort === '-outstanding' ? sql`outstanding DESC, party_name ASC`
+      : sql`age_days DESC, party_name ASC`;
+
+    const rows = await this.db.execute<{
+      party_id: string | null;
+      party_name: string;
+      bill_name: string;
+      bill_date: string | null;
+      due_date: string | null;
+      age_days: number;
+      bucket: string;
+      outstanding: string;
+      overdue: boolean;
+    }>(sql`
+      SELECT party_id, party_name, bill_name, bill_date, due_date,
+             age_days, bucket, outstanding::text AS outstanding,
+             overdue
+        FROM (
+          SELECT o.*,
+                 /* Age from the bill's own date. REQ-Y-02's buckets are
+                    0-30 / 31-60 / 61-90 / over 90, and a bill sits in exactly
+                    one of them. A bill with no date -- which Tally allows --
+                    ages 0 rather than being dropped, because dropping it would
+                    quietly understate what is owed. */
+                 COALESCE((CURRENT_DATE - o.bill_date), 0) AS age_days,
+                 CASE
+                   WHEN o.bill_date IS NULL THEN 'UNDATED'
+                   WHEN CURRENT_DATE - o.bill_date <= 30 THEN '0-30'
+                   WHEN CURRENT_DATE - o.bill_date <= 60 THEN '31-60'
+                   WHEN CURRENT_DATE - o.bill_date <= 90 THEN '61-90'
+                   ELSE '90+'
+                 END AS bucket,
+                 /* Overdue is against the bill's own due date when Tally
+                    carried one, and against the party's credit days when it
+                    did not. This is the half D-40 was missing: the limit was
+                    enforced, the terms were not. */
+                 CASE
+                   WHEN o.due_date IS NOT NULL THEN CURRENT_DATE > o.due_date
+                   WHEN o.bill_date IS NOT NULL AND p.credit_days IS NOT NULL
+                     THEN CURRENT_DATE > o.bill_date + p.credit_days
+                   ELSE false
+                 END AS overdue
+            FROM (${this.openBills(orgId, filters)}) o
+            LEFT JOIN parties p ON p.id = o.party_id
+        ) aged
+       ORDER BY ${orderBy}
+       LIMIT ${limit} OFFSET ${offset}
+    `);
+
+    return rows.rows.map((row) => ({
+      partyId: row.party_id,
+      partyName: row.party_name,
+      billName: row.bill_name,
+      billDate: row.bill_date,
+      dueDate: row.due_date,
+      ageDays: Number(row.age_days),
+      bucket: row.bucket,
+      outstanding: row.outstanding,
+      overdue: row.overdue,
+      asOf,
+    }));
+  }
+
+  /**
+   * How long each party actually takes, against what they agreed to.
+   *
+   * A bill is settled when its rows net to zero; the day that happened is the
+   * date of its last `against` row. Days-to-pay is that minus the bill date --
+   * observed, because the settlement names the bill. Before `bill_allocations`
+   * the best available was the order receipts arrived in, which says nothing
+   * about which invoice a payment was for.
+   */
+  private paymentBehaviour(orgId: string, filters: ReportFilters): SQL {
+    return sql`
+      SELECT p.id AS party_id,
+             p.name AS party_name,
+             p.credit_days,
+             round(avg(s.days_to_pay) FILTER (WHERE s.settled))::int AS avg_days_to_pay,
+             count(*) FILTER (WHERE s.settled)::int AS bills_paid,
+             count(*) FILTER (WHERE NOT s.settled)::int AS bills_open,
+             max(CURRENT_DATE - s.bill_date) FILTER (WHERE NOT s.settled)::int AS oldest_open_days
+        FROM parties p
+        JOIN (
+          SELECT b.party_id,
+                 b.bill_name,
+                 min(b.bill_date) AS bill_date,
+                 round(sum(b.amount), 2) = 0 AS settled,
+                 max(v.voucher_date) FILTER (WHERE b.ref_type = 'against') - min(b.bill_date) AS days_to_pay
+            FROM bill_allocations b
+            JOIN vouchers v ON v.id = b.voucher_id
+           WHERE b.org_id = ${orgId}
+             AND b.ref_type IN ('new', 'against')
+             AND b.bill_date IS NOT NULL
+           GROUP BY b.party_id, b.bill_name
+        ) s ON s.party_id = p.id
+       WHERE p.org_id = ${orgId}
+         ${filters.partyId === undefined ? sql`` : sql`AND p.id = ${filters.partyId}`}
+       GROUP BY p.id, p.name, p.credit_days
+    `;
+  }
+
+  private async paymentRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<PaymentAnalysisSource[]> {
+    const orderBy =
+      sort === 'partyName' ? sql`party_name ASC`
+      : sort === '-partyName' ? sql`party_name DESC`
+      : sort === 'avgDaysToPay' ? sql`avg_days_to_pay ASC NULLS LAST, party_name ASC`
+      : sort === '-avgDaysToPay' ? sql`avg_days_to_pay DESC NULLS LAST, party_name ASC`
+      : sort === 'slippage' ? sql`slippage ASC NULLS LAST, party_name ASC`
+      : sql`slippage DESC NULLS LAST, party_name ASC`;
+
+    const rows = await this.db.execute<{
+      party_id: string;
+      party_name: string;
+      credit_days: number | null;
+      avg_days_to_pay: number | null;
+      slippage: number | null;
+      bills_paid: number;
+      bills_open: number;
+      oldest_open_days: number | null;
+    }>(sql`
+      SELECT party_id, party_name, credit_days, avg_days_to_pay,
+             avg_days_to_pay - credit_days AS slippage,
+             bills_paid, bills_open, oldest_open_days
+        FROM (${this.paymentBehaviour(orgId, filters)}) b
+       ORDER BY ${orderBy}
+       LIMIT ${limit} OFFSET ${offset}
+    `);
+
+    return rows.rows.map((row) => ({
+      partyId: row.party_id,
+      partyName: row.party_name,
+      creditDays: row.credit_days,
+      avgDaysToPay: row.avg_days_to_pay,
+      slippage: row.slippage,
+      billsPaid: Number(row.bills_paid),
+      billsOpen: Number(row.bills_open),
+      oldestOpenDays: row.oldest_open_days,
+      asOf,
+    }));
+  }
 
   private async creditRows(orgId: string, filters: ReportFilters, sort: string | undefined, limit: number, offset: number, asOf: string | null): Promise<CreditCycleSource[]> {
     const orderBy =

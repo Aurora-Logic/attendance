@@ -24,6 +24,10 @@ export interface OutboundMail {
    * can render it as a button rather than as text.
    */
   readonly actionUrl?: string;
+  /** D-47: a customer notice is HTML as well as text; the text stays the fallback every client renders. */
+  readonly html?: string;
+  /** Where a reply should land — the organisation's dispatch mailbox, not the platform's sender. */
+  readonly replyTo?: string;
 }
 
 /**

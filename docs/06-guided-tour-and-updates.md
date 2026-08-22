@@ -63,6 +63,31 @@ because an empty step list makes `start()` return early. All thirty-nine are
 covered, and `guide-anchors.test.tsx` now fails if a screen reaches the
 navigation without one, which is the only thing that stops it happening again.
 
+**The sidebar is not the product.** A later sweep found the coverage test had
+been asking the wrong question: it read `ALL_NAV_ITEMS`, and twenty-two routed
+screens are not in the sidebar — the employee detail page, the four document
+editors, the three paper views, and the account screens (`/profile`,
+`/updates`, `/notifications`, `/administration`). All of them wear the shell,
+all of them show the header pin, and on all of them the pin did nothing. The
+test now reads the route table out of `App.tsx`, so a route added there is a
+route it knows about.
+
+Two mechanisms came out of that. Paths carrying an id are matched by pattern
+(`/sales/orders/:id`), and an unmatched path falls back to its parent — several
+screens render the same component for the list and for one selected row, so
+`/crm/deals/abc` is the deals screen with a panel open and gets the deals
+guide. An explicit entry always wins over the fallback, which is why
+`/sales/orders/new` gets the editor's own step and not the list's. `introFor`
+stays strict for the coverage test; only the runtime resolver is forgiving.
+
+The document screens needed a second anchor. None of the seven renders a
+`PageHeader`, so `screen.header` is absent; they all render `DocumentEditor`,
+and its toolbar carries `screen.document`. Three of them were driven in a
+browser. The other four need a saved document to get past their loading state,
+which a stubbed API cannot produce, so what they depend on is asserted in a
+test instead: every one of the seven reaches `DocumentEditor`, and
+`DocumentEditor` carries the anchor.
+
 A page guide is composed by **looking at the page**, not from a per-route list
 that would go stale the first time a screen gained a table. The screen's intro
 comes from the registry; the rest is whatever of the shared kit is actually on
