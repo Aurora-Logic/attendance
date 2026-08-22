@@ -314,3 +314,46 @@ export function shortDate(date: string): string {
   if (Number.isNaN(parsed.getTime())) return date;
   return format(parsed, 'd MMM');
 }
+
+// -------------------------------------------------------------- insights
+
+/** Below this share of the team at work, a day is worth naming. */
+export const THIN_DAY_PCT = 70;
+/** Fewer finished days than this and a period has no shape to read. */
+export const DAYS_FOR_A_READING = 5;
+
+/** The sentence under the attendance-by-day chart. */
+export function attendanceInsight(points: readonly TrendPoint[]): string | null {
+  const counted = points.filter((p) => p.work + p.leave + p.absent + p.other > 0);
+  if (counted.length === 0) return null;
+  if (counted.length < DAYS_FOR_A_READING) {
+    return 'Not enough days recorded in this period to read a pattern.';
+  }
+  const thin = counted.filter((p) => {
+    const due = p.work + p.leave + p.absent;
+    return due > 0 && (p.work / due) * 100 < THIN_DAY_PCT;
+  });
+  return thin.length === 0
+    ? `At least ${String(THIN_DAY_PCT)}% of those due in were at work on every one of these ${String(counted.length)} days.`
+    : `${String(thin.length)} of ${String(counted.length)} days had under ${String(THIN_DAY_PCT)}% of those due in at work.`;
+}
+
+/** The sentence under the late-arrivals chart. */
+export function lateInsight(points: readonly LatePoint[]): string | null {
+  const total = points.reduce((sum, p) => sum + p.late, 0);
+  if (points.length === 0) return null;
+  if (total === 0) return 'Nobody arrived late in this period.';
+  const worst = points.reduce((most, p) => (p.late > most.late ? p : most));
+  const minutes = points.reduce((sum, p) => sum + p.minutes, 0);
+  const average = Math.round(minutes / total);
+  return `${String(total)} late arrivals, ${String(average)} minutes each on average; the worst day was ${shortDate(worst.date)}.`;
+}
+
+/** The sentence under the team's worked hours. */
+export function teamHoursInsight(points: readonly TeamHoursPoint[]): string | null {
+  const worked = points.filter((p) => p.people > 0);
+  if (worked.length === 0) return null;
+  const averaged = worked.reduce((sum, p) => sum + p.averageHours, 0) / worked.length;
+  const busiest = worked.reduce((most, p) => (p.hours > most.hours ? p : most));
+  return `The team averaged ${String(Math.round(averaged * 10) / 10)} hours a person on the ${String(worked.length)} days anyone worked; the longest was ${shortDate(busiest.date)}.`;
+}

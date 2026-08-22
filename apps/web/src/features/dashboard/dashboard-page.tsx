@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useRef, useState } from 'react';
-import { ArrowRightIcon, ChartBarIcon, DatabaseIcon, InfoIcon } from '@phosphor-icons/react';
+import { ArrowRightIcon, DatabaseIcon, InfoIcon } from '@phosphor-icons/react';
 import { subDays } from 'date-fns';
 import { Link } from 'react-router';
 
@@ -7,11 +7,17 @@ import { PERMISSIONS } from '@vyuha/shared';
 import type { DateRange } from 'react-day-picker';
 
 import { PageHeader } from '@/components/shared/page-header';
-import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
-import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import {
   Empty,
   EmptyDescription,
@@ -21,26 +27,23 @@ import {
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toDateParam } from '@/features/attendance/format';
+import { formatCount } from '@/lib/format';
 import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { SampleDataNotice } from '@/features/attendance/sample-data-notice';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermissions } from '@/lib/session/permissions';
-import { cn } from '@/lib/utils';
 
-import {
-  AttendanceTrendChart,
-  ChartSkeleton,
-  LateArrivalsChart,
-  TeamHoursChart,
-} from './charts';
+import { AttendanceTrendChart, LateArrivalsChart, TeamHoursChart } from './charts';
 import {
   attendanceTrend,
   dateRange,
+  attendanceInsight,
   hasValues,
   lateArrivals,
-  shortDate,
+  lateInsight,
   teamHours,
+  teamHoursInsight,
   summarise,
 } from './series';
 import { DASHBOARD_PRESETS } from '@/features/reports/dashboard-v2.presets';
@@ -71,48 +74,71 @@ import { useChartIntro } from './use-chart-motion';
  * contain it.
  */
 
-/**
- * The one strip pattern this product uses for a row of figures: a bordered
- * band divided by rules. Not a row of cards - CLAUDE.md 3.3 puts content on
- * the page surface, and five cards inside a page is the box in a box.
- */
-const STRIP_COLUMNS: Record<number, string> = {
-  4: 'sm:grid-cols-4',
-  5: 'sm:grid-cols-5',
-};
-
 /** Label, value, and optionally the glyph the figure's subject wears elsewhere (the flag). */
-function FigureStrip({ entries }: { entries: readonly (readonly [string, string] | readonly [string, string, ReactNode])[] }) {
+/**
+ * A headline figure, the same shape the reports dashboard uses.
+ *
+ * A Card with nothing nested in it: the label, the number, one line of
+ * context. The old FigureStrip drew its own grid of bordered cells, which is
+ * a second card pattern in a product that has one.
+ */
+function Figure({ label, value, hint, pending }: { label: string; value: string; hint: string; pending: boolean }) {
   return (
-    <dl
-      className={cn(
-        'divide-border grid grid-cols-2 divide-x divide-y border sm:divide-y-0',
-        STRIP_COLUMNS[entries.length] ?? 'sm:grid-cols-4',
-      )}
-    >
-      {entries.map(([label, value, icon], index) => (
-        <div
-          key={label}
-          className={cn(
-            'flex flex-col gap-0.5 px-3 py-2',
-            // Five figures in two columns leaves a hole under the last one.
-            // Spanning it is the difference between a strip and a strip with a
-            // missing tooth.
-            entries.length % 2 === 1 && index === entries.length - 1
-              ? 'col-span-2 sm:col-span-1'
-              : null,
-          )}
-        >
-          <dt className="text-muted-foreground text-[0.6875rem]">
-            {icon ? <span aria-hidden className="mr-1 inline-flex align-[-2px] [&_svg]:size-3">{icon}</span> : null}
-            {label}
-          </dt>
-          <dd className="text-base font-medium tabular-nums">{value}</dd>
-        </div>
-      ))}
-    </dl>
+    <Card className="gap-0 px-3 py-2.5">
+      <CardHeader className="gap-0 border-b-0 p-0">
+        <CardDescription className="text-xs leading-tight">{label}</CardDescription>
+        <CardTitle className="text-xl leading-tight font-semibold tabular-nums">
+          {pending ? <Skeleton className="h-6 w-12" /> : value}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <p className="text-muted-foreground text-[11px] leading-tight">{hint}</p>
+      </CardContent>
+    </Card>
   );
 }
+
+/** One question, one picture, one sentence. */
+function ChartCard({
+  title,
+  description,
+  insight,
+  pending,
+  empty,
+  emptyNote,
+  wide,
+  children,
+}: {
+  title: string;
+  description: string;
+  insight: string | null;
+  pending: boolean;
+  empty: boolean;
+  emptyNote: string;
+  wide?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Card className={wide === true ? 'lg:col-span-2' : undefined}>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      {/* Never `flex` on this: ChartContainer measures itself through a
+          Recharts ResponsiveContainer, and a flex child with no basis
+          resolves to zero width. */}
+      <CardContent>
+        {pending ? <Skeleton className="aspect-video w-full" /> : null}
+        {!pending && empty ? <p className="text-muted-foreground py-8 text-sm">{emptyNote}</p> : null}
+        {!pending && !empty ? children : null}
+      </CardContent>
+      <CardFooter className="text-sm">
+        {insight === null ? null : <p className="leading-none font-medium">{insight}</p>}
+      </CardFooter>
+    </Card>
+  );
+}
+
 
 /**
  * The strip's own shape, to the pixel that matters.
@@ -121,23 +147,6 @@ function FigureStrip({ entries }: { entries: readonly (readonly [string, string]
  * 35px when the figures arrived, which on a screen somebody opens ten times a
  * day is a flinch every time. The cell metrics below match FigureStrip's.
  */
-function StripSkeleton({ caption = false }: { caption?: boolean }) {
-  return (
-    <>
-      <div role="status" aria-busy="true" aria-label="Loading" className="border">
-        <div aria-hidden className="grid grid-cols-2 sm:grid-cols-4">
-          {Array.from({ length: 4 }, (_, index) => (
-            <div key={index} className="flex flex-col gap-0.5 px-3 py-2">
-              <Skeleton className="h-3.5 w-16" />
-              <Skeleton className="h-6 w-10" />
-            </div>
-          ))}
-        </div>
-      </div>
-      {caption ? <Skeleton aria-hidden className="h-4 w-32" /> : null}
-    </>
-  );
-}
 
 /** The one-line "how today went" row, at the height it will be. */
 /** A figure and its label, inline, for the row that describes today. */
@@ -149,25 +158,6 @@ function StripSkeleton({ caption = false }: { caption?: boolean }) {
  * section. It is text, not a card header - nothing here nests a surface in a
  * surface.
  */
-function ChartPanel({
-  caption,
-  note,
-  children,
-}: {
-  caption: string;
-  note?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-2 border p-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h3 className="text-xs font-medium">{caption}</h3>
-        {note ? <p className="text-muted-foreground text-[0.6875rem] tabular-nums">{note}</p> : null}
-      </div>
-      {children}
-    </div>
-  );
-}
 
 /**
  * Emil Kowalski's press feedback, spelled out rather than added to the shared
@@ -176,8 +166,6 @@ function ChartPanel({
  * the button's own so tailwind-merge does not drop the colour transitions when
  * it resolves the two `transition-*` classes.
  */
-const PRESS =
-  'transition-[color,background-color,border-color,box-shadow,transform,scale] duration-100 ease-out-strong active:scale-[0.97]';
 
 export function DashboardPage() {
   const granted = usePermissions();
@@ -233,13 +221,6 @@ export function DashboardPage() {
     [orgRangeDays, rangeDates],
   );
   const rangeTotals = useMemo(() => summarise(orgRangeDays), [orgRangeDays]);
-  const worstLate = useMemo(
-    () => latePoints.reduce<(typeof latePoints)[number] | null>(
-      (worst, point) => (point.late > (worst?.late ?? 0) ? point : worst),
-      null,
-    ),
-    [latePoints],
-  );
 
   // One policy for every chart here: draw once, when the first data lands.
   const rangeIntro = useChartIntro(orgRange.isSuccess);
@@ -274,180 +255,98 @@ export function DashboardPage() {
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-4">
           {showsSamples ? <SampleDataNotice what="attendance day" /> : null}
 
           {/*
-            The dashboard is the shared picture, not a personal one.
+            The same shape as the reports dashboard: a row of figures, then a
+            Card per question with the sentence its own series supports. It
+            used to be SectionHeading over a bordered ChartPanel, which was the
+            house pattern before the product settled on shadcn's, and it left
+            the two dashboards looking like two products.
 
-            It used to open with Today and This month, so far -- the
-            signed-in person's own status, their own figures and their own
-            worked hours -- above the team sections. Both already exist, in
-            more detail and for any month, on /my-attendance, and the punch
-            itself is a route of its own. A screen that answers "how are we
-            doing" should not lead with one row of it.
+            It also used to open with Today and This month, so far -- the
+            signed-in person's own status and their own hours -- above the team
+            sections. Both already exist on /my-attendance, for any month
+            rather than only this one, and the punch is a route of its own.
           */}
-          {canSeeOthers ? (
-            <section className="flex flex-col gap-3">
-              <SectionHeading
-                title="Everyone, today"
-                note="Scoped to the people you may see."
-                action={
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    nativeButton={false}
-                    render={<Link to="/team-attendance" />}
-                    className={PRESS}
-                  >
-                    Team attendance
-                    <ArrowRightIcon />
-                  </Button>
-                }
-              />
+          <div className="flex flex-wrap items-center gap-2" ref={rangeRef}>
+            <DateRangeField
+              value={range}
+              onValueChange={setRange}
+              label="Period"
+              presets={DASHBOARD_PRESETS}
+              className="w-full sm:w-auto"
+            />
+            <ShortcutHint keys="alt+f2" className="hidden md:inline-flex" />
+            <Button variant="outline" size="sm" nativeButton={false} className="ms-auto" render={<Link to="/team-attendance" />}>
+              Team attendance
+              <ArrowRightIcon data-icon="inline-end" />
+            </Button>
+          </div>
 
-              {orgToday.isPending ? <StripSkeleton caption /> : null}
-              {orgToday.isError ? (
-                <QueryErrorAlert
-                  error={orgToday.error}
-                  subject="today's attendance"
-                  onRetry={() => void orgToday.refetch()}
-                />
-              ) : null}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+            <Figure label="At work today" value={formatCount(atWorkToday)} hint="Present, half day or on duty" pending={orgToday.isPending} />
+            <Figure label="On leave today" value={formatCount(orgTodayTotals.leave)} hint="Approved leave for today" pending={orgToday.isPending} />
+            <Figure label="Absent today" value={formatCount(orgTodayTotals.absent)} hint="Due in, with no punch" pending={orgToday.isPending} />
+            <Figure label="Flagged today" value={formatCount(orgTodayTotals.flagged)} hint="Days carrying at least one flag" pending={orgToday.isPending} />
+            <Figure label="Late arrivals" value={formatCount(rangeTotals.lateDays)} hint="Across the period" pending={orgRange.isPending} />
+            <Figure label="Days at work" value={formatCount(atWorkRange)} hint="Across the period" pending={orgRange.isPending} />
+          </div>
 
-              {orgToday.isSuccess ? (
-                <>
-                  <FigureStrip
-                    entries={[
-                      ['At work', String(atWorkToday)],
-                      ['On leave', String(orgTodayTotals.leave)],
-                      ['Absent', String(orgTodayTotals.absent)],
-                      ['Flagged', String(orgTodayTotals.flagged), <ACTION_ICONS.flag key="flag" />],
-                    ]}
-                  />
-                  <p className="text-muted-foreground text-xs">
-                    {orgTodayDays.length === 0
-                      ? 'No attendance days recorded for today yet.'
-                      : `${String(orgTodayDays.length)} day${orgTodayDays.length === 1 ? '' : 's'} recorded.`}
-                  </p>
-                </>
-              ) : null}
-            </section>
+          {orgRange.isError ? (
+            <QueryErrorAlert
+              error={orgRange.error}
+              subject="the attendance trend"
+              onRetry={() => void orgRange.refetch()}
+            />
           ) : null}
 
-          {canSeeOthers ? (
-            <section className="flex flex-col gap-3">
-              <SectionHeading
-                title="Over time"
-                note="Counted from the days the server returned for this period."
-                action={
-                  <div ref={rangeRef} className="flex items-center gap-2">
-                    <DateRangeField
-                      value={range}
-                      onValueChange={setRange}
-                      label="Period"
-                      presets={DASHBOARD_PRESETS}
-                    />
-                    <ShortcutHint keys="alt+f2" className="hidden md:inline-flex" />
-                  </div>
-                }
-              />
-
-              {/* The captions are repeated here on purpose: a skeleton that is
-                  not the shape of what replaces it moves the page when the
-                  data lands, and this one lands a second after arrival. */}
-              {orgRange.isPending ? (
-                <div className="flex flex-col gap-3">
-                  <ChartPanel caption="Attendance by day">
-                    <ChartSkeleton label="Loading attendance by day" className="h-56 sm:h-64" />
-                  </ChartPanel>
-                  <ChartPanel caption="Late arrivals">
-                    <ChartSkeleton label="Loading late arrivals" className="h-40 sm:h-44" />
-                  </ChartPanel>
-                </div>
-              ) : null}
-
-              {orgRange.isError ? (
-                <QueryErrorAlert
-                  error={orgRange.error}
-                  subject="the attendance trend"
-                  onRetry={() => void orgRange.refetch()}
-                />
-              ) : null}
-
-              {orgRange.isSuccess && !rangeComplete ? (
-                <Alert>
-                  <InfoIcon />
-                  <AlertTitle>This period is too large to chart</AlertTitle>
-                  <AlertDescription>
-                    {`The list endpoint returned ${String(orgRange.data.value.total)} days for these ${String(spanDays)} days, which is more than this screen reads. Choose a shorter period. Charting the part that arrived would show a real dip where the data simply stopped.`}
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-
-              {orgRange.isSuccess && rangeComplete ? (
-                <div className="flex flex-col gap-3">
-                  <ChartPanel
-                    caption="Attendance by day"
-                    note={`${String(atWorkRange)} at work · ${String(rangeTotals.leave)} on leave · ${String(rangeTotals.absent)} absent`}
-                  >
-                    {rangeTotals.rows > 0 ? (
-                      <AttendanceTrendChart points={trendPoints} animate={rangeIntro} />
-                    ) : (
-                      <Empty className="border-0 py-6">
-                        <EmptyHeader>
-                          <EmptyMedia variant="icon">
-                            <ChartBarIcon />
-                          </EmptyMedia>
-                          <EmptyTitle>Nothing recorded in this period</EmptyTitle>
-                          <EmptyDescription>
-                            The day engine writes a row for every active employee. If nobody has
-                            punched in these {String(spanDays)} days, there is nothing to plot.
-                          </EmptyDescription>
-                        </EmptyHeader>
-                      </Empty>
-                    )}
-                  </ChartPanel>
-
-                  <ChartPanel
-                    caption="Hours worked, day by day"
-                    note={
-                      rangeTotals.rows > 0
-                        ? `${String(atWorkRange)} day${atWorkRange === 1 ? '' : 's'} at work in this period`
-                        : undefined
-                    }
-                  >
-                    {hasValues(teamHoursPoints, ['workedMinutes']) ? (
-                      <TeamHoursChart points={teamHoursPoints} animate={rangeIntro} />
-                    ) : (
-                      <p className="text-muted-foreground py-6 text-center text-xs">
-                        No hours recorded in this period.
-                      </p>
-                    )}
-                  </ChartPanel>
-
-                  <ChartPanel
-                    caption="Late arrivals"
-                    note={
-                      rangeTotals.lateDays > 0 && worstLate
-                        ? `${String(rangeTotals.lateDays)} in total · worst ${shortDate(worstLate.date)}`
-                        : undefined
-                    }
-                  >
-                    {hasValues(latePoints, ['late']) ? (
-                      <LateArrivalsChart points={latePoints} animate={rangeIntro} />
-                    ) : (
-                      <p className="text-muted-foreground py-6 text-center text-xs">
-                        {rangeTotals.rows > 0
-                          ? `Nobody arrived late in these ${String(spanDays)} days.`
-                          : 'No days recorded in this period.'}
-                      </p>
-                    )}
-                  </ChartPanel>
-                </div>
-              ) : null}
-            </section>
+          {!rangeComplete ? (
+            <Alert>
+              <InfoIcon aria-hidden />
+              <AlertTitle>Too many days to chart</AlertTitle>
+              <AlertDescription>
+                {`The list endpoint returned ${String(orgRange.data?.value.total ?? 0)} days for these ${String(spanDays)} days, which is more than this screen reads. Choose a shorter period. Charting the part that arrived would show a real dip where the data simply stopped.`}
+              </AlertDescription>
+            </Alert>
           ) : null}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <ChartCard
+              title="Attendance by day"
+              description="Stacked bar. Who was at work, on leave, absent or not due"
+              pending={orgRange.isPending}
+              empty={!hasValues(trendPoints, ['work', 'leave', 'absent', 'other'])}
+              emptyNote="No days recorded in this period."
+              insight={attendanceInsight(trendPoints)}
+            >
+              <AttendanceTrendChart points={trendPoints} animate={rangeIntro} />
+            </ChartCard>
+
+            <ChartCard
+              title="Hours worked, day by day"
+              description="Bar. Everyone's minutes added together"
+              pending={orgRange.isPending}
+              empty={!hasValues(teamHoursPoints, ['workedMinutes'])}
+              emptyNote="No hours recorded in this period."
+              insight={teamHoursInsight(teamHoursPoints)}
+            >
+              <TeamHoursChart points={teamHoursPoints} animate={rangeIntro} />
+            </ChartCard>
+
+            <ChartCard
+              title="Late arrivals"
+              description="Line. People arriving after their rostered start"
+              wide
+              pending={orgRange.isPending}
+              empty={!hasValues(latePoints, ['late'])}
+              emptyNote={rangeTotals.rows > 0 ? `Nobody arrived late in these ${String(spanDays)} days.` : 'No days recorded in this period.'}
+              insight={lateInsight(latePoints)}
+            >
+              <LateArrivalsChart points={latePoints} animate={rangeIntro} />
+            </ChartCard>
+          </div>
 
           {/* REQ-K-01 asks for more than this. Saying which parts are missing
               and why is the only alternative to a tile that invents them. */}
