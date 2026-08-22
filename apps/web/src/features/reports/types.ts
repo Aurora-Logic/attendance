@@ -721,14 +721,6 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   'order-fill-rate': analyticsShape('partyId', 'partyName'),
   'new-vs-repeat': analyticsShape('month', 'month'),
   'requirement-ageing': analyticsShape('id', 'item', 'source'),
-  // 15 Areas AO, AJ and AK: the clusters the detector holds, what was
-  // promised against what arrived, and what comes back.
-  'duplicate-clusters': analyticsShape('id', 'kind', 'band'),
-  'promised-vs-collected': analyticsShape('id', 'partyName'),
-  'broken-promises': analyticsShape('id', 'partyName'),
-  'return-rate-by-item': analyticsShape('id', 'itemName'),
-  'return-rate-by-customer': analyticsShape('id', 'partyName'),
-  'returns-by-reason': analyticsShape('id', 'reason'),
   // Owner, 22 Aug 2026: the second analytics set.
   'flag-review-log': analyticsShape('id', 'employeeName', 'action'),
   'approvals-turnaround': analyticsShape('id', 'type'),
@@ -740,12 +732,18 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   'stock-out-frequency': analyticsShape('id', 'item'),
   'margin-proxy': analyticsShape('stockItemId', 'item'),
   'sales-heatmap': analyticsShape('id', 'partyName'),
-  // Owner, 22 Aug 2026: two receivables reports shipped with a definition and a
-  // row source but no shape, so every screen reading them -- the reports table
-  // and the dashboard alike -- showed the error state instead of the rows the
-  // API was returning. `row-shapes.test.ts` now fails on the next one.
+  // Owner, 22 Aug 2026: receivables, collections, returns and the duplicate
+  // detector. These eight shipped with a definition and a row source but no
+  // shape, so every screen reading them showed the error state instead of the
+  // rows the API was returning. `row-shapes.test.ts` now fails on the next one.
   ageing: analyticsShape(['partyId', 'billName'], 'partyName', 'bucket'),
   'payment-analysis': analyticsShape('partyId', 'partyName'),
+  'promised-vs-collected': analyticsShape('id', 'partyName'),
+  'broken-promises': analyticsShape('id', 'partyName'),
+  'return-rate-by-item': analyticsShape('id', 'itemName'),
+  'return-rate-by-customer': analyticsShape('id', 'partyName'),
+  'returns-by-reason': analyticsShape('id', 'reason'),
+  'duplicate-clusters': analyticsShape('id', 'kind'),
 };
 
 function build<T>(

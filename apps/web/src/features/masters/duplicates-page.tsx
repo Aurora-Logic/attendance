@@ -15,7 +15,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { currencySymbol, formatAmount, formatRelativeAge } from '@/lib/format';
+import { formatMoney, formatRelativeAge } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import {
   DUPLICATE_CLUSTER_STATES,
@@ -47,10 +47,6 @@ const STATE_VARIANT: Record<DuplicateClusterState, 'default' | 'secondary' | 'ou
 };
 
 const ANY = 'open_or_sent';
-
-function money(value: string): string {
-  return `${currencySymbol()}${formatAmount(value)}`;
-}
 
 function memberHref(entityType: DuplicateEntityType, id: string): string {
   return entityType === 'party' ? `/masters/parties/${id}` : `/masters/items/${id}`;
@@ -234,7 +230,7 @@ function ClusterRow({ cluster, canManage }: { cluster: DuplicateClusterView; can
           {cluster.entityType === 'party' ? (
             <div className="flex gap-1">
               <dt>Outstanding</dt>
-              <dd className="text-foreground font-medium">{money(cluster.impact.outstanding)}</dd>
+              <dd className="text-foreground font-medium">{formatMoney(cluster.impact.outstanding)}</dd>
             </div>
           ) : null}
           <div className="flex gap-1">

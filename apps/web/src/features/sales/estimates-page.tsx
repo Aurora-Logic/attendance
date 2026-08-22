@@ -15,12 +15,11 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { ESTIMATE_STATUSES, SALES_DOCUMENT_STATUS_LABELS, PERMISSIONS, type EstimateStatus } from '@vyuha/shared';
 
-import { formatMoney } from './money';
 import type { EstimateSummary } from './types';
 import { useEstimates } from './use-estimates';
 

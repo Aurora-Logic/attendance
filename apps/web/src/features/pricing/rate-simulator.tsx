@@ -15,7 +15,7 @@ import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useParties } from '@/features/masters/use-parties';
 import { useStockItems } from '@/features/masters/use-stock-items';
-import { currencySymbol, formatAmount } from '@/lib/format';
+import { formatMoney } from '@/lib/format';
 import { RATE_SOURCE_LABELS, type RateSimulation } from '@vyuha/shared';
 
 import { useRateSimulation } from './use-pricing';
@@ -35,10 +35,6 @@ const CONSIDERED_COLUMNS: RecordColumn<Considered>[] = [
   { key: 'applied', header: 'Applied', cell: (row) => (row.applied ? <Badge>Yes</Badge> : <Badge variant="outline">No</Badge>) },
   { key: 'why', header: 'Why', cell: (row) => <span className="text-muted-foreground">{row.why}</span> },
 ];
-
-function money(value: string): string {
-  return `${currencySymbol()}${formatAmount(value)}`;
-}
 
 export function RateSimulator() {
   const [partyId, setPartyId] = useState<string | null>(null);
@@ -91,7 +87,7 @@ function Result({ result }: { result: RateSimulation }) {
       <dl className="divide-border grid grid-cols-2 divide-x divide-y border sm:grid-cols-4 sm:divide-y-0">
         <div className="flex flex-col gap-0.5 px-3 py-2">
           <dt className="text-muted-foreground text-[0.6875rem]">Resolved rate</dt>
-          <dd className="text-base font-medium tabular-nums">{result.rate === null ? 'None' : money(result.rate)}</dd>
+          <dd className="text-base font-medium tabular-nums">{result.rate === null ? 'None' : formatMoney(result.rate)}</dd>
         </div>
         <div className="flex flex-col gap-0.5 px-3 py-2">
           <dt className="text-muted-foreground text-[0.6875rem]">From</dt>
@@ -99,7 +95,7 @@ function Result({ result }: { result: RateSimulation }) {
         </div>
         <div className="flex flex-col gap-0.5 px-3 py-2">
           <dt className="text-muted-foreground text-[0.6875rem]">Tally rate</dt>
-          <dd className="text-base font-medium tabular-nums">{result.tallyRate === null ? 'None' : money(result.tallyRate)}</dd>
+          <dd className="text-base font-medium tabular-nums">{result.tallyRate === null ? 'None' : formatMoney(result.tallyRate)}</dd>
         </div>
         <div className="flex flex-col gap-0.5 px-3 py-2">
           <dt className="text-muted-foreground text-[0.6875rem]">Matched by</dt>

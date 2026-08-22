@@ -6,7 +6,7 @@ import { CHART_INTRO_MS } from '@/components/shared/use-chart-motion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { humaniseEnum } from '@/lib/format';
+import { formatMoneyShort, humaniseEnum } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import { pieSliceLabel } from './pie-label';
@@ -199,15 +199,15 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               <BarChart data={data} margin={AXIS_MARGIN}>
                 <CartesianGrid vertical={false} />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
-                <YAxis tickLine={false} axisLine={false} width={64} />
+                <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={formatMoneyShort} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 {compare !== undefined ? <ChartLegend content={<ChartLegendContent />} /> : null}
                 <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} maxBarSize={44} {...motion} >
-                  <LabelList {...valueCaps('value', compactIndian)} />
+                  <LabelList {...valueCaps('value', formatMoneyShort)} />
                 </Bar>
                 {compare !== undefined ? (
                   <Bar dataKey="compare" fill="var(--color-compare)" fillOpacity={0.55} radius={[4, 4, 0, 0]} maxBarSize={44} {...motion}>
-                    <LabelList {...valueCaps('compare', compactIndian)} />
+                    <LabelList {...valueCaps('compare', formatMoneyShort)} />
                   </Bar>
                 ) : null}
               </BarChart>
@@ -303,12 +303,12 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
             <BarChart data={data} margin={AXIS_MARGIN}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="customer" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
-              <YAxis tickLine={false} axisLine={false} width={64} />
+              <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={formatMoneyShort} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
               <Bar dataKey="lapsedRevenue" stackId="risk" fill="var(--color-lapsedRevenue)" {...motion} />
               <Bar dataKey="atRiskRevenue" stackId="risk" fill="var(--color-atRiskRevenue)" radius={[4, 4, 0, 0]} {...motion} >
-                <LabelList {...stackTotal(data, ['lapsedRevenue', 'atRiskRevenue'])} />
+                <LabelList {...stackTotal(data, ['lapsedRevenue', 'atRiskRevenue'], formatMoneyShort)} />
               </Bar>
             </BarChart>
           </ChartContainer>
@@ -335,10 +335,10 @@ export function MonthlyValueChart({ points, animate }: { points: readonly { labe
       <BarChart data={[...points]} margin={AXIS_MARGIN}>
         <CartesianGrid vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} />
-        <YAxis tickLine={false} axisLine={false} width={64} />
+        <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={formatMoneyShort} />
         <ChartTooltip content={<ChartTooltipContent />} />
         <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} >
-          <LabelList {...valueCaps('value', compactIndian)} />
+          <LabelList {...valueCaps('value', formatMoneyShort)} />
         </Bar>
       </BarChart>
     </ChartContainer>

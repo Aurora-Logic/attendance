@@ -1,4 +1,3 @@
-import { currencySymbol } from '@/lib/format';
 import { ArrowRightIcon, ChartBarIcon, LockKeyIcon, PackageIcon, TrendDownIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router';
 
@@ -8,6 +7,7 @@ import { useChartIntro } from '@/components/shared/use-chart-motion';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
@@ -15,7 +15,7 @@ import { PERMISSIONS } from '@vyuha/shared';
 
 import { useReportRows } from './api';
 import { CompositionDonut, GenericReportChart, MonthlyValueChart, RateRadial, ReportChart, ShareRadialChart } from './report-charts';
-import { inr, lapseSeries } from './report-series';
+import { lapseSeries } from './report-series';
 import { comparisonRange, deltaOf, periodForGranularity } from '@/lib/period-compare';
 
 /**
@@ -130,8 +130,8 @@ export function ReportsDashboardPage() {
           <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
             <StatTile
               label="Revenue this FY"
-              value={`${currencySymbol()}${inr(fyNow)}`}
-              hint={fyDelta.label === 'new' ? 'All of it new against last FY to date' : fyDelta.pct === null ? 'No sales either FY to date' : `${fyDelta.direction === 'down' ? '' : '+'}${String(fyDelta.pct)}% vs last FY to date (₹${inr(fyThen)})`}
+              value={formatMoney(fyNow)}
+              hint={fyDelta.label === 'new' ? 'All of it new against last FY to date' : fyDelta.pct === null ? 'No sales either FY to date' : `${fyDelta.direction === 'down' ? '' : '+'}${String(fyDelta.pct)}% vs last FY to date (${formatMoney(fyThen)})`}
               icon={<ChartBarIcon />}
               tone={fyDelta.direction === 'down' ? 'bad' : undefined}
               onOpen={() => {
@@ -140,7 +140,7 @@ export function ReportsDashboardPage() {
             />
             <StatTile
               label="Receivables exposure"
-              value={`${currencySymbol()}${inr(exposure)}`}
+              value={formatMoney(exposure)}
               hint={`${String(credit.data?.meta.total ?? 0)} debtors, from the credit cycle`}
               icon={<ChartBarIcon />}
               onOpen={() => {
@@ -159,7 +159,7 @@ export function ReportsDashboardPage() {
             />
             <StatTile
               label="Revenue going quiet"
-              value={`${currencySymbol()}${inr(atRisk)}`}
+              value={formatMoney(atRisk)}
               hint="Last 12 months' revenue of lapsed and at-risk customers"
               icon={<TrendDownIcon />}
               tone={atRisk > 0 ? 'warn' : undefined}
@@ -169,7 +169,7 @@ export function ReportsDashboardPage() {
             />
             <StatTile
               label="Dead stock value"
-              value={`${currencySymbol()}${inr(deadValue)}`}
+              value={formatMoney(deadValue)}
               hint={`${String(dead.data?.meta.total ?? 0)} items with no sale in 90 days`}
               icon={<PackageIcon />}
               tone={deadValue > 0 ? 'warn' : undefined}

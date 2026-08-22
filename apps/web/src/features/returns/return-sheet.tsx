@@ -15,7 +15,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { currencySymbol, formatAmount, formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import {
   PERMISSIONS,
@@ -191,8 +191,7 @@ export function ReturnSheet({ returnId, onOpenChange }: { returnId: string | nul
                   </p>
                 ) : (
                   <p className="text-sm">
-                    <span className="font-medium">{view.creditNote.voucherNumber}</span> · {formatDate(view.creditNote.date)} · {currencySymbol()}
-                    {formatAmount(view.creditNote.amount)} · linked {view.creditNote.method === 'narration' ? 'by its narration' : 'by hand'}
+                    <span className="font-medium">{view.creditNote.voucherNumber}</span> · {formatDate(view.creditNote.date)} · {formatMoney(view.creditNote.amount)} · linked {view.creditNote.method === 'narration' ? 'by its narration' : 'by hand'}
                   </p>
                 )}
               </section>
@@ -257,8 +256,7 @@ export function ReturnSheet({ returnId, onOpenChange }: { returnId: string | nul
                       {view.replacement.number}
                     </Link>
                     <span className="text-muted-foreground">
-                      {view.replacement.status.toLowerCase()} · {currencySymbol()}
-                      {formatAmount(view.replacement.grandTotal)} · {String(view.replacement.dispatchCount)} dispatch{view.replacement.dispatchCount === 1 ? '' : 'es'}
+                      {view.replacement.status.toLowerCase()} · {formatMoney(view.replacement.grandTotal)} · {String(view.replacement.dispatchCount)} dispatch{view.replacement.dispatchCount === 1 ? '' : 'es'}
                     </span>
                   </p>
                 )}

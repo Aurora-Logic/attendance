@@ -5,9 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import { formatMoney } from '@/features/sales/money';
 import { trimZeros as trimQty } from '@/features/sales/types';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   PRINTED_DOCUMENT_TITLES,
@@ -500,7 +499,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
             {money ? <TableCell className={cn(BOX, 'py-1')} /> : null}
             {design.showUnit ? <TableCell className={cn(BOX, 'py-1')} /> : null}
             {showDiscount ? <TableCell className={cn(BOX, 'py-1')} /> : null}
-            {money ? <TableCell className={cn(BOX, 'py-1 text-right text-[1.15em] font-bold tabular-nums')}>₹ {formatMoney(model.totals.grandTotal)}</TableCell> : null}
+            {money ? <TableCell className={cn(BOX, 'py-1 text-right text-[1.15em] font-bold tabular-nums')}>{formatMoney(model.totals.grandTotal)}</TableCell> : null}
             {editable ? <TableCell className="print-hidden border-0" /> : null}
           </TableRow>
         </TableBody>
@@ -1042,7 +1041,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
               ) : null}
               <div className={cn('flex items-baseline justify-between gap-4', t.grandTotal)}>
                 <span>Total</span>
-                <span className="tabular-nums">₹ {formatMoney(model.totals.grandTotal)}</span>
+                <span className="tabular-nums">{formatMoney(model.totals.grandTotal)}</span>
               </div>
               <div className="text-right text-[0.8em] text-neutral-500 italic">E. &amp; O.E</div>
               {model.totals.preview && editable ? <div className="print-hidden text-[0.8em] text-neutral-500">Preview — the server prices it on save.</div> : null}

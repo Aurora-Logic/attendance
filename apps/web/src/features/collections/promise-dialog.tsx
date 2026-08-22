@@ -19,7 +19,7 @@ import { DateField } from '@/features/attendance/pickers';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
 import { ResponsiveDialog, ResponsiveDialogActions } from '@/features/sales/responsive-dialog';
-import { currencySymbol, formatAmount, formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 
 import { useOpenBills, useTakePromise } from './use-collections';
 
@@ -54,10 +54,6 @@ export function PromiseDialog({ open, onOpenChange, partyId, partyName }: { open
       />
     </ResponsiveDialog>
   );
-}
-
-function money(value: string): string {
-  return `${currencySymbol()}${formatAmount(value)}`;
 }
 
 function PromiseForm({ partyId, onDone, onCancel }: { partyId: string | null; onDone: () => void; onCancel: () => void }) {
@@ -96,7 +92,7 @@ function PromiseForm({ partyId, onDone, onCancel }: { partyId: string | null; on
         onSuccess: (promise) => {
           toast.add({
             type: 'success',
-            title: `${promise.partyName} promised ${money(promise.amount)}`,
+            title: `${promise.partyName} promised ${formatMoney(promise.amount)}`,
             description: `By ${formatDate(promise.promisedDate)}. It reads as kept the moment the receipts against ${bills.length === 0 ? 'this customer' : 'those bills'} cover it.`,
           });
           onDone();
@@ -155,7 +151,7 @@ function PromiseForm({ partyId, onDone, onCancel }: { partyId: string | null; on
               }}
             />
             <FieldDescription>
-              {openBills.data === undefined ? 'Against the bills below.' : `${money(outstanding.toFixed(2))} is open in all.`}
+              {openBills.data === undefined ? 'Against the bills below.' : `${formatMoney(outstanding.toFixed(2))} is open in all.`}
             </FieldDescription>
           </Field>
           <DateField label="Promised by" showLabel value={fromDateParam(promisedDate)} onValueChange={(next) => { setPromisedDate(toDateParam(next)); }} yearsBack={0} yearsForward={2} />
@@ -184,7 +180,7 @@ function PromiseForm({ partyId, onDone, onCancel }: { partyId: string | null; on
                     <Label htmlFor={`bill-${bill.billName}`} className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 font-normal">
                       <span className="truncate font-medium">{bill.billName}</span>
                       <span className="text-muted-foreground text-xs tabular-nums">
-                        {bill.billDate === null ? '' : formatDate(bill.billDate)} · {money(bill.outstanding)}
+                        {bill.billDate === null ? '' : formatDate(bill.billDate)} · {formatMoney(bill.outstanding)}
                       </span>
                       {bill.overdue ? <Badge variant="destructive">Overdue</Badge> : null}
                     </Label>
@@ -192,7 +188,7 @@ function PromiseForm({ partyId, onDone, onCancel }: { partyId: string | null; on
                 ))}
               </ul>
               <FieldDescription>
-                {bills.length === 0 ? 'None named: any receipt from this customer counts towards the promise.' : `${String(bills.length)} named, ${money(namedTotal.toFixed(2))} between them.`}
+                {bills.length === 0 ? 'None named: any receipt from this customer counts towards the promise.' : `${String(bills.length)} named, ${formatMoney(namedTotal.toFixed(2))} between them.`}
               </FieldDescription>
             </>
           )}

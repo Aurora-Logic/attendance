@@ -14,9 +14,8 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { formatMoney } from '@/features/sales/money';
 import { SyncStateBadge } from '@/features/sales/sales-order-sheet';
-import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import {

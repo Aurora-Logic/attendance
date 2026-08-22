@@ -9,7 +9,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { currencySymbol, formatAmount, formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import type { PortalDispatchView, PortalInvoiceView, PortalOrderView, PortalStatementRow } from '@vyuha/shared';
 
 import { usePortal, usePortalMedia } from './use-portal';
@@ -28,10 +28,6 @@ import { usePortal, usePortalMedia } from './use-portal';
  */
 
 type Tab = 'orders' | 'dispatches' | 'invoices' | 'statement';
-
-function money(value: string): string {
-  return `${currencySymbol()}${formatAmount(value)}`;
-}
 
 export function PortalPage({ portalKey }: { portalKey: string }) {
   const portal = usePortal(portalKey);
@@ -78,7 +74,7 @@ export function PortalPage({ portalKey }: { portalKey: string }) {
       <dl className="divide-border grid grid-cols-2 divide-x divide-y border sm:grid-cols-4 sm:divide-y-0">
         <div className="flex flex-col gap-0.5 px-3 py-2">
           <dt className="text-muted-foreground text-[0.6875rem]">Outstanding</dt>
-          <dd className="text-base font-medium tabular-nums">{money(view.outstanding)}</dd>
+          <dd className="text-base font-medium tabular-nums">{formatMoney(view.outstanding)}</dd>
         </div>
         <div className="flex flex-col gap-0.5 px-3 py-2">
           <dt className="text-muted-foreground text-[0.6875rem]">Orders open</dt>
@@ -91,14 +87,14 @@ export function PortalPage({ portalKey }: { portalKey: string }) {
         <div className="flex flex-col gap-0.5 px-3 py-2">
           <dt className="text-muted-foreground text-[0.6875rem]">Promised</dt>
           <dd className="text-base font-medium tabular-nums">
-            {view.promises.length === 0 ? '—' : money(view.promises.reduce((sum, p) => sum + Number(p.amount), 0).toFixed(2))}
+            {view.promises.length === 0 ? '—' : formatMoney(view.promises.reduce((sum, p) => sum + Number(p.amount), 0).toFixed(2))}
           </dd>
         </div>
       </dl>
 
       {owed > 0 && view.promises.length > 0 ? (
         <p className="text-muted-foreground text-sm">
-          You told us to expect {money(view.promises.reduce((sum, p) => sum + Number(p.amount), 0).toFixed(2))} by{' '}
+          You told us to expect {formatMoney(view.promises.reduce((sum, p) => sum + Number(p.amount), 0).toFixed(2))} by{' '}
           {formatDate(view.promises.map((p) => p.promisedDate).sort()[0] ?? '')}.
         </p>
       ) : null}
@@ -133,7 +129,7 @@ function Orders({ rows }: { rows: readonly PortalOrderView[] }) {
   const columns: RecordColumn<PortalOrderView>[] = [
     { key: 'number', header: 'Order', cell: (row) => <span className="font-medium">{row.number}</span> },
     { key: 'date', header: 'Date', cell: (row) => formatDate(row.date) },
-    { key: 'total', header: 'Value', cell: (row) => <span className="tabular-nums">{money(row.grandTotal)}</span> },
+    { key: 'total', header: 'Value', cell: (row) => <span className="tabular-nums">{formatMoney(row.grandTotal)}</span> },
     { key: 'sent', header: 'Sent', cell: (row) => <span className="tabular-nums">{row.quantityDispatched} of {row.quantityOrdered}</span> },
     { key: 'state', header: 'State', cell: (row) => <Badge variant={row.fulfilment === 'Complete' ? 'default' : 'secondary'}>{row.fulfilment}</Badge> },
   ];
@@ -145,7 +141,7 @@ function Orders({ rows }: { rows: readonly PortalOrderView[] }) {
       rowKey={(row) => row.number}
       mobilePrimary={(row) => row.number}
       mobileStatus={(row) => <Badge variant={row.fulfilment === 'Complete' ? 'default' : 'secondary'}>{row.fulfilment}</Badge>}
-      mobileSupporting={(row) => `${formatDate(row.date)} · ${money(row.grandTotal)} · ${row.quantityDispatched} of ${row.quantityOrdered} sent`}
+      mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.grandTotal)} · ${row.quantityDispatched} of ${row.quantityOrdered} sent`}
     />
   );
 }
@@ -223,7 +219,7 @@ function Invoices({ rows }: { rows: readonly PortalInvoiceView[] }) {
   const columns: RecordColumn<PortalInvoiceView>[] = [
     { key: 'number', header: 'Invoice', cell: (row) => <span className="font-medium">{row.voucherNumber}</span> },
     { key: 'date', header: 'Date', cell: (row) => formatDate(row.date) },
-    { key: 'amount', header: 'Amount', cell: (row) => <span className="tabular-nums">{money(row.amount)}</span> },
+    { key: 'amount', header: 'Amount', cell: (row) => <span className="tabular-nums">{formatMoney(row.amount)}</span> },
     { key: 'reference', header: 'Reference', cell: (row) => <span className="text-muted-foreground">{row.reference ?? '—'}</span>, secondary: true },
   ];
   if (rows.length === 0) return <Nothing icon={<ReceiptIcon />} title="No invoices yet" />;
@@ -233,7 +229,7 @@ function Invoices({ rows }: { rows: readonly PortalInvoiceView[] }) {
       rows={[...rows]}
       rowKey={(row) => row.voucherNumber}
       mobilePrimary={(row) => row.voucherNumber}
-      mobileSupporting={(row) => `${formatDate(row.date)} · ${money(row.amount)}`}
+      mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.amount)}`}
     />
   );
 }
@@ -242,9 +238,9 @@ function Statement({ rows, outstanding }: { rows: readonly PortalStatementRow[];
   const columns: RecordColumn<PortalStatementRow>[] = [
     { key: 'date', header: 'Date', cell: (row) => formatDate(row.date) },
     { key: 'voucher', header: 'Document', cell: (row) => `${row.voucherType} ${row.voucherNumber}` },
-    { key: 'debit', header: 'Charged', cell: (row) => <span className="tabular-nums">{row.debit === null ? '' : money(row.debit)}</span> },
-    { key: 'credit', header: 'Paid', cell: (row) => <span className="tabular-nums">{row.credit === null ? '' : money(row.credit)}</span> },
-    { key: 'running', header: 'Balance', cell: (row) => <span className="tabular-nums">{money(row.running)}</span> },
+    { key: 'debit', header: 'Charged', cell: (row) => <span className="tabular-nums">{row.debit === null ? '' : formatMoney(row.debit)}</span> },
+    { key: 'credit', header: 'Paid', cell: (row) => <span className="tabular-nums">{row.credit === null ? '' : formatMoney(row.credit)}</span> },
+    { key: 'running', header: 'Balance', cell: (row) => <span className="tabular-nums">{formatMoney(row.running)}</span> },
   ];
   if (rows.length === 0) return <Nothing icon={<ReceiptIcon />} title="Nothing on the account yet" />;
   return (
@@ -254,9 +250,9 @@ function Statement({ rows, outstanding }: { rows: readonly PortalStatementRow[];
         rows={[...rows]}
         rowKey={(row) => `${row.voucherType}-${row.voucherNumber}-${row.date}`}
         mobilePrimary={(row) => `${row.voucherType} ${row.voucherNumber}`}
-        mobileSupporting={(row) => `${formatDate(row.date)} · ${row.debit === null ? `paid ${money(row.credit ?? '0')}` : `charged ${money(row.debit)}`}`}
+        mobileSupporting={(row) => `${formatDate(row.date)} · ${row.debit === null ? `paid ${formatMoney(row.credit ?? '0')}` : `charged ${formatMoney(row.debit)}`}`}
       />
-      <p className="text-sm font-medium tabular-nums">Outstanding: {money(outstanding)}</p>
+      <p className="text-sm font-medium tabular-nums">Outstanding: {formatMoney(outstanding)}</p>
     </div>
   );
 }
