@@ -981,8 +981,7 @@ export function ReportsPage() {
                   onChange={setFilters}
                   departments={departments.data ?? []}
                   locations={locations.data ?? []}
-                  parties={partyOptions}
-                  partiesLoading={parties.isPending}
+                  canReadParties={canReadParties}
                   periodOpen={periodOpen}
                   onPeriodOpenChange={setPeriodOpen}
                   onClear={clearFilters}
@@ -1067,8 +1066,7 @@ export function ReportsPage() {
               onChange={setFilters}
               departments={departments.data ?? []}
               locations={locations.data ?? []}
-              parties={partyOptions}
-              partiesLoading={parties.isPending}
+              canReadParties={canReadParties}
               periodOpen={periodOpen}
               onPeriodOpenChange={setPeriodOpen}
               onClear={clearFilters}
