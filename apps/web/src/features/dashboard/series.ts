@@ -167,6 +167,58 @@ export function ownHours(days: readonly AttendanceDay[], dates: readonly string[
   return points;
 }
 
+export interface TeamHoursPoint {
+  date: string;
+  /** Everyone's worked hours added up, to two places. */
+  hours: number;
+  /** How many people contributed any worked time that day. */
+  people: number;
+  /** Hours divided by the people who worked -- the figure that survives a
+   *  headcount change, which the total does not. */
+  averageHours: number;
+  workedMinutes: number;
+}
+
+/**
+ * The team's worked hours per day.
+ *
+ * The total and the average are both carried because they answer different
+ * questions and one of them lies on its own: a total that halves when six
+ * people are on leave is not a productivity story, and an average that holds
+ * steady while three people carry the week is not a staffing one.
+ *
+ * Overtime is deliberately absent. The contract does not say whether
+ * `workedMinutes` already contains `otMinutes`, so adding them would be
+ * asserting an answer -- the same reason `ownHours` keeps them apart.
+ */
+export function teamHours(days: readonly AttendanceDay[], dates: readonly string[]): TeamHoursPoint[] {
+  const points: TeamHoursPoint[] = dates.map((date) => ({
+    date,
+    hours: 0,
+    people: 0,
+    averageHours: 0,
+    workedMinutes: 0,
+  }));
+  const index = new Map(points.map((point) => [point.date, point]));
+
+  for (const day of days) {
+    const point = index.get(day.date);
+    if (!point) continue;
+    const worked = Math.max(0, day.workedMinutes);
+    if (worked === 0) continue;
+    point.workedMinutes += worked;
+    point.people += 1;
+  }
+
+  for (const point of points) {
+    point.hours = Math.round((point.workedMinutes / 60) * 100) / 100;
+    point.averageHours =
+      point.people === 0 ? 0 : Math.round((point.workedMinutes / point.people / 60) * 100) / 100;
+  }
+
+  return points;
+}
+
 export interface Totals {
   present: number;
   halfDay: number;
