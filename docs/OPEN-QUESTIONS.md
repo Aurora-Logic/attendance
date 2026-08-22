@@ -418,3 +418,10 @@ Recommended default: ship as is; add the last-step column in the next auth incre
 Not built, on purpose. `audit_logs` carries the `vyuha_forbid_mutation` trigger: the database refuses UPDATE and DELETE on the trail, which is the product's tamper-evidence guarantee (a purge attempt in the test suite was refused by it). A retention policy that deleted trail entries would need that guarantee loosened -- a SECURITY DEFINER path the trigger lets through -- and that is a decision about what the trail promises, for the owner and counsel, not a setting.
 
 Recommended default: keep the trail append-only; if storage ever matters, add "archive older than N months to cold storage and keep a hash chain" rather than deletion. Export retention (the download tray) is a setting and is built.
+
+## REQ-AJ-02 — bill allocations are not yet pulled from Tally (22 Aug 2026)
+
+`bill_allocations` (migration 0051) is the projection the ageing, statement and payment-behaviour reports read, and the one a promise-to-pay's kept / partially kept / broken state must be derived from ("receipts pulled from Tally against the named bills"). Today only the demo seed fills it: `SyncWriterService` has no allocation writer and the agent results contract carries no allocation rows. Until the agent sends them, a promise in production can never be seen as kept.
+
+**Recommended default:** extend the agent results contract with an entity type `bill_allocation` (voucher reference, party, bill name, ref type new / against / advance / on_account, bill date, due date, signed amount) written by `SyncWriterService` beside the voucher; the agent is outbound-only, so this is a change on the agent as well. Area AJ is built against the projection as it stands, so it lights up the day the rows arrive.
+

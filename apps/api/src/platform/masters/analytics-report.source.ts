@@ -193,8 +193,8 @@ export class AnalyticsReportSource implements ReportSource, OnModuleInit {
             SELECT c.entity_type, c.state, c.member_count,
                    CASE WHEN c.confidence >= 0.95 THEN '1 Certain (0.95 and above)' WHEN c.confidence >= 0.85 THEN '2 High (0.85 to 0.95)' ELSE '3 Likely (below 0.85)' END AS band,
                    CASE WHEN c.entity_type = 'party' THEN
-                     coalesce((SELECT sum(CASE WHEN b.ref_type ILIKE 'new%' THEN b.amount WHEN b.ref_type ILIKE 'agst%' THEN -b.amount ELSE 0 END)
-                                 FROM bill_allocations b WHERE b.org_id = c.org_id AND b.party_id IN (SELECT entity_id FROM duplicate_cluster_members m WHERE m.cluster_id = c.id)), 0)
+                     coalesce((SELECT sum(b.amount) FROM bill_allocations b WHERE b.org_id = c.org_id AND b.ref_type IN ('new', 'against')
+                                 AND b.party_id IN (SELECT entity_id FROM duplicate_cluster_members m WHERE m.cluster_id = c.id)), 0)
                    ELSE 0 END AS outstanding
               FROM duplicate_clusters c
              WHERE c.org_id = ${orgId} AND c.state IN ('open', 'sent_to_tally')

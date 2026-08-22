@@ -28,6 +28,8 @@ interface ErrorBody {
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'Duplicates Org');
+  await harness.db.execute(sql`DELETE FROM bill_allocations WHERE org_id = ${ORG_ID}`);
+  await harness.db.execute(sql`DELETE FROM vouchers WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM duplicate_cluster_members WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM duplicate_clusters WHERE org_id = ${ORG_ID}`);
   await harness.db.execute(sql`DELETE FROM stock_items WHERE org_id = ${ORG_ID}`);
@@ -59,6 +61,20 @@ beforeAll(async () => {
     harness.db
       .execute<{ id: string }>(sql`INSERT INTO stock_items (org_id, connection_id, name, alias, unit, parent_group, gst_rate) VALUES (${ORG_ID}, ${cid}, ${name}, ${alias}, 'BOX', 'Cables', '18.00') RETURNING id`)
       .then((r) => r.rows[0]?.id ?? '');
+  // One bill of 10,000 on the first Asha, 4,000 received against it: the cluster's outstanding is 6,000, signed rows summed.
+  const voucher = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${cid}, 1, '2026-08-01', 'Sales', 'INV-D1', 'Asha Traders Pvt Ltd', ${ashaPvt}, '', false, 10000, now()) RETURNING id
+  `);
+  const receipt = await harness.db.execute<{ id: string }>(sql`
+    INSERT INTO vouchers (org_id, connection_id, alter_id, voucher_date, voucher_type, voucher_number, party_name, party_id, narration, is_cancelled, amount, last_pulled_at)
+    VALUES (${ORG_ID}, ${cid}, 2, '2026-08-10', 'Receipt', 'RCT-D1', 'Asha Traders Pvt Ltd', ${ashaPvt}, '', false, 4000, now()) RETURNING id
+  `);
+  await harness.db.execute(sql`
+    INSERT INTO bill_allocations (org_id, connection_id, voucher_id, party_id, party_name, bill_name, ref_type, bill_date, due_date, amount, last_pulled_at) VALUES
+      (${ORG_ID}, ${cid}, ${voucher.rows[0]?.id ?? ''}, ${ashaPvt}, 'Asha Traders Pvt Ltd', 'INV-D1', 'new', '2026-08-01', '2026-08-31', 10000, now()),
+      (${ORG_ID}, ${cid}, ${receipt.rows[0]?.id ?? ''}, ${ashaPvt}, 'Asha Traders Pvt Ltd', 'INV-D1', 'against', '2026-08-01', '2026-08-31', -4000, now())
+  `);
   cat6Box = await insertItem('Cat6 cable box', 'CAT6-305');
   await insertItem('CAT 6 Cable 305m', 'cat6 305');
   await insertItem('RCCB 40A 30mA DP', null);
@@ -93,6 +109,8 @@ describe('Area AO: duplicate detection', () => {
     expect(cluster?.matchedFields).toEqual(expect.arrayContaining(['gstin', 'name', 'phone']));
     expect(cluster?.members.map((m) => m.name).sort()).toEqual(['Asha Traders Private Limited', 'Asha Traders Pvt Ltd']);
     expect(cluster?.state).toBe('open');
+    expect(cluster?.impact.outstanding).toBe('6000.00');
+    expect(cluster?.impact.recentTransactions).toBe(2);
 
     const itemClusters = await harness.get<Paginated<DuplicateClusterView>>('/masters/duplicates?entityType=stock_item', { token: accountsToken });
     expect(itemClusters.body.data[0]?.matchedFields).toEqual(expect.arrayContaining(['alias']));

@@ -249,8 +249,9 @@ export class DuplicatesService {
                    AND l.stock_item_id IN (SELECT entity_id FROM duplicate_cluster_members mm WHERE mm.cluster_id = c.id))
              END AS open_documents,
              CASE WHEN c.entity_type = 'party' THEN
-               coalesce((SELECT sum(CASE WHEN b.ref_type ILIKE 'new%' THEN b.amount WHEN b.ref_type ILIKE 'agst%' THEN -b.amount ELSE 0 END)
-                           FROM bill_allocations b WHERE b.org_id = c.org_id AND b.party_id IN (SELECT entity_id FROM duplicate_cluster_members mm WHERE mm.cluster_id = c.id)), 0)::text
+               -- Allocations are signed against the party (owed positive, settled negative); a bill's outstanding is the sum of its new and against rows.
+               coalesce((SELECT sum(b.amount) FROM bill_allocations b WHERE b.org_id = c.org_id AND b.ref_type IN ('new', 'against')
+                           AND b.party_id IN (SELECT entity_id FROM duplicate_cluster_members mm WHERE mm.cluster_id = c.id)), 0)::text
              ELSE '0' END AS outstanding,
              CASE WHEN c.entity_type = 'party' THEN
                (SELECT count(*)::int FROM vouchers v WHERE v.org_id = c.org_id AND v.voucher_date >= current_date - 90
