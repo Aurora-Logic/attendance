@@ -15,6 +15,7 @@ import {
 } from '@vyuha/shared';
 import { sql, type SQL } from 'drizzle-orm';
 
+import { CustomerNoticeService } from '../dispatch/customer-notice.service.js';
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database, type Transaction } from '../../../platform/db/db.provider.js';
@@ -42,6 +43,7 @@ const SQL_TRUE = sql`true`;
 @Injectable()
 export class InvoiceService implements OnModuleInit {
   constructor(
+    private readonly notices: CustomerNoticeService,
     @InjectDatabase() private readonly db: Database,
     private readonly auditContext: AuditContext,
     private readonly scopes: ScopeService,
@@ -197,6 +199,11 @@ export class InvoiceService implements OnModuleInit {
     await this.db.execute(sql`UPDATE sales_documents SET status = 'CONFIRMED', updated_at = now(), updated_by = ${principal.userId} WHERE id = ${id}`);
     await this.enqueuePush(principal, id);
     this.auditContext.record({ action: 'sales.invoice.confirmed', entityType: 'sales_document', entityId: id, before: null, after: { orderId: invoice.sourceDocumentId } });
+    // E4 (D-47): the customer's mail goes the moment the invoice exists; its fate is audited, never thrown.
+    const mailed = await this.notices.sendInvoice(principal.orgId, invoice);
+    if (mailed.outcome !== 'no-address') {
+      this.auditContext.record({ action: `sales.invoice.customer_mail_${mailed.outcome}`, entityType: 'sales_document', entityId: id, before: null, after: { to: mailed.to, number: invoice.number, ...(mailed.error === undefined ? {} : { error: mailed.error }) } });
+    }
     return this.find(principal, id);
   }
 

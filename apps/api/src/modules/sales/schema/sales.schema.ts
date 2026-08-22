@@ -218,7 +218,7 @@ export const salesOrderInvoices = pgTable(
   (t) => [uniqueIndex('sales_order_invoices_voucher_uq').on(t.voucherId), uniqueIndex('sales_order_invoices_invoice_uq').on(t.invoiceDocumentId), index('sales_order_invoices_document_idx').on(t.documentId)],
 );
 
-export const dispatchModeEnum = pgEnum('dispatch_mode', ['local_auto', 'local_own_vehicle', 'outstation']);
+export const dispatchModeEnum = pgEnum('dispatch_mode', ['local_auto', 'local_own_vehicle', 'outstation', 'customer_collects']);
 
 /** REQ-AA-16: a dispatch is its own record; one order may have many. Pushes as a Delivery Note (REQ-AA-22). */
 export const dispatches = pgTable(

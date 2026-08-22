@@ -259,7 +259,7 @@ function DispatchForm({ order, onClose }: { order: Estimate; onClose: () => void
                   </SelectContent>
                 </Select>
                 <FieldDescription>
-                  {mode === 'local_auto' ? 'Nothing more is needed.' : mode === 'local_own_vehicle' ? 'Vehicle and driver are recorded.' : 'LR, transporter, and both photographs.'}
+                  {mode === 'local_auto' ? 'Nothing more is needed.' : mode === 'local_own_vehicle' ? 'Vehicle and driver are recorded.' : mode === 'customer_collects' ? 'Nothing more is needed; the customer is told it is ready to collect.' : 'LR, transporter, and both photographs.'}
                 </FieldDescription>
               </Field>
               {mode === 'outstation' ? (

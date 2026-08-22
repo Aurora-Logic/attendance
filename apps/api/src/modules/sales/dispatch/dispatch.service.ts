@@ -298,7 +298,9 @@ export class DispatchService implements OnModuleInit {
         ? `By ${input.transporterName ?? 'transporter'}, LR ${input.lrNumber ?? ''}${input.vehicleNumber ? `, vehicle ${input.vehicleNumber}` : ''}${input.expectedDeliveryDate ? `, expected ${input.expectedDeliveryDate}` : ''}`
         : input.mode === 'local_own_vehicle'
           ? `Our vehicle ${input.vehicleNumber ?? ''} with ${input.driverName ?? ''}`
-          : 'Local delivery by auto';
+          : input.mode === 'customer_collects'
+            ? 'Packed and ready to collect at our counter — show the packing slip barcode'
+            : 'Local delivery by auto';
     return [
       `Dear ${order.customerName},`,
       `Your order ${order.number}${invoices ? ` (invoice ${invoices})` : ''} has been dispatched (${number}, ${DISPATCH_MODE_LABELS[input.mode]}).`,

@@ -344,6 +344,13 @@
       "when": 1787385479906,
       "tag": "0048_dispatch_delivery",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1787386589160,
+      "tag": "0049_customer_collects",
+      "breakpoints": true
     }
   ]
 }

@@ -586,12 +586,14 @@ export interface StockAvailability {
 
 // ------------------------------------------------------------------ dispatch
 
-export const DISPATCH_MODES = ['local_auto', 'local_own_vehicle', 'outstation'] as const;
+/** D-47 (owner, 22 Aug 2026): `customer_collects` is the counter pickup — goods ready, the customer told, the door step when they collect. */
+export const DISPATCH_MODES = ['local_auto', 'local_own_vehicle', 'outstation', 'customer_collects'] as const;
 export type DispatchMode = (typeof DISPATCH_MODES)[number];
 export const DISPATCH_MODE_LABELS: Record<DispatchMode, string> = {
   local_auto: 'Local — auto',
   local_own_vehicle: 'Local — own vehicle',
   outstation: 'Outstation',
+  customer_collects: 'Customer collects',
 };
 
 /**
