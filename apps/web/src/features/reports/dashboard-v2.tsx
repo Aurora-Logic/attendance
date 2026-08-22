@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/card';
 import {
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
@@ -24,6 +26,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { usePermission } from '@/lib/session/permissions';
 
 import { useReportRows } from './api';
+import { monthLabel, short } from './dashboard-v2.format';
 
 /**
  * The reports dashboard, built the way shadcn ships charts.
@@ -61,17 +64,7 @@ const TWELVE_MONTHS_AGO = (): string => {
   return d.toLocaleDateString('en-CA');
 };
 const TODAY = (): string => new Date().toLocaleDateString('en-CA');
-
-/** Indian short scale, so a rupee figure fits on a bar cap rather than past it. */
-function short(value: number): string {
-  const n = Math.abs(value);
-  const sign = value < 0 ? '−' : '';
-  const trim = (v: number): string => v.toFixed(1).replace(/\.0$/u, '');
-  if (n >= 10_000_000) return `${sign}${trim(n / 10_000_000)}Cr`;
-  if (n >= 100_000) return `${sign}${trim(n / 100_000)}L`;
-  if (n >= 1_000) return `${sign}${trim(n / 1_000)}k`;
-  return `${sign}${String(Math.round(n))}`;
-}
+const THIS_MONTH = (): string => TODAY().slice(0, 7);
 
 const MONTH_CONFIG = {
   value: { label: 'Invoiced', color: 'var(--chart-1)' },
@@ -113,15 +106,26 @@ export function ReportsDashboardV2() {
   };
 
   // Series built inline from the rows, as the shadcn examples do.
-  const months = (byMonth.data?.data ?? []).map((row) => ({
-    label: String(row.cells.label ?? ''),
-    value: Number(row.cells.value ?? 0),
-  }));
+  //
+  // Sorted by key, not left in the order the API sent: every report defaults to
+  // its own sort and this one is "-value", which on a time axis draws the
+  // twelve months in order of size.
+  const months = (byMonth.data?.data ?? [])
+    .map((row) => ({
+      label: String(row.cells.label ?? ''),
+      value: Number(row.cells.value ?? 0),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
   const monthTotal = months.reduce((sum, m) => sum + m.value, 0);
-  const lastMonth = months.at(-1)?.value ?? 0;
-  const previousMonth = months.at(-2)?.value ?? 0;
+  // The month in progress is a part-month and would read as a collapse against
+  // a full one, so the comparison is between the last two months that finished.
+  const complete = months.filter((m) => m.label !== THIS_MONTH());
+  const lastMonth = complete.at(-1);
+  const previousMonth = complete.at(-2);
   const movement =
-    previousMonth > 0 ? Math.round(((lastMonth - previousMonth) / previousMonth) * 1000) / 10 : null;
+    lastMonth !== undefined && previousMonth !== undefined && previousMonth.value > 0
+      ? Math.round(((lastMonth.value - previousMonth.value) / previousMonth.value) * 1000) / 10
+      : null;
 
   // Top five and the rest folded together: a bar per customer is unreadable at
   // fifty, and the tail is not a finding.
@@ -186,7 +190,7 @@ export function ReportsDashboardV2() {
                     tickLine={false}
                     tickMargin={10}
                     axisLine={false}
-                    tickFormatter={(value: string) => value.slice(0, 3)}
+                    tickFormatter={monthLabel}
                   />
                   <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                   <Bar dataKey="value" fill="var(--color-value)" radius={8}>
@@ -205,7 +209,8 @@ export function ReportsDashboardV2() {
           <CardFooter className="flex-col items-start gap-2 text-sm">
             {movement !== null ? (
               <div className="flex gap-2 leading-none font-medium">
-                {movement >= 0 ? 'Up' : 'Down'} {Math.abs(movement)}% on the month before
+                {monthLabel(lastMonth?.label ?? '')} was {movement >= 0 ? 'up' : 'down'}{' '}
+                {Math.abs(movement)}% on the month before
                 <TrendUpIcon className="size-4" />
               </div>
             ) : null}
@@ -300,13 +305,18 @@ export function ReportsDashboardV2() {
               <PieChart>
                 <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                 <Pie data={ageingData} dataKey="value" nameKey="bucket" innerRadius={60}>
+                  {/* The figure, not the bucket name -- the legend below names
+                      the buckets, and a value nobody has to hover for is the
+                      standing rule on this product's charts. */}
                   <LabelList
-                    dataKey="bucket"
+                    dataKey="value"
                     className="fill-background"
                     stroke="none"
                     fontSize={12}
+                    formatter={(value: unknown) => (typeof value === 'number' ? short(value) : '')}
                   />
                 </Pie>
+                <ChartLegend content={<ChartLegendContent nameKey="bucket" />} />
               </PieChart>
             </ChartContainer>
           ) : null}

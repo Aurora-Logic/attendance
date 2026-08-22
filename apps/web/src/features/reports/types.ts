@@ -670,13 +670,26 @@ const LOW_STOCK_SHAPE: RowViewShape<LowStockRow> = {
 const analyticsRowSchema = z.record(z.string(), z.unknown());
 type AnalyticsRow = z.infer<typeof analyticsRowSchema>;
 
-function analyticsShape(idKey: string, primaryKey: string, statusKey?: string): RowViewShape<AnalyticsRow> {
+function analyticsShape(
+  idKey: string | readonly string[],
+  primaryKey: string,
+  statusKey?: string,
+): RowViewShape<AnalyticsRow> {
+  // Some rows have no single identifying column. An ageing row is one bill of
+  // one party and the party repeats down the page, so the party id alone would
+  // hand the table duplicate React keys.
+  const idKeys = typeof idKey === 'string' ? [idKey] : idKey;
   return {
     schema: analyticsRowSchema,
     cell: recordCell,
     id: (row) => {
-      const value = row[idKey];
-      return typeof value === 'string' ? value : JSON.stringify(row);
+      const parts: string[] = [];
+      for (const key of idKeys) {
+        const value = row[key];
+        if (typeof value !== 'string') return JSON.stringify(row);
+        parts.push(value);
+      }
+      return parts.join('|');
     },
     primary: (row) => {
       const value = row[primaryKey];
@@ -719,6 +732,12 @@ const ANALYTICS_SHAPES: Partial<Record<ReportKey, RowViewShape<AnalyticsRow>>> =
   'stock-out-frequency': analyticsShape('id', 'item'),
   'margin-proxy': analyticsShape('stockItemId', 'item'),
   'sales-heatmap': analyticsShape('id', 'partyName'),
+  // Owner, 22 Aug 2026: two receivables reports shipped with a definition and a
+  // row source but no shape, so every screen reading them -- the reports table
+  // and the dashboard alike -- showed the error state instead of the rows the
+  // API was returning. `row-shapes.test.ts` now fails on the next one.
+  ageing: analyticsShape(['partyId', 'billName'], 'partyName', 'bucket'),
+  'payment-analysis': analyticsShape('partyId', 'partyName'),
 };
 
 function build<T>(
