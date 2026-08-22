@@ -41,6 +41,7 @@ import { DayEngineRepository, type EmployeeContext } from '../day-engine/day-eng
 import { DayEngineService } from '../day-engine/day-engine.service.js';
 import { AttendanceDayRepository } from '../days/attendance-day.repository.js';
 import { dayForViewer, overtimeVisibleTo } from '../days/attendance-day-visibility.js';
+import { RegularizationService } from '../regularization/regularization.service.js';
 import { punches } from '../schema/index.js';
 import { burnStamp } from './punch-photo.js';
 import {
@@ -177,6 +178,7 @@ export class PunchService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationDispatcher,
     private readonly consent: ConsentService,
+    private readonly regularization: RegularizationService,
   ) {}
 
   // -------------------------------------------------------------- commands
@@ -791,6 +793,9 @@ export class PunchService {
     //     the employee sees immediate status".
     const day = await this.computeDayInline(principal, employee.id, attendanceDate, now);
     await this.raiseFlagAlerts(repository, principal.orgId, employee, inserted, attendanceDate);
+    if (day !== null && (day.flags.includes('late') || day.flags.includes('outside_window'))) {
+      await this.raiseAutoFileDraft(principal, employee.id, attendanceDate, day);
+    }
 
     return { punch: inserted, day, replayed: false };
   }
@@ -1166,6 +1171,38 @@ export class PunchService {
     const outcome = await this.dayEngine.forOrg(orgContextOf(principal)).computeDay(employeeId, date, { now });
     if (outcome.outcome === 'locked') return null;
     return this.readDay(principal, employeeId, date);
+  }
+
+  /**
+   * `attendance.regularization_auto_file`'s trigger point: a punch that just
+   * landed the day on `late` or `outside_window` gets a draft correction
+   * waiting in the employee's own queue, so they do not have to notice and
+   * raise it themselves. See `RegularizationService.raiseSystemDraft` for what
+   * that means and when it declines to.
+   *
+   * A failure here must never fail the punch that produced it -- the day is
+   * already recorded, and the setting is a convenience, not a guarantee -- so
+   * it is caught and logged exactly as `raiseFlagAlerts`'s notification
+   * failure is, for the same reason.
+   */
+  private async raiseAutoFileDraft(
+    principal: Principal,
+    employeeId: string,
+    date: string,
+    day: AttendanceDaySummary,
+  ): Promise<void> {
+    try {
+      await this.regularization.raiseSystemDraft(orgContextOf(principal), {
+        employeeId,
+        date,
+        actualIn: day.firstInAt === null ? null : new Date(day.firstInAt),
+        actualOut: day.lastOutAt === null ? null : new Date(day.lastOutAt),
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `Auto-file draft could not be raised for employee ${employeeId} on ${date}: ${describeError(error)}`,
+      );
+    }
   }
 
   /**

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   APPROVAL_STATUSES,
   REGULARIZATION_KINDS,
+  REGULARIZATION_ORIGINS,
   type NamedRef,
   type OnDutyRequest,
   type Paginated,
@@ -38,7 +39,8 @@ export const regularizationRequestSchema = z.object({
   kind: z.enum(REGULARIZATION_KINDS),
   requestedIn: z.string().nullable(),
   requestedOut: z.string().nullable(),
-  reason: z.string(),
+  reason: z.string().nullable(),
+  origin: z.enum(REGULARIZATION_ORIGINS),
   attachmentFileId: z.string().nullable(),
   status: z.enum(APPROVAL_STATUSES),
   approvalRequestId: z.string().nullable(),
@@ -110,3 +112,13 @@ export {
   APPROVAL_STATUS_LABELS as REQUEST_STATUS_LABELS,
   APPROVAL_STATUS_VARIANT as REQUEST_STATUS_VARIANT,
 } from '@/features/approvals/types';
+
+/**
+ * `attendance.regularization_auto_file`'s draft: raised by the system, no
+ * reason yet. Only the employee it is about ever sees one — the server hides
+ * it from everyone else — so a row satisfying this always belongs to the
+ * viewer and always needs their input before an approver can see it at all.
+ */
+export function isUncompletedDraft(row: RegularizationRequest): boolean {
+  return row.origin === 'SYSTEM' && row.reason === null;
+}

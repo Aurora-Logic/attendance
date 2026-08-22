@@ -12,6 +12,7 @@ import {
   type OnDutyRequest,
   type Paginated,
   type RecomputeSummary,
+  type RegularizationComplete,
   type RegularizationInput,
   type RegularizationPolicyView,
   type RegularizationQuery,
@@ -277,6 +278,176 @@ export class RegularizationService {
     return record;
   }
 
+  // -------------------------------------------------- auto-file (system)
+
+  /**
+   * `attendance.regularization_auto_file`'s effect. Called by the punch
+   * pipeline right after a day recomputes with a `late` or `outside_window`
+   * flag, so the employee does not have to notice and raise a correction
+   * themselves -- a `WRONG_TIME` draft appears in their own queue instead,
+   * proposing no change (the times equal the punch as it stands), reason left
+   * null. It is not raised into the approvals framework here: `completeDraft`
+   * does that once the employee supplies the one thing the system cannot --
+   * why.
+   *
+   * Declines silently rather than throwing when the setting is off, there is
+   * no IN punch to propose a time from, or a request already covers the day
+   * (draft, raised, or decided). A punch that failed because this could not
+   * write a row would be the setting breaking attendance, which is the one
+   * thing turning it on must never do -- the same reasoning `raiseFlagAlerts`
+   * gives for never failing a punch over a notification.
+   */
+  async raiseSystemDraft(
+    ctx: OrgContext,
+    input: { employeeId: string; date: string; actualIn: Date | null; actualOut: Date | null },
+  ): Promise<void> {
+    if (input.actualIn === null) return;
+
+    const repository = new RegularizationRepository(this.db, ctx);
+    if (!(await repository.readAutoFileEnabled())) return;
+    if ((await repository.findOpenForDate(input.employeeId, input.date)) !== null) return;
+
+    let id: string;
+    try {
+      id = await repository.insertSystemDraft({
+        employeeId: input.employeeId,
+        date: input.date,
+        requestedIn: input.actualIn,
+        requestedOut: input.actualOut,
+      });
+    } catch (error: unknown) {
+      // Two punches racing the same day's recompute both pass the open-request
+      // check above and both try to insert; the loser hits the same unique
+      // index `raise` does. Nothing to do -- a request already exists for the
+      // day, which was the point.
+      if (isUniqueViolation(error)) return;
+      throw error;
+    }
+
+    await this.audit.write({
+      orgId: ctx.orgId,
+      actorUserId: null,
+      action: 'regularization.auto_filed',
+      entityType: 'regularization',
+      entityId: id,
+      before: null,
+      after: { employeeId: input.employeeId, date: input.date, kind: 'WRONG_TIME' },
+    });
+  }
+
+  /**
+   * The other half of `raiseSystemDraft`: the employee's reason (and, if they
+   * choose, a corrected time) turns the draft into a real request, raised
+   * into the approvals framework exactly as `raise` raises one an employee
+   * wrote from scratch. Nobody else could see the draft before this — see
+   * `draftVisibleTo` — so completing it is the only way it becomes decidable.
+   *
+   * No REQ-F-02 window/cap check here. Those bound how often an employee asks
+   * for a correction; this row already exists because the system, not the
+   * employee, decided to ask. Re-refusing it at the one moment the employee
+   * is trying to close it out would make the setting a trap.
+   */
+  async completeDraft(
+    principal: Principal,
+    id: string,
+    input: RegularizationComplete,
+  ): Promise<RegularizationRequest> {
+    const employeeId = this.resolveEmployee(principal, undefined);
+    const repository = this.repository(principal);
+
+    const draft = await repository.findOwnDraft(id, employeeId);
+    if (draft === null) throw AppError.notFound('Regularization', id);
+
+    const employee = await this.loadEmployee(repository, employeeId);
+
+    if (await this.dayEngine.forOrg(orgContextOf(principal)).isLocked(employeeId, draft.date)) {
+      throw new AppError(
+        ERROR_CODES.PERIOD_LOCKED,
+        `Attendance for ${draft.date} is in a locked period and cannot be corrected. Unlock the period first.`,
+        { details: { reason: 'PERIOD_LOCKED', date: draft.date } },
+      );
+    }
+
+    let requestedIn = draft.requestedIn === null ? null : new Date(draft.requestedIn);
+    let requestedOut = draft.requestedOut === null ? null : new Date(draft.requestedOut);
+    // Only recomposed when the employee actually resent a time -- the field
+    // they left alone keeps the draft's own proposal rather than being wiped
+    // to null by a request that only meant to change the other one.
+    if (input.requestedIn !== undefined || input.requestedOut !== undefined) {
+      const existingIn = await repository.firstInPunchAt(employeeId, draft.date);
+      const times = await repository.composeTimes({
+        date: draft.date,
+        timezone: employee.timezone,
+        requestedIn: input.requestedIn ?? null,
+        requestedOut: input.requestedOut ?? null,
+        existingIn,
+      });
+      if (input.requestedIn !== undefined) requestedIn = times.adjustedIn;
+      if (input.requestedOut !== undefined) requestedOut = times.adjustedOut;
+    }
+
+    const ctx = orgContextOf(principal);
+    const requesterUserId =
+      (await repository.findUserIdForEmployee(employeeId)) ?? principal.userId;
+    const route = await this.routeFor(principal.orgId, requesterUserId);
+
+    const { approvalRequestId } = await repository.transaction(async (tx, executor) => {
+      const completed = await tx.completeSystemDraft(id, {
+        reason: input.reason,
+        requestedIn,
+        requestedOut,
+      });
+      if (!completed) {
+        throw AppError.conflict('This draft was already completed or no longer exists.', {
+          regularizationId: id,
+        });
+      }
+
+      const approval = await this.approvals.raise(
+        ctx,
+        {
+          type: 'REGULARIZATION',
+          subjectType: REGULARIZATION_SUBJECT_TYPE,
+          subjectId: id,
+          subject: regularizationSubjectLine({
+            employeeName: employee.name,
+            date: draft.date,
+            kind: 'WRONG_TIME',
+          }),
+          requesterUserId,
+          approverUserIds: route,
+        },
+        executor,
+      );
+
+      const linked = await tx.linkRegularizationApproval(id, approval.id);
+      if (!linked) throw AppError.notFound('Regularization', id);
+
+      return { approvalRequestId: approval.id };
+    });
+
+    const record = await this.readRegularization(principal, id);
+
+    this.auditContext.record({
+      action: 'regularization.raised',
+      entityType: 'regularization',
+      entityId: id,
+      before: null,
+      after: {
+        employeeId,
+        date: draft.date,
+        kind: 'WRONG_TIME',
+        requestedIn: requestedIn?.toISOString() ?? null,
+        requestedOut: requestedOut?.toISOString() ?? null,
+        reason: input.reason,
+        origin: 'SYSTEM',
+        approvalRequestId,
+      },
+    });
+
+    return record;
+  }
+
   /**
    * Who a correction or an on-duty declaration routes to.
    *
@@ -313,6 +484,7 @@ export class RegularizationService {
       to: query.to,
       limit,
       offset,
+      viewerEmployeeId: principal.employeeId,
     });
     return paginated(rows.map(toRegularization), query, total);
   }
@@ -368,6 +540,7 @@ export class RegularizationService {
     const request = await repository.findRegularization(
       id,
       this.scopeFor(principal, regularizations.employeeId),
+      principal.employeeId,
     );
     if (request === null) throw AppError.notFound('Regularization', id);
 
@@ -481,6 +654,16 @@ export class RegularizationService {
         `Attendance for ${request.date} is in a locked period, so this correction cannot be applied. Unlock the period first.`,
         { details: { reason: 'PERIOD_LOCKED', date: request.date } },
       );
+    }
+
+    if (request.reason === null) {
+      // Unreachable in practice: a row only reaches a decision once it has a
+      // reason on it. An EMPLOYEE-origin row has always required one to be
+      // raised at all, and a SYSTEM-origin draft only gets an approval to
+      // decide once `completeDraft` sets its reason and raises it in the same
+      // transaction. Thrown rather than defaulted to an empty string, because
+      // that would write an adjustment nobody can explain.
+      throw new Error(`Regularization ${decision.subjectId} was decided with no reason on record.`);
     }
 
     const moved = await repository.decideRegularization(decision.subjectId, {
@@ -835,6 +1018,7 @@ export class RegularizationService {
     const row = await this.repository(principal).findRegularization(
       id,
       this.scopeFor(principal, regularizations.employeeId),
+      principal.employeeId,
     );
     // Out of scope and non-existent answer the same, as everywhere else: a 403
     // would confirm that the id names a real request.
@@ -865,7 +1049,7 @@ export class RegularizationService {
     },
   ): Promise<string> {
     try {
-      return await repository.insertRegularization(input);
+      return await repository.insertRegularization({ ...input, origin: 'EMPLOYEE' });
     } catch (error: unknown) {
       // Two submissions racing each other land on the partial unique index
       // rather than on the read above; migration 0014 exists for exactly this.
@@ -1036,6 +1220,7 @@ function toRegularization(row: RegularizationRow): RegularizationRequest {
     requestedIn: row.requestedIn,
     requestedOut: row.requestedOut,
     reason: row.reason,
+    origin: row.origin,
     attachmentFileId: row.attachmentFileId,
     status: row.status,
     approvalRequestId: row.approvalRequestId,

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import {
   PERMISSIONS,
   type OnDutyRequest,
@@ -12,6 +12,7 @@ import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import {
   OnDutyInputDto,
   OnDutyQueryDto,
+  RegularizationCompleteDto,
   RegularizationDecisionDto,
   RegularizationInputDto,
   RegularizationPolicyQueryDto,
@@ -85,6 +86,21 @@ export class RegularizationController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<RegularizationRequest> {
     return this.regularization.get(principal, id);
+  }
+
+  /**
+   * `attendance.regularization_auto_file`'s draft, finished: the employee's
+   * reason turns it into a real request an approver can decide. Same
+   * permission as raising one from scratch -- this is that, just prefilled.
+   */
+  @Patch(':id/complete')
+  @RequirePermission(PERMISSIONS.REGULARIZATION_RAISE)
+  complete(
+    @CurrentUser() principal: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RegularizationCompleteDto,
+  ): Promise<RegularizationRequest> {
+    return this.regularization.completeDraft(principal, id, body);
   }
 
   /** REQ-F-03: writes the adjustment and recomputes the day. */

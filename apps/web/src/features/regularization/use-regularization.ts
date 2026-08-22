@@ -10,11 +10,13 @@ import { z } from 'zod';
 
 import {
   onDutyInputSchema,
+  regularizationCompleteSchema,
   regularizationInputSchema,
   type ApprovalStatus,
   type OnDutyInput,
   type OnDutyRequest,
   type Paginated,
+  type RegularizationComplete,
   type RegularizationInput,
   type RegularizationPolicyView,
   type RegularizationRequest,
@@ -165,6 +167,34 @@ export function useRaiseRegularization(): UseMutationResult<
     mutationFn: async (input: RegularizationInput) => {
       const body = regularizationInputSchema.parse(input);
       const response = await apiRequest<unknown>('/regularizations', { method: 'POST', body });
+      return parseOrThrow(regularizationRequestSchema, response, 'regularization');
+    },
+    onSuccess: () => {
+      invalidateAfterWrite(queryClient);
+    },
+  });
+}
+
+/**
+ * `attendance.regularization_auto_file`'s other half: the reason (and, if the
+ * employee changes their mind about the time, a corrected one) that turns a
+ * system-raised draft into a real request. Same shape as `useRaiseRegularization`
+ * beyond that — one mutation, invalidate, and the muster picks it up once an
+ * approver decides.
+ */
+export function useCompleteRegularizationDraft(): UseMutationResult<
+  RegularizationRequest,
+  Error,
+  { id: string; input: RegularizationComplete }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: string; input: RegularizationComplete }) => {
+      const body = regularizationCompleteSchema.parse(input);
+      const response = await apiRequest<unknown>(`/regularizations/${id}/complete`, {
+        method: 'PATCH',
+        body,
+      });
       return parseOrThrow(regularizationRequestSchema, response, 'regularization');
     },
     onSuccess: () => {

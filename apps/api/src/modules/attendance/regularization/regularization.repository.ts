@@ -1,4 +1,9 @@
-import { OPEN_APPROVAL_STATUSES, type ApprovalStatus, type RegularizationKind } from '@vyuha/shared';
+import {
+  OPEN_APPROVAL_STATUSES,
+  type ApprovalStatus,
+  type RegularizationKind,
+  type RegularizationOrigin,
+} from '@vyuha/shared';
 import { and, asc, count, desc, eq, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 
 import type { Database } from '../../../platform/db/db.provider.js';
@@ -28,6 +33,7 @@ import { attendanceAdjustments, onDutyRequests, punches, regularizations } from 
 export const REGULARIZATION_SETTING_KEYS = {
   windowDays: 'attendance.regularization_window_days',
   maxPerMonth: 'attendance.regularization_max_per_month',
+  autoFile: 'attendance.regularization_auto_file',
 } as const;
 
 /**
@@ -76,7 +82,9 @@ export interface RegularizationRow {
   readonly kind: RegularizationKind;
   readonly requestedIn: string | null;
   readonly requestedOut: string | null;
-  readonly reason: string;
+  /** Null only for an uncompleted `SYSTEM`-origin draft. */
+  readonly reason: string | null;
+  readonly origin: RegularizationOrigin;
   readonly attachmentFileId: string | null;
   readonly approvalRequestId: string | null;
   readonly status: ApprovalStatus;
@@ -113,6 +121,27 @@ export interface ListFilters {
   readonly to?: string | undefined;
   readonly limit: number;
   readonly offset: number;
+  /**
+   * Whose drafts stay visible; see `draftVisibleTo`. Only `listRegularizations`
+   * reads this -- `listOnDuty` shares the interface but has no draft concept,
+   * so leaving it out there is harmless.
+   */
+  readonly viewerEmployeeId?: string | null;
+}
+
+/**
+ * A `SYSTEM` draft with no reason yet is invisible to everyone but the
+ * employee it is about -- the whole point of leaving it blank until they
+ * fill it in, per the setting's design. Applied to every read of
+ * `regularizations` outside `raiseSystemDraft`/`completeSystemDraft`
+ * themselves, which is why it lives beside `orgScoped` rather than only in
+ * `listRegularizations`: a single-row fetch has to hide it exactly as much
+ * as a list does.
+ */
+function draftVisibleTo(viewerEmployeeId: string | null): SQL {
+  return viewerEmployeeId === null
+    ? sql`NOT (${regularizations.origin} = 'SYSTEM' AND ${regularizations.reason} IS NULL)`
+    : sql`(NOT (${regularizations.origin} = 'SYSTEM' AND ${regularizations.reason} IS NULL) OR ${regularizations.employeeId} = ${viewerEmployeeId})`;
 }
 
 export interface ComposedTimes {
@@ -187,6 +216,22 @@ export class RegularizationRepository {
       this.readNumberSetting(REGULARIZATION_SETTING_KEYS.maxPerMonth, 3),
     ]);
     return { windowDays, maxPerMonth };
+  }
+
+  /** `attendance.regularization_auto_file`. Off unless a row says otherwise. */
+  async readAutoFileEnabled(): Promise<boolean> {
+    const rows = await this.db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(
+        this.orgScoped(
+          eq(settings.orgId, this.ctx.orgId),
+          eq(settings.key, REGULARIZATION_SETTING_KEYS.autoFile),
+          isNull(settings.deletedAt),
+        ),
+      )
+      .limit(1);
+    return rows[0]?.value === true;
   }
 
   // ------------------------------------------------------------- employee
@@ -434,7 +479,9 @@ export class RegularizationRepository {
     kind: RegularizationKind;
     requestedIn: Date | null;
     requestedOut: Date | null;
-    reason: string;
+    /** Null only for the `SYSTEM`-origin draft `insertSystemDraft` writes. */
+    reason: string | null;
+    origin: RegularizationOrigin;
     attachmentFileId: string | null;
   }): Promise<string> {
     const rows = await this.db
@@ -447,6 +494,7 @@ export class RegularizationRepository {
         requestedIn: input.requestedIn,
         requestedOut: input.requestedOut,
         reason: input.reason,
+        origin: input.origin,
         attachmentFileId: input.attachmentFileId,
         createdBy: this.ctx.actorUserId,
         updatedBy: this.ctx.actorUserId,
@@ -456,6 +504,61 @@ export class RegularizationRepository {
     const id = rows[0]?.id;
     if (id === undefined) throw new Error('The regularization insert returned no row.');
     return id;
+  }
+
+  /**
+   * The auto-file setting's write. A `WRONG_TIME` draft, reason left null,
+   * `origin: 'SYSTEM'`, proposing no change -- see `RegularizationService.raiseSystemDraft`
+   * for why the times equal the punch as it stands rather than a guess.
+   */
+  async insertSystemDraft(input: {
+    employeeId: string;
+    date: string;
+    requestedIn: Date | null;
+    requestedOut: Date | null;
+  }): Promise<string> {
+    return this.insertRegularization({
+      employeeId: input.employeeId,
+      date: input.date,
+      kind: 'WRONG_TIME',
+      requestedIn: input.requestedIn,
+      requestedOut: input.requestedOut,
+      reason: null,
+      origin: 'SYSTEM',
+      attachmentFileId: null,
+    });
+  }
+
+  /**
+   * Turns an uncompleted `SYSTEM` draft into a real request: the reason the
+   * employee gave, and the times if they changed either one. Matches only a
+   * row still waiting -- `origin = 'SYSTEM' AND reason IS NULL` -- so this can
+   * never overwrite a request that was already raised or decided.
+   */
+  async completeSystemDraft(
+    id: string,
+    input: { reason: string; requestedIn: Date | null; requestedOut: Date | null },
+  ): Promise<boolean> {
+    const rows = await this.db
+      .update(regularizations)
+      .set({
+        reason: input.reason,
+        requestedIn: input.requestedIn,
+        requestedOut: input.requestedOut,
+        updatedAt: new Date(),
+        updatedBy: this.ctx.actorUserId,
+      })
+      .where(
+        this.orgScoped(
+          eq(regularizations.orgId, this.ctx.orgId),
+          eq(regularizations.id, id),
+          eq(regularizations.origin, 'SYSTEM'),
+          isNull(regularizations.reason),
+          isNull(regularizations.deletedAt),
+        ),
+      )
+      .returning({ id: regularizations.id });
+    return rows.length > 0;
   }
 
   private regularizationSelect() {
@@ -470,6 +573,7 @@ export class RegularizationRepository {
         requestedIn: instant(sql`${regularizations.requestedIn}`),
         requestedOut: instant(sql`${regularizations.requestedOut}`),
         reason: regularizations.reason,
+        origin: regularizations.origin,
         attachmentFileId: regularizations.attachmentFileId,
         approvalRequestId: regularizations.approvalRequestId,
         status: regularizations.status,
@@ -491,6 +595,7 @@ export class RegularizationRepository {
       eq(regularizations.orgId, this.ctx.orgId),
       isNull(regularizations.deletedAt),
       filters.scope,
+      draftVisibleTo(filters.viewerEmployeeId ?? null),
       filters.status === undefined ? undefined : eq(regularizations.status, filters.status),
       filters.employeeId === undefined
         ? undefined
@@ -517,7 +622,17 @@ export class RegularizationRepository {
     return { rows: rows.map(toRegularizationRow), total: totals[0]?.total ?? 0 };
   }
 
-  async findRegularization(id: string, scope: SQL): Promise<RegularizationRow | null> {
+  /**
+   * `viewerEmployeeId` is omitted by the two internal callers that already
+   * know a draft cannot be the row in question -- `applyApprovalDecision`
+   * only ever reaches a row the framework is deciding, and a draft has no
+   * approval to decide. Every principal-scoped caller passes it.
+   */
+  async findRegularization(
+    id: string,
+    scope: SQL,
+    viewerEmployeeId?: string | null,
+  ): Promise<RegularizationRow | null> {
     const rows = await this.regularizationSelect()
       .where(
         this.orgScoped(
@@ -525,6 +640,32 @@ export class RegularizationRepository {
           eq(regularizations.id, id),
           isNull(regularizations.deletedAt),
           scope,
+          viewerEmployeeId === undefined ? undefined : draftVisibleTo(viewerEmployeeId),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    return row === undefined ? null : toRegularizationRow(row);
+  }
+
+  /**
+   * The one lookup a draft's own employee needs outside the framework: does
+   * this row still exist, still `SYSTEM`-origin, still waiting on a reason.
+   * No scope predicate beyond the id and the employee, because completing a
+   * draft is not "raising for somebody else" and carries no approver key to
+   * check.
+   */
+  async findOwnDraft(id: string, employeeId: string): Promise<RegularizationRow | null> {
+    const rows = await this.regularizationSelect()
+      .where(
+        this.orgScoped(
+          eq(regularizations.orgId, this.ctx.orgId),
+          eq(regularizations.id, id),
+          eq(regularizations.employeeId, employeeId),
+          eq(regularizations.origin, 'SYSTEM'),
+          isNull(regularizations.reason),
+          isNull(regularizations.deletedAt),
         ),
       )
       .limit(1);
@@ -824,7 +965,8 @@ function toRegularizationRow(row: {
   kind: RegularizationKind;
   requestedIn: string | null;
   requestedOut: string | null;
-  reason: string;
+  reason: string | null;
+  origin: RegularizationOrigin;
   attachmentFileId: string | null;
   approvalRequestId: string | null;
   status: ApprovalStatus;

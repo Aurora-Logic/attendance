@@ -35,6 +35,17 @@ export const REGULARIZATION_KINDS = [
 
 export type RegularizationKind = (typeof REGULARIZATION_KINDS)[number];
 
+/**
+ * Who raised the request. `SYSTEM` is the auto-file setting's doing: the day
+ * engine drops a draft into the employee's own queue when a punch is `late`
+ * or `outside_window`, with no reason yet, and nobody but that employee can
+ * see it until they supply one and it becomes an ordinary request an
+ * approver decides.
+ */
+export const REGULARIZATION_ORIGINS = ['EMPLOYEE', 'SYSTEM'] as const;
+
+export type RegularizationOrigin = (typeof REGULARIZATION_ORIGINS)[number];
+
 /** Exported so the form and the table name a kind the same way. */
 export const REGULARIZATION_KIND_LABELS: Record<RegularizationKind, string> = {
   MISSING_IN: 'Missing in punch',
@@ -152,6 +163,24 @@ export const regularizationInputSchema = z
 
 export type RegularizationInput = z.infer<typeof regularizationInputSchema>;
 
+/**
+ * `PATCH /regularizations/:id/complete` -- what an employee supplies to turn
+ * a `SYSTEM`-origin draft into a real request. The kind is already fixed to
+ * `WRONG_TIME` and the times are already prefilled to the punch as it stands,
+ * so both are optional here: the reason is the one thing only the employee
+ * can give, and either time may be corrected in the same step rather than in
+ * a second edit.
+ */
+export const regularizationCompleteSchema = z
+  .object({
+    reason: reasonField,
+    requestedIn: wallClockSchema.nullable().optional(),
+    requestedOut: wallClockSchema.nullable().optional(),
+  })
+  .strict();
+
+export type RegularizationComplete = z.infer<typeof regularizationCompleteSchema>;
+
 // --------------------------------------------------------- on duty (F-04)
 
 export const onDutyInputSchema = z
@@ -212,7 +241,9 @@ export interface RegularizationRequest {
   /** ISO-8601 instants; the server composed them from the wall clock sent. */
   readonly requestedIn: string | null;
   readonly requestedOut: string | null;
-  readonly reason: string;
+  /** Null only for a `SYSTEM`-origin draft the employee has not completed yet. */
+  readonly reason: string | null;
+  readonly origin: RegularizationOrigin;
   readonly attachmentFileId: string | null;
   readonly status: ApprovalStatus;
   /**
