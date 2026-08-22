@@ -38,6 +38,7 @@ export function sampleSettings(): OrgSettings {
     security: { mfaPolicy: 'admin_accounts', sessionHours: 720, endSessionOnClose: false },
     locale: { numberFormat: 'indian', currencySymbol: '₹' },
     retention: { exportsDays: 7 },
+  duplicates: { confidenceMin: 0.75 },
     appearance: { accentHue: 277, accentChroma: 0.24, base: 'stone', density: 'comfortable' },
     email: {
       transport: 'log',
@@ -64,6 +65,7 @@ export function sampleSettings(): OrgSettings {
       security: { mfaPolicy: 'Sign-in', sessionHours: 'Sign-in', endSessionOnClose: 'Sign-in' },
       locale: { numberFormat: 'Every figure', currencySymbol: 'Every figure' },
       retention: { exportsDays: 'Exports' },
+    duplicates: { confidenceMin: null },
       appearance: { accentHue: 'Shell', accentChroma: 'Shell', base: 'Shell', density: 'Shell' },
     },
     unreadableKeys: [],

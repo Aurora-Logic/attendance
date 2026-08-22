@@ -18,14 +18,14 @@ import {
   DEFAULT_LOCALE_POLICY,
   localePolicySchema,
   RETENTION_SETTINGS,
+  DUPLICATES_SETTINGS,
   DEFAULT_RETENTION_POLICY,
   retentionPolicySchema,
   WRITABLE_SETTING_KEYS,
   attendancePolicySchema,
   photoPolicySchema,
   resolveGroup,
-  type SettingDescriptor,
-} from './settings.catalogue.js';
+  type SettingDescriptor, DEFAULT_DUPLICATES_POLICY_ROW } from './settings.catalogue.js';
 
 /**
  * The catalogue is three lists that have to agree: the schema's fields, the
@@ -66,6 +66,7 @@ describe('the catalogue and its schemas describe the same fields', () => {
     expect(Object.keys(LOCALE_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_LOCALE_POLICY).sort());
     expect(localePolicySchema.safeParse(DEFAULT_LOCALE_POLICY).success).toBe(true);
     expect(Object.keys(RETENTION_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_RETENTION_POLICY).sort());
+    expect(Object.keys(DUPLICATES_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_DUPLICATES_POLICY_ROW).sort());
     expect(retentionPolicySchema.safeParse(DEFAULT_RETENTION_POLICY).success).toBe(true);
   });
 });
@@ -89,7 +90,7 @@ describe('defaults', () => {
 });
 
 describe('keys', () => {
-  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS)];
+  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS), ...Object.values(APPEARANCE_SETTINGS), ...Object.values(LOCALE_SETTINGS), ...Object.values(RETENTION_SETTINGS), ...Object.values(DUPLICATES_SETTINGS)];
 
   it('are unique', () => {
     const keys = all.map((descriptor) => descriptor.key);

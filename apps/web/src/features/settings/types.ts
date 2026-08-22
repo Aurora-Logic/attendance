@@ -1,6 +1,6 @@
 import {
   DEVICE_BINDING_MODES,
-  type DeviceBindingMode, MFA_POLICIES, appearanceSchema, type Appearance, localeSchema, retentionSchema, type WorkspaceLocale, type RetentionPolicy } from '@vyuha/shared';
+  type DeviceBindingMode, MFA_POLICIES, appearanceSchema, type Appearance, localeSchema, retentionSchema, type WorkspaceLocale, type RetentionPolicy, duplicatesPolicySchema, type DuplicatesPolicy } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -97,6 +97,7 @@ export const orgSettingsSchema = z.object({
   appearance: appearanceSchema,
   locale: localeSchema,
   retention: retentionSchema,
+  duplicates: duplicatesPolicySchema,
   email: emailSettingsSchema,
   enforcement: z.object({
     attendance: enforcementSchema,
@@ -105,6 +106,7 @@ export const orgSettingsSchema = z.object({
     appearance: enforcementSchema,
     locale: enforcementSchema,
     retention: enforcementSchema,
+    duplicates: enforcementSchema,
   }),
   unreadableKeys: z.array(z.string()),
 });
@@ -127,6 +129,7 @@ export interface SettingsPatch {
   appearance?: Partial<Appearance>;
   locale?: Partial<WorkspaceLocale>;
   retention?: Partial<RetentionPolicy>;
+  duplicates?: Partial<DuplicatesPolicy>;
 }
 
 export const GEOFENCE_LABELS: Record<GeofenceBehaviour, string> = {

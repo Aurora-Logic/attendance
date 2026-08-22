@@ -43,7 +43,7 @@ import {
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS, NUMBER_FORMATS, NUMBER_FORMAT_LABELS, CURRENCY_SYMBOLS, SESSION_HOURS_MIN, SESSION_HOURS_MAX } from '@vyuha/shared';
+import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS, NUMBER_FORMATS, NUMBER_FORMAT_LABELS, CURRENCY_SYMBOLS, SESSION_HOURS_MIN, SESSION_HOURS_MAX, type DuplicatesPolicy } from '@vyuha/shared';
 
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
@@ -100,6 +100,7 @@ interface Draft {
   appearance: Appearance;
   locale: WorkspaceLocale;
   retention: RetentionPolicy;
+  duplicates: DuplicatesPolicy;
 }
 
 function draftOf(settings: OrgSettings): Draft {
@@ -111,6 +112,7 @@ function draftOf(settings: OrgSettings): Draft {
     appearance: settings.appearance,
     locale: settings.locale,
     retention: settings.retention,
+    duplicates: settings.duplicates,
   };
 }
 
@@ -143,6 +145,7 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
   if (!sameGroup(draft.appearance, saved.appearance)) patch.appearance = draft.appearance;
   if (!sameGroup(draft.locale, saved.locale)) patch.locale = draft.locale;
   if (!sameGroup(draft.retention, saved.retention)) patch.retention = draft.retention;
+  if (!sameGroup(draft.duplicates, saved.duplicates)) patch.duplicates = draft.duplicates;
 
   return patch;
 }
@@ -371,6 +374,9 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
   }
   function patchRetention(next: Partial<RetentionPolicy>) {
     setDraft((current) => (current === null ? current : { ...current, retention: { ...current.retention, ...next } }));
+  }
+  function patchDuplicates(next: Partial<DuplicatesPolicy>) {
+    setDraft((current) => (current === null ? current : { ...current, duplicates: { ...current.duplicates, ...next } }));
   }
   function patchSecurity(next: Partial<SecurityPolicy>) {
     setDraft((current) => (current === null ? current : { ...current, security: { ...current.security, ...next } }));
@@ -639,6 +645,25 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 enforcedBy={saved.enforcement.retention.exportsDays}
                 onValueChange={(next) => {
                   patchRetention({ exportsDays: next });
+                }}
+              />
+            </FieldGroup>
+          </div>
+
+          <div className="flex flex-col gap-4 border p-4">
+            <SectionHeading title="Duplicate detection" note="After each pull the detector clusters parties and items Tally holds twice. A shared GSTIN or PAN is always a certain match; this is the floor for the rest." />
+            <FieldGroup className="grid gap-5 md:grid-cols-2">
+              <PolicyNumberField
+                id="duplicates-confidence"
+                label="Show a cluster from"
+                unit="% sure"
+                help="Below this the pair is not shown anywhere. 75 is the default; lower finds more, higher finds surer."
+                min={50}
+                max={100}
+                value={Math.round(draft.duplicates.confidenceMin * 100)}
+                enforcedBy={saved.enforcement.duplicates.confidenceMin}
+                onValueChange={(next) => {
+                  patchDuplicates({ confidenceMin: Math.min(1, Math.max(0.5, next / 100)) });
                 }}
               />
             </FieldGroup>
