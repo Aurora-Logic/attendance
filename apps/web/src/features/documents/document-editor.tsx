@@ -35,25 +35,31 @@ const A4_WIDTH_PX = 794;
 
 /**
  * Zoom steps the fit chooses from — classes, not a computed transform, so
- * nothing is styled inline. Steps are close together at the small end,
- * where a phone lives: between 0.4 and 0.5 one coarse step left a fifth of
- * the screen empty beside the paper.
+ * nothing is styled inline. A transform rather than CSS `zoom`: engines
+ * disagree on whether a zoomed box's layout size is the scaled one, and on
+ * the owner's phone the sheet sat against the left edge under both a
+ * centred zoomed box and a zoomed centring container. A transform never
+ * changes layout, so the sheet is centred with left-1/2 and a -50%
+ * translate in every engine; what the transform leaves behind is layout
+ * height, which each step gives back as a negative bottom margin sized to
+ * the A4 sheet (a longer sheet leaves some room below, never overlaps).
+ * Steps are close together at the small end, where a phone lives.
  */
 const ZOOMS = [
-  { value: 0.4, className: '[zoom:0.4]' },
-  { value: 0.42, className: '[zoom:0.42]' },
-  { value: 0.45, className: '[zoom:0.45]' },
-  { value: 0.48, className: '[zoom:0.48]' },
-  { value: 0.5, className: '[zoom:0.5]' },
-  { value: 0.55, className: '[zoom:0.55]' },
-  { value: 0.6, className: '[zoom:0.6]' },
-  { value: 0.65, className: '[zoom:0.65]' },
-  { value: 0.7, className: '[zoom:0.7]' },
-  { value: 0.75, className: '[zoom:0.75]' },
-  { value: 0.8, className: '[zoom:0.8]' },
-  { value: 0.85, className: '[zoom:0.85]' },
-  { value: 0.9, className: '[zoom:0.9]' },
-  { value: 1, className: '[zoom:1]' },
+  { value: 0.4, className: 'scale-[0.4] mb-[calc(297mm*-0.6)]' },
+  { value: 0.42, className: 'scale-[0.42] mb-[calc(297mm*-0.58)]' },
+  { value: 0.45, className: 'scale-[0.45] mb-[calc(297mm*-0.55)]' },
+  { value: 0.48, className: 'scale-[0.48] mb-[calc(297mm*-0.52)]' },
+  { value: 0.5, className: 'scale-[0.5] mb-[calc(297mm*-0.5)]' },
+  { value: 0.55, className: 'scale-[0.55] mb-[calc(297mm*-0.45)]' },
+  { value: 0.6, className: 'scale-[0.6] mb-[calc(297mm*-0.4)]' },
+  { value: 0.65, className: 'scale-[0.65] mb-[calc(297mm*-0.35)]' },
+  { value: 0.7, className: 'scale-[0.7] mb-[calc(297mm*-0.3)]' },
+  { value: 0.75, className: 'scale-[0.75] mb-[calc(297mm*-0.25)]' },
+  { value: 0.8, className: 'scale-[0.8] mb-[calc(297mm*-0.2)]' },
+  { value: 0.85, className: 'scale-[0.85] mb-[calc(297mm*-0.15)]' },
+  { value: 0.9, className: 'scale-[0.9] mb-[calc(297mm*-0.1)]' },
+  { value: 1, className: 'scale-100' },
 ] as const;
 
 export interface DocumentEditorProps {
@@ -234,12 +240,10 @@ export function DocumentEditor(props: DocumentEditorProps) {
           {formOnPhone ? (
             <DocumentForm model={model} design={design} editing={editing} />
           ) : (
-            // The zoom is on the flex container, not the sheet. Engines disagree
-            // on whether a zoomed box's layout size is the scaled one, and with
-            // the zoom on the sheet the paper sat against the left edge on a
-            // phone; inside a zoomed container the centring is plain flexbox.
-            <div className={cn('flex justify-center', zoom.className)}>
-              <div ref={paperRef} className="w-fit">
+            // overflow-x-clip: the sheet keeps its 210mm layout width under the
+            // transform, which would otherwise give the stage a sideways scroll.
+            <div className="overflow-x-clip">
+              <div ref={paperRef} className={cn('relative left-1/2 w-[210mm] origin-top -translate-x-1/2', zoom.className)}>
                 <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
               </div>
             </div>

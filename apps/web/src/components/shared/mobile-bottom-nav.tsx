@@ -9,7 +9,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Button } from '@/components/ui/button';
-import { Item, ItemContent, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
+import { Item, ItemContent, ItemGroup, ItemTitle } from '@/components/ui/item';
 import {
   Sheet,
   SheetContent,
@@ -171,7 +171,7 @@ export function MobileBottomNav() {
                   {visibleModules.map((m) => (
                     <Button
                       key={m.id}
-                      variant={m.id === module.id ? 'default' : 'outline'}
+                      variant={m.id === module.id ? 'default' : 'ghost'}
                       size="sm"
                       className="shrink-0"
                       aria-current={m.id === module.id ? 'true' : undefined}
@@ -191,7 +191,9 @@ export function MobileBottomNav() {
                 destination pushed the last few below the fold on a phone and
                 wasted the full width on a 20px icon; two columns fit twelve
                 destinations in a glance. Three from sm, where the tile can be
-                wide enough for "Roles and permissions" without wrapping. */}
+                wide enough for "Roles and permissions" without wrapping. The
+                tile is a 44px row with the icon on the left: stacking the icon
+                over the label made an 80px slab of each. */}
             <ItemGroup role="presentation" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {overflow.map((item) => (
                 <Item
@@ -201,15 +203,13 @@ export function MobileBottomNav() {
                   onClick={() => {
                     setMoreOpen(false);
                   }}
-                  className="min-h-16 flex-col items-center justify-center gap-1 px-2 py-2"
+                  className="min-h-11 gap-2 px-2 py-1.5"
                 >
-                  <ItemMedia>
-                    <item.icon aria-hidden className="size-5" />
-                  </ItemMedia>
-                  <ItemContent className="flex-none">
+                  <item.icon aria-hidden className="size-4 shrink-0" />
+                  <ItemContent className="min-w-0">
                     {/* line-clamp-2 rather than the default 1: "Roles and
                         permissions" needs two lines in a 360px column. */}
-                    <ItemTitle className="line-clamp-2 w-full justify-center text-center leading-tight">
+                    <ItemTitle className="line-clamp-2 leading-tight">
                       {item.label}
                     </ItemTitle>
                   </ItemContent>
@@ -228,13 +228,11 @@ export function MobileBottomNav() {
                       onClick={() => {
                         setMoreOpen(false);
                       }}
-                      className="min-h-16 flex-col items-center justify-center gap-1 px-2 py-2"
+                      className="min-h-11 gap-2 px-2 py-1.5"
                     >
-                      <ItemMedia>
-                        <item.icon aria-hidden className="size-5" />
-                      </ItemMedia>
-                      <ItemContent className="flex-none">
-                        <ItemTitle className="line-clamp-2 w-full justify-center text-center leading-tight">{item.label}</ItemTitle>
+                      <item.icon aria-hidden className="size-4 shrink-0" />
+                      <ItemContent className="min-w-0">
+                        <ItemTitle className="line-clamp-2 leading-tight">{item.label}</ItemTitle>
                       </ItemContent>
                     </Item>
                   ))}
@@ -348,10 +346,10 @@ function CustomiseSheet({
                   onClick={() => {
                     toggle(item.to, !checked);
                   }}
-                  className="h-auto min-h-16 flex-col gap-1 px-2 py-2 text-center whitespace-normal"
+                  className="h-auto min-h-11 justify-start gap-2 px-2 py-1.5 text-left whitespace-normal"
                 >
-                  <item.icon aria-hidden className="size-5 shrink-0" />
-                  <span className="w-full text-[0.75rem] leading-tight">{item.label}</span>
+                  <item.icon aria-hidden className="size-4 shrink-0" />
+                  <span className="min-w-0 flex-1 text-[0.75rem] leading-tight">{item.label}</span>
                 </Button>
               );
             })}

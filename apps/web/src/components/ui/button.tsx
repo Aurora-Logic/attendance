@@ -63,6 +63,11 @@ function Button({
   return (
     <ButtonPrimitive
       data-slot="button"
+      // The coarse-pointer floor in index.css excludes controls that grow
+      // their own 44px target by this attribute, not by data-slot: a Button
+      // rendered through a PopoverTrigger or SheetTrigger `render` prop gets
+      // the trigger's data-slot instead and fell into the floor as a 44px box.
+      data-own-target=""
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />

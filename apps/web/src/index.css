@@ -72,11 +72,14 @@
  */
 @media (pointer: coarse) {
   :where(
-    /* The four that carry their own expansion (above) stay out. Everything
-       else that is a <button> -- a calendar day, a sidebar row, a menu item
-       rendered as one -- keeps the floor. */
-    button:not([data-slot='button'], [data-slot='toggle'], [data-slot='toggle-group-item'], [data-slot='select-trigger'], [role='tab']),
-    [role='button']:not([data-slot='button']),
+    /* The four that carry their own expansion (above) stay out, by the
+       data-own-target attribute they set rather than by data-slot: a Button
+       rendered through a trigger's `render` prop carries the trigger's
+       data-slot, and keyed on that the saved-views and columns buttons fell
+       into the floor as 44px boxes. Everything else that is a <button> -- a
+       calendar day, a sidebar row, a menu item rendered as one -- keeps it. */
+    button:not([data-own-target]),
+    [role='button']:not([data-own-target]),
     [role='menuitem'],
     [role='menuitemradio'],
     [role='option'],

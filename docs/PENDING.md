@@ -84,6 +84,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-20 | Documents on a phone | Estimate, sales order, purchase order and invoice draw as a stacked form below the tablet breakpoint; the paper is one tap away under Preview; the toolbar is one row | Done |
 | B-21 | Bulk on a phone | Pressables drawn at desktop size again with invisible 44px targets (B-19 overshot); 190 per-screen coarse-pointer heights stripped from fields, selects and toggles; the scan test covers every control; form and preview fixes from the owner's screenshots | Done |
 | B-22 | Second look at the phone | Paper centred in Preview (zoom on the container), the form draws its own date controls, More and Customise tiles a size smaller, every tall class on every screen read and judged | Done |
+| B-23 | Sleek, specifically | Trigger-rendered Buttons were falling into the floor (render props replace data-slot); the floor now keys on `data-own-target`; Preview centred by transform, not zoom; column rows, navigation tiles and module chips slimmed | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -199,3 +200,15 @@ Inputs and textareas stay at the 44px floor: a field you type into is drawn at i
 | More and Customise sheet tiles at `min-h-20 py-3 gap-1.5` (80px) | `min-h-16 py-2 gap-1` in all three grids | A tile is the size of its icon and two lines, not a slab |
 
 Read and left alone, each for a reason: the 56px bottom bar and its two-line mobile list rows (`min-h-14`, `md:min-h-9`); the 56px punch hero; the 64px photo tiles; `text-base` KPI figures and `text-xl` headline numbers; `py-6` empty-state paragraphs; the calculator's display. Browser gate not run (owner instruction); six form tests prove the date path and the slot fallback.
+
+### B-23 (owner's third screenshots: "got to sleek this specific"; "still this is not in center"), 22 Aug 2026
+
+| Before | After | Why |
+| --- | --- | --- |
+| Saved-views and Columns buttons (and every Button used as a Popover, Sheet or Dropdown trigger) drawn as 44px boxes | Button, Toggle, Select trigger and tab trigger set `data-own-target`; the floor excludes by that attribute | A trigger's `render` prop replaces the Button's `data-slot` with its own (a jsdom test pins this), so a floor keyed on `data-slot=button` caught every trigger-rendered Button |
+| Preview paper still against the left edge with the zoom on the centring container | `transform: scale()` with `left-1/2` and a -50% translate, per-step negative bottom margin sized to an A4 sheet, `overflow-x-clip` on the wrapper | A transform never changes layout, so centring is the same arithmetic in every engine; `zoom` is not |
+| Column chooser rows: 44px rows plus 12px gaps on a phone | Rows are the spacing (`gap-0` below md, `gap-3` from md where rows are 32px) | One density on both devices: 44px per row |
+| More and Customise tiles: icon stacked over label, 64px | A 44px row per tile, icon left, label clamped to two lines, still two to a line | A tile is the size of its row |
+| Module chips all outlined | Only the current module is solid; the rest are ghost | The row reads as one control with one selection |
+
+Browser gate not run (owner instruction); verified through the emitted floor selector, the scale and margin steps in the CSS, and the render-prop test.

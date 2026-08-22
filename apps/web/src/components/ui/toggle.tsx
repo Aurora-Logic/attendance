@@ -41,6 +41,7 @@ function Toggle({
   return (
     <TogglePrimitive
       data-slot="toggle"
+      data-own-target=""
       className={cn(toggleVariants({ variant, size, className }))}
       {...props}
     />
