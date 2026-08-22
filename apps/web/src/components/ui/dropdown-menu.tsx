@@ -47,8 +47,19 @@ function DropdownMenuContent({
   )
 }
 
+// Base UI's GroupLabel throws when rendered outside a Group, and that throw
+// is not caught by the menu: it reaches the screen's ErrorBoundary and takes
+// the whole screen down. A label written loose in a menu has done exactly
+// that twice in this product (Views: "Loading views", then "Remove"), so a
+// loose label now wraps itself in the group it needs rather than crashing.
+const InGroupContext = React.createContext(false)
+
 function DropdownMenuGroup({ ...props }: MenuPrimitive.Group.Props) {
-  return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
+  return (
+    <InGroupContext.Provider value={true}>
+      <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
+    </InGroupContext.Provider>
+  )
 }
 
 function DropdownMenuLabel({
@@ -58,7 +69,8 @@ function DropdownMenuLabel({
 }: MenuPrimitive.GroupLabel.Props & {
   inset?: boolean
 }) {
-  return (
+  const inGroup = React.useContext(InGroupContext)
+  const label = (
     <MenuPrimitive.GroupLabel
       data-slot="dropdown-menu-label"
       data-inset={inset}
@@ -69,6 +81,7 @@ function DropdownMenuLabel({
       {...props}
     />
   )
+  return inGroup ? label : <DropdownMenuGroup>{label}</DropdownMenuGroup>
 }
 
 function DropdownMenuItem({

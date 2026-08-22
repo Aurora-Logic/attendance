@@ -178,9 +178,11 @@ export function SavedViews({
           {!isLoading && views.length === 0 ? (
             <>
               <DropdownMenuSeparator />
+              <DropdownMenuGroup>
               <DropdownMenuLabel className="text-muted-foreground font-normal">
                 No saved views yet.
               </DropdownMenuLabel>
+              </DropdownMenuGroup>
             </>
           ) : null}
         </DropdownMenuContent>

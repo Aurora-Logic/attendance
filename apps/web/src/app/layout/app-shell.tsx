@@ -690,7 +690,11 @@ export function AppShell() {
             tabIndex={-1}
             // pb-24 clears the fixed bottom bar on a phone. Without it the last
             // row of any list sits under the bar and cannot be reached.
-            className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 outline-none md:p-6 md:pb-6"
+            // Keyed by pathname so each screen arrives with the 120ms enter
+            // (index.css .screen-enter); the ErrorBoundary inside was already
+            // keyed the same way, so nothing new remounts that did not before.
+            key={location.pathname}
+            className="screen-enter flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 outline-none md:p-6 md:pb-6"
           >
             {/* Inside the shell rather than around it, so a screen that throws
                 takes only itself down and the navigation is still there to
