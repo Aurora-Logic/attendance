@@ -48,7 +48,7 @@ import { CHART_EASING, useChartMotion } from './use-chart-motion';
  * whole plot, and a chart whose bar width depends on how much data is missing
  * misreports the data it does have.
  */
-const MAX_BAR_PX = 28;
+const MAX_BAR_PX = 16;
 
 /**
  * Minutes, as an axis tick a person reads.
@@ -295,7 +295,7 @@ export function StatusSplitChart({ slices, delayMs = 0 }: { slices: StatusSlice[
         <ChartTooltip cursor={false} content={<ChartTooltipContent nameKey="status" hideLabel />} />
         <Bar
           dataKey="count"
-          barSize={14}
+          barSize={12}
           isAnimationActive={animate}
           animationBegin={beginMs}
           animationDuration={durationMs}

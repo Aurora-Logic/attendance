@@ -47,17 +47,29 @@ describe('chart colour tokens', () => {
     expect(Number(clamp?.[1])).toBeGreaterThanOrEqual(0.1);
   });
 
-  it('steps light and dark in opposite directions rather than copying one into the other', () => {
+  it('is five colours, not one hue five times', () => {
+    // A dashboard where every series is the same blue makes two lines
+    // impossible to separate without reading the legend twice. Slot 1 is the
+    // accent itself; the rest must turn away from it.
+    const offsets = chartTokens().map((t) => {
+      const turned = /calc\(var\(--accent-h\)\s*\+\s*(\d+)\)/u.exec(t.line);
+      return turned === null ? 0 : Number(turned[1]);
+    });
+    expect(new Set(offsets).size).toBeGreaterThanOrEqual(5);
+    expect(offsets.filter((o) => o === 0)).toHaveLength(2); // slot 1, light and dark
+  });
+
+  it('chooses dark rather than inverting light', () => {
     const lightness = (slot: number): number[] =>
       chartTokens()
         .filter((t) => t.slot === slot)
         .map((t) => Number(/oklch\(([\d.]+)/u.exec(t.line)?.[1] ?? Number.NaN));
 
-    const [lightFirst, darkFirst] = lightness(1);
-    const [lightLast, darkLast] = lightness(5);
-    // Light goes dark as the slot climbs; dark goes light. Identical ramps were
-    // the bug.
-    expect(lightLast).toBeLessThan(lightFirst ?? 0);
-    expect(darkLast).toBeGreaterThan(darkFirst ?? 1);
+    // Identical values in both blocks was the bug: the ramp shipped as a copy.
+    const same = [1, 2, 3, 4, 5].filter((slot) => {
+      const [light, dark] = lightness(slot);
+      return light === dark;
+    });
+    expect(same).toEqual([]);
   });
 });

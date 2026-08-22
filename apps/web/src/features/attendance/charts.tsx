@@ -231,7 +231,7 @@ export function StatusBandsChart({ points, animate }: ChartProps<BandPoint>) {
           dataKey="work"
           stackId="day"
           fill="var(--color-work)"
-          maxBarSize={28}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -240,7 +240,7 @@ export function StatusBandsChart({ points, animate }: ChartProps<BandPoint>) {
           dataKey="leave"
           stackId="day"
           fill="var(--color-leave)"
-          maxBarSize={28}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -249,7 +249,7 @@ export function StatusBandsChart({ points, animate }: ChartProps<BandPoint>) {
           dataKey="absent"
           stackId="day"
           fill="var(--color-absent)"
-          maxBarSize={28}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -258,7 +258,7 @@ export function StatusBandsChart({ points, animate }: ChartProps<BandPoint>) {
           dataKey="other"
           stackId="day"
           fill="var(--color-other)"
-          maxBarSize={28}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"
@@ -309,7 +309,7 @@ export function WorkedHoursChart({ points, animate }: ChartProps<HoursPoint>) {
         <Bar
           dataKey="workedMinutes"
           fill="var(--color-workedMinutes)"
-          maxBarSize={24}
+          maxBarSize={16}
           isAnimationActive={animate}
           animationDuration={CHART_INTRO_MS}
           animationEasing="ease-out"

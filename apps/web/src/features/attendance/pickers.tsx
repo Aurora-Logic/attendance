@@ -331,13 +331,23 @@ export function DateRangeField({
         </Button>
       }
     >
+      {/*
+        Presets beside the calendar, not above it.
+
+        A row of nine chips across the top pushed the calendar down and left a
+        column of empty surface to its right -- two rows where the space wanted
+        one. On a phone they stay a wrapping row above, because a sheet has the
+        width for chips and not for two columns.
+      */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
       {presets !== undefined && presets.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5 border-b px-1 pb-3">
+        <div className="flex flex-wrap gap-1.5 border-b px-1 pb-3 sm:w-40 sm:shrink-0 sm:flex-col sm:flex-nowrap sm:gap-1 sm:border-r sm:border-b-0 sm:pr-3 sm:pb-0">
           {presets.map((preset) => (
             <Button
               key={preset.label}
-              variant="outline"
+              variant="ghost"
               size="sm"
+              className="sm:w-full sm:justify-start"
               onClick={() => {
                 onValueChange(preset.range());
                 setOpen(false);
@@ -363,6 +373,7 @@ export function DateRangeField({
         }}
         className={TOUCH_CALENDAR}
       />
+      </div>
     </PickerSurface>
   );
 }

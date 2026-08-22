@@ -86,7 +86,7 @@ export function RankingChart({ title, note, points, valueLabel, format, ready }:
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={120} tick={{ fontSize: 11 }} tickFormatter={(value: string) => (value.length > 18 ? `${value.slice(0, 17)}…` : value)} />
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel formatter={(value) => format(Number(value))} />} />
-          <Bar dataKey="value" fill="var(--color-value)" radius={4} maxBarSize={18} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
+          <Bar dataKey="value" fill="var(--color-value)" maxBarSize={12} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
             <LabelList dataKey="value" position="right" className="fill-muted-foreground tabular-nums" fontSize={11} formatter={(label: ReactNode) => format(Number(label))} />
           </Bar>
         </BarChart>
@@ -106,7 +106,7 @@ export function RateRadial({ title, note, pct, previousPct, label, ready }: { ti
       <ChartContainer config={config} className="mx-auto aspect-square max-h-48 w-full">
         <RadialBarChart data={data} startAngle={90} endAngle={90 - 360 * (clamped / 100)} innerRadius={56} outerRadius={72}>
           <PolarGrid gridType="circle" radialLines={false} stroke="none" className="first:fill-muted last:fill-background" polarRadius={[62, 50]} />
-          <RadialBar dataKey="rate" background cornerRadius={6} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+          <RadialBar dataKey="rate" background isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
           <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
             <Label
               content={({ viewBox }) => {

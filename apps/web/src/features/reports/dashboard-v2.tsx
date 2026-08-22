@@ -4,6 +4,8 @@ import { PERMISSIONS, type ReportKey } from '@vyuha/shared';
 import type { DateRange } from 'react-day-picker';
 import { useNavigate } from 'react-router';
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -12,8 +14,17 @@ import {
   LineChart,
   Pie,
   PieChart,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  RadialBar,
+  RadialBarChart,
+  Scatter,
+  ScatterChart,
   XAxis,
   YAxis,
+  ZAxis,
 } from 'recharts';
 
 import { PageHeader } from '@/components/shared/page-header';
@@ -37,7 +48,7 @@ import {
 } from '@/components/ui/chart';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DateRangeField } from '@/features/attendance/pickers';
-import { formatMoney, formatMoneyShort } from '@/lib/format';
+import { formatCount, formatMoney, formatMoneyShort } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 
 import { useReportRows } from './api';
@@ -46,40 +57,46 @@ import { asApiDate, DASHBOARD_PRESETS, defaultRange } from './dashboard-v2.prese
 import * as series from './dashboard-v2.series';
 
 /**
- * Every chart the receivables data can currently answer a question with, on one
- * page, so the ones worth keeping can be picked by looking at them against real
- * figures rather than argued about in the abstract.
+ * Every chart shape shadcn ships, over the receivables data, on one page.
  *
- * Built the way shadcn ships charts -- a Card per question, the chart in the
- * middle, the sentence the data supports underneath -- and deliberately without
- * the project's own chart layer, so the plain form can be compared with the
- * existing dashboard at `/reports/dashboard`.
+ * The point is to choose: each card is a real question answered with real
+ * figures in a different form, so the ones worth keeping can be picked by
+ * looking at them rather than argued about in the abstract.
+ *
+ * House rules this page follows, and the reasons:
+ *
+ * - **Plain shadcn.** ChartContainer, Recharts, `var(--chart-N)`. No project
+ *   chart layer, no shared label helpers, no motion hook.
+ * - **Square.** `--radius` is 0 and base-lyra uses `rounded-none` throughout;
+ *   a rounded bar was the one soft edge in the whole product.
+ * - **Slim.** Bars are capped well below Recharts' default, which fills the
+ *   band and reads as a block of colour rather than a measurement.
+ * - **Read without hovering.** Every mark carries its value, and every set of
+ *   two or more series carries a legend, so identity is never colour alone.
  *
  * The series and every threshold their sentences turn on live in
- * `dashboard-v2.series.ts` and are tested there. Nothing on this page computes
- * a figure; a chart that cannot be rendered in jsdom must not also be the only
- * place its arithmetic exists.
+ * `dashboard-v2.series.ts` and are tested there. Nothing here computes a
+ * figure: a chart cannot be rendered in jsdom, and its arithmetic must not be
+ * the part that cannot be checked.
  */
 
-const MONEY = (value: unknown): string =>
-  typeof value === 'number' ? formatMoneyShort(value) : '';
-const COUNT = (value: unknown): string => (typeof value === 'number' ? String(value) : '');
+const MONEY = (value: unknown): string => (typeof value === 'number' ? formatMoneyShort(value) : '');
+const COUNT = (value: unknown): string => (typeof value === 'number' ? formatCount(value) : '');
 const PERCENT = (value: unknown): string => (typeof value === 'number' ? `${String(value)}%` : '');
+/** Recharts hands a tooltip label in as ReactNode, so the month key has to be
+ *  narrowed before `monthLabel` will take it. */
+const MONTH_TIP = (label: unknown): string => (typeof label === 'string' ? monthLabel(label) : '');
 
-/** Bars keep their corner: it is the one soft edge in a square theme, and it is what makes a bar read as a bar rather than a column of fill. */
-const BAR_RADIUS = 6;
+/** Square, because the theme is. */
+const SHARP = 0;
+/** A bar is a measurement, not a block of colour. */
+const BAR = 16;
+const BAR_THIN = 12;
 
 function ChartSkeleton() {
   return <Skeleton className="aspect-video w-full" />;
 }
 
-/**
- * One question, one picture, one sentence.
- *
- * A Card and nothing nested inside it (CLAUDE.md section 3 rule 3): the chart
- * sits directly on the card surface, and the insight is the footer rather than
- * a second bordered thing.
- */
 function ChartCard({
   title,
   description,
@@ -89,6 +106,7 @@ function ChartCard({
   insight,
   footnote,
   wide,
+  centred,
   children,
 }: {
   title: string;
@@ -99,6 +117,7 @@ function ChartCard({
   insight: string | null;
   footnote?: ReactNode;
   wide?: boolean;
+  centred?: boolean;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
@@ -120,7 +139,7 @@ function ChartCard({
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent>
+      <CardContent className={centred === true ? 'flex justify-center' : undefined}>
         {state.isPending ? <ChartSkeleton /> : null}
         {state.isError ? (
           <p className="text-muted-foreground py-8 text-sm">
@@ -143,15 +162,52 @@ function ChartCard({
 }
 
 const VALUE_CONFIG = { value: { label: 'Value', color: 'var(--chart-1)' } } satisfies ChartConfig;
-const COUNT_CONFIG = { value: { label: 'Lines', color: 'var(--chart-2)' } } satisfies ChartConfig;
+const LINES_CONFIG = { value: { label: 'Lines', color: 'var(--chart-3)' } } satisfies ChartConfig;
+const QTY_CONFIG = { value: { label: 'Quantity', color: 'var(--chart-4)' } } satisfies ChartConfig;
 const SPLIT_CONFIG = {
-  newRevenue: { label: 'First time', color: 'var(--chart-1)' },
-  repeatRevenue: { label: 'Returning', color: 'var(--chart-3)' },
+  repeatRevenue: { label: 'Returning', color: 'var(--chart-1)' },
+  newRevenue: { label: 'First time', color: 'var(--chart-2)' },
+} satisfies ChartConfig;
+const SHARE_CONFIG = {
+  cumulative: { label: 'Running share', color: 'var(--chart-2)' },
+} satisfies ChartConfig;
+const SLIPPAGE_CONFIG = {
+  value: { label: 'Days past terms', color: 'var(--chart-3)' },
+} satisfies ChartConfig;
+const HEADROOM_CONFIG = {
+  value: { label: 'Limit used', color: 'var(--chart-5)' },
+} satisfies ChartConfig;
+const SEASON_CONFIG = {
+  value: { label: 'Invoiced', color: 'var(--chart-2)' },
+} satisfies ChartConfig;
+const MIX_CONFIG = {
+  value: { label: 'Invoiced', color: 'var(--chart-1)' },
+} satisfies ChartConfig;
+const BASKET_CONFIG = {
+  revenue: { label: 'Revenue', color: 'var(--chart-1)' },
+  aov: { label: 'Average invoice', color: 'var(--chart-2)' },
+} satisfies ChartConfig;
+
+/** Ageing and lapse both need a slot per slice; keys are slugs so
+ *  `--color-<key>` is a legal custom property. */
+const AGE_SLUGS = ['age0', 'age31', 'age61', 'age90'] as const;
+const AGEING_CONFIG = {
+  value: { label: 'Outstanding' },
+  age0: { label: '0-30 days', color: 'var(--chart-1)' },
+  age31: { label: '31-60 days', color: 'var(--chart-2)' },
+  age61: { label: '61-90 days', color: 'var(--chart-3)' },
+  age90: { label: 'Over 90 days', color: 'var(--chart-4)' },
+} satisfies ChartConfig;
+const RISK_CONFIG = {
+  value: { label: 'Revenue' },
+  lapsed: { label: 'Lapsed', color: 'var(--chart-3)' },
+  atRisk: { label: 'At risk', color: 'var(--chart-5)' },
 } satisfies ChartConfig;
 
 export function ReportsDashboardV2() {
   const canView = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
   const [range, setRange] = useState<DateRange>(defaultRange);
+  const [basketMeasure, setBasketMeasure] = useState<'revenue' | 'aov'>('revenue');
 
   const from = range.from === undefined ? undefined : asApiDate(range.from);
   const to = range.to === undefined ? undefined : asApiDate(range.to);
@@ -177,11 +233,15 @@ export function ReportsDashboardV2() {
   }
 
   const thisMonth = asApiDate(new Date()).slice(0, 7);
-  const invoiced = series.monthlyInvoiced(byMonth.data?.data ?? [], thisMonth);
-  const customers = series.topCustomers(byParty.data?.data ?? []);
+  const monthRows = byMonth.data?.data ?? [];
+  const invoiced = series.monthlyInvoiced(monthRows, thisMonth);
+  const season = series.seasonality(monthRows);
+  const partyRows = byParty.data?.data ?? [];
+  const customers = series.topCustomers(partyRows);
+  const scatter = series.invoiceMix(partyRows);
   const owed = series.ageingByBucket(ageing.data?.data ?? []);
   const firstTime = series.newVsRepeat(mix.data?.data ?? []);
-  const basket = series.averageOrderValue(aov.data?.data ?? []);
+  const basket = series.revenueAndBasket(aov.data?.data ?? []);
   const fewness = series.concentration(spread.data?.data ?? []);
   const slippage = series.paymentSlippage(paying.data?.data ?? []);
   const served = series.fillRate(filling.data?.data ?? []);
@@ -199,19 +259,28 @@ export function ReportsDashboardV2() {
     hasPoints: points.length > 0,
   });
 
-  const ageingConfig = Object.fromEntries([
-    ['value', { label: 'Outstanding' }],
-    ...owed.points.map((slice, index) => [
-      slice.bucket,
-      { label: `${slice.bucket} days`, color: `var(--chart-${String(index + 1)})` },
-    ]),
-  ]) as ChartConfig;
+  // Slice data carries its own fill, which is how the shadcn pie examples do
+  // it and the only way a Pie can colour per slice rather than per series.
+  const agePie = owed.points.map((slice, index) => ({
+    bucket: AGE_SLUGS[index] ?? 'age0',
+    value: slice.value,
+    fill: `var(--color-${AGE_SLUGS[index] ?? 'age0'})`,
+  }));
+  const riskPie = risk.points.map((slice) => {
+    const key = slice.label === 'Lapsed' ? 'lapsed' : 'atRisk';
+    return { state: key, value: slice.value, fill: `var(--color-${key})` };
+  });
+  const riskTotal = risk.points.reduce((sum, p) => sum + p.value, 0);
+  // A radial bar wants its own colour per ring, same as a pie.
+  const fillRings = served.points.map((point, index) => ({
+    ...point,
+    fill: `var(--chart-${String((index % 5) + 1)})`,
+  }));
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader description="Every chart the receivables data can answer a question with, drawn the way shadcn ships charts. Pick the ones worth keeping." />
+      <PageHeader description="Every chart shape shadcn ships, over the receivables data. One card per question, the figure on the mark, the sentence underneath." />
 
-      {/* The toolbar, above the content surface and not inside a card. */}
       <div className="flex flex-wrap items-center gap-2">
         <DateRangeField
           value={range}
@@ -222,10 +291,80 @@ export function ReportsDashboardV2() {
         />
       </div>
 
+      {/* Interactive line, full width: two measures over the same months, one
+          at a time, with the period's totals as the switch. */}
+      <Card className="py-4 sm:py-0">
+        <CardHeader className="flex flex-col items-stretch border-b p-0! sm:flex-row">
+          <div className="flex flex-1 flex-col justify-center gap-1 px-6 pb-3 sm:pb-0">
+            <CardTitle>Revenue against the average invoice</CardTitle>
+            <CardDescription>
+              They move apart when the customer count changes, which is the thing worth catching.
+            </CardDescription>
+          </div>
+          <div className="flex">
+            {/* shadcn's own example uses a raw <button> for these; CLAUDE.md
+                section 3 does not allow one in feature code, and the Button
+                primitive takes the same classes. */}
+            {(['revenue', 'aov'] as const).map((key) => (
+              <Button
+                key={key}
+                variant="ghost"
+                data-active={basketMeasure === key}
+                aria-pressed={basketMeasure === key}
+                className="data-[active=true]:bg-muted/50 h-auto flex-1 flex-col items-start justify-center gap-1 rounded-none border-t px-6 py-4 text-left even:border-l sm:border-t-0 sm:border-l sm:px-8 sm:py-6"
+                onClick={() => {
+                  setBasketMeasure(key);
+                }}
+              >
+                <span className="text-muted-foreground text-xs">{BASKET_CONFIG[key].label}</span>
+                <span className="text-lg leading-none font-bold sm:text-3xl">
+                  {formatMoneyShort(basket.totals[key])}
+                </span>
+              </Button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent className="px-2 sm:p-6">
+          {aov.isPending ? <ChartSkeleton /> : null}
+          {aov.isSuccess && basket.points.length > 0 ? (
+            <ChartContainer config={BASKET_CONFIG} className="aspect-auto h-[250px] w-full">
+              <LineChart accessibilityLayer data={[...basket.points]} margin={{ left: 12, right: 12 }}>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  minTickGap={24}
+                  tickFormatter={monthLabel}
+                />
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent className="w-[190px]" labelFormatter={MONTH_TIP} formatter={MONEY} />
+                  }
+                />
+                <Line
+                  dataKey={basketMeasure}
+                  type="monotone"
+                  stroke={`var(--color-${basketMeasure})`}
+                  strokeWidth={2}
+                  dot={false}
+                />
+              </LineChart>
+            </ChartContainer>
+          ) : null}
+        </CardContent>
+        <CardFooter className="text-sm">
+          {basket.insight === null ? null : (
+            <p className="leading-none font-medium">{basket.insight}</p>
+          )}
+        </CardFooter>
+      </Card>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ChartCard
           title="Invoiced by month"
-          description="Where the value landed, month by month"
+          description="Bar. Where the value landed, month by month"
           report="sales-analysis"
           query="&groupBy=month"
           state={stateOf(byMonth, invoiced.points)}
@@ -237,8 +376,8 @@ export function ReportsDashboardV2() {
               <CartesianGrid vertical={false} />
               <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={monthLabel} />
               <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={BAR_RADIUS}>
-                <LabelList position="top" offset={12} className="fill-foreground" fontSize={12} formatter={MONEY} />
+              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR}>
+                <LabelList position="top" offset={10} className="fill-foreground" fontSize={11} formatter={MONEY} />
               </Bar>
             </BarChart>
           </ChartContainer>
@@ -246,7 +385,7 @@ export function ReportsDashboardV2() {
 
         <ChartCard
           title="Where the revenue comes from"
-          description="Top five customers in the period"
+          description="Horizontal bar with labels. Top five customers"
           report="sales-analysis"
           query="&groupBy=party"
           state={stateOf(byParty, customers.points)}
@@ -263,9 +402,9 @@ export function ReportsDashboardV2() {
               <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} hide />
               <XAxis dataKey="value" type="number" hide />
               <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={BAR_RADIUS}>
-                <LabelList dataKey="label" position="insideLeft" offset={8} className="fill-background" fontSize={12} />
-                <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={12} formatter={MONEY} />
+              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_THIN}>
+                <LabelList dataKey="label" position="insideLeft" offset={8} className="fill-background" fontSize={11} />
+                <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={11} formatter={MONEY} />
               </Bar>
             </BarChart>
           </ChartContainer>
@@ -273,26 +412,48 @@ export function ReportsDashboardV2() {
 
         <ChartCard
           title="What is owed, by age"
-          description="Open bills, from the bill date"
+          description="Pie with labels. Open bills, from the bill date"
           report="ageing"
-          state={stateOf(ageing, owed.points)}
+          state={stateOf(ageing, agePie)}
           insight={owed.insight}
           footnote={`${formatMoney(owed.total)} outstanding in total`}
+          centred
         >
-          <ChartContainer config={ageingConfig} className="mx-auto aspect-square max-h-[280px]">
+          <ChartContainer
+            config={AGEING_CONFIG}
+            className="[&_.recharts-pie-label-text]:fill-foreground mx-auto aspect-square max-h-[260px]"
+          >
             <PieChart>
-              <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-              <Pie data={[...owed.points]} dataKey="value" nameKey="bucket" innerRadius={60}>
-                <LabelList dataKey="value" className="fill-background" stroke="none" fontSize={12} formatter={MONEY} />
-              </Pie>
+              <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+              <Pie data={agePie} dataKey="value" nameKey="bucket" label={({ value }) => MONEY(value)} />
               <ChartLegend content={<ChartLegendContent nameKey="bucket" />} />
             </PieChart>
           </ChartContainer>
         </ChartCard>
 
         <ChartCard
+          title="Revenue that has gone quiet"
+          description="Donut with a centre figure. Last year's value from customers who stopped or slowed"
+          report="customer-lapse"
+          state={stateOf(quiet, riskPie)}
+          insight={risk.insight}
+          footnote={`${formatMoney(riskTotal)} of last year's revenue sits behind these customers`}
+          centred
+        >
+          <ChartContainer config={RISK_CONFIG} className="mx-auto aspect-square max-h-[260px]">
+            <PieChart>
+              <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+              <Pie data={riskPie} dataKey="value" nameKey="state" innerRadius={62} strokeWidth={4}>
+                <LabelList dataKey="value" className="fill-background" stroke="none" fontSize={11} formatter={MONEY} />
+              </Pie>
+              <ChartLegend content={<ChartLegendContent nameKey="state" />} />
+            </PieChart>
+          </ChartContainer>
+        </ChartCard>
+
+        <ChartCard
           title="New money against returning money"
-          description="Revenue split by whether the customer had been billed before"
+          description="Stacked bar. Split by whether the customer had been billed before"
           report="new-vs-repeat"
           state={stateOf(mix, firstTime.points)}
           insight={firstTime.insight}
@@ -303,86 +464,130 @@ export function ReportsDashboardV2() {
               <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={monthLabel} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
-              <Bar dataKey="repeatRevenue" stackId="m" fill="var(--color-repeatRevenue)" radius={[0, 0, BAR_RADIUS, BAR_RADIUS]} />
-              <Bar dataKey="newRevenue" stackId="m" fill="var(--color-newRevenue)" radius={[BAR_RADIUS, BAR_RADIUS, 0, 0]} />
+              <Bar dataKey="repeatRevenue" stackId="m" fill="var(--color-repeatRevenue)" radius={SHARP} maxBarSize={BAR} />
+              <Bar dataKey="newRevenue" stackId="m" fill="var(--color-newRevenue)" radius={SHARP} maxBarSize={BAR} />
             </BarChart>
-          </ChartContainer>
-        </ChartCard>
-
-        <ChartCard
-          title="Average invoice value"
-          description="Is the basket growing, or splitting into smaller bills?"
-          report="aov-trend"
-          state={stateOf(aov, basket.points)}
-          insight={basket.insight}
-        >
-          <ChartContainer config={VALUE_CONFIG}>
-            <LineChart accessibilityLayer data={[...basket.points]} margin={{ top: 20, left: 12, right: 24 }}>
-              <CartesianGrid vertical={false} />
-              <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={monthLabel} />
-              <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-              <Line dataKey="value" type="monotone" stroke="var(--color-value)" strokeWidth={2} dot={false}>
-                <LabelList position="top" offset={12} className="fill-foreground" fontSize={11} formatter={MONEY} />
-              </Line>
-            </LineChart>
           </ChartContainer>
         </ChartCard>
 
         <ChartCard
           title="How few customers carry the book"
-          description="Running share of revenue, largest customer first"
+          description="Area. Running share of revenue, largest customer first"
           report="customer-concentration"
           state={stateOf(spread, fewness.points)}
           insight={fewness.insight}
         >
-          <ChartContainer config={{ cumulative: { label: 'Running share', color: 'var(--chart-2)' } }}>
-            <LineChart accessibilityLayer data={[...fewness.points]} margin={{ top: 20, left: 12, right: 24 }}>
+          <ChartContainer config={SHARE_CONFIG}>
+            <AreaChart accessibilityLayer data={[...fewness.points]} margin={{ top: 20, left: 4, right: 12 }}>
               <CartesianGrid vertical={false} />
-              <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} hide />
-              <YAxis domain={[0, 100]} tickLine={false} axisLine={false} width={36} tickFormatter={PERCENT} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} hide />
+              <YAxis domain={[0, 100]} tickLine={false} axisLine={false} width={40} tickFormatter={PERCENT} />
               <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-              <Line dataKey="cumulative" type="monotone" stroke="var(--color-cumulative)" strokeWidth={2} dot={false} />
-            </LineChart>
+              <Area
+                dataKey="cumulative"
+                type="monotone"
+                stroke="var(--color-cumulative)"
+                fill="var(--color-cumulative)"
+                fillOpacity={0.2}
+                strokeWidth={2}
+              />
+            </AreaChart>
           </ChartContainer>
         </ChartCard>
 
         <ChartCard
-          title="Who pays late"
-          description="Days beyond agreed terms, worst first"
-          report="payment-analysis"
-          state={stateOf(paying, slippage.points)}
-          insight={slippage.insight}
+          title="The trading year, folded"
+          description="Radar. Every January together, every February together"
+          report="sales-analysis"
+          query="&groupBy=month"
+          state={stateOf(byMonth, season.points)}
+          insight={season.insight}
+          centred
         >
-          <ChartContainer config={{ value: { label: 'Days past terms', color: 'var(--chart-1)' } }}>
-            <BarChart accessibilityLayer data={[...slippage.points]} layout="vertical" margin={{ right: 48 }}>
-              <CartesianGrid horizontal={false} />
-              <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} hide />
-              <XAxis dataKey="value" type="number" hide />
-              <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={BAR_RADIUS}>
-                <LabelList dataKey="label" position="insideLeft" offset={8} className="fill-background" fontSize={12} />
-                <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={12} formatter={COUNT} />
-              </Bar>
-            </BarChart>
+          <ChartContainer config={SEASON_CONFIG} className="mx-auto aspect-square max-h-[280px]">
+            <RadarChart data={[...season.points]}>
+              <ChartTooltip cursor={false} content={<ChartTooltipContent formatter={MONEY} />} />
+              <PolarGrid />
+              <PolarAngleAxis dataKey="label" />
+              <Radar
+                dataKey="value"
+                stroke="var(--color-value)"
+                fill="var(--color-value)"
+                fillOpacity={0.5}
+              />
+            </RadarChart>
           </ChartContainer>
         </ChartCard>
 
         <ChartCard
           title="How much of the order book went out"
-          description="Fill rate by customer, worst served first"
+          description="Radial bar. Fill rate by customer, worst served first"
           report="order-fill-rate"
-          state={stateOf(filling, served.points)}
+          state={stateOf(filling, fillRings)}
           insight={served.insight}
+          centred
         >
-          <ChartContainer config={{ value: { label: 'Filled', color: 'var(--chart-3)' } }}>
-            <BarChart accessibilityLayer data={[...served.points]} layout="vertical" margin={{ right: 48 }}>
+          <ChartContainer config={{ value: { label: 'Filled' } }} className="mx-auto aspect-square max-h-[280px]">
+            <RadialBarChart data={fillRings} innerRadius={30} outerRadius={130} startAngle={90} endAngle={-270}>
+              <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="label" />} />
+              <RadialBar dataKey="value" background>
+                <LabelList dataKey="label" position="insideStart" className="fill-background capitalize" fontSize={10} />
+              </RadialBar>
+            </RadialBarChart>
+          </ChartContainer>
+        </ChartCard>
+
+        <ChartCard
+          title="How often against how much"
+          description="Scatter. Every customer placed by invoice count and total value"
+          report="sales-analysis"
+          query="&groupBy=party"
+          state={stateOf(byParty, scatter.points)}
+          insight={scatter.insight}
+        >
+          <ChartContainer config={MIX_CONFIG}>
+            <ScatterChart accessibilityLayer margin={{ top: 20, left: 4, right: 16, bottom: 12 }}>
+              <CartesianGrid />
+              <XAxis
+                type="number"
+                dataKey="invoices"
+                name="Invoices"
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={COUNT}
+              />
+              <YAxis
+                type="number"
+                dataKey="value"
+                name="Value"
+                tickLine={false}
+                axisLine={false}
+                width={52}
+                tickFormatter={MONEY}
+              />
+              <ZAxis type="category" dataKey="label" name="Customer" />
+              <ChartTooltip cursor={{ strokeDasharray: '3 3' }} content={<ChartTooltipContent hideLabel />} />
+              <Scatter data={[...scatter.points]} fill="var(--color-value)" />
+            </ScatterChart>
+          </ChartContainer>
+        </ChartCard>
+
+        <ChartCard
+          title="Who pays late"
+          description="Horizontal bar. Days beyond agreed terms, worst first"
+          report="payment-analysis"
+          state={stateOf(paying, slippage.points)}
+          insight={slippage.insight}
+        >
+          <ChartContainer config={SLIPPAGE_CONFIG}>
+            <BarChart accessibilityLayer data={[...slippage.points]} layout="vertical" margin={{ right: 48 }}>
               <CartesianGrid horizontal={false} />
               <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} hide />
-              <XAxis dataKey="value" type="number" domain={[0, 100]} hide />
+              <XAxis dataKey="value" type="number" hide />
               <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={BAR_RADIUS}>
-                <LabelList dataKey="label" position="insideLeft" offset={8} className="fill-background" fontSize={12} />
-                <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={12} formatter={PERCENT} />
+              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_THIN}>
+                <LabelList dataKey="label" position="insideLeft" offset={8} className="fill-background" fontSize={11} />
+                <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={11} formatter={COUNT} />
               </Bar>
             </BarChart>
           </ChartContainer>
@@ -390,56 +595,44 @@ export function ReportsDashboardV2() {
 
         <ChartCard
           title="What is waiting to go out"
-          description="Open order lines, by how long they have waited"
+          description="Step area. Open order lines, by how long they have waited"
           report="pending-dispatch"
           state={stateOf(waiting, backlog.points)}
           insight={backlog.insight}
         >
-          <ChartContainer config={COUNT_CONFIG}>
-            <BarChart accessibilityLayer data={[...backlog.points]} margin={{ top: 20 }}>
+          <ChartContainer config={LINES_CONFIG}>
+            <AreaChart accessibilityLayer data={[...backlog.points]} margin={{ top: 20, left: 4, right: 12 }}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} />
               <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={BAR_RADIUS}>
-                <LabelList position="top" offset={12} className="fill-foreground" fontSize={12} formatter={COUNT} />
-              </Bar>
-            </BarChart>
+              <Area
+                dataKey="value"
+                type="step"
+                stroke="var(--color-value)"
+                fill="var(--color-value)"
+                fillOpacity={0.2}
+                strokeWidth={2}
+              >
+                <LabelList position="top" offset={10} className="fill-foreground" fontSize={11} formatter={COUNT} />
+              </Area>
+            </AreaChart>
           </ChartContainer>
         </ChartCard>
 
         <ChartCard
           title="How long the shelf has held it"
-          description="Quantity on hand, by age"
+          description="Bar. Quantity on hand, by age"
           report="stock-ageing"
           state={stateOf(shelf, stock.points)}
           insight={stock.insight}
         >
-          <ChartContainer config={{ value: { label: 'Quantity', color: 'var(--chart-4)' } }}>
+          <ChartContainer config={QTY_CONFIG}>
             <BarChart accessibilityLayer data={[...stock.points]} margin={{ top: 20 }}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} />
               <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={BAR_RADIUS}>
-                <LabelList position="top" offset={12} className="fill-foreground" fontSize={12} formatter={COUNT} />
-              </Bar>
-            </BarChart>
-          </ChartContainer>
-        </ChartCard>
-
-        <ChartCard
-          title="Revenue that has gone quiet"
-          description="Last year's value from customers who have stopped or slowed"
-          report="customer-lapse"
-          state={stateOf(quiet, risk.points)}
-          insight={risk.insight}
-        >
-          <ChartContainer config={{ value: { label: 'Revenue', color: 'var(--chart-2)' } }}>
-            <BarChart accessibilityLayer data={[...risk.points]} margin={{ top: 20 }}>
-              <CartesianGrid vertical={false} />
-              <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} />
-              <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={BAR_RADIUS}>
-                <LabelList position="top" offset={12} className="fill-foreground" fontSize={12} formatter={MONEY} />
+              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR}>
+                <LabelList position="top" offset={10} className="fill-foreground" fontSize={11} formatter={COUNT} />
               </Bar>
             </BarChart>
           </ChartContainer>
@@ -447,20 +640,20 @@ export function ReportsDashboardV2() {
 
         <ChartCard
           title="How much of the credit line is used"
-          description="Exposure against limit, heaviest first"
+          description="Horizontal bar. Exposure against limit, heaviest first"
           report="credit-cycle"
           state={stateOf(credit, exposure.points)}
           insight={exposure.insight}
         >
-          <ChartContainer config={{ value: { label: 'Limit used', color: 'var(--chart-1)' } }}>
+          <ChartContainer config={HEADROOM_CONFIG}>
             <BarChart accessibilityLayer data={[...exposure.points]} layout="vertical" margin={{ right: 48 }}>
               <CartesianGrid horizontal={false} />
               <YAxis dataKey="label" type="category" tickLine={false} axisLine={false} hide />
               <XAxis dataKey="value" type="number" hide />
               <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <Bar dataKey="value" fill="var(--color-value)" radius={BAR_RADIUS}>
-                <LabelList dataKey="label" position="insideLeft" offset={8} className="fill-background" fontSize={12} />
-                <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={12} formatter={PERCENT} />
+              <Bar dataKey="value" fill="var(--color-value)" radius={SHARP} maxBarSize={BAR_THIN}>
+                <LabelList dataKey="label" position="insideLeft" offset={8} className="fill-background" fontSize={11} />
+                <LabelList dataKey="value" position="right" offset={8} className="fill-foreground" fontSize={11} formatter={PERCENT} />
               </Bar>
             </BarChart>
           </ChartContainer>
