@@ -50,6 +50,8 @@ import { PartiesPage } from '@/features/masters/parties-page';
 import { TasksPage } from '@/features/tasks/tasks-page';
 import { PriceListsPage } from '@/features/masters/price-lists-page';
 import { StockItemsPage } from '@/features/masters/stock-items-page';
+import { StockItemPage } from '@/features/masters/item-page';
+import { PartyPage } from '@/features/masters/party-page';
 import { VouchersPage } from '@/features/masters/vouchers-page';
 import { PlaceholderPage } from '@/features/placeholder/placeholder-page';
 import { OrgMastersPage } from '@/features/org-masters';
@@ -146,7 +148,9 @@ export default function App() {
               <Route path="roles" element={<RolesPage />} />
               <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="masters/parties" element={<PartiesPage />} />
+              <Route path="masters/parties/:id" element={<PartyPage />} />
               <Route path="masters/items" element={<StockItemsPage />} />
+              <Route path="masters/items/:id" element={<StockItemPage />} />
               <Route path="masters/price-lists" element={<PriceListsPage />} />
               <Route path="masters/vouchers" element={<VouchersPage />} />
               <Route path="masters/vouchers/:id" element={<VouchersPage />} />

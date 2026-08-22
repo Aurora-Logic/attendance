@@ -37,6 +37,10 @@ Purchase going live). Updated as work lands.
 | P-28 | Scan to ship | `/sales/scan` (Sales › Fulfilment, sales.document.create): camera with the native BarcodeDetector, @zxing/browser loaded only on iPhone Safari, typed-number fallback when the camera is refused; the slip resolves to its pack and order with Ship / Deliver locally opening the dispatch form; the dispatch page gains the door step (Mark delivered: receiver, note, photograph). The order shows the owner's four steps — Picked, Packed, Shipped, Delivered — with the one verb that moves it and Print slips beside it; the packed toast offers Print slips; Pick queue and Dispatches carry Scan a slip | Sales | Done | Done |
 | P-29 | Customer mails E1–E4 | All four go by themselves from the organisation's mailbox (HTML + text, barcode as table cells, reply-to the profile's email). E1 shipped / E2 delivered record their outcome on the notice row; E3 is the `customer_collects` mode's dispatch notice (ready, show the barcode) and its door step reads as collected; E4 goes on invoice confirmation without a PDF, its fate audited (`sales.invoice.customer_mail_sent` / `_failed`). Renderer unit-tested for all four | Platform | Decided 22 Aug | Done |
 | P-30 | WhatsApp click-to-send | 'Send on WhatsApp' on a pending WhatsApp notice opens wa.me with the message typed (Indian numbers get their country code) and marks it sent; the dispatched and delivered notices both get one | Sales | Decided | Done |
+| P-31 | Picking step | `picked_qty` per line (ordered → picked → packed → invoiced → dispatched, check chain); `pick_records`; Pick action on the pick queue; Pack limited to picked; four-step bar uses real Picked (D-48) | Sales | Decided | Not started |
+| P-32 | Per-line fulfilment status | fully / partially (X of Y) / none per stage — on the order per line, the orders-list roll-up, the pick-queue and Packed lists (D-48) | Sales | Decided | Not started |
+| P-33 | Per-order fulfilment report | Every order, its lines, where each sits; exportable (D-48) | Reports | Decided | Not started |
+| P-34 | Item / Customer / Vendor lifecycle | Item: orders, packs, dispatches, POs, GRNs; Customer: orders → packs → invoices → dispatches → payments; Vendor: POs → GRNs → items; reachable by clicking the entity anywhere (D-48) | Platform | Decided | Not started |
 
 Notes:
 - "2,033 existing tests" in the brief: the suite is now 461 web + 1830 api + 41 shared ≈ 2,332; all green as of the last push.
@@ -102,6 +106,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-33 | Workspace globals | Number grouping and currency symbol for every figure; the sign-in window and end-on-close per organisation; download-tray retention; audit-trail retention withdrawn because the trail is append-only by design (OPEN-QUESTIONS) | Done (4 of 4 in the appearance brief) |
 | B-34 | Recovery codes as a PDF | Download as PDF beside Copy all, wherever the ten codes are shown: account, organisation, date, the codes, how to use one, what to do when the phone or the codes are lost; printed from the screen that holds them, browser print-to-PDF | Done |
 | B-35 | Profile page redesign | Identity with the avatar and the chips, three figures at a glance (roles, permissions, two-step), two columns on a desk -- sign-in and security with your light/dark choice, and notifications -- then what you can do with a filter over the folded permissions; shadcn only, the preset only | Done |
+| B-36 | Lifecycle of an item, a customer, a vendor | Tap a row on Stock items or Parties: figures (ordered, picked, packed, dispatched, purchased, received; orders, dispatches, delivered, invoices, values), who buys it and who supplies it, and a dated timeline of every document that touched it, each row a door; read through the person's own sales, purchase and Tally keys | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -333,3 +338,15 @@ Tests: the session window and end-on-close over real HTTP (a two-hour window exp
 | Twenty-odd permission rows with no way to find one | A filter over the description and the key inside the fold; "nothing matches" says so | A reference list is searched, not read |
 
 Every surface is shadcn (Avatar, Badge, ToggleGroup, Collapsible, Item, SearchField, Empty) on the preset's tokens; no card in a card. Browser gate not run (owner instruction); 557 web tests, eslint clean, Vite build.
+
+### B-36 (owner's fulfilment brief: "on click of an item / a customer / a vendor I need its lifecycle"), 22 Aug 2026
+
+Built apart from the pick/pack/ship files the other session is in. `LifecycleService` in `platform/masters` reads the sales, purchase and voucher tables through org-scoped raw SQL, the way the report sources do, and shows each side only by the key the list screens already require: sales documents by `sales.document.view.all` or `.self` (own orders), purchase by `purchase.document.view`, Tally vouchers by `receivables.view`. Three routes: `GET /masters/items/:id`, `/masters/items/:id/lifecycle`, `/masters/parties/:id/lifecycle`.
+
+| Screen | What it shows |
+| --- | --- |
+| `/masters/items/:id` | On the shelf, ordered, picked, packed, dispatched, open orders, purchased, received; who buys it (top five, last rate and date), who supplies it; the timeline |
+| `/masters/parties/:id` | The role it plays (customer, vendor, both); as a customer: estimates, orders, open, dispatches, delivered, invoices, ordered and invoiced value; as a vendor: purchase orders, receipts, purchased value; what Tally holds; the timeline |
+| Timeline | Newest first by month, one glyph per kind, every row a link to the document; All / Sales / Purchase / Tally |
+
+Tests: three endpoint tests over real HTTP (a confirmed order shows in both lifecycles with its door; 404 and 403), a jsdom test of the timeline's grouping, links and filter. Browser gate not run (owner instruction).

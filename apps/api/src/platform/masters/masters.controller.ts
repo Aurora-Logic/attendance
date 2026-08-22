@@ -20,11 +20,14 @@ import {
   type StockItemView,
   type VoucherDetailView,
   type VoucherView,
+  type ItemLifecycle,
+  type PartyLifecycle,
 } from '@vyuha/shared';
 
 import { createZodDto } from '../common/zod-validation.pipe.js';
 import { CurrentUser, type Principal } from '../rbac/principal.js';
 import { RequirePermission } from '../rbac/route-policy.js';
+import { LifecycleService } from './lifecycle.service.js';
 import { MastersService } from './masters.service.js';
 
 class PartyListQueryDto extends createZodDto(partyListQuerySchema) {}
@@ -44,7 +47,9 @@ class VoucherListQueryDto extends createZodDto(voucherListQuerySchema) {}
  */
 @Controller('masters')
 export class MastersController {
-  constructor(private readonly masters: MastersService) {}
+  constructor(private readonly masters: MastersService,
+    private readonly lifecycle: LifecycleService,
+  ) {}
 
   @Get('parties')
   @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
@@ -72,6 +77,26 @@ export class MastersController {
     @Query() query: StockItemListQueryDto,
   ): Promise<Paginated<StockItemView>> {
     return this.masters.listStockItems(principal, query);
+  }
+
+  @Get('items/:id')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  findStockItem(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<StockItemView> {
+    return this.masters.findStockItem(principal, id);
+  }
+
+  /** Owner, 22 Aug 2026: the life of one item across sales, purchase and Tally, as far as this person may read each. */
+  @Get('items/:id/lifecycle')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  itemLifecycle(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<ItemLifecycle> {
+    return this.lifecycle.item(principal, id);
+  }
+
+  /** The life of one party, as the customer it is, the vendor it is, or both. */
+  @Get('parties/:id/lifecycle')
+  @RequirePermission(PERMISSIONS.MASTERS_TALLY_VIEW)
+  partyLifecycle(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PartyLifecycle> {
+    return this.lifecycle.party(principal, id);
   }
 
   /** REQ-R-03: `GET /masters/price-lists`. */

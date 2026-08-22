@@ -2,6 +2,7 @@ export * from './approval-keys.js';
 export * from './approvals.js';
 export * from './attendance.js';
 export * from './appearance.js';
+export * from './lifecycle.js';
 export * from './workspace.js';
 export * from './auth.js';
 export * from './consent.js';
