@@ -5,13 +5,22 @@ import { blockKeys, clusterPairs, clusterSignature, nameSimilarity, normaliseAdd
 const party = (over: Partial<PartyRecord> & { id: string; name: string }): PartyRecord => ({ alias: null, gstin: null, phone: null, email: null, address: null, ...over });
 
 describe('normalisation', () => {
-  it('folds case, punctuation, spacing, "&" and the company suffixes', () => {
-    expect(normaliseName('Asha Traders Pvt. Ltd.')).toBe('asha');
-    expect(normaliseName('ASHA  TRADERS PRIVATE LIMITED')).toBe('asha');
-    expect(normaliseName('Asha Traders P Ltd')).toBe('asha');
+  it('folds case, punctuation, spacing, "&" and the legal form -- but never what the firm trades in', () => {
+    expect(normaliseName('Asha Traders Pvt. Ltd.')).toBe('ashatraders');
+    expect(normaliseName('ASHA  TRADERS PRIVATE LIMITED')).toBe('ashatraders');
+    expect(normaliseName('Asha Traders P Ltd')).toBe('ashatraders');
     expect(normaliseName('Behar & Sons')).toBe('beharandsons');
     expect(normaliseName('Behar and Sons')).toBe('beharandsons');
     expect(normaliseName('Limited')).toBe('limited');
+    // The trade descriptor stays: folding it made every "Asha <something>" one firm,
+    // and a cluster is transitive, so one shared first word chained them all together.
+    expect(normaliseName('Asha Industries')).toBe('ashaindustries');
+    expect(normaliseName('Asha Enterprises')).not.toBe(normaliseName('Asha Traders'));
+  });
+
+  it('does not read two names it cannot transcribe as the same name', () => {
+    expect(nameSimilarity('', '')).toBe(0);
+    expect(scoreParties(party({ id: 'a', name: 'आशा ट्रेडर्स' }), party({ id: 'b', name: '株式会社ベハール' }))).toBeNull();
   });
 
   it('reads phones by their last ten digits, PAN out of a GSTIN, and an address by pincode and first line', () => {
@@ -48,6 +57,8 @@ describe('scoring', () => {
     expect(match?.fields).toEqual(['name', 'phone']);
     expect(match?.confidence).toBeGreaterThanOrEqual(0.75);
     expect(scoreParties(party({ id: 'a', name: 'Asha' }), party({ id: 'b', name: 'Usha' }))).toBeNull();
+    // Two firms that share only a first word are two firms.
+    expect(scoreParties(party({ id: 'a', name: 'Asha Traders' }), party({ id: 'b', name: 'Asha Industries' }))).toBeNull();
   });
 
   it('reads the same part number under two names as the strongest item signal', () => {
@@ -61,7 +72,7 @@ describe('scoring', () => {
 describe('blocking and clustering', () => {
   it('shares a block on any agreeing key', () => {
     const keys = blockKeys('party', party({ id: 'a', name: 'Asha Traders Pvt Ltd', gstin: '27AAAPL1234C1ZV', phone: '9876543210' }));
-    expect(keys).toEqual(expect.arrayContaining(['n:asha', 'p:asha', 'g:27AAAPL1234C1ZV', 'pan:AAAPL1234C', 'ph:9876543210']));
+    expect(keys).toEqual(expect.arrayContaining(['n:ashatraders', 'p:asha', 'g:27AAAPL1234C1ZV', 'pan:AAAPL1234C', 'ph:9876543210']));
   });
 
   it('joins A-B and B-C into one cluster of three, strongest pair as confidence, fields the union (REQ-AO-05)', () => {

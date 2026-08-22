@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeftIcon, BooksIcon, CheckIcon, CubeIcon, FloppyDiskIcon, GitBranchIcon, PaperPlaneTiltIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react';
+import { CalendarBlankIcon, ArrowLeftIcon, BooksIcon, CheckIcon, CubeIcon, FloppyDiskIcon, GitBranchIcon, PaperPlaneTiltIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
@@ -108,8 +108,9 @@ function Editor({ detail, canManage, canApprove, onSaved }: { detail: PriceListD
   const version = useNewPriceListVersion();
   const navigate = useNavigate();
   const editable = canManage && (detail === null || detail.state === 'draft');
-  const parties = useParties({ page: 1 }, { enabled: editable });
-  const items = useStockItems({ page: 1 }, { enabled: editable });
+  // A picker that offers a page is a picker that hides the rest of the masters.
+  const parties = useParties({ page: 1, pageSize: 200 }, { enabled: editable });
+  const items = useStockItems({ page: 1, pageSize: 200 }, { enabled: editable });
   const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, hint: p.parentGroup }));
   const itemOptions: PickerOption[] = (items.data?.data ?? []).map((i) => ({ id: i.id, label: i.name, hint: i.parentGroup }));
   const pick = (options: readonly PickerOption[], idValue: string | null, fallback: string | null) => options.find((o) => o.id === idValue) ?? (idValue === null ? null : { id: idValue, label: fallback ?? idValue });
@@ -233,7 +234,17 @@ function Editor({ detail, canManage, canApprove, onSaved }: { detail: PriceListD
         </Field>
         <DateField label="Effective from" value={fromDateParam(draft.effectiveFrom)} onValueChange={(next) => { setDraft((c) => ({ ...c, effectiveFrom: toDateParam(next) })); }} yearsBack={3} yearsForward={2} className={editable ? undefined : 'pointer-events-none opacity-60'} />
         <div className="flex flex-col gap-1">
-          <DateField label="Effective to" hint={draft.effectiveTo === '' ? 'Open-ended' : undefined} value={draft.effectiveTo === '' ? fromDateParam(draft.effectiveFrom) : fromDateParam(draft.effectiveTo)} onValueChange={(next) => { setDraft((c) => ({ ...c, effectiveTo: toDateParam(next) })); }} yearsBack={3} yearsForward={5} className={editable ? undefined : 'pointer-events-none opacity-60'} />
+          {draft.effectiveTo === '' ? (
+            <Field>
+              <FieldLabel htmlFor="price-list-open-ended">Effective to</FieldLabel>
+              <Button id="price-list-open-ended" type="button" variant="outline" disabled={!editable} className="w-full justify-start font-normal" onClick={() => { setDraft((c) => ({ ...c, effectiveTo: c.effectiveFrom })); }}>
+                <CalendarBlankIcon data-icon="inline-start" />
+                Open-ended — runs until a new version replaces it
+              </Button>
+            </Field>
+          ) : (
+            <DateField label="Effective to" value={fromDateParam(draft.effectiveTo)} onValueChange={(next) => { setDraft((c) => ({ ...c, effectiveTo: toDateParam(next) })); }} yearsBack={3} yearsForward={5} className={editable ? undefined : 'pointer-events-none opacity-60'} />
+          )}
           {editable && draft.effectiveTo !== '' ? (
             <Button type="button" variant="link" size="sm" className="h-auto self-start px-0 text-xs" onClick={() => { setDraft((c) => ({ ...c, effectiveTo: '' })); }}>
               No end date

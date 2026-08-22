@@ -44,6 +44,8 @@ export type StockItemsResponse = z.infer<typeof stockItemsResponseSchema>;
 
 export interface StockItemFilters {
   page: number;
+  /** A picker needs the whole list, not the list screen's page. */
+  pageSize?: number;
   q?: string;
   parentGroup?: string;
 }
@@ -52,7 +54,7 @@ export function useStockItems(
   filters: StockItemFilters,
   options: { enabled?: boolean } = {},
 ): UseQueryResult<StockItemsResponse, Error> {
-  const params = new URLSearchParams({ page: String(filters.page), pageSize: '25' });
+  const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize ?? 25) });
   if (filters.q) params.set('q', filters.q);
   if (filters.parentGroup) params.set('parentGroup', filters.parentGroup);
   const key = params.toString();

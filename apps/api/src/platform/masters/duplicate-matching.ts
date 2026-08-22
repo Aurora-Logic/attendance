@@ -45,7 +45,13 @@ export interface Cluster {
   readonly fields: readonly DuplicateMatchField[];
 }
 
-/** Suffixes that say "company" in one of the ways Tally operators type it; folded to nothing. */
+/**
+ * Legal forms only -- the ways one firm's registration is typed, not what it
+ * trades in. "Traders", "Industries" and "Enterprises" were here and had to
+ * come out: they made Asha Traders and Asha Industries the same firm, and
+ * because a cluster is transitive, one shared first word could chain a dozen
+ * unrelated companies into one.
+ */
 const SUFFIXES = [
   'private limited',
   'pvt ltd',
@@ -57,15 +63,6 @@ const SUFFIXES = [
   'ltd',
   'llp',
   'opc',
-  'and company',
-  'and co',
-  'co',
-  'company',
-  'enterprises',
-  'enterprise',
-  'traders',
-  'trading',
-  'industries',
   'inc',
   'corp',
   'corporation',
@@ -139,6 +136,9 @@ function trigrams(s: string): Set<string> {
 
 /** Jaccard overlap of trigrams, 0 to 1: the same name mistyped scores high, different names low. */
 export function nameSimilarity(a: string, b: string): number {
+  // Two names that normalise to nothing -- a pair written in a script this
+  // strips entirely -- are not the same name; they are two unknowns.
+  if (a === '' || b === '') return 0;
   if (a === b) return 1;
   if (a.length < 3 || b.length < 3) return 0;
   const ta = trigrams(a);

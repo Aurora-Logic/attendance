@@ -475,8 +475,15 @@ export class PricingService {
        WHERE id = ${list.id} AND org_id = ${ctx.orgId}
     `);
     if (list.supersedesId !== null) {
+      // The old version reigns until the new one actually starts, not until it
+      // was approved. Approving a list that takes effect on 1 April in
+      // February would otherwise leave six weeks with no list in force at all,
+      // and every document raised in them would be written at Tally's rate --
+      // permanently, because a line stores what resolved (REQ-AN-15).
       await tx.execute(sql`
-        UPDATE price_lists SET state = 'superseded', superseded_at = now(), updated_at = now(), updated_by = ${ctx.actorUserId}
+        UPDATE price_lists SET state = 'superseded',
+               superseded_at = GREATEST(now(), (SELECT effective_from FROM price_lists WHERE id = ${list.id})::timestamptz),
+               updated_at = now(), updated_by = ${ctx.actorUserId}
          WHERE id = ${list.supersedesId} AND org_id = ${ctx.orgId} AND state = 'active'
       `);
     }

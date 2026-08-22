@@ -206,7 +206,12 @@ export class SyncWriterService {
     // not fail the ack -- the agent would resend a chunk already committed.
     if (input.final && (input.entityType === 'party' || input.entityType === 'stock_item')) {
       try {
-        await this.jobs.enqueue('detect-duplicates', { orgId: agent.orgId, entityType: input.entityType, requestedAt: new Date().toISOString() }, { jobId: `duplicates-${agent.orgId}-${input.entityType}` });
+        // The id dedupes a burst of final chunks, not every pull for ever:
+        // BullMQ remembers a completed job id, so a constant one would run the
+        // detector once and silently drop every later pull. The minute is the
+        // window a burst lives in.
+        const minute = new Date().toISOString().slice(0, 16).replace(/[:T-]/gu, '');
+        await this.jobs.enqueue('detect-duplicates', { orgId: agent.orgId, entityType: input.entityType, requestedAt: new Date().toISOString() }, { jobId: `duplicates-${agent.orgId}-${input.entityType}-${minute}` });
       } catch (error) {
         this.logger.error({ msg: 'Duplicate detection could not be enqueued after a pull', orgId: agent.orgId, entityType: input.entityType, reason: error instanceof Error ? error.message : String(error) });
       }

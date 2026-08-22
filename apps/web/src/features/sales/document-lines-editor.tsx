@@ -90,7 +90,11 @@ export function DocumentLinesEditor({
       stockItemId: item?.id ?? null,
       description: item?.label ?? '',
       unit: item?.unit ?? '',
-      rate: item?.salePrice === null || item?.salePrice === undefined ? '' : item.salePrice.replace(/\.?0+$/u, ''),
+      // 15 REQ-AN-13: the rate is left blank on purpose. The server resolves it
+      // from the price lists at the document's date, and falls back to this very
+      // Tally rate when no list names the item -- so prefilling it here only
+      // hid the list. The picker's hint still shows what Tally holds.
+      rate: '',
       taxPct: item?.gstRate === null || item?.gstRate === undefined ? '0' : String(Number(item.gstRate)),
     });
   }

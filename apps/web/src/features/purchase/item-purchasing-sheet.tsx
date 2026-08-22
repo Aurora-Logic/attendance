@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BooksIcon, PlusIcon, TrashIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -257,7 +258,7 @@ function VendorsSection({ stockItemId, canEdit }: { stockItemId: string; canEdit
   const [edited, setEdited] = useState<VendorRow[] | null>(null);
   const rows = edited ?? rowsOf(vendors.data ?? []);
   const dirty = edited !== null;
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
+  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
 
   const preferredCount = rows.filter((r) => r.isPreferred).length;
   const missingParty = rows.some((r) => r.partyId === null);

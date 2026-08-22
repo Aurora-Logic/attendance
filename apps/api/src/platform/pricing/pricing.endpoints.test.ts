@@ -1,4 +1,4 @@
-import { SYSTEM_ROLES, type PriceListDetail, type PriceListDiff, type RateSimulation } from '@vyuha/shared';
+import { SYSTEM_ROLES, type Paginated, type PriceListDetail, type PriceListDiff, type PriceListSummary, type RateSimulation } from '@vyuha/shared';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -173,6 +173,36 @@ describe('Area AN: price lists', () => {
     const then = await harness.get<RateSimulation>(`/pricing/simulate?partyId=${partyId}&stockItemId=${itemId}&date=2026-05-01`, { token: salesToken });
     expect(then.body.rate).toBe('3520.00');
     expect(then.body.priceListVersion).toBe(1);
+  });
+
+  it('a version that starts in the future does not leave the lineage bare until it does', async () => {
+    // v2 is active from 2026-04-01 at 20% off. v3 is drafted to start next year
+    // and approved today: until it starts, v2 must still be the list in force.
+    const active = await harness.get<Paginated<PriceListSummary>>('/pricing/lists?state=active&page=1&pageSize=10', { token: managerToken });
+    const current = active.body.data.find((l) => l.name === 'Asha terms');
+    expect(current?.version).toBe(2);
+    const v3 = await harness.post<PriceListDetail>(`/pricing/lists/${current?.id ?? ''}/versions`, { token: managerToken });
+    expect(v3.status).toBe(201);
+    await harness.put<PriceListDetail>(`/pricing/lists/${v3.body.id}`, { token: managerToken, body: draft('30', { effectiveFrom: '2027-01-01' }) });
+    const activated = await harness.post<PriceListDetail>(`/pricing/lists/${v3.body.id}/submit`, { token: adminToken });
+    expect(activated.body.state).toBe('active');
+
+    const today = await harness.get<RateSimulation>(`/pricing/simulate?partyId=${partyId}&stockItemId=${itemId}`, { token: salesToken });
+    expect(today.body.rate, JSON.stringify(today.body.considered)).toBe('3200.00');
+    expect(today.body.priceListVersion).toBe(2);
+    const later = await harness.get<RateSimulation>(`/pricing/simulate?partyId=${partyId}&stockItemId=${itemId}&date=2027-01-05`, { token: salesToken });
+    expect(later.body.rate).toBe('2800.00');
+    expect(later.body.priceListVersion).toBe(3);
+  });
+
+  it('the floor reads what the line actually charges, not the rate above its discount', async () => {
+    // The list resolves 3200; 4000 less 90% works out at 400, and reading only
+    // the typed rate let exactly this through.
+    const dressed = await harness.post<DocumentView>('/sales/orders', { token: salesToken, body: { partyId, lines: [{ stockItemId: itemId, quantity: '1', rate: '4000', discountPct: '90' }] } });
+    expect(dressed.status).toBe(201);
+    const refused = await harness.post<ErrorBody>(`/sales/orders/${dressed.body.id}/confirm`, { token: salesToken });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.message).toContain('works out at 400.00');
   });
 
   it('a rate below the floor needs a reason, and then waits in the inbox', async () => {

@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
+import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -148,9 +149,10 @@ function PurchaseOrderEditor({ initial, record, settings }: { initial: PurchaseO
   const receivable = confirmed && record.shortClosedAt === null && owed > 0;
   const linked = record?.lines.some((line) => line.requirements.length > 0) ?? false;
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
+  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const itemOptions = (items.data?.data ?? []).map((i) => ({
     id: i.id,
+    ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}),
     label: i.name,
     hint: [i.unit, i.costPrice === null || i.costPrice === undefined ? null : `@ ${i.costPrice}`].filter((p): p is string => p !== null).join(' '),
     unit: i.unit,

@@ -760,7 +760,7 @@ const BROKEN_PROMISES_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'daysLate', header: 'Days late', type: 'number', sortField: 'daysLate', width: 10 },
   { key: 'amount', header: 'Promised', type: 'number', width: 14 },
   { key: 'received', header: 'Received', type: 'number', width: 14 },
-  { key: 'shortfall', header: 'Shortfall', type: 'number', width: 14 },
+  { key: 'shortfall', header: 'Shortfall', type: 'number', sortField: 'shortfall', width: 14 },
   { key: 'collectorName', header: 'Collector', type: 'text', width: 20, secondary: true },
   { key: 'takenByName', header: 'Taken by', type: 'text', width: 20, secondary: true },
   { key: 'bills', header: 'Against bills', type: 'text', width: 24, secondary: true },

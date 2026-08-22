@@ -130,6 +130,8 @@ export interface PaperEditing {
   readonly itemPicker: (line: PaperLine) => ReactNode;
   /** The i beside a line: what this customer was charged for the item before (REQ-W-02). */
   readonly itemHistory?: (line: PaperLine) => ReactNode;
+  /** 15 REQ-AN-17: under the line, what the price lists resolved and why -- and the reason box when the rate goes below it. */
+  readonly rateNote?: (line: PaperLine) => ReactNode;
   readonly updateLine: (key: string, patch: Partial<Pick<PaperLine, 'description' | 'hsnCode' | 'quantity' | 'unit' | 'rate' | 'discountPct' | 'taxPct'>>) => void;
   readonly addLine: () => void;
   readonly removeLine: (key: string) => void;
@@ -429,6 +431,7 @@ function TallyLayout({ design, profile, logoUrl, footerLogoUrls = [], orgName, m
                       {editing.itemHistory?.(line)}
                     </div>
                     <PaperField dataCell={`description-${String(index)}`} label={`Line ${String(index + 1)} description`} value={line.description} placeholder="Description of goods" onChange={(v) => { editing.updateLine(line.key, { description: v }); }} onKeyDown={enter(index, 'description')} className="font-bold" />
+                    {editing.rateNote?.(line)}
                   </div>
                 ) : (
                   <span className="font-bold">{line.description}</span>
@@ -936,6 +939,7 @@ function LetterheadLayout({ design, profile, logoUrl, footerLogoUrls = [], orgNa
                           {editing.itemHistory?.(line)}
                         </div>
                         <PaperField dataCell={`description-${String(index)}`} label={`Line ${String(index + 1)} description`} value={line.description} placeholder="Description" onChange={(value) => { editing.updateLine(line.key, { description: value }); }} onKeyDown={enter(index, 'description')} />
+                    {editing.rateNote?.(line)}
                       </div>
                     ) : (
                       line.description

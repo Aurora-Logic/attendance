@@ -6,6 +6,7 @@ import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { PageHeader } from '@/components/shared/page-header';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
+import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { RowActions, type RowAction } from '@/components/shared/row-actions';
@@ -484,7 +485,7 @@ function NewRequirementBody({ onClose }: { onClose: () => void }) {
   const [quantity, setQuantity] = useState('1');
   const [neededBy, setNeededBy] = useState<string | null>(null);
 
-  const itemOptions: PickerOption[] = (items.data?.data ?? []).map((i) => ({ id: i.id, label: i.name, hint: i.unit }));
+  const itemOptions: PickerOption[] = (items.data?.data ?? []).map((i) => ({ id: i.id, label: i.name, hint: i.unit, ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}) }));
   const valid = stockItem !== null && QTY.test(quantity.trim());
   const copy = actionErrorCopy(create.error, 'Raising the requirement');
 
@@ -605,7 +606,7 @@ function RaisePurchaseOrderBody({ requirements, onRaised, onClose }: { requireme
   const [vendor, setVendor] = useState<PickerOption | null>(null);
   const [expectedDate, setExpectedDate] = useState<string | null>(null);
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
+  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const items = new Set(requirements.map((r) => r.stockItemId)).size;
   const copy = actionErrorCopy(create.error, 'Raising the purchase order');
 

@@ -14,6 +14,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
+import { ResolvedRateHint } from '@/features/pricing/resolved-rate-hint';
 import { BrokenPromiseNote } from '@/features/collections/broken-promise-note';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
@@ -234,7 +235,11 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
       stockItemId: item?.id ?? null,
       description: item?.label ?? '',
       unit: item?.unit ?? '',
-      rate: item?.salePrice === null || item?.salePrice === undefined ? '' : item.salePrice.replace(/\.?0+$/u, ''),
+      // 15 REQ-AN-13: the rate is left blank on purpose. The server resolves it
+      // from the price lists at the document's date, and falls back to this very
+      // Tally rate when no list names the item -- so prefilling it here only
+      // hid the list. The picker's hint still shows what Tally holds.
+      rate: '',
       taxPct: item?.gstRate === null || item?.gstRate === undefined ? '0' : String(Number(item.gstRate)),
     });
   }
@@ -289,6 +294,20 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
           ) : null;
         },
         itemHistory: (line) => <ItemHistoryAffordance stockItemId={line.stockItemId} partyId={draft.partyId} companyId={draft.companyId} />,
+        rateNote: (line) => (
+          <ResolvedRateHint
+            partyId={draft.partyId}
+            stockItemId={line.stockItemId}
+            quantity={line.quantity}
+            date={draft.date}
+            rate={line.rate}
+            reason={draft.lines.find((l) => l.key === line.key)?.rateOverrideReason ?? ''}
+            editable={editable}
+            lineNo={model.lines.findIndex((l) => l.key === line.key) + 1}
+            onUseRate={(next) => { updateLine(line.key, { rate: next }); }}
+            onReasonChange={(next) => { updateLine(line.key, { rateOverrideReason: next }); }}
+          />
+        ),
         updateLine: (key, patch) => {
           updateLine(key, patch);
         },

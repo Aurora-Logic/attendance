@@ -45,8 +45,8 @@ export function RateSimulator() {
   const [stockItemId, setStockItemId] = useState<string | null>(null);
   const [quantity, setQuantity] = useState('1');
   const [date, setDate] = useState(toDateParam(new Date()));
-  const parties = useParties({ page: 1 });
-  const items = useStockItems({ page: 1 });
+  const parties = useParties({ page: 1, pageSize: 200 });
+  const items = useStockItems({ page: 1, pageSize: 200 });
   const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, hint: p.parentGroup }));
   const itemOptions: PickerOption[] = (items.data?.data ?? []).map((i) => ({ id: i.id, label: i.name, hint: i.parentGroup }));
   const pick = (options: readonly PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;

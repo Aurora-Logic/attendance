@@ -149,6 +149,8 @@ export function RecordTable<T>({
             {rows.map((row) => (
               <TableRow
                 key={rowKey(row)}
+                // The row's own surface after the hover tint, not before it: a
+                // duplicate stays marked while the pointer is on it.
                 className={cn(onRowActivate && 'cursor-pointer active:bg-muted', rowClassName?.(row))}
                 tabIndex={onRowActivate ? 0 : undefined}
                 onClick={onRowActivate ? () => { onRowActivate(row); } : undefined}

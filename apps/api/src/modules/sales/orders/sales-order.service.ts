@@ -19,8 +19,7 @@ import {
   type SalesDocumentView,
   type SalesOrderListQuery,
   type UpdateSalesOrderInput,
-  type VoucherPushPayload,
-} from '@vyuha/shared';
+  type VoucherPushPayload, type SalesLineView } from '@vyuha/shared';
 import { sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
@@ -61,6 +60,27 @@ const SETTING_DISCOUNT_PCT = 'sales.discountApprovalPct';
 /** `snake_case`, the approval framework's spelling (see APPROVAL_SUBJECT_TYPES). */
 export const SALES_ORDER_SUBJECT_TYPE = 'sales_order';
 const DOC_TYPE = 'SALES_ORDER' as const;
+
+/**
+ * 15 REQ-AN-16: what a line actually charges, against what the price lists
+ * resolved. The comparison is the net rate, not the typed one: a line at the
+ * list rate with 90% off its face is nine tenths below the floor, and reading
+ * only `rate` let exactly that through.
+ */
+function netRate(line: Pick<SalesLineView, 'rate' | 'discountPct'>): number {
+  return Number(line.rate) * (1 - Number(line.discountPct) / 100);
+}
+
+function isBelowFloor(line: SalesLineView): boolean {
+  return line.resolvedRate !== null && netRate(line) < Number(line.resolvedRate) - 0.005;
+}
+
+function belowFloorRefusal(line: SalesLineView): AppError {
+  return AppError.validation(
+    `Line ${String(line.lineNo)} (${line.description}) works out at ${netRate(line).toFixed(2)} against a floor of ${line.resolvedRate ?? ''}; a reason is needed to go below the price list.`,
+    { fields: [{ path: `lines.${String(line.lineNo - 1)}.rateOverrideReason`, message: 'required below the resolved rate' }] },
+  );
+}
 
 @Injectable()
 export class SalesOrderService implements OnModuleInit {
@@ -249,13 +269,9 @@ export class SalesOrderService implements OnModuleInit {
     const steepest = Math.max(0, ...existing.lines.map((l) => Number(l.discountPct)));
     // 15 REQ-AN-16: the resolved rate is the floor. A line under it needs a
     // reason, and goes to the same inbox as a steep discount.
-    const belowFloor = existing.lines.filter((l) => l.resolvedRate !== null && Number(l.rate) < Number(l.resolvedRate));
+    const belowFloor = existing.lines.filter((l) => isBelowFloor(l));
     const unexplained = belowFloor.find((l) => l.rateOverrideReason === null || l.rateOverrideReason.trim() === '');
-    if (unexplained !== undefined) {
-      throw AppError.validation(`Line ${String(unexplained.lineNo)} (${unexplained.description}) is priced at ${unexplained.rate} against a floor of ${unexplained.resolvedRate ?? ''}; a reason is needed to go below the price list.`, {
-        fields: [{ path: `lines.${String(unexplained.lineNo - 1)}.rateOverrideReason`, message: 'required below the resolved rate' }],
-      });
-    }
+    if (unexplained !== undefined) throw belowFloorRefusal(unexplained);
     const steepDiscount = settings.discountApprovalPct !== null && steepest > settings.discountApprovalPct;
     if ((steepDiscount || belowFloor.length > 0) && !hasPermission(principal, PERMISSIONS.SALES_DISCOUNT_APPROVE)) {
       const approvers = await this.approvers(principal.orgId, principal.userId);
@@ -335,6 +351,17 @@ export class SalesOrderService implements OnModuleInit {
     };
   }
 
+  /**
+   * REQ-W-07's edit path re-prices a voucher Tally has already accepted, so
+   * it meets the same floor the confirm does. Without this, an order could be
+   * confirmed at the list rate and altered to a tenth of it, and the altered
+   * voucher would go to Tally with no reason and no approver.
+   */
+  private assertAboveFloor(lines: readonly SalesLineView[]): void {
+    const unexplained = lines.filter((l) => isBelowFloor(l)).find((l) => l.rateOverrideReason === null || l.rateOverrideReason.trim() === '');
+    if (unexplained !== undefined) throw belowFloorRefusal(unexplained);
+  }
+
   /** The route for a discount approval: one level, the first holder of sales.discount.approve who is not the requester. */
   private async approvers(orgId: string, requesterUserId: string): Promise<string[]> {
     const rows = await this.db.execute<{ user_id: string }>(sql`
@@ -409,6 +436,7 @@ export class SalesOrderService implements OnModuleInit {
       throw AppError.conflict(`${existing.number} is not in Tally; edit it as a draft, or push it first.`);
     }
     const edited = await this.applyEdit(principal, existing, input, 'sales.order.altered');
+    this.assertAboveFloor(edited.lines);
     await this.enqueuePush(principal, edited, true);
     const order = await this.repository(principal).view(SQL_TRUE, id);
     if (order === null) throw AppError.notFound('Sales order', id);

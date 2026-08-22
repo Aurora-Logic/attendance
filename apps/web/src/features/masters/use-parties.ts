@@ -46,6 +46,8 @@ export type PartiesResponse = z.infer<typeof partiesResponseSchema>;
 
 export interface PartiesFilters {
   page: number;
+  /** A picker needs the whole list, not the list screen's page. */
+  pageSize?: number;
   q?: string;
   parentGroup?: string;
 }
@@ -54,7 +56,7 @@ export function useParties(
   filters: PartiesFilters,
   options: { enabled?: boolean } = {},
 ): UseQueryResult<PartiesResponse, Error> {
-  const params = new URLSearchParams({ page: String(filters.page), pageSize: '25' });
+  const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize ?? 25) });
   if (filters.q) params.set('q', filters.q);
   if (filters.parentGroup) params.set('parentGroup', filters.parentGroup);
   const key = params.toString();

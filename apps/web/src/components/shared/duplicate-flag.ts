@@ -9,7 +9,7 @@ import { DUPLICATE_MATCH_FIELD_LABELS } from '@vyuha/shared';
  */
 
 /** The destructive surface at a tenth: legible in both themes, over the table's hover and selection tints. */
-export const DUPLICATE_ROW_CLASS = 'bg-destructive/10';
+export const DUPLICATE_ROW_CLASS = 'bg-destructive/10 hover:bg-destructive/15 data-[state=selected]:bg-destructive/15';
 
 export const duplicateFlagSchema = z.object({
   clusterId: z.string(),

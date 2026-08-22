@@ -428,6 +428,9 @@ export function estimateToDraft(estimate: Estimate): EstimateDraft {
         discountPct: trimZeros(line.discountPct),
         taxPct: trimZeros(line.taxPct),
         hsnCode: line.hsnCode ?? '',
+        // Without this the reason vanished on reopen, and the next save sent a
+        // below-floor line with nothing to explain it.
+        rateOverrideReason: line.rateOverrideReason ?? '',
       }),
     ),
   };
