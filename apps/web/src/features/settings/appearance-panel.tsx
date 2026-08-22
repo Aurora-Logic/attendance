@@ -43,10 +43,22 @@ const SWATCH: Record<string, string> = {
   violet: 'bg-[oklch(0.457_0.22_305)]',
   slate: 'bg-[oklch(0.457_0.06_260)]',
 };
+/**
+ * A swatch per ramp, at the lightness the page's own surfaces sit at.
+ *
+ * Built from `APPEARANCE_BASE_TOKENS` by hand rather than interpolated,
+ * because Tailwind cannot see a class name assembled at runtime and would
+ * purge it -- an arbitrary value has to appear literally in the source. The
+ * numbers are the same ones the CSS uses: 0.013 is stone's chroma and the
+ * multiplier scales it, so these previews are the ramps rather than an
+ * approximation of them.
+ */
 const BASE_SWATCH: Record<AppearanceBase, string> = {
-  stone: 'bg-[oklch(0.92_0.003_49)]',
-  cool: 'bg-[oklch(0.92_0.0075_264)]',
-  warm: 'bg-[oklch(0.92_0.0075_70)]',
+  stone: 'bg-[oklch(0.92_0.013_58)]',
+  zinc: 'bg-[oklch(0.92_0.016_286)]',
+  neutral: 'bg-[oklch(0.92_0_0)]',
+  gray: 'bg-[oklch(0.92_0.027_264)]',
+  slate: 'bg-[oklch(0.92_0.046_257)]',
 };
 
 export function AppearancePanel({ value, saved, enforcedBy, onChange }: { value: Appearance; saved: Appearance; enforcedBy: string | null | undefined; onChange: (next: Partial<Appearance>) => void }) {

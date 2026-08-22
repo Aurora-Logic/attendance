@@ -260,16 +260,40 @@
 :root {
     --accent-h: 277;
     --accent-c: 0.24;
-    --base-h: 49;
+    /* Stone, and the same stone the preset below sets, so there is no shift
+       between the pre-hydration paint and the applied appearance. */
+    --base-h: 58;
     --base-k: 1;
 }
-[data-base='cool'] {
-    --base-h: 264;
-    --base-k: 2.5;
+
+/* The five neutral ramps shadcn ships. Hue and chroma are read from Tailwind
+   v4's own theme.css, not matched by eye: --base-k is a multiplier over the
+   steps in this file, which were authored against stone, so stone is 1 and
+   the rest are their chroma over stone's 0.013. Neutral is 0 -- no hue at
+   all, which is what neutral means.
+
+   `cool` and `warm` used to live here. They are gone from the enum but a
+   stored value still resolves, in resolveAppearanceBase: cool to gray, warm
+   to stone, by nearest hue. */
+[data-base='stone'] {
+    --base-h: 58;
+    --base-k: 1;
 }
-[data-base='warm'] {
-    --base-h: 70;
-    --base-k: 2.5;
+[data-base='zinc'] {
+    --base-h: 286;
+    --base-k: 1.23;
+}
+[data-base='neutral'] {
+    --base-h: 0;
+    --base-k: 0;
+}
+[data-base='gray'] {
+    --base-h: 264;
+    --base-k: 2.08;
+}
+[data-base='slate'] {
+    --base-h: 257;
+    --base-k: 3.54;
 }
 /* Density scales every spacing utility through Tailwind's --spacing; type
    stays its size, and the 44px touch floor is in px and stays too. */

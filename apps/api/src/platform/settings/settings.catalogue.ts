@@ -268,7 +268,7 @@ export const DEFAULT_RETENTION_POLICY: RetentionPolicy = DEFAULT_RETENTION;
 export const APPEARANCE_SETTINGS = {
   accentHue: { key: 'appearance.accent_hue', help: 'The accent hue, 0-360, at the theme\'s fixed lightness.', enforcedBy: 'Shell' },
   accentChroma: { key: 'appearance.accent_chroma', help: 'How saturated the accent is.', enforcedBy: 'Shell' },
-  base: { key: 'appearance.base', help: 'The temperature of the neutrals: stone, cool or warm.', enforcedBy: 'Shell' },
+  base: { key: 'appearance.base', help: 'The neutral ramp: stone, zinc, neutral, gray or slate -- the five shadcn ships.', enforcedBy: 'Shell' },
   density: { key: 'appearance.density', help: 'Comfortable or compact spacing; type size does not change.', enforcedBy: 'Shell' },
 } as const satisfies Record<string, SettingDescriptor>;
 
