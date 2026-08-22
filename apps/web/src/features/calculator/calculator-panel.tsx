@@ -64,12 +64,14 @@ interface KeyDefinition {
   readonly ariaLabel?: string;
   /** Columns the key covers; the GST keys take two so two of them fill the row. */
   readonly span?: number;
+  /** A colour a variant does not carry — the GST keys' own tint. */
+  readonly className?: string;
 }
 
 const KEYPAD: readonly (readonly KeyDefinition[])[] = [
   [
-    { label: '+GST', action: { kind: 'gstAdd' }, variant: 'secondary', span: 2, ariaLabel: 'Add GST (multiply by 1.18)' },
-    { label: '−GST', action: { kind: 'gstReverse' }, variant: 'secondary', span: 2, ariaLabel: 'Remove GST (divide by 1.18)' },
+    { label: '+GST', action: { kind: 'gstAdd' }, variant: 'secondary', span: 2, className: 'bg-info text-white hover:bg-info/90', ariaLabel: 'Add GST (multiply by 1.18)' },
+    { label: '−GST', action: { kind: 'gstReverse' }, variant: 'secondary', span: 2, className: 'bg-success text-white hover:bg-success/90', ariaLabel: 'Remove GST (divide by 1.18)' },
   ],
   [
     { label: 'MC', action: { kind: 'memoryClear' }, variant: 'ghost', ariaLabel: 'Memory clear' },
@@ -89,7 +91,7 @@ const KEYPAD: readonly (readonly KeyDefinition[])[] = [
     {
       label: '÷',
       action: { kind: 'operator', operator: 'divide' },
-      variant: 'secondary',
+      variant: 'default',
       ariaLabel: 'Divide',
     },
   ],
@@ -100,7 +102,7 @@ const KEYPAD: readonly (readonly KeyDefinition[])[] = [
     {
       label: '×',
       action: { kind: 'operator', operator: 'multiply' },
-      variant: 'secondary',
+      variant: 'default',
       ariaLabel: 'Multiply',
     },
   ],
@@ -111,7 +113,7 @@ const KEYPAD: readonly (readonly KeyDefinition[])[] = [
     {
       label: '−',
       action: { kind: 'operator', operator: 'subtract' },
-      variant: 'secondary',
+      variant: 'default',
       ariaLabel: 'Subtract',
     },
   ],
@@ -122,7 +124,7 @@ const KEYPAD: readonly (readonly KeyDefinition[])[] = [
     {
       label: '+',
       action: { kind: 'operator', operator: 'add' },
-      variant: 'secondary',
+      variant: 'default',
       ariaLabel: 'Add',
     },
   ],
@@ -335,7 +337,14 @@ function CalculatorBody({ onClose }: { onClose: () => void }) {
               // A taller key than the default so the keypad reads as a keypad.
               // The painted height already clears 44px, so the Button's own
               // coarse-pointer reach needs no help.
-              className={cn('h-11 font-mono text-sm', key.span === 2 && 'col-span-2')}
+              className={cn(
+                // 3D key: it stands raised on a soft shadow and sinks under the
+                // finger. transform + shadow only, and 75ms, so a key pressed
+                // fifty times a minute stays instant (emil-design-eng).
+                'h-11 rounded-lg font-mono text-sm shadow-md transition-[transform,box-shadow] duration-75 active:translate-y-0.5 active:shadow-sm motion-reduce:transition-none motion-reduce:active:translate-y-0',
+                key.span === 2 && 'col-span-2',
+                key.className,
+              )}
               aria-label={key.ariaLabel ?? key.label}
               onClick={(event) => {
                 dispatch(key.action);
