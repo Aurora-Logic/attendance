@@ -25,6 +25,8 @@ import { SignInTourOffer } from '@/features/guide';
 import { ApiError } from '@/lib/api/client';
 import { useLogin } from '@/lib/session/use-session';
 
+import { AuthShell, SubmitLabel } from './auth-shell';
+
 /**
  * REQ-B-01: sign in with a work email and password.
  *
@@ -107,21 +109,7 @@ export function LoginPage() {
   const problem = submitError ? messageFor(submitError) : null;
 
   return (
-    <main className="flex min-h-dvh items-center justify-center p-4">
-      <div className="flex w-full max-w-sm flex-col gap-6">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <span
-            aria-hidden
-            className="bg-primary text-primary-foreground flex size-10 items-center justify-center text-base font-semibold"
-          >
-            V
-          </span>
-          <div className="flex flex-col gap-1">
-            <h1 className="text-xl font-semibold tracking-tight">Sign in to Vyuha</h1>
-            <p className="text-muted-foreground text-sm">Attendance</p>
-          </div>
-        </div>
-
+    <AuthShell title="Welcome back" lead="Sign in with your work email.">
         {problem ? (
           // aria-live so a screen reader hears the failure; without it the only
           // signal is a visual change the user may not be looking at.
@@ -192,12 +180,14 @@ export function LoginPage() {
             {/* Stays enabled while submitting, per the interface guidelines: a
                 disabled submit button is indistinguishable from a broken one. */}
             <Button type="submit" className="w-full">
-              {login.isPending ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <SignInIcon data-icon="inline-start" />
-              )}
-              {login.isPending ? 'Signing in' : 'Sign in'}
+              <SubmitLabel state={login.isPending ? 'pending' : 'idle'}>
+                {login.isPending ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <SignInIcon data-icon="inline-start" />
+                )}
+                {login.isPending ? 'Signing in' : 'Sign in'}
+              </SubmitLabel>
             </Button>
           </FieldGroup>
         </Form>
@@ -207,7 +197,6 @@ export function LoginPage() {
         </p>
 
         <SignInTourOffer />
-      </div>
-    </main>
+    </AuthShell>
   );
 }

@@ -88,6 +88,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-24 | Reports page redesign (emil-design-eng) | The report's name is the title and the switcher; one control bar on a desk, one row on a phone; the switcher is instant and grouped; catalogue cards in the house style; every press answers | Done |
 | B-25 | Punch is the primary action | Link-rendered Buttons leave the floor (`a[href]:not([data-own-target])`); the dashboard's Punch is solid with the fingerprint glyph the nav uses | Done |
 | B-26 | Where you are, marked | Module switcher as a glyph tile with a second line; dots beside the active sidebar row and under the active bottom tab | Reverted 22 Aug on the owner's call ("the design is not good"); `75b5423` undone in full |
+| B-27 | Login page, presence without a new layout | One `AuthShell` for sign-in and set-password: typographic wordmark, Welcome back hierarchy, product line, a first-paint rise, a submit label that arrives through a blur | Done (owner picked this direction over a split screen) |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -240,3 +241,13 @@ Kept as it was: the export split button (Excel primary, CSV/schedule/print behin
 | Punch an outline link with a trailing arrow, indistinguishable from "Team attendance" | Solid (primary) with the fingerprint glyph the navigation uses for Punch, no arrow | The day's one action reads as the one action; the same glyph everywhere it appears |
 
 Browser gate not run (owner instruction); verified through the emitted floor selector.
+
+### B-27 (owner: "Login page can we redesign?"; direction chosen in a popup), 22 Aug 2026
+
+| Before | After | Why |
+| --- | --- | --- |
+| A "V" tile and "Sign in to Vyuha / Attendance", centred; the set-password page copied the same block | `AuthShell`: a typographic wordmark (display size, -0.02em tracking), the page's own h1 ("Welcome back"), a lead, the form, and a product line built from the module list | Presence from type, not from a tile; one frame for both pre-sign-in pages so the invitation link lands on the same product |
+| The column appeared in place | A 300ms rise on first paint through `@starting-style`, on the strong ease-out | The one surface seen once a day rather than a hundred times; reduced motion collapses it |
+| "Sign in" swapped to "Signing in" in one frame | The label is keyed on its state and arrives through a 2px blur | A crossfade shows two words for a frame; the blur blends them into one (emil) |
+
+Not done, and why: a "Signed in" beat before the app appears — sign-in success refetches the session and the page unmounts as soon as it arrives, so the beat would mean holding the session back for decoration. Browser gate not run (owner instruction); the shell has a render test, and the starting-style and blur rules are in the emitted CSS.
