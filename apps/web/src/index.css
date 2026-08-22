@@ -595,6 +595,21 @@
 }
 
 /*
+ * REQ-B-09: recovery codes as a PDF. The codes are shown once and never
+ * stored in the clear, so the sheet is printed from the screen that holds
+ * them: while body carries data-print="recovery", everything else goes
+ * invisible and the sheet takes the page, black on white. The browser's
+ * print-to-PDF is the renderer (D-46: no server PDF).
+ */
+.recovery-sheet { display: none; }
+@media print {
+  body[data-print='recovery'] * { visibility: hidden !important; }
+  body[data-print='recovery'] .recovery-sheet,
+  body[data-print='recovery'] .recovery-sheet * { visibility: visible !important; }
+  body[data-print='recovery'] .recovery-sheet { display: block; position: fixed; inset: 0; padding: 18mm 16mm; color: #111; background: #fff; }
+}
+
+/*
  * Printing a working screen (a report, the dashboard): the chrome goes,
  * the content keeps the page. The paper routes have their own rules above;
  * this covers Ctrl+P anywhere else, which is how a report becomes a PDF

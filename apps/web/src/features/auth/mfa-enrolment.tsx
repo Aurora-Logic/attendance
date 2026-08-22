@@ -12,6 +12,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { ApiError } from '@/lib/api/client';
 
 import { SubmitLabel } from './auth-shell';
+import { RecoveryCodesPdf } from './recovery-sheet';
 import { useConfirmMfa, useStartMfaEnrolment } from './use-mfa';
 
 /**
@@ -166,6 +167,7 @@ export function RecoveryCodes({ codes, saved, onSavedChange, onDone, lead }: { c
         ))}
       </ol>
       <div className="flex flex-wrap items-center gap-2">
+        <RecoveryCodesPdf codes={codes} />
         <Button variant="outline" onClick={() => { void copy(); }}>
           {copied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
           {copied ? 'Copied' : 'Copy all'}

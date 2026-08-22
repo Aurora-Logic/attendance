@@ -100,6 +100,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-31 | Appearance: accent, base, density per workspace | Four variables the theme derives itself from; eight accent presets plus any hue, three bases, two densities; applied by the shell from the branding read; a Settings tab whose preview is the page itself | Done (2 of 4 in the appearance brief) |
 | B-32 | One Settings screen | Every module's settings under one screen, one tab each: Organisation, Appearance, Office location, Attendance (with punch photos), Sales, Purchase, Documents, Email, Security & access; the tab is in the URL; the Sales and Purchase list pages link to their tab; an approver without settings.manage sees only their tabs | Done (3 of 4 in the appearance brief) |
 | B-33 | Workspace globals | Number grouping and currency symbol for every figure; the sign-in window and end-on-close per organisation; download-tray retention; audit-trail retention withdrawn because the trail is append-only by design (OPEN-QUESTIONS) | Done (4 of 4 in the appearance brief) |
+| B-34 | Recovery codes as a PDF | Download as PDF beside Copy all, wherever the ten codes are shown: account, organisation, date, the codes, how to use one, what to do when the phone or the codes are lost; printed from the screen that holds them, browser print-to-PDF | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
