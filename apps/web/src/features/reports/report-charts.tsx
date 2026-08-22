@@ -1,9 +1,9 @@
 import { compactCount, compactIndian, stackTotal, valueCaps, valueTips } from '@/components/shared/chart-labels';
 import { Bar, BarChart, CartesianGrid, ComposedChart, Label, Line, LineChart, Pie, PieChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, ReferenceLine, Scatter, ScatterChart, XAxis, YAxis, LabelList } from 'recharts';
 
-import { SectionHeading } from '@/components/shared/section-heading';
 import { CHART_INTRO_MS } from '@/components/shared/use-chart-motion';
 import { Button } from '@/components/ui/button';
+import { ChartCard } from '@/components/shared/chart-card';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatMoneyShort, humaniseEnum } from '@/lib/format';
@@ -109,15 +109,6 @@ function sharePercent(value: unknown): string {
   return typeof value === 'number' ? `${String(value)}%` : '';
 }
 
-function Frame({ title, insight, children }: { title: string; insight: string | null; children: React.ReactNode }) {
-  return (
-    <section className="flex flex-col gap-2">
-      <SectionHeading title={title} note={insight ?? undefined} />
-      {children}
-    </section>
-  );
-}
-
 /*
  * Heights and overflow, together on purpose.
  *
@@ -209,7 +200,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
           : ({ ...VALUE_CONFIG, compare: { label: compare.label, color: 'var(--muted-foreground)' } } satisfies ChartConfig);
       return (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <Frame title="Where the value sits" insight={insight}>
+          <ChartCard title="Where the value sits" insight={insight}>
             <ChartContainer config={config} className="h-72 w-full overflow-hidden">
               {/* Angled, like the item charts below: a party name is as long as
                   an item name, and `interval={0}` with eight of them straight
@@ -230,7 +221,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
                 ) : null}
               </BarChart>
             </ChartContainer>
-          </Frame>
+          </ChartCard>
           <ShareRadialChart rows={rows} labelKey="label" valueKey="value" title="Share of the total" animate={animate} />
         </div>
       );
@@ -239,7 +230,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       const { points, insight } = movementSeries(rows);
       if (points.length === 0) return null;
       return (
-        <Frame title="Inward against outward" insight={insight}>
+        <ChartCard title="Inward against outward" insight={insight}>
           <ChartContainer config={MOVEMENT_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={[...points]} margin={AXIS_MARGIN}>
               <CartesianGrid vertical={false} />
@@ -255,14 +246,14 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               </Bar>
             </BarChart>
           </ChartContainer>
-        </Frame>
+        </ChartCard>
       );
     }
     case 'item-velocity': {
       const { points, insight } = velocitySeries(rows);
       if (points.length === 0) return null;
       return (
-        <Frame title="The pace, year against quarter" insight={insight}>
+        <ChartCard title="The pace, year against quarter" insight={insight}>
           <ChartContainer config={VELOCITY_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={[...points]} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
@@ -278,14 +269,14 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               </Bar>
             </BarChart>
           </ChartContainer>
-        </Frame>
+        </ChartCard>
       );
     }
     case 'stock-ageing': {
       const { points, insight } = ageingSeries(rows);
       if (points.length === 0) return null;
       return (
-        <Frame title="How long the shelf has held it" insight={insight}>
+        <ChartCard title="How long the shelf has held it" insight={insight}>
           <ChartContainer config={AGEING_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={[...points]} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
@@ -301,7 +292,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               </Bar>
             </BarChart>
           </ChartContainer>
-        </Frame>
+        </ChartCard>
       );
     }
     case 'customer-lapse': {
@@ -316,7 +307,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
         atRiskRevenue: p.state === 'AT_RISK' ? p.revenue : 0,
       }));
       return (
-        <Frame title="Revenue going quiet" insight={insight}>
+        <ChartCard title="Revenue going quiet" insight={insight}>
           <ChartContainer config={LAPSE_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={data} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
@@ -330,7 +321,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
               </Bar>
             </BarChart>
           </ChartContainer>
-        </Frame>
+        </ChartCard>
       );
     }
     case 'stock-summary':
@@ -384,7 +375,7 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
      with nothing beside it. The tooltip keeps `name`, which does fall back. */
   const data = points.map((p, index) => ({ name: p.label, slice: `s${String(index)}`, value: p.share, fill: `var(--color-s${String(index)})` }));
   return (
-    <Frame title={title} insight={`${points[0]?.label ?? ''} holds ${String(points[0]?.share ?? 0)}% of what this page shows.`}>
+    <ChartCard title={title} insight={`${points[0]?.label ?? ''} holds ${String(points[0]?.share ?? 0)}% of what this page shows.`}>
       <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
         <RadialBarChart data={data} innerRadius={28} outerRadius={104}>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
@@ -396,7 +387,7 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
           <ChartLegend content={<ChartLegendContent nameKey="slice" className="w-full flex-wrap justify-center gap-x-4 gap-y-1" />} />
         </RadialBarChart>
       </ChartContainer>
-    </Frame>
+    </ChartCard>
   );
 }
 
@@ -437,7 +428,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
     ...(withPrev ? [['compare', { label: compare.label, color: 'var(--muted-foreground)' }]] : []),
   ]) as ChartConfig;
   return (
-    <Frame title={`Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`} insight={null}>
+    <ChartCard title={`Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`} insight={null}>
       <ChartContainer config={config} className="h-80 w-full overflow-hidden">
         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 56, top: 4 }}>
           <CartesianGrid horizontal={false} />
@@ -478,7 +469,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
           ))}
         </BarChart>
       </ChartContainer>
-    </Frame>
+    </ChartCard>
   );
 }
 
@@ -498,7 +489,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
       cumulativePct: { label: 'Running total', color: 'var(--chart-2)' },
     } satisfies ChartConfig;
     return (
-      <Frame title="Concentration" insight={paretoInsight(points, noun, measure)}>
+      <ChartCard title="Concentration" insight={paretoInsight(points, noun, measure)}>
         <ChartContainer config={config} className="h-80 w-full overflow-hidden">
           {/* One axis, in per cent, for both series. A Pareto is classically
               drawn with value on the left and per cent on the right; two
@@ -517,7 +508,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             <Line dataKey="cumulativePct" stroke="var(--color-cumulativePct)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
           </ComposedChart>
         </ChartContainer>
-      </Frame>
+      </ChartCard>
     );
   }
 
@@ -531,7 +522,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
     // The comparison walks the same span shifted, so it joins by position, not by date.
     const data = points.map((point, index) => (compare ? { ...point, compare: Number(prev[index]?.[firstKey] ?? 0) } : point));
     return (
-      <Frame title={`${headers.get(firstKey) ?? 'Value'} over time`} insight={null}>
+      <ChartCard title={`${headers.get(firstKey) ?? 'Value'} over time`} insight={null}>
         <ChartContainer config={config} className="h-72 w-full overflow-hidden">
           <LineChart data={data} margin={{ left: 0, right: 24, top: 4 }}>
             <CartesianGrid vertical={false} />
@@ -545,7 +536,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             ))}
           </LineChart>
         </ChartContainer>
-      </Frame>
+      </ChartCard>
     );
   }
 
@@ -553,7 +544,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
     const [xKey = 'x', yKey = 'y'] = spec.series;
     const config = { [yKey]: { label: headers.get(yKey) ?? yKey, color: 'var(--chart-1)' } } as ChartConfig;
     return (
-      <Frame title={`${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`} insight={null}>
+      <ChartCard title={`${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`} insight={null}>
         <ChartContainer config={config} className="h-80 w-full overflow-hidden">
           <ScatterChart margin={{ left: 0, right: 24, top: 8 }}>
             <CartesianGrid />
@@ -575,14 +566,14 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             />
           </ScatterChart>
         </ChartContainer>
-      </Frame>
+      </ChartCard>
     );
   }
 
   if (spec.form === 'radials') {
     const [rateKey = 'rate'] = spec.series;
     return (
-      <Frame title={`${headers.get(rateKey) ?? 'Rate'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`} insight={null}>
+      <ChartCard title={`${headers.get(rateKey) ?? 'Rate'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()}`} insight={null}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {points.map((point) => (
             <Button
@@ -598,7 +589,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             </Button>
           ))}
         </div>
-      </Frame>
+      </ChartCard>
     );
   }
 
@@ -607,7 +598,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
     const grid = heatmapGrid(points, valueKey);
     if (grid.months.length === 0 || grid.rows.length === 0) return null;
     return (
-      <Frame title={`${headers.get(valueKey) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()} and month`} insight={null}>
+      <ChartCard title={`${headers.get(valueKey) ?? 'Value'} by ${humaniseEnum(headers.get(spec.category) ?? spec.category).toLowerCase()} and month`} insight={null}>
         <div className="overflow-x-auto">
           <Table className="w-auto min-w-full border-separate border-spacing-0.5 text-xs">
             <TableHeader>
@@ -646,7 +637,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             </TableBody>
           </Table>
         </div>
-      </Frame>
+      </ChartCard>
     );
   }
 
@@ -657,7 +648,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
   ]) as ChartConfig;
   const data = points.map((p, index) => ({ name: String(p.category), slice: `slice${String(index)}`, value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
-    <Frame title="Composition" insight={null}>
+    <ChartCard title="Composition" insight={null}>
       <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
         <PieChart>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
@@ -681,7 +672,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
           <ChartLegend content={<ChartLegendContent nameKey="slice" className="w-full flex-wrap justify-center gap-x-4 gap-y-1" />} />
         </PieChart>
       </ChartContainer>
-    </Frame>
+    </ChartCard>
   );
 }
 
