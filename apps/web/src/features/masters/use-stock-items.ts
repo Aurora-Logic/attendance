@@ -1,3 +1,4 @@
+import { duplicateFlagSchema } from '@/components/shared/duplicate-flag';
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { z } from 'zod';
 
@@ -24,6 +25,8 @@ export const stockItemSchema = z.object({
   costPrice: z.string().nullable().optional(),
   absentInTally: z.boolean(),
   lastPulledAt: z.string(),
+  // 15 REQ-AO-06: set when the record sits in an open duplicate cluster.
+  duplicate: duplicateFlagSchema.nullable().default(null),
 });
 
 export type StockItem = z.infer<typeof stockItemSchema>;
@@ -41,6 +44,8 @@ export type StockItemsResponse = z.infer<typeof stockItemsResponseSchema>;
 
 export interface StockItemFilters {
   page: number;
+  /** A picker needs the whole list, not the list screen's page. */
+  pageSize?: number;
   q?: string;
   parentGroup?: string;
 }
@@ -49,7 +54,7 @@ export function useStockItems(
   filters: StockItemFilters,
   options: { enabled?: boolean } = {},
 ): UseQueryResult<StockItemsResponse, Error> {
-  const params = new URLSearchParams({ page: String(filters.page), pageSize: '25' });
+  const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize ?? 25) });
   if (filters.q) params.set('q', filters.q);
   if (filters.parentGroup) params.set('parentGroup', filters.parentGroup);
   const key = params.toString();

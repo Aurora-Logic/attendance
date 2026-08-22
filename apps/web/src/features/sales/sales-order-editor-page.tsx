@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
+import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -13,6 +14,8 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
+import { ResolvedRateHint } from '@/features/pricing/resolved-rate-hint';
+import { BrokenPromiseNote } from '@/features/collections/broken-promise-note';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -161,9 +164,10 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
   const packs = usePackRecords(confirmed ? record.id : null);
   const dispatches = useDispatches({ page: 1, pageSize: 50, ...(confirmed ? { documentId: record.id } : {}) }, { enabled: confirmed });
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
+  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const itemOptions = (items.data?.data ?? []).map((i) => ({
     id: i.id,
+    ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}),
     label: i.name,
     hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
     unit: i.unit,
@@ -231,7 +235,11 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
       stockItemId: item?.id ?? null,
       description: item?.label ?? '',
       unit: item?.unit ?? '',
-      rate: item?.salePrice === null || item?.salePrice === undefined ? '' : item.salePrice.replace(/\.?0+$/u, ''),
+      // 15 REQ-AN-13: the rate is left blank on purpose. The server resolves it
+      // from the price lists at the document's date, and falls back to this very
+      // Tally rate when no list names the item -- so prefilling it here only
+      // hid the list. The picker's hint still shows what Tally holds.
+      rate: '',
       taxPct: item?.gstRate === null || item?.gstRate === undefined ? '0' : String(Number(item.gstRate)),
     });
   }
@@ -286,6 +294,20 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
           ) : null;
         },
         itemHistory: (line) => <ItemHistoryAffordance stockItemId={line.stockItemId} partyId={draft.partyId} companyId={draft.companyId} />,
+        rateNote: (line) => (
+          <ResolvedRateHint
+            partyId={draft.partyId}
+            stockItemId={line.stockItemId}
+            quantity={line.quantity}
+            date={draft.date}
+            rate={line.rate}
+            reason={draft.lines.find((l) => l.key === line.key)?.rateOverrideReason ?? ''}
+            editable={editable}
+            lineNo={model.lines.findIndex((l) => l.key === line.key) + 1}
+            onUseRate={(next) => { updateLine(line.key, { rate: next }); }}
+            onReasonChange={(next) => { updateLine(line.key, { rateOverrideReason: next }); }}
+          />
+        ),
         updateLine: (key, patch) => {
           updateLine(key, patch);
         },
@@ -399,6 +421,8 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
         extras={
           record !== null ? (
             <div className="flex flex-col gap-4">
+              {/* 15 REQ-AJ-10 / D-54: the promise flag sits with the limit and never blocks. */}
+              <BrokenPromiseNote partyId={record.partyId} />
               {creditBlock !== null ? (
                 <Alert variant="destructive">
                   <WarningCircleIcon />

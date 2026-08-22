@@ -4,6 +4,7 @@ import { ArrowRightIcon, BooksIcon, BuildingsIcon, TrashIcon, WarningCircleIcon 
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
+import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
+import { ResolvedRateHint } from '@/features/pricing/resolved-rate-hint';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
@@ -139,10 +141,11 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
   const editable = canCreate && draft.status === 'DRAFT';
   const dirty = JSON.stringify(draft) !== JSON.stringify(base);
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
+  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
   const itemOptions = (items.data?.data ?? []).map((i) => ({
     id: i.id,
+    ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}),
     label: i.name,
     hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
     unit: i.unit,
@@ -217,7 +220,11 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
       stockItemId: item?.id ?? null,
       description: item?.label ?? '',
       unit: item?.unit ?? '',
-      rate: item?.salePrice === null || item?.salePrice === undefined ? '' : item.salePrice.replace(/\.?0+$/u, ''),
+      // 15 REQ-AN-13: the rate is left blank on purpose. The server resolves it
+      // from the price lists at the document's date, and falls back to this very
+      // Tally rate when no list names the item -- so prefilling it here only
+      // hid the list. The picker's hint still shows what Tally holds.
+      rate: '',
       taxPct: item?.gstRate === null || item?.gstRate === undefined ? '0' : String(Number(item.gstRate)),
     });
   }
@@ -297,6 +304,20 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
           ) : null;
         },
         itemHistory: (line) => <ItemHistoryAffordance stockItemId={line.stockItemId} partyId={draft.partyId} companyId={draft.companyId} />,
+        rateNote: (line) => (
+          <ResolvedRateHint
+            partyId={draft.partyId}
+            stockItemId={line.stockItemId}
+            quantity={line.quantity}
+            date={draft.date}
+            rate={line.rate}
+            reason={draft.lines.find((l) => l.key === line.key)?.rateOverrideReason ?? ''}
+            editable={editable}
+            lineNo={model.lines.findIndex((l) => l.key === line.key) + 1}
+            onUseRate={(next) => { updateLine(line.key, { rate: next }); }}
+            onReasonChange={(next) => { updateLine(line.key, { rateOverrideReason: next }); }}
+          />
+        ),
         updateLine: (key, patch) => {
           updateLine(key, patch);
         },

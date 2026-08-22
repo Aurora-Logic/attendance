@@ -122,8 +122,17 @@ export class DispatchService implements OnModuleInit {
     for (const [index, entry] of input.lines.entries()) {
       const line = byId.get(entry.lineId);
       if (line === undefined) throw AppError.validation('A dispatch line names a line that is not on this order.', { lineId: entry.lineId });
-      const invoicedBalance = Number(line.invoicedQty) - Number(line.dispatchedQty);
+      // 15 REQ-AK-09: a free replacement line has no invoice to wait for, so
+      // what limits it is what was packed. The database's CHECK reads the
+      // same mark; this is only the sentence in front of it.
+      const invoicedBalance = (line.freeOfCharge ? Number(line.packedQty) : Number(line.invoicedQty)) - Number(line.dispatchedQty);
       if (Number(entry.quantity) > invoicedBalance + 1e-9) {
+        if (line.freeOfCharge) {
+          throw AppError.validation(
+            `Line ${String(line.lineNo)} (${line.description}) has ${invoicedBalance.toFixed(3)} packed and not yet dispatched.`,
+            { fields: [{ path: `lines.${String(index)}.quantity`, message: 'exceeds the packed balance' }] },
+          );
+        }
         // REQ-AA-14: goods do not leave ahead of the paperwork.
         throw AppError.validation(
           `Line ${String(line.lineNo)} (${line.description}) has ${invoicedBalance.toFixed(3)} invoiced and not yet dispatched; ${entry.quantity} cannot leave until an invoice covers it.`,

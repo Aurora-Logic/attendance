@@ -5,6 +5,7 @@ import { Link } from 'react-router';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
+import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -92,9 +93,10 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
   const parties = useParties({ page: 1 }, { enabled: canSeeMasters && editable });
   const items = useStockItems({ page: 1 }, { enabled: canSeeMasters && editable });
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
+  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const itemOptions: StockItemOption[] = (items.data?.data ?? []).map((i) => ({
     id: i.id,
+    ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}),
     label: i.name,
     hint: [i.unit, i.costPrice === null || i.costPrice === undefined ? null : `@ ${i.costPrice}`].filter((p): p is string => p !== null).join(' '),
     unit: i.unit,

@@ -17,6 +17,7 @@ import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgColumn } from 'drizzle-orm/pg-core';
 
 import type { Database, Transaction } from '../../../platform/db/db.provider.js';
+import { resolveRate } from '../../../platform/pricing/pricing-resolver.js';
 import { employees, stockItems, voucherLines, vouchers } from '../../../platform/db/schema/index.js';
 import { ScopedRepository, type OrgContext } from '../../../platform/db/scoped-repository.js';
 import { masterOrderBy, masterSearch } from '../../../platform/org/master-query.js';
@@ -59,10 +60,19 @@ export interface EstimateListFilters {
   readonly offset: number;
 }
 
+/**
+ * What the repository writes, which is the request contract plus one field
+ * no request may carry: 15 REQ-AK-09's free-of-charge mark, set by the
+ * return that raises a replacement and by nothing else.
+ */
+export type RepositoryLineInput = SalesLineInput & { readonly freeOfCharge?: boolean };
+
 export interface EstimateHeaderInput {
   /** Only on create; the estimate's DRAFT or an order's DRAFT. */
   status?: EstimateStatus | 'PENDING_APPROVAL' | 'CONFIRMED' | 'CANCELLED';
   sourceDocumentId?: string | null;
+  /** 15 REQ-AK-08: the return this order replaces, when it is a replacement. */
+  returnId?: string | null;
   date: string;
   validUntil: string | null;
   partyId: string | null;
@@ -237,7 +247,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
    * Header and lines in one transaction, number issued from the sequence
    * row under `FOR UPDATE` so two estimates raised together cannot share it.
    */
-  async create(header: EstimateHeaderInput, lines: readonly SalesLineInput[]): Promise<string> {
+  async create(header: EstimateHeaderInput, lines: readonly RepositoryLineInput[]): Promise<string> {
     return this.db.transaction(async (tx) => {
       const number = await this.nextNumber(tx);
       const inserted = await tx
@@ -248,6 +258,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
           number,
           status: header.status ?? 'DRAFT',
           sourceDocumentId: header.sourceDocumentId ?? null,
+          returnId: header.returnId ?? null,
           date: header.date,
           validUntil: header.validUntil,
           partyId: header.partyId,
@@ -273,7 +284,7 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
     });
   }
 
-  async updateHeader(id: string, patch: Partial<EstimateHeaderInput>, lines: readonly SalesLineInput[] | undefined): Promise<boolean> {
+  async updateHeader(id: string, patch: Partial<EstimateHeaderInput>, lines: readonly RepositoryLineInput[] | undefined): Promise<boolean> {
     return this.db.transaction(async (tx) => {
       const rows = await tx
         .update(salesDocuments)
@@ -331,27 +342,47 @@ export class EstimateRepository extends ScopedRepository<typeof salesDocuments> 
   }
 
   /** Delete-then-insert inside the caller's transaction, then the header's totals from the new lines. */
-  private async replaceLines(tx: Transaction, documentId: string, lines: readonly SalesLineInput[]): Promise<void> {
+  private async replaceLines(tx: Transaction, documentId: string, lines: readonly RepositoryLineInput[]): Promise<void> {
     await tx.delete(salesDocumentLines).where(eq(salesDocumentLines.documentId, documentId));
     if (lines.length > 0) {
+      // 15 REQ-AN-13/15: the price lists resolve each item's rate at the
+      // document's date; the line carries what resolved as values. A rate the
+      // salesperson typed stands (the floor check happens at confirm); one
+      // they left blank becomes the resolved rate.
+      const head = await tx.execute<{ party_id: string | null; date: string }>(sql`SELECT party_id, date::text FROM sales_documents WHERE id = ${documentId}`);
+      const partyId = head.rows[0]?.party_id ?? null;
+      const date = head.rows[0]?.date ?? new Date().toISOString().slice(0, 10);
+      const resolved = await Promise.all(
+        lines.map((line) => (line.stockItemId ? resolveRate(tx, this.ctx.orgId, { partyId, stockItemId: line.stockItemId, quantity: line.quantity, date }) : Promise.resolve(null))),
+      );
       await tx.insert(salesDocumentLines).values(
-        lines.map((line, index) => ({
-          orgId: this.ctx.orgId,
-          documentId,
-          lineNo: index + 1,
-          stockItemId: line.stockItemId ?? null,
-          description: line.description,
-          quantity: line.quantity,
-          unit: line.unit ?? null,
-          rate: line.rate,
-          discountPct: line.discountPct,
-          taxPct: line.taxPct,
-          hsnCode: line.hsnCode ?? null,
-          amount: sql`round(${line.quantity}::numeric * ${line.rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2)`,
-          taxAmount: sql`round(round(${line.quantity}::numeric * ${line.rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2) * ${line.taxPct}::numeric / 100, 2)`,
-          createdBy: this.ctx.actorUserId,
-          updatedBy: this.ctx.actorUserId,
-        })),
+        lines.map((line, index) => {
+          const resolution = resolved[index] ?? null;
+          const rate = line.rate ?? resolution?.rate ?? '0';
+          return {
+            orgId: this.ctx.orgId,
+            documentId,
+            lineNo: index + 1,
+            stockItemId: line.stockItemId ?? null,
+            description: line.description,
+            quantity: line.quantity,
+            unit: line.unit ?? null,
+            rate,
+            discountPct: line.discountPct,
+            taxPct: line.taxPct,
+            hsnCode: line.hsnCode ?? null,
+            priceListId: resolution?.priceListId ?? null,
+            priceListVersion: resolution?.priceListVersion ?? null,
+            resolvedRate: resolution?.rate ?? null,
+            appliedDiscountPct: resolution?.discountPct ?? null,
+            rateOverrideReason: line.rateOverrideReason ?? null,
+            freeOfCharge: line.freeOfCharge ?? false,
+            amount: sql`round(${line.quantity}::numeric * ${rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2)`,
+            taxAmount: sql`round(round(${line.quantity}::numeric * ${rate}::numeric * (1 - ${line.discountPct}::numeric / 100), 2) * ${line.taxPct}::numeric / 100, 2)`,
+            createdBy: this.ctx.actorUserId,
+            updatedBy: this.ctx.actorUserId,
+          };
+        }),
       );
     }
     await tx.execute(sql`
@@ -576,6 +607,12 @@ function toLineView(row: typeof salesDocumentLines.$inferSelect, invoicing = 0):
     amount: row.amount,
     taxAmount: row.taxAmount,
     hsnCode: row.hsnCode,
+    priceListId: row.priceListId,
+    priceListVersion: row.priceListVersion,
+    resolvedRate: row.resolvedRate,
+    appliedDiscountPct: row.appliedDiscountPct,
+    rateOverrideReason: row.rateOverrideReason,
+    freeOfCharge: row.freeOfCharge,
     pickedQty: row.pickedQty,
     packedQty: row.packedQty,
     invoicedQty: row.invoicedQty,

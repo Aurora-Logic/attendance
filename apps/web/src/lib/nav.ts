@@ -1,4 +1,5 @@
 import {
+  ArrowUUpLeftIcon,
   AddressBookIcon,
   ArchiveIcon,
   BooksIcon,
@@ -40,6 +41,7 @@ import {
   CheckCircleIcon,
   ReceiptXIcon,
   TruckIcon,
+  CopyIcon,
 } from '@phosphor-icons/react';
 
 import { PERMISSIONS, type PermissionKey } from '@vyuha/shared';
@@ -103,7 +105,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Me',
     items: [
-      { to: '/', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
+      { to: '/dashboard', label: 'Dashboard', icon: SquaresFourIcon, phase: 4, reqs: 'REQ-K-01' },
       {
         to: '/punch',
         label: 'Punch',
@@ -370,7 +372,7 @@ const ATTENDANCE_MODULE: ModuleDef = {
   id: 'attendance',
   label: 'Attendance',
   icon: CalendarDotsIcon,
-  home: '/',
+  home: '/dashboard',
   groups: NAV_GROUPS,
 };
 
@@ -412,13 +414,47 @@ export const MODULES: ModuleDef[] = [
             icon: TagIcon,
             permission: PERMISSIONS.MASTERS_TALLY_VIEW,
             phase: 6,
-            reqs: 'REQ-R-03',
+            reqs: 'docs/15 REQ-AN-01…18',
           },
         ],
       },
       {
         label: 'Books',
         items: [
+          {
+
+            to: '/collections',
+
+            label: 'Collections',
+
+            shortLabel: 'Collect',
+
+            icon: HandshakeIcon,
+
+            permission: PERMISSIONS.COLLECTIONS_VIEW_SELF,
+
+            phase: 8,
+
+            reqs: 'docs/15 REQ-AJ-01…13',
+
+          },
+          {
+
+            to: '/masters/duplicates',
+
+            label: 'Duplicates',
+
+            shortLabel: 'Dupes',
+
+            icon: CopyIcon,
+
+            permission: PERMISSIONS.DUPLICATES_VIEW,
+
+            phase: 9,
+
+            reqs: 'docs/15 REQ-AO-10',
+
+          },
           {
             to: '/masters/vouchers',
             label: 'Vouchers',
@@ -573,6 +609,15 @@ export const MODULES: ModuleDef[] = [
             permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
             phase: 8,
             reqs: 'REQ-AA-17, REQ-AA-21, REQ-AA-24',
+          },
+          {
+            to: '/sales/returns',
+            label: 'Returns',
+            shortLabel: 'Returns',
+            icon: ArrowUUpLeftIcon,
+            permission: PERMISSIONS.RETURNS_VIEW,
+            phase: 8,
+            reqs: 'docs/15 REQ-AK-01…11',
           },
           {
             to: '/sales/delivered',
@@ -829,6 +874,9 @@ const OFF_NAV_LABELS: Record<string, string> = {
      Named here for the same reason the two above are: the breadcrumb would
      otherwise announce the page as "Not found". */
   '/notifications': 'Notifications',
+  /* The second reports dashboard, reached from the first rather than from the
+     navigation; named for the same reason as the entries above. */
+  '/reports/dashboard/v2': 'Dashboard (v2)',
   ...(import.meta.env.DEV ? { '/patterns': 'Shell patterns' } : {}),
 };
 
@@ -849,6 +897,8 @@ const DETAIL_ROUTES: readonly { pattern: RegExp; parent: string; label: string }
   { pattern: /^\/masters\/vouchers\/[^/]+$/u, parent: '/masters/vouchers', label: 'Voucher' },
   { pattern: /^\/masters\/vouchers\/[^/]+\/paper$/u, parent: '/masters/vouchers', label: 'Print' },
   { pattern: /^\/masters\/parties\/[^/]+$/u, parent: '/masters/parties', label: 'Party' },
+  { pattern: /^\/masters\/price-lists\/new$/u, parent: '/masters/price-lists', label: 'New price list' },
+  { pattern: /^\/masters\/price-lists\/[^/]+$/u, parent: '/masters/price-lists', label: 'Price list' },
   { pattern: /^\/masters\/items\/[^/]+$/u, parent: '/masters/items', label: 'Stock item' },
   { pattern: /^\/crm\/contacts\/[^/]+$/u, parent: '/crm/contacts', label: 'Contact' },
   { pattern: /^\/crm\/companies\/[^/]+$/u, parent: '/crm/companies', label: 'Company' },

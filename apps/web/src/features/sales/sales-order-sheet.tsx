@@ -6,6 +6,7 @@ import { PersonChip } from '@/components/shared/person';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
+import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
@@ -20,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
+import { BrokenPromiseNote } from '@/features/collections/broken-promise-note';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
@@ -159,9 +161,10 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
   const isDraft = draft.status === 'DRAFT';
   const editable = isDraft || altering;
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }) }));
+  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const itemOptions: StockItemOption[] = (items.data?.data ?? []).map((i) => ({
     id: i.id,
+    ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}),
     label: i.name,
     hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
     unit: i.unit,
@@ -286,6 +289,8 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
             </Alert>
           ) : null}
 
+          {/* 15 REQ-AJ-10 / D-54: the promise flag sits with the limit and never blocks. */}
+          <BrokenPromiseNote partyId={record?.partyId ?? null} />
           {creditBlock !== null ? (
             <Alert variant="destructive">
               <WarningCircleIcon />
@@ -366,6 +371,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
           </div>
 
           <DocumentLinesEditor
+            documentDate={draft.date}
             lines={draft.lines}
             onLinesChange={(next) => {
               setDraft((current) => ({ ...current, lines: next }));

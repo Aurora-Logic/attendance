@@ -56,6 +56,14 @@ export const REPORT_KEYS = [
   'negative-stock',
   'stale-projections',
   'duplicate-masters',
+  'duplicate-clusters',
+  // 15 Area AJ: the two reports collections exists for.
+  'promised-vs-collected',
+  'broken-promises',
+  // 15 REQ-AK-10: what comes back, by item, by customer, and by reason.
+  'return-rate-by-item',
+  'return-rate-by-customer',
+  'returns-by-reason',
   'customer-item-matrix',
   'purchase-rhythm',
   'price-variance',
@@ -97,6 +105,7 @@ export const ANALYTICS_REPORT_KEYS = [
   'negative-stock',
   'stale-projections',
   'duplicate-masters',
+  'duplicate-clusters',
   'customer-item-matrix',
   'purchase-rhythm',
   'price-variance',
@@ -133,6 +142,12 @@ export const ATTENDANCE_ANALYTICS_REPORT_KEYS = [
 ] as const satisfies readonly ReportKey[];
 /** The sales module's reports (12 REQ-AA-30). */
 export const SALES_REPORT_KEYS = ['pending-dispatch'] as const satisfies readonly ReportKey[];
+
+/** 15 REQ-AJ-08/09: promised against collected, and the promises nothing came against. */
+export const COLLECTIONS_REPORT_KEYS = ['promised-vs-collected', 'broken-promises'] as const satisfies readonly ReportKey[];
+
+/** 15 REQ-AK-10: the return rate, read three ways. Feeds REQ-AG-21. */
+export const RETURNS_REPORT_KEYS = ['return-rate-by-item', 'return-rate-by-customer', 'returns-by-reason'] as const satisfies readonly ReportKey[];
 
 export function isReportKey(value: string): value is ReportKey {
   return (REPORT_KEYS as readonly string[]).includes(value);
@@ -732,6 +747,74 @@ const STALE_PROJECTIONS_COLUMNS: readonly ReportColumnSpec[] = [
 ];
 
 /** 14 REQ-AH-12: near-matching master names. Vyuha flags; the accountant merges in Tally. */
+/** 15 REQ-AO-15: open clusters by entity type and confidence band, and the outstanding behind the party ones. */
+const PROMISED_VS_COLLECTED_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'collectorName', header: 'Collector', type: 'text', sortField: 'collectorName', width: 20 },
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'promises', header: 'Promises', type: 'number', width: 10 },
+  { key: 'promised', header: 'Promised', type: 'number', sortField: 'promised', width: 14 },
+  { key: 'received', header: 'Received', type: 'number', width: 14 },
+  { key: 'keptPct', header: 'Kept %', type: 'number', width: 10 },
+  { key: 'kept', header: 'Kept', type: 'number', width: 8, secondary: true },
+  { key: 'partlyKept', header: 'Partly', type: 'number', width: 8, secondary: true },
+  { key: 'broken', header: 'Broken', type: 'number', width: 8 },
+  { key: 'open', header: 'Open', type: 'number', width: 8, secondary: true },
+];
+
+const BROKEN_PROMISES_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 28 },
+  { key: 'promisedDate', header: 'Promised for', type: 'date', width: 14 },
+  { key: 'daysLate', header: 'Days late', type: 'number', sortField: 'daysLate', width: 10 },
+  { key: 'amount', header: 'Promised', type: 'number', width: 14 },
+  { key: 'received', header: 'Received', type: 'number', width: 14 },
+  { key: 'shortfall', header: 'Shortfall', type: 'number', sortField: 'shortfall', width: 14 },
+  { key: 'collectorName', header: 'Collector', type: 'text', width: 20, secondary: true },
+  { key: 'takenByName', header: 'Taken by', type: 'text', width: 20, secondary: true },
+  { key: 'bills', header: 'Against bills', type: 'text', width: 24, secondary: true },
+];
+
+const RETURN_RATE_ITEM_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'itemName', header: 'Item', type: 'text', sortField: 'itemName', width: 30 },
+  { key: 'returnedQty', header: 'Returned', type: 'number', sortField: 'returnedQty', width: 12 },
+  { key: 'soldQty', header: 'Sold', type: 'number', width: 12 },
+  { key: 'ratePct', header: 'Return rate %', type: 'number', sortField: 'ratePct', width: 14 },
+  { key: 'returns', header: 'Receipts', type: 'number', width: 10 },
+  { key: 'scrappedQty', header: 'Scrapped', type: 'number', width: 12, secondary: true },
+  { key: 'topReason', header: 'Commonest reason', type: 'text', width: 24 },
+  { key: 'lastReturnedOn', header: 'Last returned', type: 'date', width: 14, secondary: true },
+];
+
+const RETURN_RATE_CUSTOMER_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'partyName', header: 'Customer', type: 'text', sortField: 'partyName', width: 30 },
+  { key: 'returnedQty', header: 'Returned', type: 'number', sortField: 'returnedQty', width: 12 },
+  { key: 'soldQty', header: 'Sold', type: 'number', width: 12 },
+  { key: 'ratePct', header: 'Return rate %', type: 'number', sortField: 'ratePct', width: 14 },
+  { key: 'returns', header: 'Receipts', type: 'number', width: 10 },
+  { key: 'awaitingCredit', header: 'Awaiting credit note', type: 'number', width: 18 },
+  { key: 'topReason', header: 'Commonest reason', type: 'text', width: 24 },
+  { key: 'lastReturnedOn', header: 'Last returned', type: 'date', width: 14, secondary: true },
+];
+
+const RETURNS_BY_REASON_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'reason', header: 'Reason', type: 'text', sortField: 'reason', width: 26 },
+  { key: 'lines', header: 'Lines', type: 'number', sortField: 'lines', width: 10 },
+  { key: 'returns', header: 'Receipts', type: 'number', width: 10 },
+  { key: 'quantity', header: 'Quantity', type: 'number', sortField: 'quantity', width: 12 },
+  { key: 'sharePct', header: 'Share of lines %', type: 'number', width: 16 },
+  { key: 'scrapLines', header: 'Scrapped lines', type: 'number', width: 14 },
+  { key: 'damagedLines', header: 'Arrived damaged', type: 'number', width: 16, secondary: true },
+  { key: 'topItem', header: 'Commonest item', type: 'text', width: 26, secondary: true },
+];
+
+const DUPLICATE_CLUSTERS_COLUMNS: readonly ReportColumnSpec[] = [
+  { key: 'kind', header: 'Master', type: 'text', width: 12 },
+  { key: 'band', header: 'Confidence', type: 'text', sortField: 'band', width: 16 },
+  { key: 'clusters', header: 'Open clusters', type: 'number', sortField: 'clusters', width: 12 },
+  { key: 'records', header: 'Records', type: 'number', width: 10 },
+  { key: 'sentToTally', header: 'Sent to Tally', type: 'number', width: 12, secondary: true },
+  { key: 'outstanding', header: 'Outstanding behind them', type: 'number', sortField: 'outstanding', width: 18 },
+];
+
 const DUPLICATE_MASTERS_COLUMNS: readonly ReportColumnSpec[] = [
   { key: 'kind', header: 'Master', type: 'text', width: 10 },
   { key: 'nameA', header: 'Name', type: 'text', sortField: 'nameA', width: 30 },
@@ -1265,6 +1348,60 @@ export const REPORT_DEFINITIONS: Record<ReportKey, ReportDefinition> = {
     defaultSort: '-hoursStale',
     filters: [],
   },
+  'promised-vs-collected': {
+    key: 'promised-vs-collected',
+    category: 'Receivables',
+    label: 'Promised against collected',
+    description: 'Every promise to pay in the period beside what actually arrived against the named bills. A promise is never marked kept by hand: the receipts Tally sends decide it.',
+    columns: PROMISED_VS_COLLECTED_COLUMNS,
+    defaultSort: '-promised',
+    filters: ['period', 'partyId', 'employeeId'],
+  },
+  'broken-promises': {
+    key: 'broken-promises',
+    category: 'Exceptions',
+    label: 'Broken promises',
+    description: 'Promises past their date with nothing, or not enough, received against the bills they named. Ranked by what is short. A broken promise flags the credit check; it never blocks an order.',
+    columns: BROKEN_PROMISES_COLUMNS,
+    defaultSort: '-shortfall',
+    filters: ['period', 'partyId', 'employeeId'],
+  },
+  'return-rate-by-item': {
+    key: 'return-rate-by-item',
+    category: 'Inventory',
+    label: 'Return rate by item',
+    description: 'What came back against what went out, item by item, with the commonest reason beside it. The sold figure is what Tally billed in the period, so an item sold outside Vyuha still counts.',
+    columns: RETURN_RATE_ITEM_COLUMNS,
+    defaultSort: '-returnedQty',
+    filters: ['period', 'itemName'],
+  },
+  'return-rate-by-customer': {
+    key: 'return-rate-by-customer',
+    category: 'Customers',
+    label: 'Return rate by customer',
+    description: 'Which customers send goods back, how much, and how much of it is still waiting on a credit note from Tally.',
+    columns: RETURN_RATE_CUSTOMER_COLUMNS,
+    defaultSort: '-returnedQty',
+    filters: ['period', 'partyId'],
+  },
+  'returns-by-reason': {
+    key: 'returns-by-reason',
+    category: 'Exceptions',
+    label: 'Returns by reason',
+    description: 'Why goods come back, ranked. Damage in transit is a packing or carrier problem; wrong item is a picking one; quality rejection is neither.',
+    columns: RETURNS_BY_REASON_COLUMNS,
+    defaultSort: '-lines',
+    filters: ['period', 'partyId', 'itemName'],
+  },
+  'duplicate-clusters': {
+    key: 'duplicate-clusters',
+    category: 'Exceptions',
+    label: 'Duplicate clusters',
+    description: 'Likely duplicate parties and items the detector found after the last pull, by confidence band, with the receivables sitting behind the party clusters. Vyuha flags; the merge happens in Tally.',
+    columns: DUPLICATE_CLUSTERS_COLUMNS,
+    defaultSort: 'outstanding',
+    filters: [],
+  },
   'duplicate-masters': {
     key: 'duplicate-masters',
     category: 'Exceptions',
@@ -1521,6 +1658,8 @@ export const ATTENDANCE_REPORTS: readonly ReportDefinition[] = REPORT_KEYS.filte
   (key) =>
     !(TALLY_REPORT_KEYS as readonly string[]).includes(key) &&
     !(SALES_REPORT_KEYS as readonly string[]).includes(key) &&
+    !(COLLECTIONS_REPORT_KEYS as readonly string[]).includes(key) &&
+    !(RETURNS_REPORT_KEYS as readonly string[]).includes(key) &&
     !(ANALYTICS_REPORT_KEYS as readonly string[]).includes(key) &&
     !(ATTENDANCE_ANALYTICS_REPORT_KEYS as readonly string[]).includes(key),
 ).map((key) => REPORT_DEFINITIONS[key]);
@@ -1530,6 +1669,10 @@ export const ATTENDANCE_ANALYTICS_REPORTS: readonly ReportDefinition[] = ATTENDA
 );
 
 export const SALES_REPORTS: readonly ReportDefinition[] = SALES_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
+
+export const COLLECTIONS_REPORTS: readonly ReportDefinition[] = COLLECTIONS_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
+
+export const RETURNS_REPORTS: readonly ReportDefinition[] = RETURNS_REPORT_KEYS.map((key) => REPORT_DEFINITIONS[key]);
 
 /** The Tally module's reports (Phase 6c onward). */
 export const TALLY_REPORTS: readonly ReportDefinition[] = TALLY_REPORT_KEYS.map(
@@ -1541,7 +1684,7 @@ export const ANALYTICS_REPORTS: readonly ReportDefinition[] = ANALYTICS_REPORT_K
 );
 
 /** Every module's reports. Grows by concatenation as modules add groups. */
-export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...ANALYTICS_REPORTS];
+export const ALL_REPORTS: readonly ReportDefinition[] = [...ATTENDANCE_REPORTS, ...ATTENDANCE_ANALYTICS_REPORTS, ...TALLY_REPORTS, ...SALES_REPORTS, ...COLLECTIONS_REPORTS, ...RETURNS_REPORTS, ...ANALYTICS_REPORTS];
 
 /** The columns a report shows before anyone touches the F12 chooser. */
 export function defaultVisibleColumns(reportKey: ReportKey): string[] {
@@ -2696,6 +2839,147 @@ export function salesAnalysisCell(row: SalesAnalysisSource, key: string): Report
       return row.asOf;
     default:
       return null;
+  }
+}
+
+export interface PromisedVsCollectedSource {
+  readonly id: string;
+  readonly collectorId: string | null;
+  readonly collectorName: string | null;
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly promises: number;
+  readonly promised: string;
+  readonly received: string;
+  readonly keptPct: number;
+  readonly kept: number;
+  readonly partlyKept: number;
+  readonly broken: number;
+  readonly open: number;
+}
+
+export function promisedVsCollectedCell(row: PromisedVsCollectedSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'collectorName': return row.collectorName ?? 'Unassigned';
+    case 'partyName': return row.partyName;
+    case 'promises': return row.promises;
+    case 'promised': return row.promised;
+    case 'received': return row.received;
+    case 'keptPct': return row.keptPct;
+    case 'kept': return row.kept;
+    case 'partlyKept': return row.partlyKept;
+    case 'broken': return row.broken;
+    case 'open': return row.open;
+    default: return null;
+  }
+}
+
+export interface BrokenPromiseSource {
+  readonly id: string;
+  readonly partyId: string;
+  readonly partyName: string;
+  readonly collectorName: string | null;
+  readonly amount: string;
+  readonly received: string;
+  readonly shortfall: string;
+  readonly promisedDate: string;
+  readonly daysLate: number;
+  readonly takenByName: string | null;
+  readonly bills: string | null;
+}
+
+export function brokenPromiseCell(row: BrokenPromiseSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName': return row.partyName;
+    case 'promisedDate': return row.promisedDate;
+    case 'daysLate': return row.daysLate;
+    case 'amount': return row.amount;
+    case 'received': return row.received;
+    case 'shortfall': return row.shortfall;
+    case 'collectorName': return row.collectorName ?? 'Unassigned';
+    case 'takenByName': return row.takenByName;
+    case 'bills': return row.bills;
+    default: return null;
+  }
+}
+
+/** 15 REQ-AK-10: one row per item, per customer, per reason. */
+export interface ReturnRateItemSource {
+  readonly id: string;
+  readonly itemName: string;
+  readonly returnedQty: string;
+  readonly soldQty: string;
+  readonly ratePct: number | null;
+  readonly returns: number;
+  readonly scrappedQty: string;
+  readonly topReason: string;
+  readonly lastReturnedOn: string;
+}
+
+export function returnRateItemCell(row: ReturnRateItemSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'itemName': return row.itemName;
+    case 'returnedQty': return row.returnedQty;
+    case 'soldQty': return row.soldQty;
+    case 'ratePct': return row.ratePct;
+    case 'returns': return row.returns;
+    case 'scrappedQty': return row.scrappedQty;
+    case 'topReason': return row.topReason;
+    case 'lastReturnedOn': return row.lastReturnedOn;
+    default: return null;
+  }
+}
+
+export interface ReturnRateCustomerSource {
+  readonly id: string;
+  readonly partyId: string | null;
+  readonly partyName: string;
+  readonly returnedQty: string;
+  readonly soldQty: string;
+  readonly ratePct: number | null;
+  readonly returns: number;
+  readonly awaitingCredit: number;
+  readonly topReason: string;
+  readonly lastReturnedOn: string;
+}
+
+export function returnRateCustomerCell(row: ReturnRateCustomerSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'partyName': return row.partyName;
+    case 'returnedQty': return row.returnedQty;
+    case 'soldQty': return row.soldQty;
+    case 'ratePct': return row.ratePct;
+    case 'returns': return row.returns;
+    case 'awaitingCredit': return row.awaitingCredit;
+    case 'topReason': return row.topReason;
+    case 'lastReturnedOn': return row.lastReturnedOn;
+    default: return null;
+  }
+}
+
+export interface ReturnsByReasonSource {
+  readonly id: string;
+  readonly reason: string;
+  readonly lines: number;
+  readonly returns: number;
+  readonly quantity: string;
+  readonly sharePct: number;
+  readonly scrapLines: number;
+  readonly damagedLines: number;
+  readonly topItem: string;
+}
+
+export function returnsByReasonCell(row: ReturnsByReasonSource, key: string): ReportCellValue {
+  switch (key) {
+    case 'reason': return row.reason;
+    case 'lines': return row.lines;
+    case 'returns': return row.returns;
+    case 'quantity': return row.quantity;
+    case 'sharePct': return row.sharePct;
+    case 'scrapLines': return row.scrapLines;
+    case 'damagedLines': return row.damagedLines;
+    case 'topItem': return row.topItem;
+    default: return null;
   }
 }
 

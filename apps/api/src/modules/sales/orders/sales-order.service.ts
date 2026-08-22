@@ -19,14 +19,14 @@ import {
   type SalesDocumentView,
   type SalesOrderListQuery,
   type UpdateSalesOrderInput,
-  type VoucherPushPayload,
-} from '@vyuha/shared';
+  type VoucherPushPayload, type SalesLineView } from '@vyuha/shared';
 import { sql, type SQL } from 'drizzle-orm';
 
 import { AuditContext } from '../../../platform/audit/audit-context.js';
 import { AppError } from '../../../platform/common/errors.js';
 import { InjectDatabase, type Database, type Transaction } from '../../../platform/db/db.provider.js';
 import { ApprovalService } from '../../../platform/approvals/approval.service.js';
+import { CollectionsService } from '../../../platform/collections/collections.service.js';
 import type { ApprovalSubjectDecision, ApprovalSubjectSettlement } from '../../../platform/approvals/approval-subject.registry.js';
 import type { OrgContext } from '../../../platform/db/scoped-repository.js';
 import { hasPermission, orgContextOf, type Principal } from '../../../platform/rbac/principal.js';
@@ -61,6 +61,31 @@ const SETTING_DISCOUNT_PCT = 'sales.discountApprovalPct';
 export const SALES_ORDER_SUBJECT_TYPE = 'sales_order';
 const DOC_TYPE = 'SALES_ORDER' as const;
 
+/**
+ * 15 REQ-AN-16: what a line actually charges, against what the price lists
+ * resolved. The comparison is the net rate, not the typed one: a line at the
+ * list rate with 90% off its face is nine tenths below the floor, and reading
+ * only `rate` let exactly that through.
+ */
+function netRate(line: Pick<SalesLineView, 'rate' | 'discountPct'>): number {
+  return Number(line.rate) * (1 - Number(line.discountPct) / 100);
+}
+
+function isBelowFloor(line: SalesLineView): boolean {
+  // 15 REQ-AK-09: a free replacement line is below every floor by
+  // construction, and the decision that made it free was recorded on the
+  // return. Asking for a discount reason as well would be asking twice.
+  if (line.freeOfCharge) return false;
+  return line.resolvedRate !== null && netRate(line) < Number(line.resolvedRate) - 0.005;
+}
+
+function belowFloorRefusal(line: SalesLineView): AppError {
+  return AppError.validation(
+    `Line ${String(line.lineNo)} (${line.description}) works out at ${netRate(line).toFixed(2)} against a floor of ${line.resolvedRate ?? ''}; a reason is needed to go below the price list.`,
+    { fields: [{ path: `lines.${String(line.lineNo - 1)}.rateOverrideReason`, message: 'required below the resolved rate' }] },
+  );
+}
+
 @Injectable()
 export class SalesOrderService implements OnModuleInit {
   constructor(
@@ -71,6 +96,7 @@ export class SalesOrderService implements OnModuleInit {
     private readonly pushQueue: PushQueueService,
     private readonly requirements: RequirementsService,
     private readonly approvals: ApprovalService,
+    private readonly collections: CollectionsService,
   ) {}
 
   onModuleInit(): void {
@@ -245,7 +271,13 @@ export class SalesOrderService implements OnModuleInit {
     // sales.discount.approve, unless the confirmer holds the key themselves.
     const settings = await this.readSettings(principal.orgId);
     const steepest = Math.max(0, ...existing.lines.map((l) => Number(l.discountPct)));
-    if (settings.discountApprovalPct !== null && steepest > settings.discountApprovalPct && !hasPermission(principal, PERMISSIONS.SALES_DISCOUNT_APPROVE)) {
+    // 15 REQ-AN-16: the resolved rate is the floor. A line under it needs a
+    // reason, and goes to the same inbox as a steep discount.
+    const belowFloor = existing.lines.filter((l) => isBelowFloor(l));
+    const unexplained = belowFloor.find((l) => l.rateOverrideReason === null || l.rateOverrideReason.trim() === '');
+    if (unexplained !== undefined) throw belowFloorRefusal(unexplained);
+    const steepDiscount = settings.discountApprovalPct !== null && steepest > settings.discountApprovalPct;
+    if ((steepDiscount || belowFloor.length > 0) && !hasPermission(principal, PERMISSIONS.SALES_DISCOUNT_APPROVE)) {
       const approvers = await this.approvers(principal.orgId, principal.userId);
       const ctx = orgContextOf(principal);
       await this.db.transaction(async (tx) => {
@@ -255,7 +287,7 @@ export class SalesOrderService implements OnModuleInit {
             type: 'SALES_DISCOUNT',
             subjectType: SALES_ORDER_SUBJECT_TYPE,
             subjectId: id,
-            subject: `${existing.number} · ${existing.customerName} · ${String(steepest)}% off · ${existing.grandTotal}`,
+            subject: `${existing.number} · ${existing.customerName} · ${belowFloor.length > 0 ? `${String(belowFloor.length)} line${belowFloor.length === 1 ? '' : 's'} below the price list` : `${String(steepest)}% off`} · ${existing.grandTotal}`,
             requesterUserId: principal.userId,
             approverUserIds: approvers,
           },
@@ -321,6 +353,17 @@ export class SalesOrderService implements OnModuleInit {
       if (view !== null) await this.enqueuePush({ orgId: ctx.orgId, userId: decision.decidedByUserId } as Principal, view, false);
       this.auditContext.record({ action: 'sales.order.discount_approved', entityType: 'sales_document', entityId: order.id, before: null, after: { approvalRequestId: decision.approvalRequestId } });
     };
+  }
+
+  /**
+   * REQ-W-07's edit path re-prices a voucher Tally has already accepted, so
+   * it meets the same floor the confirm does. Without this, an order could be
+   * confirmed at the list rate and altered to a tenth of it, and the altered
+   * voucher would go to Tally with no reason and no approver.
+   */
+  private assertAboveFloor(lines: readonly SalesLineView[]): void {
+    const unexplained = lines.filter((l) => isBelowFloor(l)).find((l) => l.rateOverrideReason === null || l.rateOverrideReason.trim() === '');
+    if (unexplained !== undefined) throw belowFloorRefusal(unexplained);
   }
 
   /** The route for a discount approval: one level, the first holder of sales.discount.approve who is not the requester. */
@@ -397,6 +440,7 @@ export class SalesOrderService implements OnModuleInit {
       throw AppError.conflict(`${existing.number} is not in Tally; edit it as a draft, or push it first.`);
     }
     const edited = await this.applyEdit(principal, existing, input, 'sales.order.altered');
+    this.assertAboveFloor(edited.lines);
     await this.enqueuePush(principal, edited, true);
     const order = await this.repository(principal).view(SQL_TRUE, id);
     if (order === null) throw AppError.notFound('Sales order', id);
@@ -536,6 +580,10 @@ export class SalesOrderService implements OnModuleInit {
     const r = rows.rows[0];
     if (r === undefined) return null;
     const limit = r.credit_limit === null ? null : Number(r.credit_limit);
+    // 15 REQ-AJ-10 / D-54: a broken promise is shown beside the limit and never added to it.
+    // Blocking on both would give one customer two ways to be stopped, and the
+    // override key would get handed out to relieve it.
+    const promises = await this.collections.brokenPromises(orgId, partyId);
     return {
       partyId: r.id,
       partyName: r.name,
@@ -544,6 +592,8 @@ export class SalesOrderService implements OnModuleInit {
       exposure: r.exposure,
       openOrders: r.open_orders,
       headroom: limit === null || !Number.isFinite(limit) ? null : (limit - Number(r.exposure) - Number(r.open_orders)).toFixed(2),
+      brokenPromises: promises.count,
+      brokenPromiseAmount: promises.amount,
     };
   }
 

@@ -17,6 +17,12 @@ export const salesLineSchema = z.object({
   amount: z.string(),
   taxAmount: z.string(),
   hsnCode: z.string().nullable().default(null),
+  // 15 REQ-AN-15: what the price lists resolved when the line was written. Absent on older fixtures.
+  priceListId: z.string().nullable().default(null),
+  priceListVersion: z.number().nullable().default(null),
+  resolvedRate: z.string().nullable().default(null),
+  appliedDiscountPct: z.string().nullable().default(null),
+  rateOverrideReason: z.string().nullable().default(null),
   // REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate.
   // D-48: picked sits between ordered and packed. Absent on older fixtures.
   pickedQty: z.string().default('0.000'),
@@ -178,6 +184,9 @@ export const creditPositionSchema = z.object({
   exposure: z.string(),
   openOrders: z.string(),
   headroom: z.string().nullable(),
+  // 15 REQ-AJ-10: a flag beside the limit; absent on older fixtures.
+  brokenPromises: z.number().default(0),
+  brokenPromiseAmount: z.string().default('0.00'),
 });
 export type CreditPosition = z.infer<typeof creditPositionSchema>;
 export const creditBlockSchema = z.object({ position: creditPositionSchema, requiredPermission: z.string(), orderTotal: z.string() });
@@ -323,6 +332,8 @@ export interface LineDraft {
   discountPct: string;
   taxPct: string;
   hsnCode: string;
+  /** REQ-AN-16: why the rate went below what the price lists resolved. */
+  rateOverrideReason: string;
 }
 
 export interface EstimateDraft {
@@ -360,6 +371,7 @@ export function newLine(overrides: Partial<LineDraft> = {}): LineDraft {
     discountPct: '0',
     taxPct: '0',
     hsnCode: '',
+    rateOverrideReason: '',
     ...overrides,
   };
 }
@@ -416,6 +428,9 @@ export function estimateToDraft(estimate: Estimate): EstimateDraft {
         discountPct: trimZeros(line.discountPct),
         taxPct: trimZeros(line.taxPct),
         hsnCode: line.hsnCode ?? '',
+        // Without this the reason vanished on reopen, and the next save sent a
+        // below-floor line with nothing to explain it.
+        rateOverrideReason: line.rateOverrideReason ?? '',
       }),
     ),
   };

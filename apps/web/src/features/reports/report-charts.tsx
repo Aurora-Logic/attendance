@@ -8,6 +8,8 @@ import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartToo
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { humaniseEnum } from '@/lib/format';
 import { cn } from '@/lib/utils';
+
+import { pieSliceLabel } from './pie-label';
 import type { ReportDefinition, ReportKey } from '@vyuha/shared';
 
 import {
@@ -101,6 +103,21 @@ function Frame({ title, insight, children }: { title: string; insight: string | 
   );
 }
 
+/*
+ * Heights and overflow, together on purpose.
+ *
+ * The angled category labels claim 56px of the box and the values on the caps
+ * want 20 at the top, so an h-56 chart had about 148px left to actually plot
+ * in -- the bars got shorter while the furniture around them did not. Raised
+ * so the plot keeps the room it had before the labels arrived.
+ *
+ * `overflow-hidden` because a Recharts SVG does not clip itself: an angled
+ * label longer than its slot spilled past the bottom of the chart and sat over
+ * whatever came next. Clipping is the guard rather than the fix -- the height
+ * above is the fix, and if a label is ever cut it means the height is wrong
+ * again rather than that the clip is doing its job.
+ */
+
 /**
  * A slice's value, outside the ring on a leader line.
  *
@@ -111,12 +128,48 @@ function Frame({ title, insight, children }: { title: string; insight: string | 
  * tooltip, because their labels would collide with their neighbours' and a
  * collided label is worse than an absent one.
  */
-const PIE_LABEL = {
-  fill: 'var(--muted-foreground)',
-  fontSize: 11,
-  className: 'hidden tabular-nums sm:block',
-  formatter: (value: unknown) => (typeof value === 'number' ? compactCount(value) : ''),
-} as const;
+/**
+ * A slice's value, shortened, outside the ring.
+ *
+ * A render function rather than a props object with `formatter`. Recharts
+ * honours `formatter` on `LabelList`; on a Pie's `label` it does not, and the
+ * object is handed to the default renderer which prints the raw number. The
+ * live dashboard showed 8943372.46 beside a bar chart correctly reading 10L,
+ * which is what that difference looks like.
+ *
+ * Not inside the wedge: the slices run the whole ramp and one ink is illegible
+ * on some of them, the same reason stacked segments carry no inline label.
+ * Outside, on the surface, it wears text tokens and is readable on every
+ * slice.
+ *
+ * Slices under a twentieth are skipped. Their labels collide with their
+ * neighbours' and a collided label is worse than an absent one -- the legend
+ * and the tooltip still carry them.
+ */
+function pieLabel(props: unknown): React.ReactNode {
+  const { x, y, value, percent, textAnchor } = props as {
+    x?: number;
+    y?: number;
+    value?: number;
+    percent?: number;
+    textAnchor?: 'start' | 'middle' | 'end';
+  };
+  const text = pieSliceLabel(value, percent);
+  if (x === undefined || y === undefined || text === null) return null;
+  return (
+    <text
+      x={x}
+      y={y}
+      textAnchor={textAnchor ?? 'middle'}
+      dominantBaseline="central"
+      className="hidden tabular-nums sm:block"
+      fill="var(--muted-foreground)"
+      fontSize={11}
+    >
+      {text}
+    </text>
+  );
+}
 
 export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: ReportKey; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string } }) {
   if (rows.length === 0) return null;
@@ -142,7 +195,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       return (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Frame title="Where the value sits" insight={insight}>
-            <ChartContainer config={config} className="h-56 w-full">
+            <ChartContainer config={config} className="h-72 w-full overflow-hidden">
               <BarChart data={data} margin={AXIS_MARGIN}>
                 <CartesianGrid vertical={false} />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
@@ -169,7 +222,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       if (points.length === 0) return null;
       return (
         <Frame title="Inward against outward" insight={insight}>
-          <ChartContainer config={MOVEMENT_CONFIG} className="h-56 w-full">
+          <ChartContainer config={MOVEMENT_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={[...points]} margin={AXIS_MARGIN}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="month" tickLine={false} axisLine={false} />
@@ -192,7 +245,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       if (points.length === 0) return null;
       return (
         <Frame title="The pace, year against quarter" insight={insight}>
-          <ChartContainer config={VELOCITY_CONFIG} className="h-56 w-full">
+          <ChartContainer config={VELOCITY_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={[...points]} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="item" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
@@ -215,7 +268,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       if (points.length === 0) return null;
       return (
         <Frame title="How long the shelf has held it" insight={insight}>
-          <ChartContainer config={AGEING_CONFIG} className="h-56 w-full">
+          <ChartContainer config={AGEING_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={[...points]} margin={AXIS_MARGIN_ANGLED}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="item" tickLine={false} axisLine={false} tickFormatter={truncateTight} {...ANGLED_CATEGORY} />
@@ -246,7 +299,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
       }));
       return (
         <Frame title="Revenue going quiet" insight={insight}>
-          <ChartContainer config={LAPSE_CONFIG} className="h-56 w-full">
+          <ChartContainer config={LAPSE_CONFIG} className="h-72 w-full overflow-hidden">
             <BarChart data={data} margin={AXIS_MARGIN}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="customer" tickLine={false} axisLine={false} tickFormatter={truncate} interval={0} />
@@ -278,7 +331,7 @@ export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: 
 export function MonthlyValueChart({ points, animate }: { points: readonly { label: string; value: number }[]; animate: boolean }) {
   if (points.length === 0) return null;
   return (
-    <ChartContainer config={VALUE_CONFIG} className="h-56 w-full">
+    <ChartContainer config={VALUE_CONFIG} className="h-72 w-full overflow-hidden">
       <BarChart data={[...points]} margin={AXIS_MARGIN}>
         <CartesianGrid vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} />
@@ -310,7 +363,7 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
   const data = points.map((p, index) => ({ name: p.label, value: p.share, fill: `var(--color-s${String(index)})` }));
   return (
     <Frame title={title} insight={`${points[0]?.label ?? ''} holds ${String(points[0]?.share ?? 0)}% of what this page shows.`}>
-      <ChartContainer config={config} className="mx-auto aspect-square max-h-64 w-full">
+      <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
         <RadialBarChart data={data} innerRadius={28} outerRadius={104}>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
           <RadialBar dataKey="value" background isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
@@ -359,7 +412,7 @@ export function GenericReportChart({ reportKey, definition, rows, animate, compa
   ]) as ChartConfig;
   return (
     <Frame title={`Top rows by ${humaniseEnum(series.series[0]?.label ?? 'value').toLowerCase()}`} insight={null}>
-      <ChartContainer config={config} className="h-64 w-full">
+      <ChartContainer config={config} className="h-80 w-full overflow-hidden">
         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 56, top: 4 }}>
           <CartesianGrid horizontal={false} />
           <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={compactIndian} />
@@ -421,7 +474,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
     const data = points.map((point, index) => (compare ? { ...point, compare: Number(prev[index]?.[firstKey] ?? 0) } : point));
     return (
       <Frame title={`${headers.get(firstKey) ?? 'Value'} over time`} insight={null}>
-        <ChartContainer config={config} className="h-56 w-full">
+        <ChartContainer config={config} className="h-72 w-full overflow-hidden">
           <LineChart data={data} margin={{ left: 0, right: 24, top: 4 }}>
             <CartesianGrid vertical={false} />
             <XAxis dataKey="category" tickLine={false} axisLine={false} minTickGap={24} />
@@ -443,7 +496,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
     const config = { [yKey]: { label: headers.get(yKey) ?? yKey, color: 'var(--primary)' } } as ChartConfig;
     return (
       <Frame title={`${headers.get(xKey) ?? xKey} against ${(headers.get(yKey) ?? yKey).toLowerCase()}`} insight={null}>
-        <ChartContainer config={config} className="h-64 w-full">
+        <ChartContainer config={config} className="h-80 w-full overflow-hidden">
           <ScatterChart margin={{ left: 0, right: 24, top: 8 }}>
             <CartesianGrid />
             <XAxis type="number" dataKey={xKey} name={headers.get(xKey) ?? xKey} tickLine={false} axisLine={false} />
@@ -547,7 +600,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
   const data = points.map((p, index) => ({ name: String(p.category), value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
     <Frame title="Composition" insight={null}>
-      <ChartContainer config={config} className="mx-auto aspect-square max-h-64 w-full">
+      <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
         <PieChart>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
           <Pie
@@ -556,7 +609,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             nameKey="name"
             innerRadius={56}
             strokeWidth={2}
-            label={PIE_LABEL}
+            label={pieLabel}
             labelLine={{ stroke: 'var(--border)' }}
             isAnimationActive={animate}
             animationDuration={CHART_INTRO_MS}
@@ -584,10 +637,10 @@ export function CompositionDonut({ rows, labelKey, valueKey, animate }: { rows: 
   ]) as ChartConfig;
   const data = points.map((p, index) => ({ name: String(p.category), value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
-    <ChartContainer config={config} className="mx-auto aspect-square max-h-64 w-full">
+    <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
       <PieChart>
         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
-        <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} label={PIE_LABEL} labelLine={{ stroke: 'var(--border)' }} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+        <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} label={pieLabel} labelLine={{ stroke: 'var(--border)' }} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
         <ChartLegend content={<ChartLegendContent nameKey="name" />} />
       </PieChart>
     </ChartContainer>

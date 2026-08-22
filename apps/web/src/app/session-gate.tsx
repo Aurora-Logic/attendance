@@ -7,6 +7,8 @@ import { MfaRequiredPage } from '@/features/auth/mfa-required-page';
 import { SetPasswordPage } from '@/features/auth/set-password-page';
 import { setPasswordRoute } from '@/features/auth/set-password-route';
 import { LegalPage } from '@/features/legal/legal-page';
+import { PortalPage } from '@/features/portal/portal-page';
+import { portalRoute } from '@/features/portal/portal-route';
 import { legalRoute } from '@/features/legal/legal-route';
 import { useSessionStore } from '@/lib/session/session-store';
 import { useMe, useRevalidateSessionOnReconnect } from '@/lib/session/use-session';
@@ -31,6 +33,7 @@ export function SessionGate({ children }: { children: ReactNode }) {
   const pathname = useLocation().pathname;
   const setPassword = setPasswordRoute(pathname);
   const legal = legalRoute(pathname);
+  const portal = portalRoute(pathname);
   const setFromMe = useSessionStore((s) => s.setFromMe);
   const clear = useSessionStore((s) => s.clear);
 
@@ -61,6 +64,16 @@ export function SessionGate({ children }: { children: ReactNode }) {
   // which is correct — the token names the account, not the reader.
   if (setPassword !== null) {
     return <SetPasswordPage mode={setPassword.mode} token={setPassword.token} />;
+  }
+
+  // 15 REQ-AL-01/AL-02: the customer portal. The key in the path is the
+  // credential and the reader has no account, so this is decided before the
+  // session is consulted -- a customer who lands on a sign-in form has been
+  // sent to a screen they can never get past. A signed-in member of staff
+  // opening the same link sees the same page, which is correct: the key
+  // names the customer, not the reader.
+  if (portal !== null) {
+    return <PortalPage portalKey={portal} />;
   }
 
   // Readable without a session, and with one: the terms are accepted by

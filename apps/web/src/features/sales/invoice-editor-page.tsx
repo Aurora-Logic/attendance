@@ -85,7 +85,7 @@ export function InvoiceEditorPage() {
     shipTo: invoice.shipTo,
     details: invoice.details ?? {},
     reference: invoice.number,
-    lines: invoice.lines.map((line) => ({ key: line.id, stockItemId: line.stockItemId, description: line.description, hsnCode: line.hsnCode ?? '', quantity: line.quantity, unit: line.unit ?? '', rate: line.rate, discountPct: line.discountPct, taxPct: line.taxPct, amount: line.amount, taxAmount: line.taxAmount })),
+    lines: invoice.lines.map((line) => ({ key: line.id, stockItemId: line.stockItemId, description: line.description, hsnCode: line.hsnCode ?? '', rateOverrideReason: line.rateOverrideReason ?? '', quantity: line.quantity, unit: line.unit ?? '', rate: line.rate, discountPct: line.discountPct, taxPct: line.taxPct, amount: line.amount, taxAmount: line.taxAmount })),
     totals: { subtotal: invoice.subtotal, discountTotal: invoice.discountTotal, taxTotal: invoice.taxTotal, grandTotal: invoice.grandTotal, preview: false },
     notes: invoice.notes ?? '',
     terms: invoice.terms ?? '',
