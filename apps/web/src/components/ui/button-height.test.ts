@@ -25,7 +25,8 @@ const SOURCES = import.meta.glob<string>(
  * Controls that are deliberately not button-height, each for a reason the
  * screen states in place: the 64px punch photo thumbnail, the calculator
  * keypad's 44px keys on every pointer, the profile page's multi-line fold
- * rows, and the punch page's 56px hero action.
+ * rows, the punch page's 56px hero action, the design rail's upload tile,
+ * and the 56px bottom bar whose More button matches its links.
  */
 const ALLOWED = new Set([
   '/src/features/attendance/day-punches.tsx',
@@ -33,12 +34,19 @@ const ALLOWED = new Set([
   '/src/features/profile/profile-page.tsx',
   '/src/features/punch/punch-page.tsx',
   '/src/features/documents/design-rail.tsx',
+  '/src/components/shared/mobile-bottom-nav.tsx',
 ]);
 
-/** Any explicit height on a Button; any coarse-pointer growth on any of the listed controls. */
-const BUTTON_HEIGHT = /(^|\s)(h-\d+|min-h-\S+|size-\d+)(?=\s|$)/;
+/**
+ * Any explicit height on a Button except min-h-11, which is the floor itself
+ * and what a 44px row tile says; any coarse-pointer growth on any of the
+ * listed controls.
+ */
+const BUTTON_HEIGHT = /(^|\s)(h-\d+|min-h-(?!11(?=\s|$))\S+|size-\d+)(?=\s|$)/;
 const COARSE_OVERRIDE = /(^|\s)pointer-coarse:(h|min-h|size|py|after)[:-]\S*(?=\s|$)/;
-const CONTROL_TAG = /<(Button|SelectTrigger|Toggle|ToggleGroupItem|TabsTrigger|Input|Textarea|InputGroup|CommandItem|DropdownMenuItem)\b[^>]*?>/gs;
+// `=>` inside an earlier prop is not the end of the tag; without this a
+// className after an onClick arrow was never read.
+const CONTROL_TAG = /<(Button|SelectTrigger|Toggle|ToggleGroupItem|TabsTrigger|Input|Textarea|InputGroup|CommandItem|DropdownMenuItem)\b(?:=>|[^>])*?>/gs;
 const CLASS_NAME = /className="([^"]*)"/;
 
 describe('Button height is owned by the primitive', () => {

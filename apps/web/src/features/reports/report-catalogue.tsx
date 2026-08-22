@@ -8,7 +8,6 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { cn } from '@/lib/utils';
 import { REPORT_CATEGORIES, type ReportCategory, type ReportDefinition } from '@vyuha/shared';
 
 /**
@@ -76,7 +75,9 @@ export function ReportCatalogue({ reports, loading }: { reports: readonly Report
           <ToggleGroup
             variant="outline"
             aria-label="Category"
-            className="flex-wrap"
+            // One scrolling row on a phone: ten chips wrapped into three rows
+            // before the first report; from sm they wrap.
+            className="no-scrollbar max-sm:-mx-4 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:px-4 sm:flex-wrap"
             value={[category ?? 'all']}
             onValueChange={(value: string[]) => {
               const next = value[0];
@@ -136,10 +137,7 @@ export function ReportCatalogue({ reports, loading }: { reports: readonly Report
                   onClick={() => {
                     open(report);
                   }}
-                  className={cn(
-                    'group h-auto flex-col items-start gap-1 rounded-lg px-4 py-3 text-left whitespace-normal',
-                    'hover:border-primary/40 hover:shadow-sm',
-                  )}
+                  className="group h-auto flex-col items-start gap-1 px-3 py-2.5 text-left whitespace-normal"
                 >
                   <span className="flex w-full items-center gap-2 font-medium">
                     <ChartBarIcon className="text-muted-foreground shrink-0" />

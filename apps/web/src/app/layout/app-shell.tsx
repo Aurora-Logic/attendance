@@ -112,19 +112,20 @@ function ThemeSection() {
  * nullable) and a signed-in user may have no employee record at all.
  */
 /**
- * One destination in the account sheet's grid: glyph above label, the label
- * allowed two lines, the whole tile the target. The glyph is read before the
- * word on a narrow screen, which is why it sits on top rather than inline.
+ * One destination in the account sheet's grid: a 44px row, glyph on the
+ * left, the label allowed two lines, the whole tile the target. The same
+ * tile the More and Customise sheets use; stacking the glyph over the label
+ * made an 80px slab of each (B-23).
  */
 function SheetTile({ icon, label, dot, onClick }: { icon: React.ReactNode; label: string; dot?: boolean; onClick: () => void }) {
   return (
     <Button
       variant="outline"
-      className="relative h-auto min-h-16 flex-col gap-1.5 px-2 py-3 whitespace-normal"
+      className="relative h-auto min-h-11 justify-start gap-2 px-2 py-1.5 text-left whitespace-normal"
       onClick={onClick}
     >
       {icon}
-      <span className="line-clamp-2 text-center text-xs leading-tight">{label}</span>
+      <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-tight">{label}</span>
       {dot ? <span className="bg-primary absolute top-2 right-2 size-2 rounded-full" aria-hidden /> : null}
     </Button>
   );

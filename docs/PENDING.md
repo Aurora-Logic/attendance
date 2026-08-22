@@ -85,6 +85,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-21 | Bulk on a phone | Pressables drawn at desktop size again with invisible 44px targets (B-19 overshot); 190 per-screen coarse-pointer heights stripped from fields, selects and toggles; the scan test covers every control; form and preview fixes from the owner's screenshots | Done |
 | B-22 | Second look at the phone | Paper centred in Preview (zoom on the container), the form draws its own date controls, More and Customise tiles a size smaller, every tall class on every screen read and judged | Done |
 | B-23 | Sleek, specifically | Trigger-rendered Buttons were falling into the floor (render props replace data-slot); the floor now keys on `data-own-target`; Preview centred by transform, not zoom; column rows, navigation tiles and module chips slimmed | Done |
+| B-24 | Reports page redesign (emil-design-eng) | The report's name is the title and the switcher; one control bar on a desk, one row on a phone; the switcher is instant and grouped; catalogue cards in the house style; every press answers | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -212,3 +213,19 @@ Read and left alone, each for a reason: the 56px bottom bar and its two-line mob
 | Module chips all outlined | Only the current module is solid; the rest are ghost | The row reads as one control with one selection |
 
 Browser gate not run (owner instruction); verified through the emitted floor selector, the scale and margin steps in the CSS, and the render-prop test.
+
+### B-24 (owner: "reports page redesign, use emil-design-eng"), 22 Aug 2026
+
+The report viewer had grown five stacked control rows before the first figure — header, a filter bar, a saved-views/columns row, the caption line, a granularity/comparison row, then a table/chart toggle above the chart — and the report's own name appeared only inside an outline button that hid its label below `sm`. A phone saw "Report" with no name.
+
+| Before | After | Why |
+| --- | --- | --- |
+| The report's name lived in a "Report" switcher button in the action area, hidden below `sm` | `PageHeader` gains an identity block (eyebrow, title, description); the report's category is the eyebrow and its name is the title, and the title is the switcher (caret, Ctrl+G chip) | One element says what this is and changes it; the breadcrumb still carries the h1 |
+| Five control rows on a desk: filters, views/columns, caption, granularity/compare, view toggle | One bar: period and the report's filters left; granularity, comparison, saved views, columns and the table/chart toggle right; the comparison span and the caption line beneath it | The figures start one row sooner; what shapes the reading sits together |
+| Two rows on a phone (Filters + toggle; Views + Columns), the saved-views trigger a 28px `sm` beside 32px controls | One row: Filters, Views (bookmark only), Columns, toggle at the thumb's edge; every control 32px | One height, one row; the saved-views label steps aside where there is no room for it |
+| Ctrl+G switcher: a flat list of sixty names in an animated dialog | `instant` (keyboard-summoned, dozens of times a day); grouped by category with the category in the search text | Never animate a keyboard-initiated surface; ten lists of six read faster than one of sixty |
+| Toggle items had no press state | `active:scale-[0.97]` with `scale` in the transition list, like Button | Any pressable element answers the press |
+| Catalogue cards `rounded-lg` with a hover shadow and a custom border tint; category chips wrapped into three rows at 360px | House radius and the outline variant's own hover; the chips scroll in one row below `sm` | One system; the first report is above the fold on a phone |
+| Account-sheet tiles (from `b5b7ba1`) stacked the glyph over the label at 64px and failed the scan | The same 44px row tile the More and Customise sheets use; the scan now reads past `=>` in an earlier prop and allows `min-h-11` alone | The scan had a hole: a className after an onClick arrow was never read |
+
+Kept as it was: the export split button (Excel primary, CSV/schedule/print behind the caret, Alt+E), the filters sheet on a phone (period, filters, comparison, sort), the chart's draw-once intro, the three empty and error states. Browser gate not run (owner instruction); PageHeader has a render test, the scan and the 517-test suite are green.
