@@ -83,7 +83,11 @@
     [role='menuitem'],
     [role='menuitemradio'],
     [role='option'],
-    a[href],
+    /* A Button rendered as a Link is an <a href>; it grows its own target
+       like any Button and was the one pressable left standing in the floor,
+       which is why the dashboard's section links were 44px beside 32px
+       controls. */
+    a[href]:not([data-own-target]),
     summary,
     select,
     /* Text entry was missing from this list, which is why the employee search

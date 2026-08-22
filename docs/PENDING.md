@@ -86,6 +86,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" â€” and more rep
 | B-22 | Second look at the phone | Paper centred in Preview (zoom on the container), the form draws its own date controls, More and Customise tiles a size smaller, every tall class on every screen read and judged | Done |
 | B-23 | Sleek, specifically | Trigger-rendered Buttons were falling into the floor (render props replace data-slot); the floor now keys on `data-own-target`; Preview centred by transform, not zoom; column rows, navigation tiles and module chips slimmed | Done |
 | B-24 | Reports page redesign (emil-design-eng) | The report's name is the title and the switcher; one control bar on a desk, one row on a phone; the switcher is instant and grouped; catalogue cards in the house style; every press answers | Done |
+| B-25 | Punch is the primary action | Link-rendered Buttons leave the floor (`a[href]:not([data-own-target])`); the dashboard's Punch is solid with the fingerprint glyph the nav uses | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -229,3 +230,12 @@ The report viewer had grown five stacked control rows before the first figure â€
 | Account-sheet tiles (from `b5b7ba1`) stacked the glyph over the label at 64px and failed the scan | The same 44px row tile the More and Customise sheets use; the scan now reads past `=>` in an earlier prop and allows `min-h-11` alone | The scan had a hole: a className after an onClick arrow was never read |
 
 Kept as it was: the export split button (Excel primary, CSV/schedule/print behind the caret, Alt+E), the filters sheet on a phone (period, filters, comparison, sort), the chart's draw-once intro, the three empty and error states. Browser gate not run (owner instruction); PageHeader has a render test, the scan and the 517-test suite are green.
+
+### B-25 (owner's dashboard screenshot), 22 Aug 2026
+
+| Before | After | Why |
+| --- | --- | --- |
+| "Punch" and "Team attendance" section links drawn at 44px beside 32px controls | `a[href]:not([data-own-target])` in the floor: a Button rendered as a Link grows its own target like any Button | The one pressable B-23 left standing in the floor |
+| Punch an outline link with a trailing arrow, indistinguishable from "Team attendance" | Solid (primary) with the fingerprint glyph the navigation uses for Punch, no arrow | The day's one action reads as the one action; the same glyph everywhere it appears |
+
+Browser gate not run (owner instruction); verified through the emitted floor selector.
