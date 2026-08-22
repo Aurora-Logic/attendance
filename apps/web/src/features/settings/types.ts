@@ -1,6 +1,6 @@
 import {
   DEVICE_BINDING_MODES,
-  type DeviceBindingMode, MFA_POLICIES, appearanceSchema, type Appearance } from '@vyuha/shared';
+  type DeviceBindingMode, MFA_POLICIES, appearanceSchema, type Appearance, localeSchema, retentionSchema, type WorkspaceLocale, type RetentionPolicy } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -74,10 +74,15 @@ export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 export { appearanceSchema };
 export type { Appearance };
 
-/** REQ-B-09: who must sign in with an authenticator app. */
+/** REQ-B-09, and the sign-in window's length (owner, 22 Aug 2026). */
 export const securityPolicySchema = z.object({
   mfaPolicy: z.enum(MFA_POLICIES),
+  sessionHours: z.number().int(),
+  endSessionOnClose: z.boolean(),
 });
+
+export { localeSchema, retentionSchema };
+export type { WorkspaceLocale, RetentionPolicy };
 
 export type SecurityPolicy = z.infer<typeof securityPolicySchema>;
 
@@ -90,8 +95,17 @@ export const orgSettingsSchema = z.object({
   photo: photoPolicySchema,
   security: securityPolicySchema,
   appearance: appearanceSchema,
+  locale: localeSchema,
+  retention: retentionSchema,
   email: emailSettingsSchema,
-  enforcement: z.object({ attendance: enforcementSchema, photo: enforcementSchema, security: enforcementSchema, appearance: enforcementSchema }),
+  enforcement: z.object({
+    attendance: enforcementSchema,
+    photo: enforcementSchema,
+    security: enforcementSchema,
+    appearance: enforcementSchema,
+    locale: enforcementSchema,
+    retention: enforcementSchema,
+  }),
   unreadableKeys: z.array(z.string()),
 });
 
@@ -111,6 +125,8 @@ export interface SettingsPatch {
   photo?: Partial<PhotoPolicy>;
   security?: Partial<SecurityPolicy>;
   appearance?: Partial<Appearance>;
+  locale?: Partial<WorkspaceLocale>;
+  retention?: Partial<RetentionPolicy>;
 }
 
 export const GEOFENCE_LABELS: Record<GeofenceBehaviour, string> = {

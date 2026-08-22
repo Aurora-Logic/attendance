@@ -412,3 +412,9 @@ Built as the owner decided. Two things to know before it meets real users:
 2. **No SMS or email fallback.** The owner chose an authenticator app; a lost phone is answered by the ten recovery codes and the Admin reset. If a fallback is ever wanted, the challenge table already carries what a second method would need.
 
 Recommended default: ship as is; add the last-step column in the next auth increment.
+
+## Audit-trail retention (22 Aug 2026, from the appearance brief's "data retention: exports and audit trail")
+
+Not built, on purpose. `audit_logs` carries the `vyuha_forbid_mutation` trigger: the database refuses UPDATE and DELETE on the trail, which is the product's tamper-evidence guarantee (a purge attempt in the test suite was refused by it). A retention policy that deleted trail entries would need that guarantee loosened -- a SECURITY DEFINER path the trigger lets through -- and that is a decision about what the trail promises, for the owner and counsel, not a setting.
+
+Recommended default: keep the trail append-only; if storage ever matters, add "archive older than N months to cold storage and keep a hash chain" rather than deletion. Export retention (the download tray) is a setting and is built.

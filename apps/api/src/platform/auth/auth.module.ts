@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SettingsModule } from '../settings/settings.module.js';
 
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
@@ -19,6 +20,7 @@ import { SessionService } from './session.service.js';
  * work also owns the consumer of it.
  */
 @Module({
+  imports: [SettingsModule],
   controllers: [AuthController],
   providers: [
     AuthService,

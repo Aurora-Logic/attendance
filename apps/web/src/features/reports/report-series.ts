@@ -1,3 +1,4 @@
+import { currencySymbol, formatCount } from '@/lib/format';
 import type { ReportCellValue, ReportColumnSpec, ReportDefinition, ReportKey } from '@vyuha/shared';
 
 /**
@@ -35,9 +36,9 @@ function text(value: ReportCellValue | undefined): string {
   return typeof value === 'string' ? value : '';
 }
 
-/** en-IN grouping for an insight figure that is read, never computed on. */
+/** A headline figure, grouped the way the workspace writes numbers (lib/format). */
 export function inr(value: number): string {
-  return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(value);
+  return formatCount(value);
 }
 
 // ---------------------------------------------------------------- sales analysis
@@ -186,7 +187,7 @@ export function lapseSeries(rows: readonly ChartRow[]): { points: LapsePoint[]; 
   const lapsed = points.filter((p) => p.state === 'LAPSED').length;
   return {
     points,
-    insight: `₹${inr(atRisk)} of last year's revenue is going quiet — ${String(lapsed)} of these ${String(points.length)} customers have fully lapsed.`,
+    insight: `${currencySymbol()}${inr(atRisk)} of last year's revenue is going quiet — ${String(lapsed)} of these ${String(points.length)} customers have fully lapsed.`,
   };
 }
 

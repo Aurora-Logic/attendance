@@ -74,7 +74,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<LoginOutcome> {
     const result = await this.auth.login(body, requestContext(req), readTrustCookie(req));
-    if (result.refreshToken !== null) setRefreshCookie(res, result.refreshToken);
+    if (result.refreshToken !== null) setRefreshCookie(res, result.refreshToken, result.cookieMaxAgeMs);
     return result.response;
   }
 
@@ -88,7 +88,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<LoginResponse> {
     const result = await this.auth.completeMfa(body.challengeToken, body.code, body.trustDevice, requestContext(req));
-    if (result.refreshToken !== null) setRefreshCookie(res, result.refreshToken);
+    if (result.refreshToken !== null) setRefreshCookie(res, result.refreshToken, result.cookieMaxAgeMs);
     if (result.trustToken) setTrustCookie(res, result.trustToken);
     if (isMfaChallenge(result.response)) {
       // completeMfa never answers with a second challenge; the type allows it.
@@ -160,7 +160,7 @@ export class AuthController {
     const presented = readRefreshCookie(req) ?? '';
     try {
       const result = await this.auth.refresh(presented, requestContext(req));
-      setRefreshCookie(res, result.refreshToken);
+      setRefreshCookie(res, result.refreshToken, result.cookieMaxAgeMs);
       return result.response;
     } catch (error: unknown) {
       // Whatever went wrong, the cookie the browser holds is now worthless --

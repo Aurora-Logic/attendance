@@ -19,7 +19,7 @@ export const REFRESH_COOKIE_NAME = 'vyuha_refresh';
 /** The auth routes are the only ones that ever need it. */
 const COOKIE_PATH = `${API_PREFIX_PATH}/auth`;
 
-export function refreshCookieOptions(): CookieOptions {
+export function refreshCookieOptions(maxAgeMs: number | null = env.JWT_REFRESH_TTL_SECONDS * 1000): CookieOptions {
   return {
     httpOnly: true,
     // Over plain HTTP in development the cookie would simply never be stored.
@@ -31,12 +31,14 @@ export function refreshCookieOptions(): CookieOptions {
     // environment (site is registrable domain; the port does not matter).
     sameSite: 'strict',
     path: COOKIE_PATH,
-    maxAge: env.JWT_REFRESH_TTL_SECONDS * 1000,
+    // Null is a session cookie: the organisation ends sign-ins when the
+    // browser closes (owner, 22 Aug 2026); the row still expires on its own.
+    ...(maxAgeMs === null ? {} : { maxAge: maxAgeMs }),
   };
 }
 
-export function setRefreshCookie(res: Response, token: string): void {
-  res.cookie(REFRESH_COOKIE_NAME, token, refreshCookieOptions());
+export function setRefreshCookie(res: Response, token: string, maxAgeMs?: number | null): void {
+  res.cookie(REFRESH_COOKIE_NAME, token, refreshCookieOptions(maxAgeMs));
 }
 
 /**

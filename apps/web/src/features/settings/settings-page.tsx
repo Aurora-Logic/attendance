@@ -43,7 +43,7 @@ import {
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS } from '@vyuha/shared';
+import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS, NUMBER_FORMATS, NUMBER_FORMAT_LABELS, CURRENCY_SYMBOLS, SESSION_HOURS_MIN, SESSION_HOURS_MAX } from '@vyuha/shared';
 
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
@@ -67,7 +67,7 @@ import {
   type OrgProfile,
   type OrgSettings,
   type PhotoPolicy,
-  type SettingsPatch, type SecurityPolicy, type Appearance } from './types';
+  type SettingsPatch, type SecurityPolicy, type Appearance, type WorkspaceLocale, type RetentionPolicy } from './types';
 import { useAccessWindowDraft, useSaveAccessWindow } from './use-access-window';
 import { useOfficeGeofence, useSaveGeofence } from './use-office-location';
 import { useSaveSettings, useSettings, useTestEmail } from './use-settings';
@@ -98,6 +98,8 @@ interface Draft {
   photo: PhotoPolicy;
   security: SecurityPolicy;
   appearance: Appearance;
+  locale: WorkspaceLocale;
+  retention: RetentionPolicy;
 }
 
 function draftOf(settings: OrgSettings): Draft {
@@ -107,6 +109,8 @@ function draftOf(settings: OrgSettings): Draft {
     photo: settings.photo,
     security: settings.security,
     appearance: settings.appearance,
+    locale: settings.locale,
+    retention: settings.retention,
   };
 }
 
@@ -137,6 +141,8 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
   if (!sameGroup(draft.photo, saved.photo)) patch.photo = draft.photo;
   if (!sameGroup(draft.security, saved.security)) patch.security = draft.security;
   if (!sameGroup(draft.appearance, saved.appearance)) patch.appearance = draft.appearance;
+  if (!sameGroup(draft.locale, saved.locale)) patch.locale = draft.locale;
+  if (!sameGroup(draft.retention, saved.retention)) patch.retention = draft.retention;
 
   return patch;
 }
@@ -360,6 +366,12 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
   function patchAppearance(next: Partial<Appearance>) {
     setDraft((current) => (current === null ? current : { ...current, appearance: { ...current.appearance, ...next } }));
   }
+  function patchLocale(next: Partial<WorkspaceLocale>) {
+    setDraft((current) => (current === null ? current : { ...current, locale: { ...current.locale, ...next } }));
+  }
+  function patchRetention(next: Partial<RetentionPolicy>) {
+    setDraft((current) => (current === null ? current : { ...current, retention: { ...current.retention, ...next } }));
+  }
   function patchSecurity(next: Partial<SecurityPolicy>) {
     setDraft((current) => (current === null ? current : { ...current, security: { ...current.security, ...next } }));
   }
@@ -501,6 +513,7 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
         </TabsList>
 
         <TabsContent value="organisation">
+          <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 border p-4">
             <SectionHeading
               title="Organisation profile"
@@ -584,6 +597,52 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                 }}
               />
             </FieldGroup>
+          </div>
+
+          <div className="flex flex-col gap-4 border p-4">
+            <SectionHeading title="Numbers and money" note="How every figure is written on screen and in exports." />
+            <FieldGroup className="grid gap-5 md:grid-cols-2">
+              <PolicyChoiceField
+                id="org-number-format"
+                label="Grouping"
+                value={draft.locale.numberFormat}
+                options={NUMBER_FORMATS.map((value) => ({ value, label: NUMBER_FORMAT_LABELS[value] }))}
+                enforcedBy={saved.enforcement.locale.numberFormat}
+                onValueChange={(next) => {
+                  patchLocale({ numberFormat: next });
+                }}
+              />
+              <PolicyChoiceField
+                id="org-currency"
+                label="Currency symbol"
+                value={draft.locale.currencySymbol}
+                options={CURRENCY_SYMBOLS.map((value) => ({ value, label: value }))}
+                enforcedBy={saved.enforcement.locale.currencySymbol}
+                onValueChange={(next) => {
+                  patchLocale({ currencySymbol: next });
+                }}
+              />
+            </FieldGroup>
+          </div>
+
+          <div className="flex flex-col gap-4 border p-4">
+            <SectionHeading title="Data retention" note="Punch photos have their own retention under Attendance. The audit trail is append-only and is not retained by policy." />
+            <FieldGroup className="grid gap-5 md:grid-cols-2">
+              <PolicyNumberField
+                id="retention-exports"
+                label="Keep downloads for"
+                unit="days"
+                help="An export in the Downloads tray is removed after this."
+                min={1}
+                max={365}
+                value={draft.retention.exportsDays}
+                enforcedBy={saved.enforcement.retention.exportsDays}
+                onValueChange={(next) => {
+                  patchRetention({ exportsDays: next });
+                }}
+              />
+            </FieldGroup>
+          </div>
           </div>
         </TabsContent>
 
@@ -825,6 +884,35 @@ function SettingsForm({ saved, canSales, canPurchase }: { saved: OrgSettings; ca
                     A person whose role is named here is asked to set up the app at their next sign-in, before any screen.
                   </FieldDescription>
                 </PolicyChoiceField>
+              </FieldGroup>
+            </div>
+
+            <div className="flex flex-col gap-4 border p-4">
+              <SectionHeading title="Sessions" note="How long a sign-in lasts, and whether closing the browser ends it." />
+              <FieldGroup className="grid gap-5 md:grid-cols-2">
+                <PolicyNumberField
+                  id="policy-session-hours"
+                  label="A sign-in lasts"
+                  unit="hours"
+                  help="Renewed by use: an active person is not signed out mid-shift. 720 is thirty days."
+                  min={SESSION_HOURS_MIN}
+                  max={SESSION_HOURS_MAX}
+                  value={draft.security.sessionHours}
+                  enforcedBy={saved.enforcement.security.sessionHours}
+                  onValueChange={(next) => {
+                    patchSecurity({ sessionHours: next });
+                  }}
+                />
+                <PolicyToggleField
+                  id="policy-session-close"
+                  label="Sign out when the browser closes"
+                  help="The sign-in cookie lasts the browser session instead of the hours above. A shared computer wants this on."
+                  value={draft.security.endSessionOnClose}
+                  enforcedBy={saved.enforcement.security.endSessionOnClose}
+                  onValueChange={(next) => {
+                    patchSecurity({ endSessionOnClose: next });
+                  }}
+                />
               </FieldGroup>
             </div>
             <AccessWindowPanel window={accessWindow} saveError={saveWindow.error} />

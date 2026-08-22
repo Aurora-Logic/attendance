@@ -1,3 +1,4 @@
+import { currencySymbol } from '@/lib/format';
 import { ArrowRightIcon, ChartBarIcon, HourglassMediumIcon, LockKeyIcon, PackageIcon, SunHorizonIcon, TrendDownIcon, WarningCircleIcon } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router';
 
@@ -142,7 +143,7 @@ export function ReportsDashboardPage() {
           <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
             <StatTile
               label="Revenue this FY"
-              value={`₹${inr(fyNow)}`}
+              value={`${currencySymbol()}${inr(fyNow)}`}
               hint={fyDelta.label === 'new' ? 'All of it new against last FY to date' : fyDelta.pct === null ? 'No sales either FY to date' : `${fyDelta.direction === 'down' ? '' : '+'}${String(fyDelta.pct)}% vs last FY to date (₹${inr(fyThen)})`}
               icon={<ChartBarIcon />}
               tone={fyDelta.direction === 'down' ? 'bad' : undefined}
@@ -152,7 +153,7 @@ export function ReportsDashboardPage() {
             />
             <StatTile
               label="Receivables exposure"
-              value={`₹${inr(exposure)}`}
+              value={`${currencySymbol()}${inr(exposure)}`}
               hint={`${String(credit.data?.meta.total ?? 0)} debtors, from the credit cycle`}
               icon={<ChartBarIcon />}
               onOpen={() => {
@@ -171,7 +172,7 @@ export function ReportsDashboardPage() {
             />
             <StatTile
               label="Revenue going quiet"
-              value={`₹${inr(atRisk)}`}
+              value={`${currencySymbol()}${inr(atRisk)}`}
               hint="Last 12 months' revenue of lapsed and at-risk customers"
               icon={<TrendDownIcon />}
               tone={atRisk > 0 ? 'warn' : undefined}
@@ -181,7 +182,7 @@ export function ReportsDashboardPage() {
             />
             <StatTile
               label="Dead stock value"
-              value={`₹${inr(deadValue)}`}
+              value={`${currencySymbol()}${inr(deadValue)}`}
               hint={`${String(dead.data?.meta.total ?? 0)} items with no sale in 90 days`}
               icon={<PackageIcon />}
               tone={deadValue > 0 ? 'warn' : undefined}

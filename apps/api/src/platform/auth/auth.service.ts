@@ -94,6 +94,8 @@ const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
 export interface LoginResult {
   readonly response: LoginOutcome;
   readonly refreshToken: string | null;
+  /** The refresh cookie's life; null is a session cookie. */
+  readonly cookieMaxAgeMs?: number | null;
   /** Set when the code step asked for this browser to be remembered. */
   readonly trustToken?: string | null;
 }
@@ -101,6 +103,7 @@ export interface LoginResult {
 export interface RefreshResult {
   readonly response: LoginResponse;
   readonly refreshToken: string;
+  readonly cookieMaxAgeMs: number | null;
 }
 
 /**
@@ -290,6 +293,7 @@ export class AuthService {
 
     return {
       refreshToken: session.refreshToken,
+      cookieMaxAgeMs: session.cookieMaxAgeMs,
       response: await this.accessResponse(user.orgId, user.id, user.email, session.sessionId),
     };
   }
@@ -444,6 +448,7 @@ export class AuthService {
 
     return {
       refreshToken: rotated.refreshToken,
+      cookieMaxAgeMs: rotated.cookieMaxAgeMs,
       response: await this.accessResponse(
         principal.orgId,
         principal.userId,

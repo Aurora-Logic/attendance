@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { SettingsController } from './settings.controller.js';
 import { SettingsService } from './settings.service.js';
+import { WorkspacePolicyReader } from './workspace-policy.reader.js';
 
 /**
  * Organisation settings (REQ-L-01 to REQ-L-05).
@@ -17,7 +18,7 @@ import { SettingsService } from './settings.service.js';
  */
 @Module({
   controllers: [SettingsController],
-  providers: [SettingsService],
-  exports: [SettingsService],
+  providers: [SettingsService, WorkspacePolicyReader],
+  exports: [SettingsService, WorkspacePolicyReader],
 })
 export class SettingsModule {}

@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  EXPORT_RETENTION_DAYS,
   MAX_EXPORT_ROWS,
   PERMISSIONS,
   REPORT_DEFINITIONS,
@@ -24,6 +23,8 @@ import {
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { DEFAULT_RETENTION_POLICY, RETENTION_SETTINGS, retentionPolicySchema } from '../settings/settings.catalogue.js';
+import { WorkspacePolicyReader } from '../settings/workspace-policy.reader.js';
 import { AuditContext } from '../audit/audit-context.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AppError, describeError } from '../common/errors.js';
@@ -113,6 +114,7 @@ export class ExportService {
     private readonly jobs: JobRunner,
     private readonly principals: PrincipalService,
     private readonly auditContext: AuditContext,
+    private readonly policies: WorkspacePolicyReader,
     private readonly audit: AuditService,
   ) {}
 
@@ -428,6 +430,7 @@ export class ExportService {
     }
 
     const bytes = await writer.finish();
+    const retention = await this.policies.read(row.orgId, retentionPolicySchema, RETENTION_SETTINGS, DEFAULT_RETENTION_POLICY);
     const stored = await this.filesService.storeDocument({
       orgId: row.orgId,
       createdBy: row.requestedBy,
@@ -437,7 +440,7 @@ export class ExportService {
       extension: writer.extension,
       // REQ-J-03's seven days. The existing purge job reads this column, so
       // retention needs nothing of its own here.
-      expiresAt: new Date(Date.now() + EXPORT_RETENTION_DAYS * MILLISECONDS_PER_DAY),
+      expiresAt: new Date(Date.now() + retention.exportsDays * MILLISECONDS_PER_DAY),
     });
 
     const finishedAt = new Date();

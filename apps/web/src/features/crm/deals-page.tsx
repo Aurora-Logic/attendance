@@ -21,7 +21,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { useManagerOptions } from '@/features/employees/use-employee-mutations';
 import { useTaskViewStore, type TaskViewMode } from '@/features/tasks/task-view-store';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatAmount } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { cn } from '@/lib/utils';
@@ -67,14 +67,11 @@ function stageIcon(stage: { isWon: boolean; isLost: boolean; probability: number
   return <CircleDashedIcon className={className} />;
 }
 
-/** en-IN grouping (last three, then twos) for a figure that is read, never computed on. */
+/** A deal's value, written the way the workspace writes figures; a whole rupee stays whole. */
 function formatValue(value: string | null): string {
   if (value === null) return EMPTY_VALUE;
-  const [whole = '0', fraction] = value.split('.');
-  const last3 = whole.slice(-3);
-  const rest = whole.slice(0, -3);
-  const grouped = rest === '' ? last3 : `${rest.replace(/\B(?=(\d{2})+(?!\d))/gu, ',')},${last3}`;
-  return fraction === undefined || /^0*$/u.test(fraction) ? grouped : `${grouped}.${fraction.padEnd(2, '0').slice(0, 2)}`;
+  const amount = formatAmount(value);
+  return amount.endsWith('.00') ? amount.slice(0, -3) : amount;
 }
 
 const COLUMNS: RecordColumn<Deal>[] = [

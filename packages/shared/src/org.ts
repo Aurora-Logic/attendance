@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { Appearance } from './appearance.js';
+import type { WorkspaceLocale } from './workspace.js';
 
 import type { AgentCondition } from './sync.js';
 
@@ -273,6 +274,8 @@ export interface OrgBranding {
   readonly logoUrlExpiresInSeconds: number | null;
   /** The workspace's accent, base and density, so the shell colours itself before any screen mounts. */
   readonly appearance: Appearance;
+  /** How figures are written everywhere: grouping and the currency symbol. */
+  readonly locale: WorkspaceLocale;
 }
 
 // ---------------------------------------------------------------------------

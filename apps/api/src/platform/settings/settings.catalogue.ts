@@ -1,4 +1,20 @@
-import { DEFAULT_APPEARANCE, DEFAULT_MFA_POLICY, DEVICE_BINDING_MODES, MFA_POLICIES, appearanceSchema, type Appearance } from '@vyuha/shared';
+import {
+  DEFAULT_APPEARANCE,
+  DEFAULT_LOCALE,
+  DEFAULT_MFA_POLICY,
+  DEFAULT_RETENTION,
+  DEFAULT_SESSION_HOURS,
+  DEVICE_BINDING_MODES,
+  MFA_POLICIES,
+  SESSION_HOURS_MAX,
+  SESSION_HOURS_MIN,
+  appearanceSchema,
+  localeSchema,
+  retentionSchema,
+  type Appearance,
+  type RetentionPolicy,
+  type WorkspaceLocale,
+} from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -203,13 +219,45 @@ export const SECURITY_SETTINGS = {
     help: 'Which roles must sign in with an authenticator app (REQ-B-09).',
     enforcedBy: 'Sign-in',
   },
+  // Owner, 22 Aug 2026: the refresh window per organisation, and whether
+  // the cookie outlives the browser. Read by SessionService at sign-in and
+  // at every rotation, so a change takes effect from the next request.
+  sessionHours: {
+    key: 'security.session_hours',
+    help: 'How long a sign-in lasts, renewed by use.',
+    enforcedBy: 'Sign-in',
+  },
+  endSessionOnClose: {
+    key: 'security.end_session_on_close',
+    help: 'Whether closing the browser ends the sign-in.',
+    enforcedBy: 'Sign-in',
+  },
 } as const satisfies Record<string, SettingDescriptor>;
 
 export const securityPolicySchema = z.object({
   mfaPolicy: z.enum(MFA_POLICIES),
+  sessionHours: z.number().int().min(SESSION_HOURS_MIN).max(SESSION_HOURS_MAX),
+  endSessionOnClose: z.boolean(),
 });
 export type SecurityPolicy = z.infer<typeof securityPolicySchema>;
-export const DEFAULT_SECURITY_POLICY: SecurityPolicy = { mfaPolicy: DEFAULT_MFA_POLICY };
+export const DEFAULT_SECURITY_POLICY: SecurityPolicy = { mfaPolicy: DEFAULT_MFA_POLICY, sessionHours: DEFAULT_SESSION_HOURS, endSessionOnClose: false };
+
+/** How every figure is written; rides with the branding read so every client agrees. */
+export const LOCALE_SETTINGS = {
+  numberFormat: { key: 'locale.number_format', help: 'Lakh-and-crore or thousands grouping.', enforcedBy: 'Every figure' },
+  currencySymbol: { key: 'locale.currency_symbol', help: 'The symbol before an amount.', enforcedBy: 'Every figure' },
+} as const satisfies Record<string, SettingDescriptor>;
+export const localePolicySchema = localeSchema;
+export type LocalePolicy = WorkspaceLocale;
+export const DEFAULT_LOCALE_POLICY: LocalePolicy = DEFAULT_LOCALE;
+
+/** How long what the system keeps is kept; punch photos have their own row under attendance. */
+export const RETENTION_SETTINGS = {
+  exportsDays: { key: 'retention.exports_days', help: 'Days a download stays in the tray.', enforcedBy: 'Exports' },
+} as const satisfies Record<string, SettingDescriptor>;
+export const retentionPolicySchema = retentionSchema;
+export type RetentionPolicyRow = RetentionPolicy;
+export const DEFAULT_RETENTION_POLICY: RetentionPolicy = DEFAULT_RETENTION;
 
 /**
  * Owner, 22 Aug 2026: the accent and the base are the workspace's, light
@@ -234,6 +282,8 @@ export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(PHOTO_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(SECURITY_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(APPEARANCE_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(LOCALE_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(RETENTION_SETTINGS).map((descriptor) => descriptor.key),
 ]);
 
 /**

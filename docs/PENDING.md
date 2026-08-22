@@ -99,6 +99,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-30 | Consent line, legal pages, identity tints | The consent sentence reads as one quiet line with hairline links; the legal pages are a composed reading layout (contents rail, 65ch measure, numbered sections, first-paint rise); eight `--tint-*` tokens in both modes replace raw Tailwind palettes on people, deal stages and task columns | Done (1 of 4 in the appearance brief) |
 | B-31 | Appearance: accent, base, density per workspace | Four variables the theme derives itself from; eight accent presets plus any hue, three bases, two densities; applied by the shell from the branding read; a Settings tab whose preview is the page itself | Done (2 of 4 in the appearance brief) |
 | B-32 | One Settings screen | Every module's settings under one screen, one tab each: Organisation, Appearance, Office location, Attendance (with punch photos), Sales, Purchase, Documents, Email, Security & access; the tab is in the URL; the Sales and Purchase list pages link to their tab; an approver without settings.manage sees only their tabs | Done (3 of 4 in the appearance brief) |
+| B-33 | Workspace globals | Number grouping and currency symbol for every figure; the sign-in window and end-on-close per organisation; download-tray retention; audit-trail retention withdrawn because the trail is append-only by design (OPEN-QUESTIONS) | Done (4 of 4 in the appearance brief) |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -307,3 +308,16 @@ Density scales Tailwind's `--spacing` by a fifth; type keeps its size and the 44
 | Settings was closed to anyone without settings.manage, which would have taken the thresholds away from the approvers who own them | An approver without settings.manage sees a Settings screen with only their tabs | Consolidation must not cost anyone access they had |
 
 Tests: 540 web tests, eslint clean on the changed files, a direct Vite build. The whole-package typecheck is blocked by the other session's uncommitted sales edits (dispatch-sections, scan-page); this increment's files typecheck. Browser gate not run (owner instruction).
+
+### B-33 (appearance brief, part 4: the globals the owner picked), 22 Aug 2026
+
+| Before | After | Why |
+| --- | --- | --- |
+| Indian grouping and the rupee sign hard-coded in three formatters and four report tiles | `locale.number_format` and `locale.currency_symbol` as settings, carried on the branding read; one formatter in lib/format (`formatAmount`, `formatCount`, `currencySymbol`) that every figure goes through | Every figure agrees with Settings, on screen and in a headline |
+| The sign-in window was one env value for every organisation; the cookie always outlived the browser | `security.session_hours` and `security.end_session_on_close`; the session service reads them at sign-in and at every rotation (the env value is the ceiling); the cookie lasts the window, or the browser session | A shared computer wants sign-out on close; a desk wants thirty days |
+| The download tray kept a file for a constant seven days | `retention.exports_days`, read when the export is written | A setting, not a constant |
+| -- | `WorkspacePolicyReader`: one way to read an organisation's policy group without a principal, used by sessions and exports | The settings screen's catalogue, defaults and per-field repair, reused rather than copied |
+
+Withdrawn, and why: audit-trail retention. `audit_logs` is append-only at the database (`vyuha_forbid_mutation`, migration 0002); the purge the test suite tried was refused by the trigger. Loosening that is a decision about what the trail promises, recorded in OPEN-QUESTIONS with a recommended default.
+
+Tests: the session window and end-on-close over real HTTP (a two-hour window expires the row in two hours; the cookie loses Max-Age; restored after), the catalogue agreement for the new groups, the number-format unit test, 1822 API tests and 542 web tests. Browser gate not run (owner instruction).

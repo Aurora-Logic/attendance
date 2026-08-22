@@ -5,7 +5,7 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { appearanceSchema } from '@vyuha/shared';
+import { appearanceSchema, localeSchema } from '@vyuha/shared';
 import { z } from 'zod';
 
 import { parseOrThrow } from '@/features/attendance/api';
@@ -32,6 +32,8 @@ const brandingSchema = z.object({
   logoUrlExpiresInSeconds: z.number().nullable(),
   /** Absent on a server from before it existed; the shell then keeps the shipped theme. */
   appearance: appearanceSchema.optional(),
+  /** Absent on a server from before it existed; figures then group the Indian way. */
+  locale: localeSchema.optional(),
 });
 
 export type Branding = z.infer<typeof brandingSchema>;
