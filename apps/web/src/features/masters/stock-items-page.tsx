@@ -112,7 +112,7 @@ export function StockItemsPage() {
     };
   }, [draft, q, setSearchParams]);
 
-  const query = useStockItems({ page, ...(q ? { q } : {}) }, { enabled: canView });
+  const query = useStockItems({ page, ...(q ? { q } : {}) }, { enabled: canView, prefetchNext: true });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
 

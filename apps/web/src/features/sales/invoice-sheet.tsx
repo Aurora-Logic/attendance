@@ -158,8 +158,6 @@ function InvoiceSheetBody({ invoice, onClose }: { invoice: Estimate; onClose: ()
             lines={lines}
             onLinesChange={() => undefined}
             editable={false}
-            itemOptions={[]}
-            itemsLoading={false}
             canPickItems={false}
             partyId={invoice.partyId}
             companyId={invoice.companyId}

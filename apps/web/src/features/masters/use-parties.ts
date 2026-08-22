@@ -1,5 +1,6 @@
 import { duplicateFlagSchema } from '@/components/shared/duplicate-flag';
-import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { z } from 'zod';
 
 import { parseOrThrow } from '@/lib/api/parse';
@@ -52,27 +53,50 @@ export interface PartiesFilters {
   parentGroup?: string;
 }
 
-export function useParties(
-  filters: PartiesFilters,
-  options: { enabled?: boolean } = {},
-): UseQueryResult<PartiesResponse, Error> {
+function partiesQuery(filters: PartiesFilters) {
   const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize ?? 25) });
   if (filters.q) params.set('q', filters.q);
   if (filters.parentGroup) params.set('parentGroup', filters.parentGroup);
   const key = params.toString();
-
-  return useQuery({
-    enabled: options.enabled ?? true,
-    queryKey: ['masters', 'parties', key],
-    queryFn: async ({ signal }) => {
+  return {
+    queryKey: ['masters', 'parties', key] as const,
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const body = await apiRequest<unknown>(`/masters/parties?${key}`, { signal });
       return parseOrThrow(partiesResponseSchema, body, 'party list');
     },
+  };
+}
+
+export function useParties(
+  filters: PartiesFilters,
+  options: { enabled?: boolean; prefetchNext?: boolean } = {},
+): UseQueryResult<PartiesResponse, Error> {
+  const enabled = options.enabled ?? true;
+  const client = useQueryClient();
+  const query = useQuery({
+    enabled,
+    ...partiesQuery(filters),
     placeholderData: keepPreviousData,
     // The projection changes when a pull lands, minutes apart at most
     // (REQ-R-07); a fresh page navigation re-reads regardless.
     staleTime: 60_000,
   });
+
+  // A register that pages fetches the next page while this one is read, so the
+  // click paints from cache rather than a spinner. Opt-in: a picker reads only
+  // page one and must not spend a request pre-loading a page nobody scrolls to.
+  const meta = query.data?.meta;
+  const hasNext = meta !== undefined && meta.page * meta.pageSize < meta.total;
+  const { page, q, parentGroup, pageSize } = filters;
+  useEffect(() => {
+    if (!options.prefetchNext || !enabled || !hasNext) return;
+    void client.prefetchQuery({
+      ...partiesQuery({ page: page + 1, ...(q ? { q } : {}), ...(parentGroup ? { parentGroup } : {}), ...(pageSize ? { pageSize } : {}) }),
+      staleTime: 60_000,
+    });
+  }, [client, options.prefetchNext, enabled, hasNext, page, q, parentGroup, pageSize]);
+
+  return query;
 }
 
 /** One party, for a page that prints its address and GSTIN under the buyer's name. */

@@ -6,8 +6,6 @@ import { PersonChip } from '@/components/shared/person';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { Form } from '@/components/shared/form';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
-import { duplicateWarning } from '@/components/shared/duplicate-flag';
-import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
@@ -25,21 +23,19 @@ import { BrokenPromiseNote } from '@/features/collections/broken-promise-note';
 import { DateField } from '@/features/attendance/pickers';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { useParties } from '@/features/masters/use-parties';
-import { useStockItems } from '@/features/masters/use-stock-items';
+import { PartyPicker } from '@/features/masters/party-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { EMPTY_VALUE, formatDate, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { DISPATCH_MODE_LABELS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SYNC_STATE_LABELS } from '@vyuha/shared';
 
 import { DispatchDialog } from './dispatch-dialog';
-import { DocumentLinesEditor, type StockItemOption } from './document-lines-editor';
+import { DocumentLinesEditor } from './document-lines-editor';
 import { FulfilmentBadge } from './fulfilment-badge';
 import { fulfilmentProgress } from './fulfilment-progress';
 import { FulfilmentSteps } from './fulfilment-steps';
 import { InvoiceDialog } from './invoice-dialog';
-import { formatMoney } from './money';
 import { PickPackDialog } from './pick-pack-dialog';
 import { ORDER_INVOICE_METHOD_LABELS, WAITING_ON_STATE_LABELS, lineBalances, trimZeros, type Estimate, type EstimateDraft, type SalesLine } from './types';
 import { creditBlockOf } from './credit-block';
@@ -155,22 +151,10 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
   const canCreate = usePermission(PERMISSIONS.SALES_DOCUMENT_CREATE);
   const canOverrideCredit = usePermission(PERMISSIONS.SALES_CREDIT_OVERRIDE);
   const canSeeMasters = usePermission(PERMISSIONS.MASTERS_TALLY_VIEW);
-  const parties = useParties({ page: 1 }, { enabled: canSeeMasters });
-  const items = useStockItems({ page: 1 }, { enabled: canSeeMasters });
   const isNew = initial.id === undefined;
   const isDraft = draft.status === 'DRAFT';
   const editable = isDraft || altering;
 
-  const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
-  const itemOptions: StockItemOption[] = (items.data?.data ?? []).map((i) => ({
-    id: i.id,
-    ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}),
-    label: i.name,
-    hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
-    unit: i.unit,
-    salePrice: i.salePrice ?? null,
-    gstRate: i.gstRate,
-  }));
   const partyMissing = draft.partyId === null;
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   const busy = save.isPending || alter.isPending || act.isPending;
@@ -340,19 +324,16 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="order-party">Tally party</FieldLabel>
-              <RecordPicker
+              <PartyPicker
                 id="order-party"
                 label="Tally party"
                 placeholder="Choose the party"
-                searchPlaceholder="Search parties"
-                emptyMessage="No party matches. A prospect must become a party in Tally first."
                 icon={<BooksIcon className="text-muted-foreground" />}
-                options={partyOptions}
-                loading={parties.isPending}
+                enabled={canSeeMasters}
                 disabled={!editable || !canSeeMasters}
-                value={partyOptions.find((o) => o.id === draft.partyId) ?? null}
+                partyId={draft.partyId}
                 onValueChange={(next) => {
-                  setDraft((current) => ({ ...current, partyId: next?.id ?? null, customerName: next?.label ?? current.customerName }));
+                  setDraft((current) => ({ ...current, partyId: next?.id ?? null, customerName: next?.name ?? current.customerName }));
                 }}
               />
             </Field>
@@ -377,8 +358,6 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
               setDraft((current) => ({ ...current, lines: next }));
             }}
             editable={editable}
-            itemOptions={itemOptions}
-            itemsLoading={items.isPending}
             canPickItems={canSeeMasters}
             partyId={draft.partyId}
             companyId={draft.companyId}

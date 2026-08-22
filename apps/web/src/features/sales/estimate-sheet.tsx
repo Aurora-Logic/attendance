@@ -22,14 +22,14 @@ import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { useCompanyOptions } from '@/features/crm/use-crm';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
-import { useStockItems } from '@/features/masters/use-stock-items';
+import { PartyPicker } from '@/features/masters/party-picker';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { formatMoney } from '@/lib/format';
 import { ShortcutLayer, useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { ESTIMATE_TRANSITIONS, PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, isEstimateStatus, type EstimateStatus } from '@vyuha/shared';
 
-import { DocumentLinesEditor, type StockItemOption } from './document-lines-editor';
-import { formatMoney } from './money';
+import { DocumentLinesEditor } from './document-lines-editor';
 import type { Estimate, EstimateDraft } from './types';
 import { useConvertEstimate, useDeleteEstimate, useSaveEstimate, useSetEstimateStatus } from './use-estimates';
 
@@ -82,21 +82,11 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
   const canSeeCompanies = usePermission(PERMISSIONS.CRM_CONTACT_VIEW_SELF);
   const parties = useParties({ page: 1 }, { enabled: canSeeParties });
   const companies = useCompanyOptions({ enabled: canSeeCompanies });
-  const items = useStockItems({ page: 1 }, { enabled: canSeeParties });
   const isNew = initial.id === undefined;
   const editable = draft.status === 'DRAFT';
 
   const partyOptions: PickerOption[] = (parties.data?.data ?? []).map((p) => ({ id: p.id, label: p.name, ...(p.gstin === null ? {} : { hint: p.gstin }), ...(p.duplicate ? { warning: duplicateWarning(p.duplicate) } : {}) }));
   const companyOptions: PickerOption[] = (companies.data ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.city === null ? {} : { hint: c.city }) }));
-  const itemOptions: StockItemOption[] = (items.data?.data ?? []).map((i) => ({
-    id: i.id,
-    ...(i.duplicate ? { warning: duplicateWarning(i.duplicate) } : {}),
-    label: i.name,
-    hint: [i.unit, i.salePrice === null || i.salePrice === undefined ? null : `@ ${i.salePrice}`].filter((p): p is string => p !== null).join(' '),
-    unit: i.unit,
-    salePrice: i.salePrice ?? null,
-    gstRate: i.gstRate,
-  }));
   const pick = (options: PickerOption[], id: string | null) => options.find((o) => o.id === id) ?? null;
 
   // Raised from a record (deal, company, party) the name arrives with the
@@ -168,21 +158,18 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
             {canSeeParties ? (
               <Field>
                 <FieldLabel htmlFor="estimate-party">Tally party</FieldLabel>
-                <RecordPicker
+                <PartyPicker
                   id="estimate-party"
                   label="Tally party"
                   placeholder="Not a party yet"
-                  searchPlaceholder="Search parties"
-                  emptyMessage="No party matches. A prospect can be a company or a name."
                   icon={<BooksIcon className="text-muted-foreground" />}
-                  options={partyOptions}
-                  loading={parties.isPending}
+                  enabled={canSeeParties}
                   clearable
                   clearLabel="Not a party yet"
                   disabled={!editable}
-                  value={pick(partyOptions, draft.partyId)}
+                  partyId={draft.partyId}
                   onValueChange={(next) => {
-                    setDraft((current) => ({ ...current, partyId: next?.id ?? null, customerName: next?.label ?? current.customerName }));
+                    setDraft((current) => ({ ...current, partyId: next?.id ?? null, customerName: next?.name ?? current.customerName }));
                   }}
                 />
               </Field>
@@ -292,8 +279,6 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
               setDraft((current) => ({ ...current, lines: next }));
             }}
             editable={editable}
-            itemOptions={itemOptions}
-            itemsLoading={items.isPending}
             canPickItems={canSeeParties}
             partyId={draft.partyId}
             companyId={draft.companyId}

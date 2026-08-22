@@ -66,6 +66,16 @@ interface RecordPickerProps {
   id?: string;
   icon?: ReactNode;
   disabled?: boolean;
+  /**
+   * Server-search mode. When `onSearchChange` is given the field is controlled
+   * and cmdk's own filtering is switched off — the caller refetches `options`
+   * for the term, so a match past the first page is reachable. A 5,000-item
+   * catalogue cannot be filtered in the browser: it was never loaded, only its
+   * first page was. Omit for the small, fully loaded lists (a handful of
+   * offices, a fixed set of statuses) that filter fine on the client.
+   */
+  search?: string;
+  onSearchChange?: (search: string) => void;
 }
 
 export function RecordPicker({
@@ -82,9 +92,16 @@ export function RecordPicker({
   id,
   icon,
   disabled = false,
+  search = '',
+  onSearchChange,
 }: RecordPickerProps) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
+  // The caller drives the search on the server, so cmdk must not also filter
+  // the rows it sent back — with filtering left on, a server result whose text
+  // doesn't literally contain the query (a code match, a fuzzy match) would be
+  // hidden the instant it arrived.
+  const serverSearch = onSearchChange !== undefined;
 
   const trigger = (
     <Button
@@ -106,8 +123,12 @@ export function RecordPicker({
   );
 
   const list = (
-    <Command>
-      <CommandInput placeholder={searchPlaceholder} />
+    <Command shouldFilter={serverSearch ? false : undefined}>
+      <CommandInput
+        placeholder={searchPlaceholder}
+        value={serverSearch ? search : undefined}
+        onValueChange={serverSearch ? onSearchChange : undefined}
+      />
       <CommandList>
         {loading ? (
           <div className="text-muted-foreground flex items-center gap-2 p-4 text-sm">
@@ -136,8 +157,11 @@ export function RecordPicker({
               {options.map((option) => (
                 <CommandItem
                   key={option.id}
-                  // Both parts, so a search matches the code as well as the name.
-                  value={`${option.label} ${option.hint ?? ''}`}
+                  // Client mode filters on this text, so it carries both parts —
+                  // a search matches the code as well as the name. Server mode
+                  // does not filter here, so identity is the id alone, which two
+                  // rows sharing a name cannot collide on.
+                  value={serverSearch ? option.id : `${option.label} ${option.hint ?? ''}`}
                   className="gap-2"
                   onSelect={() => {
                     onValueChange(option);
