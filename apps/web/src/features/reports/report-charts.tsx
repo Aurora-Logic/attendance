@@ -8,6 +8,8 @@ import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartToo
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { humaniseEnum } from '@/lib/format';
 import { cn } from '@/lib/utils';
+
+import { pieSliceLabel } from './pie-label';
 import type { ReportDefinition, ReportKey } from '@vyuha/shared';
 
 import {
@@ -126,12 +128,48 @@ function Frame({ title, insight, children }: { title: string; insight: string | 
  * tooltip, because their labels would collide with their neighbours' and a
  * collided label is worse than an absent one.
  */
-const PIE_LABEL = {
-  fill: 'var(--muted-foreground)',
-  fontSize: 11,
-  className: 'hidden tabular-nums sm:block',
-  formatter: (value: unknown) => (typeof value === 'number' ? compactCount(value) : ''),
-} as const;
+/**
+ * A slice's value, shortened, outside the ring.
+ *
+ * A render function rather than a props object with `formatter`. Recharts
+ * honours `formatter` on `LabelList`; on a Pie's `label` it does not, and the
+ * object is handed to the default renderer which prints the raw number. The
+ * live dashboard showed 8943372.46 beside a bar chart correctly reading 10L,
+ * which is what that difference looks like.
+ *
+ * Not inside the wedge: the slices run the whole ramp and one ink is illegible
+ * on some of them, the same reason stacked segments carry no inline label.
+ * Outside, on the surface, it wears text tokens and is readable on every
+ * slice.
+ *
+ * Slices under a twentieth are skipped. Their labels collide with their
+ * neighbours' and a collided label is worse than an absent one -- the legend
+ * and the tooltip still carry them.
+ */
+function pieLabel(props: unknown): React.ReactNode {
+  const { x, y, value, percent, textAnchor } = props as {
+    x?: number;
+    y?: number;
+    value?: number;
+    percent?: number;
+    textAnchor?: 'start' | 'middle' | 'end';
+  };
+  const text = pieSliceLabel(value, percent);
+  if (x === undefined || y === undefined || text === null) return null;
+  return (
+    <text
+      x={x}
+      y={y}
+      textAnchor={textAnchor ?? 'middle'}
+      dominantBaseline="central"
+      className="hidden tabular-nums sm:block"
+      fill="var(--muted-foreground)"
+      fontSize={11}
+    >
+      {text}
+    </text>
+  );
+}
 
 export function ReportChart({ reportKey, rows, animate, compare }: { reportKey: ReportKey; rows: readonly ChartRow[]; animate: boolean; compare?: { rows: readonly ChartRow[]; label: string } }) {
   if (rows.length === 0) return null;
@@ -325,7 +363,7 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
   const data = points.map((p, index) => ({ name: p.label, value: p.share, fill: `var(--color-s${String(index)})` }));
   return (
     <Frame title={title} insight={`${points[0]?.label ?? ''} holds ${String(points[0]?.share ?? 0)}% of what this page shows.`}>
-      <ChartContainer config={config} className="mx-auto aspect-square max-h-64 w-full">
+      <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
         <RadialBarChart data={data} innerRadius={28} outerRadius={104}>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
           <RadialBar dataKey="value" background isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
@@ -562,7 +600,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
   const data = points.map((p, index) => ({ name: String(p.category), value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
     <Frame title="Composition" insight={null}>
-      <ChartContainer config={config} className="mx-auto aspect-square max-h-64 w-full">
+      <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
         <PieChart>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
           <Pie
@@ -571,7 +609,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             nameKey="name"
             innerRadius={56}
             strokeWidth={2}
-            label={PIE_LABEL}
+            label={pieLabel}
             labelLine={{ stroke: 'var(--border)' }}
             isAnimationActive={animate}
             animationDuration={CHART_INTRO_MS}
@@ -599,10 +637,10 @@ export function CompositionDonut({ rows, labelKey, valueKey, animate }: { rows: 
   ]) as ChartConfig;
   const data = points.map((p, index) => ({ name: String(p.category), value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
-    <ChartContainer config={config} className="mx-auto aspect-square max-h-64 w-full">
+    <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
       <PieChart>
         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
-        <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} label={PIE_LABEL} labelLine={{ stroke: 'var(--border)' }} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+        <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} label={pieLabel} labelLine={{ stroke: 'var(--border)' }} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
         <ChartLegend content={<ChartLegendContent nameKey="name" />} />
       </PieChart>
     </ChartContainer>
