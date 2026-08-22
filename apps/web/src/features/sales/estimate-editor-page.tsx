@@ -270,6 +270,12 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
         validUntil: (
           <DateField label="Valid until" value={draft.validUntil ? fromDateParam(draft.validUntil) : addDays(new Date(), 30)} onValueChange={(next) => { setDraft((current) => ({ ...current, validUntil: toDateParam(next) })); }} yearsBack={0} yearsForward={2} className="paper-field h-auto min-h-0 px-0 py-0 shadow-none" />
         ),
+        setDate: (iso) => {
+          setDraft((current) => ({ ...current, date: iso }));
+        },
+        setValidUntil: (iso) => {
+          setDraft((current) => ({ ...current, validUntil: iso }));
+        },
         itemPicker: (line) => {
           const draftLine = draft.lines.find((l) => l.key === line.key);
           return canSeeParties ? (

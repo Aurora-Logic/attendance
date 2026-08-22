@@ -107,6 +107,19 @@ describe('DocumentForm', () => {
     expect(screen.queryByLabelText('GSTIN/UIN')).toBeNull();
   });
 
+  it('draws its own date controls when the page hands it setters, and the slot otherwise', () => {
+    const withSetters: PaperEditing = { ...editingStub(), setDate: vi.fn(), setValidUntil: vi.fn() };
+    const { rerender } = render(<DocumentForm model={model} design={DEFAULT_DOCUMENT_DESIGN} editing={withSetters} />);
+    expect(screen.getByRole('button', { name: /Dated/u }).textContent).toContain('21-08-2026');
+    expect(screen.getByRole('button', { name: /Valid until/u }).textContent).toContain('20-09-2026');
+    expect(screen.queryByText('slot-date')).toBeNull();
+
+    const slots: PaperEditing = { ...editingStub(), date: <span>slot-date</span>, validUntil: <span>slot-valid</span> };
+    rerender(<DocumentForm model={model} design={DEFAULT_DOCUMENT_DESIGN} editing={slots} />);
+    expect(screen.getByText('slot-date')).toBeTruthy();
+    expect(screen.getByText('slot-valid')).toBeTruthy();
+  });
+
   it('has no consignee section at all when the design does not print one', () => {
     render(<DocumentForm model={model} design={{ ...DEFAULT_DOCUMENT_DESIGN, showShipTo: false }} editing={editingStub()} />);
     expect(screen.queryByRole('switch', { name: 'Same as buyer (Bill to)' })).toBeNull();

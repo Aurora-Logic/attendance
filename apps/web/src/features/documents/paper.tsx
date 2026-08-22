@@ -102,6 +102,14 @@ export interface PaperEditing {
   readonly customer: ReactNode;
   readonly date: ReactNode;
   readonly validUntil?: ReactNode;
+  /**
+   * ISO-date setters for the phone form, which draws its own date controls
+   * rather than reusing the paper-styled slots above (those are drawn to sit
+   * on the sheet and look wrong in a form). Absent when the page cannot
+   * change the date, in which case the form falls back to the slot.
+   */
+  readonly setDate?: (iso: string) => void;
+  readonly setValidUntil?: (iso: string) => void;
   readonly itemPicker: (line: PaperLine) => ReactNode;
   /** The i beside a line: what this customer was charged for the item before (REQ-W-02). */
   readonly itemHistory?: (line: PaperLine) => ReactNode;

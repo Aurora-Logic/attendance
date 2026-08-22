@@ -234,11 +234,12 @@ export function DocumentEditor(props: DocumentEditorProps) {
           {formOnPhone ? (
             <DocumentForm model={model} design={design} editing={editing} />
           ) : (
-            // Centred by the flex parent rather than by auto margins: a zoomed
-            // box resolves its auto margins in its own scaled space and sat
-            // against the left edge on a phone.
-            <div className="flex justify-center">
-              <div ref={paperRef} className={cn('w-fit', zoom.className)}>
+            // The zoom is on the flex container, not the sheet. Engines disagree
+            // on whether a zoomed box's layout size is the scaled one, and with
+            // the zoom on the sheet the paper sat against the left edge on a
+            // phone; inside a zoomed container the centring is plain flexbox.
+            <div className={cn('flex justify-center', zoom.className)}>
+              <div ref={paperRef} className="w-fit">
                 <DocumentPaper design={design} profile={settings.draft.profile} logoUrl={branding.data?.logoUrl ?? null} footerLogoUrls={footerLogoUrls} orgName={branding.data?.name ?? ''} model={model} editing={showEditing} />
               </div>
             </div>

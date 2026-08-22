@@ -201,7 +201,7 @@ export function MobileBottomNav() {
                   onClick={() => {
                     setMoreOpen(false);
                   }}
-                  className="min-h-20 flex-col items-center justify-center gap-1.5 px-2 py-3"
+                  className="min-h-16 flex-col items-center justify-center gap-1 px-2 py-2"
                 >
                   <ItemMedia>
                     <item.icon aria-hidden className="size-5" />
@@ -228,7 +228,7 @@ export function MobileBottomNav() {
                       onClick={() => {
                         setMoreOpen(false);
                       }}
-                      className="min-h-20 flex-col items-center justify-center gap-1.5 px-2 py-3"
+                      className="min-h-16 flex-col items-center justify-center gap-1 px-2 py-2"
                     >
                       <ItemMedia>
                         <item.icon aria-hidden className="size-5" />
@@ -348,7 +348,7 @@ function CustomiseSheet({
                   onClick={() => {
                     toggle(item.to, !checked);
                   }}
-                  className="h-auto min-h-20 flex-col gap-1.5 px-2 py-3 text-center whitespace-normal"
+                  className="h-auto min-h-16 flex-col gap-1 px-2 py-2 text-center whitespace-normal"
                 >
                   <item.icon aria-hidden className="size-5 shrink-0" />
                   <span className="w-full text-[0.75rem] leading-tight">{item.label}</span>

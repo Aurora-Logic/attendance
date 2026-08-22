@@ -83,6 +83,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-19 | One button height on a phone | Buttons and toggles join the 44px coarse-pointer floor; the invisible-target scheme and 17 per-screen overrides removed; a source-scan test keeps them out | Done |
 | B-20 | Documents on a phone | Estimate, sales order, purchase order and invoice draw as a stacked form below the tablet breakpoint; the paper is one tap away under Preview; the toolbar is one row | Done |
 | B-21 | Bulk on a phone | Pressables drawn at desktop size again with invisible 44px targets (B-19 overshot); 190 per-screen coarse-pointer heights stripped from fields, selects and toggles; the scan test covers every control; form and preview fixes from the owner's screenshots | Done |
+| B-22 | Second look at the phone | Paper centred in Preview (zoom on the container), the form draws its own date controls, More and Customise tiles a size smaller, every tall class on every screen read and judged | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -188,3 +189,13 @@ B-19 made every pressable control one height on a phone by drawing it at 44px. C
 | Preview on a phone: the paper sat against the left edge with a fifth of the screen empty beside it | Centred by a flex parent (auto margins on a zoomed box resolve in its own scaled space); fit steps every 2-5% at the small end | Fit to screen and in the centre, as asked |
 
 Inputs and textareas stay at the 44px floor: a field you type into is drawn at its target. Tests: the scan test rewritten for every control (two tests), the form's consignee tests rewritten around the switch (five tests in the file). Browser gate not run (owner instruction).
+
+### B-22 (owner's second screenshots), 22 Aug 2026
+
+| Before | After | Why |
+| --- | --- | --- |
+| Preview paper still against the left edge with the zoom on the sheet's wrapper inside a centring flex parent | The zoom is on the flex container; the sheet is a plain flex item inside the scaled space | Engines disagree on whether a zoomed box's layout size is the scaled one; inside a zoomed container, centring is ordinary flexbox in every engine |
+| The form showed the paper's date slots: monospace chips styled to sit on the sheet (`paper-field h-auto min-h-0 px-0`), two sizes, reading as broken inputs | `PaperEditing` gains optional `setDate` / `setValidUntil`; the three editable pages pass them; the form draws its own `DateField` (full width, bottom sheet on a phone) and falls back to the slot only when a page cannot change the date (the purchase order's optional expected date) | The page owns the data, the surface owns the control |
+| More and Customise sheet tiles at `min-h-20 py-3 gap-1.5` (80px) | `min-h-16 py-2 gap-1` in all three grids | A tile is the size of its icon and two lines, not a slab |
+
+Read and left alone, each for a reason: the 56px bottom bar and its two-line mobile list rows (`min-h-14`, `md:min-h-9`); the 56px punch hero; the 64px photo tiles; `text-base` KPI figures and `text-xl` headline numbers; `py-6` empty-state paragraphs; the calculator's display. Browser gate not run (owner instruction); six form tests prove the date path and the slot fallback.

@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { fromDateParam, toDateParam } from '@/features/attendance/format';
+import { DateField } from '@/features/attendance/pickers';
 import { formatMoney } from '@/features/sales/money';
 import { trimZeros as trimQty } from '@/features/sales/types';
 import { formatDate } from '@/lib/format';
@@ -95,12 +97,24 @@ export function DocumentForm({ model, design, editing }: DocumentFormProps) {
           </Field>
           <Field>
             <FieldLabel>Dated</FieldLabel>
-            {editable ? <div className="flex min-h-11 items-center">{editing.date}</div> : <span className="text-sm tabular-nums">{formatDate(model.date)}</span>}
+            {editable && editing.setDate !== undefined ? (
+              <DateField label="Dated" value={fromDateParam(model.date)} onValueChange={(next) => { editing.setDate?.(toDateParam(next)); }} yearsBack={1} yearsForward={1} className="w-full justify-start" />
+            ) : editable ? (
+              <div className="flex min-h-8 items-center">{editing.date}</div>
+            ) : (
+              <span className="text-sm tabular-nums">{formatDate(model.date)}</span>
+            )}
           </Field>
           {secondDate !== undefined ? (
             <Field className="col-span-2">
               <FieldLabel>{secondDate}</FieldLabel>
-              {editable && editing.validUntil !== undefined ? <div className="flex min-h-11 items-center">{editing.validUntil}</div> : <span className="text-sm tabular-nums">{model.validUntil ? formatDate(model.validUntil) : '—'}</span>}
+              {editable && editing.setValidUntil !== undefined ? (
+                <DateField label={secondDate} value={model.validUntil ? fromDateParam(model.validUntil) : new Date()} onValueChange={(next) => { editing.setValidUntil?.(toDateParam(next)); }} yearsBack={0} yearsForward={2} className="w-full justify-start" />
+              ) : editable && editing.validUntil !== undefined ? (
+                <div className="flex min-h-8 items-center">{editing.validUntil}</div>
+              ) : (
+                <span className="text-sm tabular-nums">{model.validUntil ? formatDate(model.validUntil) : '—'}</span>
+              )}
             </Field>
           ) : null}
         </div>
