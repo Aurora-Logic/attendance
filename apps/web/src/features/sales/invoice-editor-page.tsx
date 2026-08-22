@@ -1,8 +1,8 @@
 import { CheckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useParams } from 'react-router';
 
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -117,7 +117,7 @@ export function InvoiceEditorPage() {
       title={invoice.syncState === 'PUSHED' && invoice.remoteVoucherNumber ? `Invoice #${invoice.remoteVoucherNumber} (${invoice.number})` : `Invoice ${invoice.number}`}
       badges={
         <>
-          <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[invoice.status]}</Badge>
+          <StatusBadge state={invoice.status} label={SALES_DOCUMENT_STATUS_LABELS[invoice.status]} />
           <SyncStateBadge record={invoice} />
         </>
       }

@@ -7,6 +7,7 @@ import { Form } from '@/components/shared/form';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -143,8 +144,8 @@ function PurchaseOrderSheetBody({ initial, record, onClose }: { initial: Purchas
       <SheetHeader className="shrink-0 border-b">
         <SheetTitle className="flex flex-wrap items-center gap-2">
           {isNew ? 'New purchase order' : `Purchase order ${initial.number ?? ''}`}
-          {isNew ? null : <Badge variant="outline">{PURCHASE_ORDER_STATUS_LABELS[draft.status]}</Badge>}
-          {record !== null && record.status === 'CONFIRMED' ? <Badge variant={record.fulfilment === 'received' ? 'default' : 'outline'}>{PO_FULFILMENT_LABELS[record.fulfilment]}</Badge> : null}
+          {isNew ? null : <StatusBadge state={draft.status} label={PURCHASE_ORDER_STATUS_LABELS[draft.status]} />}
+          {record !== null && record.status === 'CONFIRMED' ? <StatusBadge state={record.fulfilment} label={PO_FULFILMENT_LABELS[record.fulfilment]} /> : null}
           {record === null ? null : <SyncStateBadge record={record} />}
         </SheetTitle>
         <SheetDescription>

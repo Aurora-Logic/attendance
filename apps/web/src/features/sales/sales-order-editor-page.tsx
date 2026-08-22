@@ -5,8 +5,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { ReasonDialog } from '@/components/shared/reason-dialog';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -389,7 +389,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
         title={isNew ? 'New sales order' : `Sales order ${record.number}`}
         badges={
           <>
-            <Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[draft.status]}</Badge>
+            <StatusBadge state={draft.status} label={SALES_DOCUMENT_STATUS_LABELS[draft.status]} />
             {record === null ? null : <SyncStateBadge record={record} />}
             {record?.fulfilment && confirmed ? <FulfilmentBadge state={record.fulfilment} /> : null}
           </>

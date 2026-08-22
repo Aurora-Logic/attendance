@@ -11,6 +11,7 @@ import { RecordTable, type RecordColumn } from '@/components/shared/record-table
 import { RowActions, type RowAction } from '@/components/shared/row-actions';
 import { SearchField } from '@/components/shared/search-field';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -70,7 +71,7 @@ function ListSkeleton() {
 }
 
 function StateBadge({ state }: { state: RequirementState }) {
-  return <Badge variant={state === 'open' ? 'default' : state === 'closed' ? 'secondary' : 'outline'}>{STATE_LABELS[state]}</Badge>;
+  return <StatusBadge state={state} label={STATE_LABELS[state]} />;
 }
 
 function WaitingOn({ row }: { row: Requirement }) {

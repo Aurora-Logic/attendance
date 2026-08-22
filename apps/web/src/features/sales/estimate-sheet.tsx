@@ -7,8 +7,8 @@ import { Form } from '@/components/shared/form';
 import { duplicateWarning } from '@/components/shared/duplicate-flag';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -133,7 +133,7 @@ function EstimateSheetBody({ initial, record, onClose }: { initial: EstimateDraf
       <SheetHeader className="shrink-0 border-b">
         <SheetTitle className="flex items-center gap-2">
           {isNew ? 'New estimate' : `Estimate ${initial.number ?? ''}`}
-          {isNew ? null : <Badge variant={draft.status === 'ACCEPTED' ? 'default' : 'outline'}>{SALES_DOCUMENT_STATUS_LABELS[draft.status]}</Badge>}
+          {isNew ? null : <StatusBadge state={draft.status} label={SALES_DOCUMENT_STATUS_LABELS[draft.status]} />}
         </SheetTitle>
         <SheetDescription>
           {isNew

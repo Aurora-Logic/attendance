@@ -6,7 +6,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
-import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -359,7 +359,7 @@ function EstimateEditor({ initial, record, settings }: { initial: EstimateDraft;
         backTo="/sales/estimates"
         backLabel="Estimates"
         title={isNew ? 'New estimate' : `Estimate ${record.number}`}
-        badges={<Badge variant="outline">{SALES_DOCUMENT_STATUS_LABELS[draft.status]}</Badge>}
+        badges={<StatusBadge state={draft.status} label={SALES_DOCUMENT_STATUS_LABELS[draft.status]} />}
         dirty={dirty}
         failure={failure ? copy : null}
         hint={customerMissing && editable ? 'Choose a Tally party or a CRM company, or type who it is addressed to.' : null}
