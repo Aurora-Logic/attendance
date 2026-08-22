@@ -1,12 +1,15 @@
 import { useState } from 'react';
-import { ChartBarIcon } from '@phosphor-icons/react';
+import { ChartBarIcon, ListIcon, SquaresFourIcon } from '@phosphor-icons/react';
 import { useNavigate, useSearchParams } from 'react-router';
 
 import { REPORT_CATEGORY_ICONS } from '@/components/shared/entity-icons';
 import { PageHeader } from '@/components/shared/page-header';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { CategoryChip } from './category-chip';
+import { useCatalogueViewStore } from './catalogue-view-store';
 import { RecordTable, type RecordColumn, type RecordSort } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -40,13 +43,10 @@ const CATEGORY_BLURBS: Record<ReportCategory, string> = {
 const CATEGORY_RANK = new Map<ReportCategory, number>(REPORT_CATEGORIES.map((c, index) => [c, index]));
 
 function CategoryCell({ category }: { category: ReportCategory }) {
-  const Glyph = REPORT_CATEGORY_ICONS[category];
-  return (
-    <span className="text-muted-foreground flex items-center gap-1.5">
-      <Glyph />
-      {category}
-    </span>
-  );
+  // The chip, not an icon and a word. Three places name a category -- this
+  // cell, the phone row and the card -- and they were three renderings of the
+  // same fact, which is three chances to drift.
+  return <CategoryChip category={category} />;
 }
 
 const COLUMNS: RecordColumn<ReportDefinition>[] = [
@@ -94,6 +94,57 @@ function ListSkeleton() {
   );
 }
 
+/**
+ * One report as a card.
+ *
+ * A button rather than a div with a click handler, because it is a control:
+ * it takes focus in order, answers Enter and Space, and announces itself. The
+ * whole card is the target -- a card whose title alone is clickable teaches
+ * people to aim.
+ *
+ * Not nested in another card (CLAUDE.md section 3): the grid sits directly on
+ * the page surface, so this is the only box.
+ */
+function ReportCard({ report, onOpen }: { report: ReportDefinition; onOpen: () => void }) {
+  const Glyph = REPORT_CATEGORY_ICONS[report.category];
+  return (
+    <Button
+      variant="outline"
+      onClick={onOpen}
+      className="hover:border-foreground/30 hover:bg-accent/40 h-auto min-w-0 flex-col items-start gap-2 whitespace-normal p-4 text-left"
+    >
+      <span className="flex w-full min-w-0 items-center gap-2">
+        <Glyph className="text-muted-foreground shrink-0" />
+        {/* Wraps rather than truncates: a report nobody can read the name of
+            is a report nobody opens, and the grid has the height to give. */}
+        <span className="min-w-0 flex-1 text-sm font-medium">{report.label}</span>
+      </span>
+      <span className="text-muted-foreground line-clamp-3 text-xs font-normal">
+        {report.description}
+      </span>
+      <CategoryChip category={report.category} className="mt-auto" />
+    </Button>
+  );
+}
+
+function CardSkeleton() {
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading the catalogue" className={CARD_GRID}>
+      {Array.from({ length: 9 }, (_, index) => (
+        <div key={index} aria-hidden className="flex flex-col gap-2 border p-4">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-3/4" />
+          <Skeleton className="mt-1 h-4 w-20" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Three across at desk width, one on a phone; the cards size themselves. */
+const CARD_GRID = 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3';
+
 export function ReportCatalogue({ reports, loading }: { reports: readonly ReportDefinition[]; loading: boolean }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -101,6 +152,8 @@ export function ReportCatalogue({ reports, loading }: { reports: readonly Report
   const category = REPORT_CATEGORIES.find((c) => c === categoryParam) ?? null;
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<RecordSort>({ field: 'category', descending: false });
+  const view = useCatalogueViewStore((state) => state.view);
+  const setView = useCatalogueViewStore((state) => state.setView);
 
   const needle = q.trim().toLowerCase();
   const categories = REPORT_CATEGORIES.filter((c) => reports.some((r) => r.category === c));
@@ -166,11 +219,64 @@ export function ReportCatalogue({ reports, loading }: { reports: readonly Report
             </SelectContent>
           </Select>
           {category !== null ? <p className="text-muted-foreground text-xs">{CATEGORY_BLURBS[category]}</p> : null}
+
+          {/* Pushed to the end: the toggle changes how the same rows are drawn,
+              so it belongs with the view, not with the filters that decide
+              which rows there are. */}
+          <ToggleGroup
+            variant="outline"
+            aria-label="View"
+            className="ms-auto"
+            value={[view]}
+            onValueChange={(next: string[]) => {
+              // Base UI hands back an empty array when the active item is
+              // pressed again. There is no "no view", so that is ignored
+              // rather than blanking the catalogue.
+              const chosen = next[0];
+              if (chosen === 'list' || chosen === 'cards') setView(chosen);
+            }}
+          >
+            <ToggleGroupItem value="list" aria-label="List view">
+              <ListIcon />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="cards" aria-label="Card view">
+              <SquaresFourIcon />
+            </ToggleGroupItem>
+          </ToggleGroup>
         </div>
 
-        {loading ? <ListSkeleton /> : null}
+        {loading ? (view === 'cards' ? <CardSkeleton /> : <ListSkeleton />) : null}
 
-        {!loading ? (
+        {/* Cards and the list draw the same `rows`: the same filter, the same
+            sort, the same permission set. Only the shape changes, so a person
+            who switches view does not silently see a different catalogue. */}
+        {!loading && view === 'cards' ? (
+          rows.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <ChartBarIcon />
+              </EmptyMedia>
+              <EmptyTitle>No report matches</EmptyTitle>
+              <EmptyDescription>Try another word, or clear the category. A report you cannot open is not listed.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+          ) : (
+            <div className={CARD_GRID}>
+              {rows.map((report) => (
+                <ReportCard
+                  key={report.key}
+                  report={report}
+                  onOpen={() => {
+                    open(report);
+                  }}
+                />
+              ))}
+            </div>
+          )
+        ) : null}
+
+        {!loading && view === 'list' ? (
           <RecordTable
             columns={COLUMNS}
             rows={rows}
@@ -179,7 +285,7 @@ export function ReportCatalogue({ reports, loading }: { reports: readonly Report
             onSortChange={setSort}
             onRowActivate={open}
             mobilePrimary={(report) => report.label}
-            mobileStatus={(report) => <Badge variant="outline">{report.category}</Badge>}
+            mobileStatus={(report) => <CategoryChip category={report.category} />}
             mobileSupporting={(report) => <span className="line-clamp-2">{report.description}</span>}
             emptyState={
               <Empty>
