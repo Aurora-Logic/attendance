@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 
 import {
   Field,
-  FieldContent,
   FieldDescription,
   FieldLabel,
 } from '@/components/ui/field';
@@ -17,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 
 /**
  * The two field shapes every settings tab is made of.
@@ -103,51 +101,6 @@ export function PolicyNumberField({
       />
       <FieldDescription>{help}</FieldDescription>
       <EnforcementNote by={enforcedBy} />
-    </Field>
-  );
-}
-
-interface ToggleFieldProps {
-  id: string;
-  label: string;
-  help: string;
-  value: boolean;
-  enforcedBy?: string | null;
-  disabled?: boolean;
-  onValueChange: (value: boolean) => void;
-}
-
-/**
- * An on/off policy. Horizontal, with the label and its help text to the left
- * of the switch, the same layout `Field` already offers checkbox and radio
- * rows -- a settings tab that put a switch under its label like the other two
- * fields would be the one control on the screen not aligned to what a reader
- * flips.
- */
-export function PolicyToggleField({
-  id,
-  label,
-  help,
-  value,
-  enforcedBy,
-  disabled,
-  onValueChange,
-}: ToggleFieldProps) {
-  return (
-    <Field orientation="horizontal" data-disabled={disabled ? '' : undefined}>
-      <FieldContent>
-        <FieldLabel htmlFor={id}>{label}</FieldLabel>
-        <FieldDescription>{help}</FieldDescription>
-        <EnforcementNote by={enforcedBy} />
-      </FieldContent>
-      <Switch
-        id={id}
-        checked={value}
-        disabled={disabled}
-        onCheckedChange={(next: boolean) => {
-          onValueChange(next);
-        }}
-      />
     </Field>
   );
 }
