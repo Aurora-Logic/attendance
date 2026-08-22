@@ -106,7 +106,7 @@ export function EmployeePicker({
                       onValueChange(candidate);
                       setOpen(false);
                     }}
-                    className="pointer-coarse:min-h-11 gap-2"
+                    className="gap-2"
                   >
                     <CheckIcon
                       className={cn('shrink-0', value?.id === candidate.id ? '' : 'invisible')}
