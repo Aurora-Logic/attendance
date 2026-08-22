@@ -351,6 +351,18 @@ export class OpsTallyWebhookService {
           retainPayload: false,
         };
       }
+
+      case 'voucher.snapshot': {
+        const rows = event.payload.vouchers.map(voucherToRow);
+        await this.writer.applyRows(tx, scope, { entityType: 'voucher', rows });
+        const maxAlterId = rows.reduce((max, row) => Math.max(max, row.alterId), 0);
+        await this.advanceCursor(tx, scope, 'voucher', maxAlterId);
+        return {
+          entityType: 'voucher',
+          result: `ok: snapshot chunk ${String(event.payload.chunk)}/${String(event.payload.total_chunks)}, ${String(rows.length)} vouchers`,
+          retainPayload: false,
+        };
+      }
     }
   }
 
