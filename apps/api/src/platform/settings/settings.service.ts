@@ -20,6 +20,10 @@ import {
   type AttendancePolicy,
   type PhotoPolicy,
   type SettingConsumer,
+  DEFAULT_SECURITY_POLICY,
+  SECURITY_SETTINGS,
+  securityPolicySchema,
+  type SecurityPolicy,
 } from './settings.catalogue.js';
 import type { UpdateSettingsInput } from './settings.dto.js';
 import { SettingsRepository, type OrgProfilePatch, type OrgProfileRow } from './settings.repository.js';
@@ -49,6 +53,8 @@ export interface OrgSettingsView {
   readonly organisation: OrgProfileRow;
   readonly attendance: AttendancePolicy;
   readonly photo: PhotoPolicy;
+  /** REQ-B-09: who must sign in with an authenticator. */
+  readonly security: SecurityPolicy;
   readonly email: EmailSettingsView;
   /**
    * What reads each policy field today, or null when nothing does. The screen
@@ -57,6 +63,7 @@ export interface OrgSettingsView {
   readonly enforcement: {
     readonly attendance: Readonly<Record<string, SettingConsumer>>;
     readonly photo: Readonly<Record<string, SettingConsumer>>;
+    readonly security: Readonly<Record<string, SettingConsumer>>;
   };
   /**
    * Stored rows that no longer satisfy their schema. The screen shows the
@@ -300,17 +307,20 @@ export class SettingsService {
       rows,
     );
     const photo = resolveGroup(photoPolicySchema, PHOTO_SETTINGS, DEFAULT_PHOTO_POLICY, rows);
+    const security = resolveGroup(securityPolicySchema, SECURITY_SETTINGS, DEFAULT_SECURITY_POLICY, rows);
 
     return {
       organisation,
       attendance: attendance.value,
       photo: photo.value,
+      security: security.value,
       email: emailView(),
       enforcement: {
         attendance: enforcementOf(ATTENDANCE_SETTINGS),
         photo: enforcementOf(PHOTO_SETTINGS),
+        security: enforcementOf(SECURITY_SETTINGS),
       },
-      unreadableKeys: [...attendance.unreadable, ...photo.unreadable],
+      unreadableKeys: [...attendance.unreadable, ...photo.unreadable, ...security.unreadable],
     };
   }
 
@@ -359,6 +369,18 @@ export class SettingsService {
       for (const [field, descriptor] of Object.entries(PHOTO_SETTINGS)) {
         if (!(field in input.photo)) continue;
         values.set(descriptor.key, merged[field as keyof PhotoPolicy]);
+      }
+    }
+
+    if (input.security !== undefined) {
+      const merged = parseMerged(
+        securityPolicySchema,
+        { ...current.security, ...input.security },
+        'security',
+      );
+      for (const [field, descriptor] of Object.entries(SECURITY_SETTINGS)) {
+        if (!(field in input.security)) continue;
+        values.set(descriptor.key, merged[field as keyof SecurityPolicy]);
       }
     }
 

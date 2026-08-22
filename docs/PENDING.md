@@ -90,6 +90,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-26 | Where you are, marked | Module switcher as a glyph tile with a second line; dots beside the active sidebar row and under the active bottom tab | Reverted 22 Aug on the owner's call ("the design is not good"); `75b5423` undone in full |
 | B-27 | Login page, presence without a new layout | One `AuthShell` for sign-in and set-password: typographic wordmark, Welcome back hierarchy, product line, a first-paint rise, a submit label that arrives through a blur | Done (owner picked this direction over a split screen) |
 | B-28 | Terms, privacy, consent | The product line under sign-in is gone; a consent line under Sign in and Set password links the Terms and Conditions and the Privacy Policy; both are public pages at `/legal/terms` and `/legal/privacy`, readable before sign-in | Done; wording is a draft for counsel (OPEN-QUESTIONS) |
+| B-29 | Two-step sign-in (REQ-B-09) | Authenticator app after the password: enrolment with QR and first code, ten recovery codes, thirty-day remembered browsers, five-minute challenges spent by five wrong codes, an Admin reset, a policy setting (Admin and Accounts by default) that makes a named role enrol before any screen | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -252,3 +253,17 @@ Browser gate not run (owner instruction); verified through the emitted floor sel
 | "Sign in" swapped to "Signing in" in one frame | The label is keyed on its state and arrives through a 2px blur | A crossfade shows two words for a frame; the blur blends them into one (emil) |
 
 Not done, and why: a "Signed in" beat before the app appears — sign-in success refetches the session and the page unmounts as soon as it arrives, so the beat would mean holding the session back for decoration. Browser gate not run (owner instruction); the shell has a render test, and the starting-style and blur rules are in the emitted CSS.
+
+### B-29 (owner: "we will need authenticator after login as 2FA"; decisions taken in a popup), 22 Aug 2026
+
+Owner's picks: required for Admin and Accounts and optional for everyone else, as an organisation setting; thirty-day remembered browsers; ten one-time recovery codes plus an Admin reset; `otpauth` on the API and `qrcode` on the web.
+
+What was built, as one vertical slice on the REQ-B-09 scaffold (`users.totp_secret` and `totp_confirmed_at` existed, unwired):
+
+- **Migration 0047**: `mfa_recovery_codes`, `mfa_trusted_devices`, `mfa_challenges` -- every presented token a keyed hash, the secret sealed at rest under its own purpose.
+- **`MfaService`**: policy from `security.mfa_policy`; enrolment (secret sealed unconfirmed, confirmed by the first correct code, ten recovery codes issued); disable and new codes need a code; trusted browsers by cookie hash, revocable; challenges five minutes long, spent by a correct code or five wrong ones, the wrong-code count incremented in SQL; the administrator's reset clears everything and audits both names.
+- **Sign-in**: a correct password answers with a session, or with a challenge that carries no session and sets no cookie; `POST /auth/mfa/verify` is the only path from a challenge to a session; `/me` carries `mfa.enrolmentRequired` and the gate withholds the shell until the first code when the policy names the role.
+- **Web**: the code step on the sign-in frame (six digits or a recovery code, remember this browser on by default, a way back); the forced enrolment page; a Two-step sign-in section on the profile (status, turn on in a sheet with QR and typed key, new codes and turn off behind a code, remembered browsers with forget); Reset two-step sign-in on the employee page behind a confirmation; the policy under Settings -> Access.
+- **Tests**: four endpoint tests over real HTTP (default policy on /me; enrol, challenge, wrong code, right code with trust, replay refused, trusted password-only sign-in, recovery code once, five wrong spends the challenge, Admin reset on the trail; policy as a setting; disable needs a code and a never-enrolled account is told so), the catalogue test, a jsdom test of the code step.
+
+Not done, and said so in OPEN-QUESTIONS: a used TOTP code is accepted again inside its ninety-second window (no last-step column); no SMS or email fallback, by the owner's choice of an authenticator.

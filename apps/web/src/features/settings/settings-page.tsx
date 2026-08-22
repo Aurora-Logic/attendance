@@ -46,7 +46,7 @@ import {
 import { ApiError } from '@/lib/api/client';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
-import { DEVICE_BINDING_MODES, PERMISSIONS } from '@vyuha/shared';
+import { DEVICE_BINDING_MODES, PERMISSIONS, MFA_POLICIES, MFA_POLICY_LABELS } from '@vyuha/shared';
 
 import { AccessWindowPanel } from './access-window-panel';
 import { DocumentsPanel } from './documents-panel';
@@ -64,8 +64,7 @@ import {
   type OrgProfile,
   type OrgSettings,
   type PhotoPolicy,
-  type SettingsPatch,
-} from './types';
+  type SettingsPatch, type SecurityPolicy } from './types';
 import { useAccessWindowDraft, useSaveAccessWindow } from './use-access-window';
 import { useOfficeGeofence, useSaveGeofence } from './use-office-location';
 import { useSaveSettings, useSettings, useTestEmail } from './use-settings';
@@ -94,6 +93,7 @@ interface Draft {
   organisation: OrgProfile;
   attendance: AttendancePolicy;
   photo: PhotoPolicy;
+  security: SecurityPolicy;
 }
 
 function draftOf(settings: OrgSettings): Draft {
@@ -101,6 +101,7 @@ function draftOf(settings: OrgSettings): Draft {
     organisation: settings.organisation,
     attendance: settings.attendance,
     photo: settings.photo,
+    security: settings.security,
   };
 }
 
@@ -129,6 +130,7 @@ function patchOf(draft: Draft, saved: OrgSettings): SettingsPatch {
   }
   if (!sameGroup(draft.attendance, saved.attendance)) patch.attendance = draft.attendance;
   if (!sameGroup(draft.photo, saved.photo)) patch.photo = draft.photo;
+  if (!sameGroup(draft.security, saved.security)) patch.security = draft.security;
 
   return patch;
 }
@@ -276,6 +278,9 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
   }
   function patchAttendance(next: Partial<AttendancePolicy>) {
     setDraft((current) => ({ ...current, attendance: { ...current.attendance, ...next } }));
+  }
+  function patchSecurity(next: Partial<SecurityPolicy>) {
+    setDraft((current) => (current === null ? current : { ...current, security: { ...current.security, ...next } }));
   }
   function patchPhoto(next: Partial<PhotoPolicy>) {
     setDraft((current) => ({ ...current, photo: { ...current.photo, ...next } }));
@@ -680,7 +685,31 @@ function SettingsForm({ saved }: { saved: OrgSettings }) {
         </TabsContent>
 
         <TabsContent value="access">
-          <AccessWindowPanel window={accessWindow} saveError={saveWindow.error} />
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-4 border p-4">
+              <SectionHeading
+                title="Two-step sign-in"
+                note="An authenticator app after the password. Anyone may turn it on from their profile; this is who must."
+              />
+              <FieldGroup className="grid gap-5 md:grid-cols-2">
+                <PolicyChoiceField
+                  id="policy-mfa"
+                  label="Required for"
+                  value={draft.security.mfaPolicy}
+                  options={MFA_POLICIES.map((value) => ({ value, label: MFA_POLICY_LABELS[value] }))}
+                  enforcedBy={saved.enforcement.security.mfaPolicy}
+                  onValueChange={(next) => {
+                    patchSecurity({ mfaPolicy: next });
+                  }}
+                >
+                  <FieldDescription>
+                    A person whose role is named here is asked to set up the app at their next sign-in, before any screen.
+                  </FieldDescription>
+                </PolicyChoiceField>
+              </FieldGroup>
+            </div>
+            <AccessWindowPanel window={accessWindow} saveError={saveWindow.error} />
+          </div>
         </TabsContent>
 
         <TabsContent value="documents">

@@ -3,6 +3,7 @@ import { useLocation } from 'react-router';
 
 import { Spinner } from '@/components/ui/spinner';
 import { LoginPage } from '@/features/auth/login-page';
+import { MfaRequiredPage } from '@/features/auth/mfa-required-page';
 import { SetPasswordPage } from '@/features/auth/set-password-page';
 import { setPasswordRoute } from '@/features/auth/set-password-route';
 import { LegalPage } from '@/features/legal/legal-page';
@@ -81,6 +82,10 @@ export function SessionGate({ children }: { children: ReactNode }) {
   }
 
   if (!me) return <LoginPage />;
+
+  // REQ-B-09: the policy names this person's role and no authenticator is
+  // confirmed yet. The session is real; the shell waits for the first code.
+  if (me.mfa?.enrolmentRequired === true) return <MfaRequiredPage />;
 
   return <>{children}</>;
 }

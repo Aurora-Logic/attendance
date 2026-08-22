@@ -59,13 +59,18 @@ export function clearRefreshCookie(res: Response): void {
  * the untrusted input it is.
  */
 export function readRefreshCookie(req: Request): string | null {
+  return readCookie(req, REFRESH_COOKIE_NAME);
+}
+
+/** The same reader, for the one other cookie this server sets (trust-cookie.ts). */
+export function readCookie(req: Request, name: string): string | null {
   const header = req.headers.cookie;
   if (typeof header !== 'string' || header.length === 0) return null;
 
   for (const part of header.split(';')) {
     const separator = part.indexOf('=');
     if (separator < 0) continue;
-    if (part.slice(0, separator).trim() !== REFRESH_COOKIE_NAME) continue;
+    if (part.slice(0, separator).trim() !== name) continue;
 
     const raw = part.slice(separator + 1).trim();
     // A quoted cookie value is legal per RFC 6265 and Express strips the

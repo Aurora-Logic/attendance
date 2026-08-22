@@ -261,3 +261,83 @@ export const passwordResets = pgTable(
     index('password_resets_user_idx').on(t.userId, t.createdAt),
   ],
 );
+
+/**
+ * REQ-B-09, the part the `users.totp_secret` column was waiting for. Three
+ * tables, one per thing that is not the secret:
+ *
+ * - a recovery code is a one-time credential, stored as a keyed hash like
+ *   every token the client presents (`opaque-token.ts`), spent by `used_at`;
+ * - a trusted device is a browser the person chose to remember for thirty
+ *   days, identified by the hash of a cookie, revocable from the profile;
+ * - a challenge is the five minutes between a correct password and a
+ *   correct code, so the code step cannot be reached without the password
+ *   and the password step does not issue a session.
+ */
+export const mfaRecoveryCodes = pgTable(
+  'mfa_recovery_codes',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('mfa_recovery_codes_hash_uq').on(t.codeHash),
+    index('mfa_recovery_codes_user_idx').on(t.userId),
+  ],
+);
+
+export const mfaTrustedDevices = pgTable(
+  'mfa_trusted_devices',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    userAgent: text('user_agent'),
+    ip: text('ip'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('mfa_trusted_devices_hash_uq').on(t.tokenHash),
+    index('mfa_trusted_devices_user_idx').on(t.userId, t.createdAt),
+  ],
+);
+
+export const mfaChallenges = pgTable(
+  'mfa_challenges',
+  {
+    id: primaryId(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    /** Wrong codes against this challenge; five spends it. */
+    attempts: integer('attempts').notNull().default(0),
+    ip: text('ip'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('mfa_challenges_hash_uq').on(t.tokenHash),
+    index('mfa_challenges_user_idx').on(t.userId, t.createdAt),
+  ],
+);
+

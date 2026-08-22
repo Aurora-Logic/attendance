@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { CaretDownIcon, ShieldCheckIcon } from '@phosphor-icons/react';
 
 import { PageHeader } from '@/components/shared/page-header';
+import { MfaProfileSection } from '@/features/auth/mfa-profile-section';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -185,6 +186,8 @@ export function ProfilePage() {
           </div>
         </div>
       </section>
+
+      <MfaProfileSection />
 
       <Separator />
 

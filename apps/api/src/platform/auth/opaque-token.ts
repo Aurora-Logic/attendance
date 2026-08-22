@@ -29,6 +29,12 @@ export const TOKEN_PURPOSES = {
   PASSWORD_RESET: 'password-reset',
   /** The connector agent's per-connection credential (09 §5). */
   AGENT: 'agent',
+  /** REQ-B-09: the five minutes between the password and the code. */
+  MFA_CHALLENGE: 'mfa-challenge',
+  /** REQ-B-09: a one-time recovery code. */
+  MFA_RECOVERY: 'mfa-recovery',
+  /** REQ-B-09: a browser remembered for thirty days. */
+  MFA_TRUST: 'mfa-trust',
 } as const;
 
 export type TokenPurpose = (typeof TOKEN_PURPOSES)[keyof typeof TOKEN_PURPOSES];

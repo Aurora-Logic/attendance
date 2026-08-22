@@ -1,4 +1,4 @@
-import { DEVICE_BINDING_MODES } from '@vyuha/shared';
+import { DEFAULT_MFA_POLICY, DEVICE_BINDING_MODES, MFA_POLICIES } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -193,10 +193,29 @@ export const DEFAULT_PHOTO_POLICY: PhotoPolicy = {
   maxBytes: 150 * KB,
 };
 
+/**
+ * REQ-B-09. Owner, 22 Aug 2026: two-step sign-in is required for Admin and
+ * Accounts unless Settings says otherwise; anybody may turn it on.
+ */
+export const SECURITY_SETTINGS = {
+  mfaPolicy: {
+    key: 'security.mfa_policy',
+    help: 'Which roles must sign in with an authenticator app (REQ-B-09).',
+    enforcedBy: 'Sign-in',
+  },
+} as const satisfies Record<string, SettingDescriptor>;
+
+export const securityPolicySchema = z.object({
+  mfaPolicy: z.enum(MFA_POLICIES),
+});
+export type SecurityPolicy = z.infer<typeof securityPolicySchema>;
+export const DEFAULT_SECURITY_POLICY: SecurityPolicy = { mfaPolicy: DEFAULT_MFA_POLICY };
+
 /** Every key this module is allowed to write, in one flat set. */
 export const WRITABLE_SETTING_KEYS: ReadonlySet<string> = new Set([
   ...Object.values(ATTENDANCE_SETTINGS).map((descriptor) => descriptor.key),
   ...Object.values(PHOTO_SETTINGS).map((descriptor) => descriptor.key),
+  ...Object.values(SECURITY_SETTINGS).map((descriptor) => descriptor.key),
 ]);
 
 /**

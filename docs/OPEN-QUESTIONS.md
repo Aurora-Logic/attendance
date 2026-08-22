@@ -403,3 +403,12 @@ Three things to confirm:
 3. Whether the photo retention and recycle-bin windows stated match what each organisation configures (the draft states the defaults: twelve months, and "a set window").
 
 Recommended default: keep the draft live (it is accurate about the product) and have counsel review before the first external organisation signs in.
+
+## Two-step sign-in (REQ-B-09, 22 Aug 2026)
+
+Built as the owner decided. Two things to know before it meets real users:
+
+1. **A correct code is accepted again within its window.** The server validates a code one step either side of now and does not remember the last step it accepted, so the same six digits work twice inside ninety seconds. Closing it is one column on `users` (`totp_last_step`) and one comparison; recommended before Tally goes live, not needed for a pilot.
+2. **No SMS or email fallback.** The owner chose an authenticator app; a lost phone is answered by the ten recovery codes and the Admin reset. If a fallback is ever wanted, the challenge table already carries what a second method would need.
+
+Recommended default: ship as is; add the last-step column in the next auth increment.

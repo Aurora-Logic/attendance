@@ -1,7 +1,6 @@
 import {
   DEVICE_BINDING_MODES,
-  type DeviceBindingMode,
-} from '@vyuha/shared';
+  type DeviceBindingMode, MFA_POLICIES } from '@vyuha/shared';
 import { z } from 'zod';
 
 /**
@@ -71,6 +70,13 @@ export const emailSettingsSchema = z.object({
 
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 
+/** REQ-B-09: who must sign in with an authenticator app. */
+export const securityPolicySchema = z.object({
+  mfaPolicy: z.enum(MFA_POLICIES),
+});
+
+export type SecurityPolicy = z.infer<typeof securityPolicySchema>;
+
 /** Field name to the feature that reads it today, or null when nothing does. */
 const enforcementSchema = z.record(z.string(), z.string().nullable());
 
@@ -78,8 +84,9 @@ export const orgSettingsSchema = z.object({
   organisation: orgProfileSchema,
   attendance: attendancePolicySchema,
   photo: photoPolicySchema,
+  security: securityPolicySchema,
   email: emailSettingsSchema,
-  enforcement: z.object({ attendance: enforcementSchema, photo: enforcementSchema }),
+  enforcement: z.object({ attendance: enforcementSchema, photo: enforcementSchema, security: enforcementSchema }),
   unreadableKeys: z.array(z.string()),
 });
 
@@ -97,6 +104,7 @@ export interface SettingsPatch {
   organisation?: Partial<Omit<OrgProfile, 'id' | 'logoKey'>>;
   attendance?: Partial<AttendancePolicy>;
   photo?: Partial<PhotoPolicy>;
+  security?: Partial<SecurityPolicy>;
 }
 
 export const GEOFENCE_LABELS: Record<GeofenceBehaviour, string> = {

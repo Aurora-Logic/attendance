@@ -8,6 +8,9 @@ import {
   DEFAULT_ATTENDANCE_POLICY,
   DEFAULT_PHOTO_POLICY,
   PHOTO_SETTINGS,
+  SECURITY_SETTINGS,
+  DEFAULT_SECURITY_POLICY,
+  securityPolicySchema,
   WRITABLE_SETTING_KEYS,
   attendancePolicySchema,
   photoPolicySchema,
@@ -47,6 +50,8 @@ describe('the catalogue and its schemas describe the same fields', () => {
     // The refined schema wraps the object, so the fields come from the
     // defaults, which the next block proves satisfy the schema.
     expect(Object.keys(PHOTO_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_PHOTO_POLICY).sort());
+    expect(Object.keys(SECURITY_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_SECURITY_POLICY).sort());
+    expect(securityPolicySchema.safeParse(DEFAULT_SECURITY_POLICY).success).toBe(true);
   });
 });
 
@@ -69,7 +74,7 @@ describe('defaults', () => {
 });
 
 describe('keys', () => {
-  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS)];
+  const all = [...Object.values(ATTENDANCE_SETTINGS), ...Object.values(PHOTO_SETTINGS), ...Object.values(SECURITY_SETTINGS)];
 
   it('are unique', () => {
     const keys = all.map((descriptor) => descriptor.key);

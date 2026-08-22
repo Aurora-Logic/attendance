@@ -4,6 +4,7 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { DeliverPasswordResetHandler } from './handlers/deliver-password-reset.handler.js';
 import { LoginRateLimiter } from './login-rate-limit.service.js';
+import { MfaService } from './mfa.service.js';
 import { PasswordResetRateLimiter } from './password-reset-rate-limit.service.js';
 import { SessionService } from './session.service.js';
 
@@ -23,6 +24,7 @@ import { SessionService } from './session.service.js';
     AuthService,
     SessionService,
     LoginRateLimiter,
+    MfaService,
     PasswordResetRateLimiter,
     DeliverPasswordResetHandler,
   ],

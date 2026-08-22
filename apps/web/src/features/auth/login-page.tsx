@@ -24,8 +24,10 @@ import { Spinner } from '@/components/ui/spinner';
 import { SignInTourOffer } from '@/features/guide';
 import { ApiError } from '@/lib/api/client';
 import { useLogin } from '@/lib/session/use-session';
+import { isMfaChallenge } from '@vyuha/shared';
 
 import { AuthShell, LegalConsent, SubmitLabel } from './auth-shell';
+import { MfaStep } from './mfa-step';
 
 /**
  * REQ-B-01: sign in with a work email and password.
@@ -91,6 +93,8 @@ export function LoginPage() {
   const login = useLogin();
   const [submitError, setSubmitError] = useState<unknown>(null);
   const [revealed, setRevealed] = useState(false);
+  // REQ-B-09: set when the password was right and a code is next.
+  const [challenge, setChallenge] = useState<string | null>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -100,13 +104,28 @@ export function LoginPage() {
   async function onSubmit(values: FormValues) {
     setSubmitError(null);
     try {
-      await login.mutateAsync(values);
+      const result = await login.mutateAsync(values);
+      if (isMfaChallenge(result)) setChallenge(result.challengeToken);
     } catch (error: unknown) {
       setSubmitError(error);
     }
   }
 
   const problem = submitError ? messageFor(submitError) : null;
+
+  if (challenge !== null) {
+    return (
+      <AuthShell title="One more step" lead="Your account uses an authenticator app.">
+        <MfaStep
+          challengeToken={challenge}
+          onBack={() => {
+            setChallenge(null);
+            form.setValue('password', '');
+          }}
+        />
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell title="Welcome back" lead="Sign in with your work email.">

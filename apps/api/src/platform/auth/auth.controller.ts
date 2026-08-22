@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -10,7 +11,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
-import { PERMISSIONS } from '@vyuha/shared';
+import { PERMISSIONS, isMfaChallenge, type MfaEnrolmentStart, type MfaRecoveryCodes, type MfaStatus } from '@vyuha/shared';
 import type { Request, Response } from 'express';
 
 import { CurrentUser, type Principal } from '../rbac/principal.js';
@@ -21,7 +22,10 @@ import {
   CreateInvitationDto,
   IssuePasswordResetDto,
   LoginDto,
+  MfaCodeDto,
+  MfaVerifyDto,
   RequestPasswordResetDto,
+  type LoginOutcome,
   type LoginResponse,
   type MeResponse,
 } from './auth.dto.js';
@@ -31,8 +35,10 @@ import {
   type PasswordResetLink,
   type SignInAccount,
 } from './auth.service.js';
+import { MfaService } from './mfa.service.js';
 import { clearRefreshCookie, readRefreshCookie, setRefreshCookie } from './refresh-cookie.js';
 import type { SessionRequestContext } from './session.service.js';
+import { readTrustCookie, setTrustCookie } from './trust-cookie.js';
 
 /**
  * CLAUDE.md §6: "Controllers validate and delegate." Everything here reads a
@@ -49,8 +55,16 @@ import type { SessionRequestContext } from './session.service.js';
 @WindowExempt()
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly mfa: MfaService,
+  ) {}
 
+  /**
+   * REQ-B-09: answers with a session, or with a challenge when a code is
+   * next. The refresh cookie is set only in the first case; a challenge
+   * carries nothing a browser can keep.
+   */
   @Post('login')
   @Public()
   @HttpCode(HttpStatus.OK)
@@ -58,10 +72,78 @@ export class AuthController {
     @Body() body: LoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<LoginResponse> {
-    const result = await this.auth.login(body, requestContext(req));
-    setRefreshCookie(res, result.refreshToken);
+  ): Promise<LoginOutcome> {
+    const result = await this.auth.login(body, requestContext(req), readTrustCookie(req));
+    if (result.refreshToken !== null) setRefreshCookie(res, result.refreshToken);
     return result.response;
+  }
+
+  /** REQ-B-09: the code step. Public because there is no session yet, by design. */
+  @Post('mfa/verify')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  async verifyMfa(
+    @Body() body: MfaVerifyDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<LoginResponse> {
+    const result = await this.auth.completeMfa(body.challengeToken, body.code, body.trustDevice, requestContext(req));
+    if (result.refreshToken !== null) setRefreshCookie(res, result.refreshToken);
+    if (result.trustToken) setTrustCookie(res, result.trustToken);
+    if (isMfaChallenge(result.response)) {
+      // completeMfa never answers with a second challenge; the type allows it.
+      throw new Error('The code step answered with another challenge.');
+    }
+    return result.response;
+  }
+
+  @Get('mfa')
+  @Authenticated()
+  mfaStatus(@CurrentUser() principal: Principal, @Req() req: Request): Promise<MfaStatus> {
+    return this.mfa.status(principal, readTrustCookie(req));
+  }
+
+  @Post('mfa/enrol')
+  @Authenticated()
+  @HttpCode(HttpStatus.OK)
+  startMfaEnrolment(@CurrentUser() principal: Principal): Promise<MfaEnrolmentStart> {
+    return this.mfa.startEnrolment(principal);
+  }
+
+  @Post('mfa/confirm')
+  @Authenticated()
+  @HttpCode(HttpStatus.OK)
+  confirmMfa(@CurrentUser() principal: Principal, @Body() body: MfaCodeDto): Promise<MfaRecoveryCodes> {
+    return this.mfa.confirmEnrolment(principal, body.code);
+  }
+
+  @Post('mfa/disable')
+  @Authenticated()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  disableMfa(@CurrentUser() principal: Principal, @Body() body: MfaCodeDto): Promise<void> {
+    return this.mfa.disable(principal, body.code);
+  }
+
+  @Post('mfa/recovery-codes')
+  @Authenticated()
+  @HttpCode(HttpStatus.OK)
+  regenerateRecoveryCodes(@CurrentUser() principal: Principal, @Body() body: MfaCodeDto): Promise<MfaRecoveryCodes> {
+    return this.mfa.regenerateRecoveryCodes(principal, body.code);
+  }
+
+  @Delete('mfa/trusted-devices/:deviceId')
+  @Authenticated()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  revokeTrustedDevice(@CurrentUser() principal: Principal, @Param('deviceId', ParseUUIDPipe) deviceId: string): Promise<void> {
+    return this.mfa.revokeTrustedDevice(principal, deviceId);
+  }
+
+  /** REQ-B-09: the administrator's reset, for a lost phone and lost codes. The same key that issues a password reset. */
+  @Post('mfa/reset/:userId')
+  @RequirePermission(PERMISSIONS.EMPLOYEE_MANAGE)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  resetMfa(@CurrentUser() principal: Principal, @Param('userId', ParseUUIDPipe) userId: string): Promise<void> {
+    return this.mfa.resetForUser(principal, userId);
   }
 
   /**

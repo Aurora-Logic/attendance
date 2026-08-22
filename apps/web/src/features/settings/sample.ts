@@ -35,6 +35,7 @@ export function sampleSettings(): OrgSettings {
       autoEscalationDays: 3,
     },
     photo: { retentionMonths: 12, minBytes: 80 * KB, maxBytes: 150 * KB },
+    security: { mfaPolicy: 'admin_accounts' },
     email: {
       transport: 'log',
       host: 'localhost',
@@ -57,6 +58,7 @@ export function sampleSettings(): OrgSettings {
         minBytes: 'Punch photo pipeline',
         maxBytes: 'Punch photo pipeline',
       },
+      security: { mfaPolicy: 'Sign-in' },
     },
     unreadableKeys: [],
   };
