@@ -79,6 +79,8 @@ export interface ModuleDef {
   icon: Icon;
   /** Where `Ctrl+G` lands when this module is chosen. */
   home: string;
+  /** The phone bottom bar's default four, in order, when nobody has customised it: the screens held in a hand on the floor, not the office's. Absent = the module's first four. */
+  readonly phoneBar?: readonly string[];
   /** Undefined means every signed-in account sees it. */
   permission?: PermissionKey;
   groups: NavGroup[];
@@ -481,6 +483,8 @@ export const MODULES: ModuleDef[] = [
     label: 'Sales',
     icon: FileTextIcon,
     home: '/sales/estimates',
+    // Owner, 22 Aug: the phone is the floor's device - the process is what it carries.
+    phoneBar: ['/sales/orders', '/sales/pick-queue', '/sales/scan', '/sales/dispatches'],
     permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
     groups: [
       {

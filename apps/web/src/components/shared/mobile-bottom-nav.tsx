@@ -83,8 +83,14 @@ export function MobileBottomNav() {
       .filter((i): i is NavItem => Boolean(i));
 
     if (chosen !== null) return fromPreference.slice(0, BOTTOM_NAV_SLOTS);
-    return moduleItems.slice(0, BOTTOM_NAV_SLOTS);
-  }, [chosen, moduleItems]);
+    // The module's own phone default first (what a hand on the floor needs),
+    // filtered to what this person may reach, then the first screens fill in.
+    const preferred = (module.phoneBar ?? [])
+      .map((route) => moduleItems.find((i) => i.to === route))
+      .filter((i): i is NavItem => Boolean(i));
+    const rest = moduleItems.filter((i) => !preferred.includes(i));
+    return [...preferred, ...rest].slice(0, BOTTOM_NAV_SLOTS);
+  }, [chosen, moduleItems, module.phoneBar]);
 
   const primaryRoutes = new Set(primary.map((i) => i.to));
   const overflow = moduleItems.filter((item) => !primaryRoutes.has(item.to));
