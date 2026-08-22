@@ -77,13 +77,14 @@ export class DispatchService implements OnModuleInit {
     `);
   }
 
-  async list(principal: Principal, query: DispatchListQuery): Promise<Paginated<DispatchView>> {
+  async list(principal: Principal, query: DispatchListQuery & { delivered?: 'yes' | 'no' }): Promise<Paginated<DispatchView>> {
     const scope = this.scopes.resolve(principal, GRANTS, sql`d.owner_id`).where;
     const { limit, offset } = pageSlice(query);
     const where = sql`x.org_id = ${principal.orgId} AND x.deleted_at IS NULL AND ${scope}
       ${query.documentId === undefined ? sql`` : sql`AND x.document_id = ${query.documentId}`}
       ${query.mode === undefined ? sql`` : sql`AND x.mode = ${query.mode}`}
       ${query.syncState === undefined ? sql`` : sql`AND x.sync_state = ${query.syncState}`}
+      ${query.delivered === undefined ? sql`` : query.delivered === 'yes' ? sql`AND x.delivered_at IS NOT NULL` : sql`AND x.delivered_at IS NULL`}
       ${query.q === undefined ? sql`` : sql`AND (x.number ILIKE ${`%${query.q}%`} OR d.number ILIKE ${`%${query.q}%`} OR d.customer_name ILIKE ${`%${query.q}%`} OR x.lr_number ILIKE ${`%${query.q}%`})`}`;
     const ids = await this.db.execute<{ id: string }>(sql`
       SELECT x.id FROM dispatches x JOIN sales_documents d ON d.id = x.document_id WHERE ${where}

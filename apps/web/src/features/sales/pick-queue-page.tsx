@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/shared/page-header';
+import { FulfilmentTabs } from './fulfilment-tabs';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -74,6 +75,7 @@ export function PickQueuePage() {
     return (
       <>
         <PageHeader description="The pick queue: confirmed orders with something left to pack, oldest first." />
+        <FulfilmentTabs current="pick" />
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">

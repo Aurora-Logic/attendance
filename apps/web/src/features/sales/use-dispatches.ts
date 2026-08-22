@@ -21,6 +21,8 @@ export interface DispatchFilters {
   documentId?: string;
   mode?: DispatchMode;
   syncState?: DocumentSyncState;
+  /** The board's Dispatched (no) and Delivered (yes) tabs. */
+  delivered?: 'yes' | 'no';
 }
 
 export function useDispatches(filters: DispatchFilters, options: { enabled?: boolean } = {}): UseQueryResult<DispatchesResponse, Error> {
@@ -29,6 +31,7 @@ export function useDispatches(filters: DispatchFilters, options: { enabled?: boo
   if (filters.documentId) params.set('documentId', filters.documentId);
   if (filters.mode) params.set('mode', filters.mode);
   if (filters.syncState) params.set('syncState', filters.syncState);
+  if (filters.delivered) params.set('delivered', filters.delivered);
   const key = params.toString();
   return useQuery({
     enabled: options.enabled ?? true,

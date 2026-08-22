@@ -107,6 +107,7 @@ Owner, 22 Aug 2026: after the flag glyph, "what else like this" — and more rep
 | B-34 | Recovery codes as a PDF | Download as PDF beside Copy all, wherever the ten codes are shown: account, organisation, date, the codes, how to use one, what to do when the phone or the codes are lost; printed from the screen that holds them, browser print-to-PDF | Done |
 | B-35 | Profile page redesign | Identity with the avatar and the chips, three figures at a glance (roles, permissions, two-step), two columns on a desk -- sign-in and security with your light/dark choice, and notifications -- then what you can do with a filter over the folded permissions; shadcn only, the preset only | Done |
 | B-36 | Lifecycle of an item, a customer, a vendor | Tap a row on Stock items or Parties: figures (ordered, picked, packed, dispatched, purchased, received; orders, dispatches, delivered, invoices, values), who buys it and who supplies it, and a dated timeline of every document that touched it, each row a door; read through the person's own sales, purchase and Tally keys | Done |
+| B-37 | One Fulfilment screen with stage tabs | Pick · Packed · Awaiting invoice · Dispatched · Delivered as one strip on the four fulfilment screens, each tab a link with the stage's count; the sidebar and phone bar carry one Fulfilment entry and Scan a slip in place of four; the dispatch list takes `delivered=yes/no`; the orders list shows each order's fulfilment word beside its status | Done |
 
 ### B-16 findings (emil-design-eng / thumb-reach), 22 Aug 2026
 
@@ -350,3 +351,9 @@ Built apart from the pick/pack/ship files the other session is in. `LifecycleSer
 | Timeline | Newest first by month, one glyph per kind, every row a link to the document; All / Sales / Purchase / Tally |
 
 Tests: three endpoint tests over real HTTP (a confirmed order shows in both lifecycles with its door; 404 and 403), a jsdom test of the timeline's grouping, links and filter. Browser gate not run (owner instruction).
+
+### B-37 (owner's fulfilment brief, the navigation half), 22 Aug 2026
+
+Owner's choice: "one Fulfilment screen with stage tabs", not five destinations. The routes stay as they were; `FulfilmentTabs` under each page header is the same strip on all four, and a tab is a link, so the back button and the guide's routes still work. Counts are the stage lists' own totals (the dispatch list learned `delivered=yes|no`, local to the route so the shared sales schema another hand is in stays untouched). The phone's bottom bar follows the nav, so it now shows Fulfilment and Scan.
+
+Not done here, on purpose: handling marks chosen per pack (the owner's "defaulting to the org's"). It needs a column on `pack_records` and a change to the pack service, and both files are in another session's uncommitted working set (`fulfilment.service.ts`, `sales.schema.ts`, `shared/sales.ts`). It follows once those land.

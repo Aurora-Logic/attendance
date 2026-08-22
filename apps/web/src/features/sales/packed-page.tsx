@@ -3,6 +3,7 @@ import { PackageIcon, PrinterIcon, ScanIcon, WarningCircleIcon } from '@phosphor
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { PageHeader } from '@/components/shared/page-header';
+import { FulfilmentTabs } from './fulfilment-tabs';
 import { PersonChip } from '@/components/shared/person';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
@@ -104,6 +105,7 @@ export function PackedPage() {
     return (
       <>
         <PageHeader description="The boxes that wait between packing and the door." />
+        <FulfilmentTabs current="packed" />
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">

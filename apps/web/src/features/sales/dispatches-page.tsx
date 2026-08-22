@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
+import { FulfilmentTabs } from './fulfilment-tabs';
 import { RecordPagination } from '@/components/shared/record-pagination';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SearchField } from '@/components/shared/search-field';
@@ -113,7 +114,7 @@ export function DispatchesPage() {
     };
   }, [draft, q, setSearchParams]);
 
-  const query = useDispatches({ page, ...(q ? { q } : {}), ...(mode ? { mode } : {}), ...(syncState ? { syncState } : {}), ...(orderParam ? { documentId: orderParam } : {}) }, { enabled: canView });
+  const query = useDispatches({ page, ...(q ? { q, delivered: searchParams.get('delivered') === 'yes' ? 'yes' : searchParams.get('delivered') === 'no' ? 'no' : undefined } : {}), ...(mode ? { mode } : {}), ...(syncState ? { syncState } : {}), ...(orderParam ? { documentId: orderParam } : {}) }, { enabled: canView });
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta ?? null;
   function setParam(name: string, value: string | null) {
@@ -133,6 +134,7 @@ export function DispatchesPage() {
     return (
       <>
         <PageHeader description="Every dispatch in flight: mode, LR, photographs, and whether the customer has been told." />
+        <FulfilmentTabs current={searchParams.get('delivered') === 'yes' ? 'delivered' : 'dispatched'} />
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">

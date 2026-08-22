@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PageHeader } from '@/components/shared/page-header';
+import { FulfilmentTabs } from './fulfilment-tabs';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { RowActions, type RowAction } from '@/components/shared/row-actions';
@@ -117,6 +118,7 @@ export function AwaitingInvoicePage() {
     return (
       <>
         <PageHeader description="Packed and waiting for the accountant, and invoices with no order behind them." />
+        <FulfilmentTabs current="invoice" />
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">

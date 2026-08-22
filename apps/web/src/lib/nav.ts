@@ -1,7 +1,6 @@
 import {
   AddressBookIcon,
   ArchiveIcon,
-  BarcodeIcon,
   BooksIcon,
   BuildingsIcon,
   CalendarBlankIcon,
@@ -24,7 +23,6 @@ import {
   PackageIcon,
   PlugIcon,
   ReceiptIcon,
-  ReceiptXIcon,
   ScrollIcon,
   ShieldCheckIcon,
   ShoppingCartIcon,
@@ -33,7 +31,6 @@ import {
   TrashIcon,
   TrayIcon,
   TreePalmIcon,
-  TruckIcon,
   ScanIcon,
   UmbrellaIcon,
   UsersIcon,
@@ -520,40 +517,18 @@ export const MODULES: ModuleDef[] = [
       {
         label: 'Fulfilment',
         items: [
+          // Owner, 22 Aug 2026: one screen with stage tabs -- Pick, Packed,
+          // Awaiting invoice, Dispatched, Delivered -- in place of four
+          // destinations for one flow. The routes stay; the strip on each
+          // says where you are (features/sales/fulfilment-tabs).
           {
             to: '/sales/pick-queue',
-            label: 'Pick queue',
-            shortLabel: 'Pick',
-            icon: BarcodeIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
-            phase: 8,
-            reqs: 'REQ-AA-05, REQ-AA-06, REQ-AA-07',
-          },
-          {
-            to: '/sales/packed',
-            label: 'Packed',
-            shortLabel: 'Packed',
+            label: 'Fulfilment',
+            shortLabel: 'Fulfil',
             icon: PackageIcon,
             permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
             phase: 8,
-            reqs: 'D-47',
-          },
-          {
-            to: '/sales/awaiting-invoice',
-            label: 'Awaiting invoice',
-            shortLabel: 'Billing',
-            icon: ReceiptXIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
-            phase: 8,
-            reqs: 'REQ-AA-10, REQ-AA-12, REQ-AA-13',
-          },
-          {
-            to: '/sales/dispatches',
-            label: 'Dispatches',
-            icon: TruckIcon,
-            permission: PERMISSIONS.SALES_DOCUMENT_VIEW_SELF,
-            phase: 8,
-            reqs: 'REQ-AA-17, REQ-AA-21, REQ-AA-24',
+            reqs: 'REQ-AA-05…AA-24, D-47',
           },
           {
             to: '/sales/scan',

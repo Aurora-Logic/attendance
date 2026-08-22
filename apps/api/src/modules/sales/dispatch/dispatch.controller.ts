@@ -23,7 +23,8 @@ import { CurrentUser, type Principal } from '../../../platform/rbac/principal.js
 import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { DispatchService } from './dispatch.service.js';
 
-class DispatchListQueryDto extends createZodDto(dispatchListQuerySchema) {}
+/** Owner, 22 Aug 2026: the board's Dispatched and Delivered tabs are this one filter. Local to the route rather than the shared schema, which another hand is in. */
+class DispatchListQueryDto extends createZodDto(dispatchListQuerySchema.extend({ delivered: z.enum(['yes', 'no']).optional() })) {}
 class MarkNotificationDto extends createZodDto(markNotificationSentSchema) {}
 
 const VIEW = [PERMISSIONS.SALES_DOCUMENT_VIEW_SELF, PERMISSIONS.SALES_DOCUMENT_VIEW_ALL] as const;
