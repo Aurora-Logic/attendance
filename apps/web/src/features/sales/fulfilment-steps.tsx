@@ -1,4 +1,4 @@
-import { CheckIcon, PackageIcon, PrinterIcon, ReceiptIcon, ScanIcon, TruckIcon } from '@phosphor-icons/react';
+import { CheckIcon, HandGrabbingIcon, PackageIcon, PrinterIcon, ReceiptIcon, ScanIcon, TruckIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
 import { Button } from '@/components/ui/button';
@@ -35,11 +35,12 @@ export function FulfilmentSteps({
 
   const verb = (() => {
     if (!canAct) return null;
+    // D-48: the sheet behind onPack opens at the step that is next.
     if (current === 'picked' || current === 'packed') {
       return (
         <Button size="sm" onClick={onPack}>
-          <PackageIcon data-icon="inline-start" />
-          {current === 'picked' ? 'Pick and pack' : 'Pack the rest'}
+          {current === 'picked' ? <HandGrabbingIcon data-icon="inline-start" /> : <PackageIcon data-icon="inline-start" />}
+          {current === 'picked' ? (progress.toPack > 1e-9 ? 'Pack what is picked' : 'Pick') : progress.toPack > 1e-9 ? 'Pack the rest' : 'Pack'}
         </Button>
       );
     }

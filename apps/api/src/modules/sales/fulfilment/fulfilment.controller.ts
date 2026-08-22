@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post
 import {
   PERMISSIONS,
   createPackRecordSchema,
+  createPickRecordSchema,
   linkInvoiceSchema,
   packListQuerySchema,
   shortCloseSchema,
@@ -9,6 +10,7 @@ import {
   type PackRecordView,
   type Paginated,
   type PickQueueEntry,
+  type PickRecordView,
   type SalesDocumentView,
   type UnlinkedInvoice,
 } from '@vyuha/shared';
@@ -24,6 +26,7 @@ import { RequirePermission } from '../../../platform/rbac/route-policy.js';
 import { FulfilmentService } from './fulfilment.service.js';
 
 class CreatePackRecordDto extends createZodDto(createPackRecordSchema) {}
+class CreatePickRecordDto extends createZodDto(createPickRecordSchema) {}
 class LinkInvoiceDto extends createZodDto(linkInvoiceSchema) {}
 class ShortCloseDto extends createZodDto(shortCloseSchema) {}
 
@@ -66,6 +69,13 @@ export class FulfilmentController {
     return this.fulfilment.listAllPacks(principal, query);
   }
 
+  /** D-48: every picking session against one order. */
+  @Get('orders/:id/picks')
+  @RequirePermission(...VIEW)
+  picks(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PickRecordView[]> {
+    return this.fulfilment.listPicks(principal, id);
+  }
+
   @Get('orders/:id/packs')
   @RequirePermission(...VIEW)
   packs(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string): Promise<PackRecordView[]> {
@@ -103,6 +113,14 @@ export class FulfilmentController {
       notes: pack.comment,
       terms: null,
     });
+  }
+
+  /** D-48: the picking step -- what came off the shelf; a line packs only what it has picked. */
+  @Post('orders/:id/picks')
+  @RequirePermission(PERMISSIONS.SALES_DOCUMENT_CREATE)
+  @HttpCode(HttpStatus.CREATED)
+  pick(@CurrentUser() principal: Principal, @Param('id', ParseUUIDPipe) id: string, @Body() body: CreatePickRecordDto): Promise<PickRecordView> {
+    return this.fulfilment.pick(principal, id, body);
   }
 
   @Post('orders/:id/packs')

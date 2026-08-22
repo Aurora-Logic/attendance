@@ -13,15 +13,16 @@ import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
 import { FulfilmentBadge } from './fulfilment-badge';
-import { PackDialog } from './pack-dialog';
+import { PickPackDialog } from './pick-pack-dialog';
 import { trimZeros, type PickQueueEntry } from './types';
 import { useSalesOrder } from './use-estimates';
 import { usePickQueue } from './use-fulfilment';
 
 /**
  * REQ-AA-06…AA-10: the pick queue, oldest order first, worked on a phone.
- * A row is an order with something left to pack; tapping it opens the pick
- * list as a bottom sheet with the Pack button under the thumb. The route
+ * A row is an order with something left to pick or pack; tapping it opens
+ * the sheet at the step that is next (D-48: pick, then pack), its button
+ * under the thumb. The route
  * carries the order (`/sales/pick-queue/:id`), so a picker can be sent a
  * link, and a short pack returns the balance here (REQ-AA-07, D-26).
  */
@@ -30,7 +31,7 @@ const COLUMNS: RecordColumn<PickQueueEntry>[] = [
   { key: 'number', header: 'Order', cell: (row) => <span className="font-medium tabular-nums">{row.number}</span> },
   { key: 'customer', header: 'Customer', cell: (row) => row.customerName },
   { key: 'date', header: 'Ordered', cell: (row) => formatDate(row.date), className: 'tabular-nums' },
-  { key: 'balance', header: 'To pack', cell: (row) => `${trimZeros(row.balanceQty)} across ${String(row.balanceLines)} line${row.balanceLines === 1 ? '' : 's'}`, numeric: true },
+  { key: 'balance', header: 'Open', cell: (row) => `${trimZeros(row.balanceQty)} across ${String(row.balanceLines)} line${row.balanceLines === 1 ? '' : 's'}`, numeric: true },
   { key: 'fulfilment', header: 'State', cell: (row) => <FulfilmentBadge state={row.fulfilment} /> },
   {
     key: 'waiting',
@@ -92,7 +93,7 @@ export function PickQueuePage() {
   return (
     <>
       <PageHeader
-        description="Confirmed orders with something left to pack, oldest first. Tap one to pack it; a short pack keeps the balance here."
+        description="Confirmed orders with something left to pick or pack, oldest first. Tap one: pick what comes off the shelf, then pack it. A short pick or pack keeps the balance here."
         action={
           // D-47: the scan is one tap from the screens a person holds a box on.
           <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/sales/scan" />}>
@@ -145,7 +146,7 @@ export function PickQueuePage() {
         ) : null}
       </div>
 
-      <PackDialog
+      <PickPackDialog
         open={openId !== null}
         onOpenChange={(isOpen) => {
           if (!isOpen) closeDialog();

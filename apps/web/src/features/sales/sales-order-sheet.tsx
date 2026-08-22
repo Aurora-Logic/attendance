@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowsClockwiseIcon, BooksIcon, CheckIcon, LockKeyOpenIcon, PackageIcon, PencilSimpleIcon, PrinterIcon, ProhibitIcon, ReceiptIcon, TruckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon } from '@phosphor-icons/react';
+import { ArrowsClockwiseIcon, BooksIcon, CheckIcon, LockKeyOpenIcon, PackageIcon, PencilSimpleIcon, PrinterIcon, ProhibitIcon, ReceiptIcon, TruckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon, HandGrabbingIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
 import { PersonChip } from '@/components/shared/person';
@@ -38,7 +38,7 @@ import { fulfilmentProgress } from './fulfilment-progress';
 import { FulfilmentSteps } from './fulfilment-steps';
 import { InvoiceDialog } from './invoice-dialog';
 import { formatMoney } from './money';
-import { PackDialog } from './pack-dialog';
+import { PickPackDialog } from './pick-pack-dialog';
 import { ORDER_INVOICE_METHOD_LABELS, WAITING_ON_STATE_LABELS, lineBalances, trimZeros, type Estimate, type EstimateDraft, type SalesLine } from './types';
 import { creditBlockOf } from './credit-block';
 import { useAlterSalesOrder, useSalesOrderAction, useSaveSalesOrder } from './use-estimates';
@@ -106,8 +106,9 @@ const QUANTITY_COLUMNS: RecordColumn<SalesLine>[] = [
     key: 'toPack',
     header: 'To pack',
     cell: (line) => {
-      const toPack = lineBalances(line).toPack;
-      return toPack > 0 ? <span className="font-medium">{trimZeros(toPack.toFixed(3))}</span> : EMPTY_VALUE;
+      const { toPick, toPack } = lineBalances(line);
+      if (toPack > 0) return <span className="font-medium">{trimZeros(toPack.toFixed(3))}</span>;
+      return toPick > 0 ? <span className="text-muted-foreground">{trimZeros(toPick.toFixed(3))} to pick</span> : EMPTY_VALUE;
     },
     numeric: true,
   },
@@ -178,6 +179,8 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
   const fulfilling = confirmed && record.shortClosedAt === null;
   const balances = record === null ? [] : record.lines.map(lineBalances);
   const canPack = canCreate && fulfilling && balances.some((b) => b.toPack > 0);
+  // D-48: the owner's flow is pick, then pack; one button, named for the step that is next.
+  const canPick = canCreate && fulfilling && balances.some((b) => b.toPick > 0);
   const canInvoice = canCreate && confirmed && record.partyId !== null && balances.some((b) => b.toInvoice > 0);
   const canDispatch = canCreate && fulfilling && balances.some((b) => b.toDispatch > 0);
   const canShortClose = canAlter && fulfilling && record.fulfilment !== 'closed';
@@ -471,10 +474,10 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
             Short close
           </Button>
         ) : null}
-        {canPack && !altering ? (
+        {(canPack || canPick) && !altering ? (
           <Button variant="outline" disabled={busy} onClick={() => { setDialog('pack'); }}>
-            <PackageIcon data-icon="inline-start" />
-            Pack
+            {canPack ? <PackageIcon data-icon="inline-start" /> : <HandGrabbingIcon data-icon="inline-start" />}
+            {canPack ? 'Pack' : 'Pick'}
           </Button>
         ) : null}
         {canInvoice && !altering ? (
@@ -528,7 +531,7 @@ function SalesOrderSheetBody({ initial, record, onClose }: { initial: EstimateDr
 
       {record === null ? null : (
         <>
-          <PackDialog open={dialog === 'pack'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} />
+          <PickPackDialog open={dialog === 'pack'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} />
           <InvoiceDialog open={dialog === 'invoice'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} />
           <DispatchDialog open={dialog === 'dispatch'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} />
           <ReasonDialog
@@ -618,10 +621,11 @@ export function FulfilmentSections({
           rowKey={(line) => line.id}
           mobilePrimary={(line) => `${String(line.lineNo)}. ${line.description}`}
           mobileStatus={(line) => {
-            const toPack = lineBalances(line).toPack;
-            return toPack > 0 ? <Badge variant="outline">{trimZeros(toPack.toFixed(3))} to pack</Badge> : <Badge variant="outline">Packed</Badge>;
+            const { toPick, toPack } = lineBalances(line);
+            if (toPack > 0) return <Badge variant="outline">{trimZeros(toPack.toFixed(3))} to pack</Badge>;
+            return toPick > 0 ? <Badge variant="outline">{trimZeros(toPick.toFixed(3))} to pick</Badge> : <Badge variant="outline">Packed</Badge>;
           }}
-          mobileSupporting={(line) => `Ordered ${trimZeros(line.quantity)} · Packed ${trimZeros(line.packedQty)} · Invoiced ${trimZeros(line.invoicedQty)} · Dispatched ${trimZeros(line.dispatchedQty)}`}
+          mobileSupporting={(line) => `Ordered ${trimZeros(line.quantity)} · Picked ${trimZeros(line.pickedQty)} · Packed ${trimZeros(line.packedQty)} · Invoiced ${trimZeros(line.invoicedQty)} · Dispatched ${trimZeros(line.dispatchedQty)}`}
         />
       </div>
 

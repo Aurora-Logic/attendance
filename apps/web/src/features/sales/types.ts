@@ -18,6 +18,8 @@ export const salesLineSchema = z.object({
   taxAmount: z.string(),
   hsnCode: z.string().nullable().default(null),
   // REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate.
+  // D-48: picked sits between ordered and packed. Absent on older fixtures.
+  pickedQty: z.string().default('0.000'),
   packedQty: z.string(),
   invoicedQty: z.string(),
   dispatchedQty: z.string(),
@@ -26,11 +28,16 @@ export const salesLineSchema = z.object({
 });
 export type SalesLine = z.infer<typeof salesLineSchema>;
 
-/** REQ-AA-29: the four figures and the balance every order screen shows per line. */
-export function lineBalances(line: SalesLine): { toPack: number; toInvoice: number; invoicing: number; toDispatch: number } {
+/**
+ * REQ-AA-29: the figures and the balances every order screen shows per line.
+ * D-48 (owner's flow): ordered → picked → packed → invoiced → dispatched;
+ * each step may take only what the one before it released.
+ */
+export function lineBalances(line: SalesLine): { toPick: number; toPack: number; toInvoice: number; invoicing: number; toDispatch: number } {
   const invoicing = Number(line.invoicingQty);
   return {
-    toPack: Math.max(0, Number(line.quantity) - Number(line.packedQty)),
+    toPick: Math.max(0, Number(line.quantity) - Number(line.pickedQty)),
+    toPack: Math.max(0, Number(line.pickedQty) - Number(line.packedQty)),
     // What an invoice raised now may take: packed, less invoiced, less what an invoice in flight already holds (P8-2).
     toInvoice: Math.max(0, Number(line.packedQty) - Number(line.invoicedQty) - invoicing),
     invoicing,
@@ -216,6 +223,18 @@ export const unlinkedInvoiceSchema = z.object({
 export type UnlinkedInvoice = z.infer<typeof unlinkedInvoiceSchema>;
 
 /** REQ-AA-09: one packing session. */
+/** D-48: one picking session — who took how much off the shelf. */
+export const pickRecordSchema = z.object({
+  id: z.string(),
+  documentId: z.string(),
+  pickedById: z.string().nullable(),
+  pickedByName: z.string().nullable(),
+  pickedAt: z.string(),
+  comment: z.string().nullable(),
+  lines: z.array(z.object({ lineId: z.string(), description: z.string(), quantity: z.string(), comment: z.string().nullable() })),
+});
+export type PickRecord = z.infer<typeof pickRecordSchema>;
+
 export const packRecordSchema = z.object({
   id: z.string(),
   documentId: z.string(),

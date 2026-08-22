@@ -487,6 +487,9 @@ export class ApiHarness {
     await this.db.execute(sql`DELETE FROM dispatch_attachments WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatch_lines WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM dispatches WHERE org_id = ${this.orgId}`);
+    // D-48: the pick tables reference the lines too, so they go first.
+    await this.db.execute(sql`DELETE FROM pick_record_lines WHERE org_id = ${this.orgId}`);
+    await this.db.execute(sql`DELETE FROM pick_records WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM pack_record_lines WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM pack_records WHERE org_id = ${this.orgId}`);
     await this.db.execute(sql`DELETE FROM sales_order_invoices WHERE org_id = ${this.orgId}`);

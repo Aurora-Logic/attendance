@@ -134,6 +134,7 @@ export interface SalesLineView {
   readonly taxAmount: string;
   readonly hsnCode: string | null;
   /** REQ-AA-01/AA-29: the state, as numbers. Zero on an estimate. */
+  readonly pickedQty: string;
   readonly packedQty: string;
   readonly invoicedQty: string;
   readonly dispatchedQty: string;
@@ -511,6 +512,23 @@ export type VoucherPushPayload = z.infer<typeof voucherPushPayloadSchema>;
 const qtyText = z.string().trim().regex(/^\d{1,12}(\.\d{1,3})?$/u, 'a quantity with up to three decimals');
 
 /** REQ-AA-06/AA-07/AA-08/AA-09: one packing session. Lines not named are untouched. */
+/** D-48: a picking session — who took how much off the shelf. */
+export const createPickRecordSchema = z.object({
+  comment: z.string().trim().max(2000).nullish(),
+  lines: z.array(z.object({ lineId: z.uuid(), quantity: qtyText, comment: z.string().trim().max(1000).nullish() })).min(1).max(200),
+});
+export type CreatePickRecordInput = z.infer<typeof createPickRecordSchema>;
+
+export interface PickRecordView {
+  readonly id: string;
+  readonly documentId: string;
+  readonly pickedById: string | null;
+  readonly pickedByName: string | null;
+  readonly pickedAt: string;
+  readonly comment: string | null;
+  readonly lines: readonly { lineId: string; description: string; quantity: string; comment: string | null }[];
+}
+
 export const createPackRecordSchema = z.object({
   boxCount: z.number().int().min(1).max(999).default(1),
   comment: z.string().trim().max(2000).nullish(),

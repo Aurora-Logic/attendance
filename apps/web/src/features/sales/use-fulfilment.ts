@@ -1,11 +1,11 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
-import type { CreatePackRecordInput } from '@vyuha/shared';
+import type { CreatePackRecordInput, CreatePickRecordInput } from '@vyuha/shared';
 import { z } from 'zod';
 
 import { apiRequest } from '@/lib/api/client';
 import { parseOrThrow } from '@/lib/api/parse';
 
-import { awaitingInvoiceEntrySchema, estimateSchema, packRecordSchema, packedListSchema, pickQueueEntrySchema, unlinkedInvoiceSchema, type AwaitingInvoiceEntry, type Estimate, type PackRecord, type PackedList, type PickQueueEntry, type UnlinkedInvoice } from './types';
+import { awaitingInvoiceEntrySchema, estimateSchema, packRecordSchema, packedListSchema, pickQueueEntrySchema, unlinkedInvoiceSchema, type AwaitingInvoiceEntry, type Estimate, type PackRecord, type PackedList, type PickQueueEntry, type UnlinkedInvoice, pickRecordSchema, type PickRecord } from './types';
 
 /**
  * Pick, pack, and the billing handshake (12 §3.2, §3.3). Every mutation
@@ -95,6 +95,30 @@ export function usePackRecords(documentId: string | null): UseQueryResult<PackRe
       const body = await apiRequest<unknown>(`/sales/orders/${documentId ?? ''}/packs`, { signal });
       return parseOrThrow(z.array(packRecordSchema), body, 'pack records');
     },
+  });
+}
+
+/** D-48: every picking session against one order. */
+export function usePickRecords(documentId: string | null): UseQueryResult<PickRecord[], Error> {
+  return useQuery({
+    enabled: documentId !== null,
+    queryKey: ['sales', 'order', documentId, 'picks'],
+    queryFn: async ({ signal }) => {
+      const body = await apiRequest<unknown>(`/sales/orders/${documentId ?? ''}/picks`, { signal });
+      return parseOrThrow(z.array(pickRecordSchema), body, 'pick records');
+    },
+  });
+}
+
+/** D-48: one picking session, lines within what is still on the shelf. */
+export function usePickOrder(): UseMutationResult<PickRecord, Error, { documentId: string; input: CreatePickRecordInput }> {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ documentId, input }) => {
+      const response = await apiRequest<unknown>(`/sales/orders/${documentId}/picks`, { method: 'POST', body: input });
+      return parseOrThrow(pickRecordSchema, response, 'pick record');
+    },
+    onSuccess: invalidate,
   });
 }
 

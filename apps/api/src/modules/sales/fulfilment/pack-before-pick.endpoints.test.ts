@@ -27,6 +27,15 @@ interface SalesDocumentView {
 interface ErrorBody {
   error: { code: string; message: string; details?: Record<string, unknown> };
 }
+interface PickRecordView {
+  id: string;
+  lines: { lineId: string; quantity: string }[];
+}
+interface PackRecordView {
+  id: string;
+  boxCount: number;
+  lines: { lineId: string; quantity: string }[];
+}
 
 beforeAll(async () => {
   harness = await ApiHarness.start(ORG_ID, 'Pack Before Pick Org');
@@ -81,3 +90,31 @@ describe('POST /sales/orders/:id/packs before any pick', () => {
     expect(Number(after.rows[0]?.packs)).toBe(0);
   });
 });
+
+describe('the flow the owner drew: pick, then pack', () => {
+  it('picks within the order, refuses more than ordered, then packs what was picked', async () => {
+    const over = await harness.post<ErrorBody>(`/sales/orders/${orderId}/picks`, { token: adminToken, body: { lines: [{ lineId, quantity: '6' }] } });
+    expect(over.status).toBe(400);
+    expect(over.body.error.message).toMatch(/left to pick/iu);
+
+    const picked = await harness.post<PickRecordView>(`/sales/orders/${orderId}/picks`, { token: adminToken, body: { lines: [{ lineId, quantity: '5' }] } });
+    expect(picked.status).toBe(201);
+    expect(picked.body.lines[0]?.quantity).toBe('5.000');
+
+    const picks = await harness.get<PickRecordView[]>(`/sales/orders/${orderId}/picks`, { token: adminToken });
+    expect(picks.status).toBe(200);
+    expect(picks.body).toHaveLength(1);
+
+    const order = await harness.get<SalesDocumentView & { lines: { pickedQty: string }[] }>(`/sales/orders/${orderId}`, { token: adminToken });
+    expect(order.body.lines[0]?.pickedQty).toBe('5.000');
+
+    const packed = await harness.post<PackRecordView>(`/sales/orders/${orderId}/packs`, { token: adminToken, body: { boxCount: 2, lines: [{ lineId, quantity: '2' }] } });
+    expect(packed.status).toBe(201);
+    expect(packed.body.boxCount).toBe(2);
+
+    const after = await harness.get<SalesDocumentView & { lines: { pickedQty: string; packedQty: string }[] }>(`/sales/orders/${orderId}`, { token: adminToken });
+    expect(after.body.lines[0]?.packedQty).toBe('2.000');
+    expect(after.body.lines[0]?.pickedQty).toBe('5.000');
+  });
+});
+

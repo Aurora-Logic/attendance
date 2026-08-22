@@ -4,8 +4,9 @@ import { fulfilmentProgress } from './fulfilment-progress';
 import type { Dispatch, Estimate, PackRecord } from './types';
 
 /** The owner's four steps, decided from the order's own quantities. */
-function order(lines: { quantity: string; packedQty: string; invoicedQty: string; dispatchedQty: string }[], status = 'CONFIRMED'): Estimate {
-  return { status, shortClosedAt: null, lines: lines.map((line, index) => ({ id: `l${String(index)}`, ...line })) } as unknown as Estimate;
+function order(lines: { quantity: string; pickedQty?: string; packedQty: string; invoicedQty: string; dispatchedQty: string }[], status = 'CONFIRMED'): Estimate {
+  // D-48: picked sits between ordered and packed; a fixture that does not say is picked as far as it is packed.
+  return { status, shortClosedAt: null, lines: lines.map((line, index) => ({ id: `l${String(index)}`, pickedQty: line.pickedQty ?? line.packedQty, ...line })) } as unknown as Estimate;
 }
 const pack = { id: 'p1' } as unknown as PackRecord;
 const shipped = { id: 'd1', status: 'shipped' } as unknown as Dispatch;
@@ -16,9 +17,12 @@ describe('fulfilmentProgress', () => {
     expect(fulfilmentProgress(order([{ quantity: '10', packedQty: '0', invoicedQty: '0', dispatchedQty: '0' }], 'DRAFT'), [], []).current).toBeNull();
   });
 
-  it('starts at Picked and moves to Packed once a pack exists', () => {
+  it('stays at Picked while the shelf owes, then moves to Packed', () => {
     expect(fulfilmentProgress(order([{ quantity: '10', packedQty: '0', invoicedQty: '0', dispatchedQty: '0' }]), [], []).current).toBe('picked');
-    const partly = fulfilmentProgress(order([{ quantity: '10', packedQty: '4', invoicedQty: '0', dispatchedQty: '0' }]), [pack], []);
+    const halfPicked = fulfilmentProgress(order([{ quantity: '10', pickedQty: '4', packedQty: '4', invoicedQty: '0', dispatchedQty: '0' }]), [pack], []);
+    expect(halfPicked.current).toBe('picked');
+    expect(halfPicked.toPick).toBe(6);
+    const partly = fulfilmentProgress(order([{ quantity: '10', pickedQty: '10', packedQty: '4', invoicedQty: '0', dispatchedQty: '0' }]), [pack], []);
     expect(partly.current).toBe('packed');
     expect(partly.done.has('picked')).toBe(true);
     expect(partly.toPack).toBe(6);

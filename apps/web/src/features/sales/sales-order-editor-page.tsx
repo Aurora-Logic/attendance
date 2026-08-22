@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowsClockwiseIcon, BooksIcon, CheckIcon, LockKeyOpenIcon, PackageIcon, PencilSimpleIcon, ProhibitIcon, ReceiptIcon, TruckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon } from '@phosphor-icons/react';
+import { ArrowsClockwiseIcon, BooksIcon, CheckIcon, LockKeyOpenIcon, PackageIcon, PencilSimpleIcon, ProhibitIcon, ReceiptIcon, TruckIcon, UploadSimpleIcon, WarningCircleIcon, XCircleIcon, HandGrabbingIcon } from '@phosphor-icons/react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
@@ -32,7 +32,7 @@ import { FulfilmentBadge } from './fulfilment-badge';
 import { InvoiceDialog } from './invoice-dialog';
 import { ItemHistoryAffordance } from './item-history-popover';
 import { formatMoney } from './money';
-import { PackDialog } from './pack-dialog';
+import { PickPackDialog } from './pick-pack-dialog';
 import { creditBlockOf } from './credit-block';
 import { FulfilmentSections, SyncStateBadge } from './sales-order-sheet';
 import { emptyEstimateDraft, estimateToDraft, lineBalances, newLine, previewLine, type Estimate, type EstimateDraft, type LineDraft } from './types';
@@ -153,6 +153,8 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
   const fulfilling = confirmed && record.shortClosedAt === null;
   const balances = record === null ? [] : record.lines.map(lineBalances);
   const canPack = canCreate && fulfilling && balances.some((b) => b.toPack > 0);
+  // D-48: the owner's flow is pick, then pack; one button, named for the step that is next.
+  const canPick = canCreate && fulfilling && balances.some((b) => b.toPick > 0);
   const canInvoice = canCreate && confirmed && record.partyId !== null && balances.some((b) => b.toInvoice > 0);
   const canDispatch = canCreate && fulfilling && balances.some((b) => b.toDispatch > 0);
   const canShortClose = canAlter && fulfilling && record.fulfilment !== 'closed';
@@ -479,10 +481,10 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
                 Short close
               </Button>
             ) : null}
-            {canPack && !altering ? (
+            {(canPack || canPick) && !altering ? (
               <Button variant="outline" size="sm" disabled={busy} onClick={() => { setDialog('pack'); }}>
-                <PackageIcon data-icon="inline-start" />
-                Pack
+                {canPack ? <PackageIcon data-icon="inline-start" /> : <HandGrabbingIcon data-icon="inline-start" />}
+                {canPack ? 'Pack' : 'Pick'}
               </Button>
             ) : null}
             {canInvoice && !altering ? (
@@ -529,7 +531,7 @@ function SalesOrderEditor({ initial, record, settings }: { initial: EstimateDraf
       />
       {record === null ? null : (
         <>
-          <PackDialog open={dialog === 'pack'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} onPacked={() => { setDialog(null); }} />
+          <PickPackDialog open={dialog === 'pack'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} onPacked={() => { setDialog(null); }} />
           <InvoiceDialog open={dialog === 'invoice'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} />
           <DispatchDialog open={dialog === 'dispatch'} onOpenChange={(next) => { if (!next) setDialog(null); }} order={record} />
           <ReasonDialog

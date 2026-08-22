@@ -351,6 +351,13 @@
       "when": 1787386589160,
       "tag": "0049_customer_collects",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1787389335053,
+      "tag": "0050_picking_step",
+      "breakpoints": true
     }
   ]
 }
