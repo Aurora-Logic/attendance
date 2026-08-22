@@ -7,6 +7,7 @@ import type { Redis } from 'ioredis';
 import { AppError, describeError } from '../common/errors.js';
 import { LuaScript } from '../redis/lua-script.js';
 import { InjectRedis } from '../redis/redis.provider.js';
+import { RateLimitDbFallback } from './rate-limit-db-fallback.service.js';
 
 /**
  * REQ-B-10, second half: "20 [failed logins] per IP per 15 min."
@@ -51,12 +52,18 @@ import { InjectRedis } from '../redis/redis.provider.js';
  * once gives five 429s -- which is what a cap of twenty means, and is a soft
  * refusal that clears in one request rather than a lockout.
  *
- * **When Redis is unreachable the limiter fails open**, loudly. The trade is
- * deliberate: failing closed would mean nobody in the company can sign in
- * because a cache is down, and the per-account lockout -- five attempts, in
- * Postgres, with an email notice -- still stands either way. Every occurrence
- * is logged at error level, so "the per-IP limit is not currently in force" is
- * visible rather than assumed.
+ * **When Redis is unreachable, this falls back to the same check against
+ * Postgres** (`RateLimitDbFallback`, one row per attempt, an advisory-lock
+ * retry loop standing in for the Lua script's atomicity) rather than
+ * dropping the limit outright. `redis.status !== 'ready'` is checked before
+ * every command so a known outage skips straight to Postgres instead of
+ * paying ioredis's retry budget first; a command that still throws on an
+ * apparently-ready connection falls back reactively. Only if the Postgres
+ * lock itself cannot be acquired either does this truly fail open, loudly --
+ * the per-account lockout (five attempts, in Postgres, with an email notice)
+ * stands regardless of which path ran. Every fail-open occurrence is logged
+ * at error level, so "the per-IP limit is not currently in force" is visible
+ * rather than assumed.
  */
 
 const WINDOW_MS = 15 * 60 * 1000;
@@ -81,12 +88,12 @@ export function loginRateLimitKey(ip: string, scope: RateLimitScope = 'login'): 
  *
  * Null when there was no address to attribute the attempt to, which is the
  * same "do nothing at all" the rest of this class applies to a null IP.
+ * `backend` says which store recorded it, since `release`/`clear` must
+ * target the same one.
  */
-export interface LoginAttemptClaim {
-  readonly ip: string;
-  readonly member: string;
-  readonly scope: RateLimitScope;
-}
+export type LoginAttemptClaim =
+  | { readonly backend: 'redis'; readonly ip: string; readonly member: string; readonly scope: RateLimitScope }
+  | { readonly backend: 'db'; readonly ip: string; readonly scope: RateLimitScope; readonly rowId: string };
 
 const CLAIMED = 1;
 const REFUSED = 0;
@@ -121,7 +128,10 @@ return {1, ''}
 export class LoginRateLimiter {
   private readonly logger = new Logger(LoginRateLimiter.name);
 
-  constructor(@InjectRedis() private readonly redis: Redis) {}
+  constructor(
+    @InjectRedis() private readonly redis: Redis,
+    private readonly dbFallback: RateLimitDbFallback,
+  ) {}
 
   /**
    * Takes one of this address's slots, or throws RATE_LIMITED when there is
@@ -134,6 +144,10 @@ export class LoginRateLimiter {
     scope: RateLimitScope = 'login',
   ): Promise<LoginAttemptClaim | null> {
     if (ip === null) return null;
+
+    // A known-down connection would otherwise still pay ioredis's retry
+    // budget before the catch below runs, since `enableOfflineQueue` is on.
+    if (this.redis.status !== 'ready') return this.claimViaDb(ip, now, scope);
 
     const key = loginRateLimitKey(ip, scope);
     // Unique per attempt: a sorted set deduplicates by member, so two failures
@@ -154,12 +168,15 @@ export class LoginRateLimiter {
         ],
       );
     } catch (error: unknown) {
-      this.failOpen('claiming an attempt for', error);
-      return null;
+      this.logger.warn({
+        msg: 'Redis command failed while claiming a login attempt; falling back to the Postgres limiter.',
+        reason: describeError(error),
+      });
+      return this.claimViaDb(ip, now, scope);
     }
 
     const [status, oldestScore] = readClaim(outcome);
-    if (status === CLAIMED) return { ip, member, scope };
+    if (status === CLAIMED) return { backend: 'redis', ip, member, scope };
     if (status !== REFUSED) {
       // Unreachable unless the script above is edited. Failing open matches
       // the outage posture rather than refusing every sign-in in the company,
@@ -184,6 +201,31 @@ export class LoginRateLimiter {
     );
   }
 
+  /** The Postgres path: same cap and window, enforced against `rate_limit_fallback_attempts` instead of a Redis sorted set. */
+  private async claimViaDb(ip: string, now: number, scope: RateLimitScope): Promise<LoginAttemptClaim | null> {
+    const decision = await this.dbFallback.tryAcquire(
+      { bucket: scope, subject: ip, windowMs: WINDOW_MS, cap: MAX_FAILURES_PER_IP },
+      now,
+    );
+
+    if ('rowId' in decision) return { backend: 'db', ip, scope, rowId: decision.rowId };
+
+    if ('lockUnavailable' in decision) {
+      this.logger.error({
+        msg: 'Redis is unreachable and the Postgres fallback lock could not be acquired either; the per-IP login limit is NOT in force. The per-account lockout is unaffected.',
+        ip,
+      });
+      return null;
+    }
+
+    this.logger.warn({ msg: 'Login rate limit reached for address (Postgres fallback)', ip });
+    throw new AppError(
+      ERROR_CODES.RATE_LIMITED,
+      'Too many failed sign-in attempts from this network. Try again shortly.',
+      { details: { retryAfterSeconds: decision.retryAfterSeconds } },
+    );
+  }
+
   /**
    * Hands a claimed slot back.
    *
@@ -194,6 +236,10 @@ export class LoginRateLimiter {
    */
   async release(claim: LoginAttemptClaim | null): Promise<void> {
     if (claim === null) return;
+    if (claim.backend === 'db') {
+      await this.dbFallback.release(claim.rowId);
+      return;
+    }
     try {
       await this.redis.zrem(loginRateLimitKey(claim.ip, claim.scope), claim.member);
     } catch (error: unknown) {
@@ -204,11 +250,17 @@ export class LoginRateLimiter {
   /** A successful sign-in clears the address; the failures were not an attack. */
   async clear(ip: string | null, scope: RateLimitScope = 'login'): Promise<void> {
     if (ip === null) return;
-    try {
-      await this.redis.del(loginRateLimitKey(ip, scope));
-    } catch (error: unknown) {
-      this.failOpen('clearing', error);
+    if (this.redis.status === 'ready') {
+      try {
+        await this.redis.del(loginRateLimitKey(ip, scope));
+      } catch (error: unknown) {
+        this.failOpen('clearing', error);
+      }
     }
+    // Unconditional: a sign-in succeeding right after a Redis flap must not
+    // leave stale Postgres-fallback rows behind for this address. Cheap --
+    // an indexed delete that is usually zero rows.
+    await this.dbFallback.clear(scope, ip);
   }
 
   private failOpen(action: string, error: unknown): void {

@@ -6,6 +6,7 @@ import type { Redis } from 'ioredis';
 import { describeError } from '../common/errors.js';
 import { LuaScript } from '../redis/lua-script.js';
 import { InjectRedis } from '../redis/redis.provider.js';
+import { RateLimitDbFallback } from './rate-limit-db-fallback.service.js';
 
 /**
  * REQ-B-04's missing half, found live by the pre-deploy gate: sixty rapid
@@ -27,10 +28,13 @@ import { InjectRedis } from '../redis/redis.provider.js';
  * endpoint was shaped to avoid -- so the caller asks `tryAcquire` and, when
  * refused, silently skips the insert and the send while still answering 202.
  *
- * **When Redis is unreachable this fails open**, loudly, for the login
- * limiter's reason: a dead cache must not stop a genuine "I forgot my
- * password" from working, and every occurrence is logged at error level so
- * "the cap is not currently in force" is visible rather than assumed.
+ * **When Redis is unreachable this falls back to Postgres** (`RateLimitDbFallback`,
+ * same pair-of-independent-budgets check run inside one advisory-locked
+ * transaction), for the login limiter's reason: a dead cache must not stop a
+ * genuine "I forgot my password" from working. Only if the Postgres lock
+ * itself cannot be acquired either does this truly fail open, loudly, and
+ * every occurrence is logged at error level so "the cap is not currently in
+ * force" is visible rather than assumed.
  *
  * The decision and the record it is based on are **one Lua script**, and that
  * is the whole control rather than a detail of it. The first version probed
@@ -105,7 +109,10 @@ return 1
 export class PasswordResetRateLimiter {
   private readonly logger = new Logger(PasswordResetRateLimiter.name);
 
-  constructor(@InjectRedis() private readonly redis: Redis) {}
+  constructor(
+    @InjectRedis() private readonly redis: Redis,
+    private readonly dbFallback: RateLimitDbFallback,
+  ) {}
 
   /**
    * True when this request may insert a reset row and send the email; false
@@ -114,6 +121,8 @@ export class PasswordResetRateLimiter {
    * so the limiter's behaviour cannot be used to tell the two apart.
    */
   async tryAcquire(email: string, ip: string | null, now: number = Date.now()): Promise<boolean> {
+    if (this.redis.status !== 'ready') return this.tryAcquireViaDb(email, ip, now);
+
     const emailKey = passwordResetEmailKey(email);
     const ipKey = ip === null ? null : passwordResetIpKey(ip);
 
@@ -136,11 +145,11 @@ export class PasswordResetRateLimiter {
         ],
       );
     } catch (error: unknown) {
-      this.logger.error({
-        msg: 'Redis is unavailable for the password-reset limit; the cap is NOT in force.',
+      this.logger.warn({
+        msg: 'Redis command failed for the password-reset limit; falling back to the Postgres limiter.',
         reason: describeError(error),
       });
-      return true;
+      return this.tryAcquireViaDb(email, ip, now);
     }
 
     if (outcome === ACQUIRED) return true;
@@ -164,5 +173,30 @@ export class PasswordResetRateLimiter {
       reply: String(outcome),
     });
     return true;
+  }
+
+  /** The Postgres path: same two independent budgets, checked in one advisory-locked transaction. */
+  private async tryAcquireViaDb(email: string, ip: string | null, now: number): Promise<boolean> {
+    const decision = await this.dbFallback.tryAcquirePair(
+      { bucket: 'pwreset:email', subject: email.toLowerCase(), windowMs: WINDOW_MS, cap: MAX_PER_EMAIL },
+      ip === null ? null : { bucket: 'pwreset:ip', subject: ip, windowMs: WINDOW_MS, cap: MAX_PER_IP },
+      now,
+    );
+
+    if (decision.acquired) return true;
+
+    if ('lockUnavailable' in decision) {
+      this.logger.error({
+        msg: 'Redis is unreachable and the Postgres fallback lock could not be acquired either; the password-reset cap is NOT in force.',
+      });
+      return true;
+    }
+
+    this.logger.warn({
+      msg: 'Password reset request over budget (Postgres fallback); answering 202 and sending nothing.',
+      subject: decision.which === 'a' ? 'email' : 'ip',
+      ip,
+    });
+    return false;
   }
 }

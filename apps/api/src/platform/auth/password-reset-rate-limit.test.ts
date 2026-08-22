@@ -1,13 +1,17 @@
 import { uuidv7 } from '@vyuha/shared';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { Redis } from 'ioredis';
+import { Pool } from 'pg';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { env } from '../common/env.js';
 import { redisTarget } from '../redis/redis.provider.js';
 import {
   PasswordResetRateLimiter,
   passwordResetEmailKey,
   passwordResetIpKey,
 } from './password-reset-rate-limit.service.js';
+import { RateLimitDbFallback } from './rate-limit-db-fallback.service.js';
 
 /**
  * Against real Redis, mirroring `login-rate-limit.test.ts`. The property that
@@ -30,6 +34,12 @@ const clientOptions = { host: target.host, port: target.port, maxRetriesPerReque
 
 const clients: Redis[] = [];
 
+// Plain construction, not DI, matching how the Redis clients above are made:
+// one real Postgres pool the DB-fallback path can be exercised against.
+const pool = new Pool({ connectionString: env.DATABASE_URL });
+const db = drizzle(pool);
+const dbFallback = new RateLimitDbFallback(db);
+
 function newLimiter(): PasswordResetRateLimiter {
   const client = new Redis(clientOptions);
   client.on('error', () => {
@@ -37,7 +47,7 @@ function newLimiter(): PasswordResetRateLimiter {
     // take the test runner down instead.
   });
   clients.push(client);
-  return new PasswordResetRateLimiter(client);
+  return new PasswordResetRateLimiter(client, dbFallback);
 }
 
 let limiter: PasswordResetRateLimiter;
@@ -61,6 +71,7 @@ afterAll(async () => {
   if (keys.length > 0) await cleanup.del(...keys);
   await cleanup.quit();
   await Promise.all(clients.map((client) => client.quit().catch(() => client.disconnect())));
+  await pool.end();
 });
 
 describe('per-address and per-IP password reset budget', () => {
@@ -190,10 +201,10 @@ describe('per-address and per-IP password reset budget', () => {
     expect(ipTtl).toBeLessThanOrEqual(60 * 60 * 1000);
   });
 
-  it('fails open, not closed, when Redis cannot be reached', async () => {
-    // Port 1: nothing listens, so every command errors. Failing closed would
-    // mean a Redis outage stops anyone resetting a forgotten password; the
-    // per-account login lockout in Postgres is untouched either way.
+  it('falls back to Postgres, not open, when Redis cannot be reached', async () => {
+    // Port 1: nothing listens, so every command errors. A dead cache must not
+    // mean nobody's reset request is capped at all -- the Postgres fallback
+    // keeps the same two budgets in force.
     const offline = new Redis({
       ...clientOptions,
       host: '127.0.0.1',
@@ -204,9 +215,9 @@ describe('per-address and per-IP password reset budget', () => {
     offline.on('error', () => {
       // Expected; the assertion below is the report.
     });
-    const stranded = new PasswordResetRateLimiter(offline);
+    const stranded = new PasswordResetRateLimiter(offline, dbFallback);
 
-    expect(await stranded.tryAcquire('stranded@vyuha.test', '198.51.100.7')).toBe(true);
+    expect(await stranded.tryAcquire(`stranded-${uuidv7()}@vyuha.test`, '198.51.100.7')).toBe(true);
 
     offline.disconnect();
   });

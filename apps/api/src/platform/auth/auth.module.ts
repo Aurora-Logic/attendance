@@ -5,6 +5,7 @@ import { AuthService } from './auth.service.js';
 import { DeliverPasswordResetHandler } from './handlers/deliver-password-reset.handler.js';
 import { LoginRateLimiter } from './login-rate-limit.service.js';
 import { PasswordResetRateLimiter } from './password-reset-rate-limit.service.js';
+import { RateLimitDbFallback } from './rate-limit-db-fallback.service.js';
 import { SessionService } from './session.service.js';
 
 /**
@@ -24,6 +25,7 @@ import { SessionService } from './session.service.js';
     SessionService,
     LoginRateLimiter,
     PasswordResetRateLimiter,
+    RateLimitDbFallback,
     DeliverPasswordResetHandler,
   ],
   exports: [SessionService, LoginRateLimiter],
