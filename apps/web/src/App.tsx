@@ -48,7 +48,8 @@ import { PurchaseOrdersPage } from '@/features/purchase/purchase-orders-page';
 import { GrnsPage } from '@/features/purchase/grns-page';
 import { PartiesPage } from '@/features/masters/parties-page';
 import { TasksPage } from '@/features/tasks/tasks-page';
-import { PriceListsPage } from '@/features/masters/price-lists-page';
+import { PriceListPage } from '@/features/pricing/price-list-page';
+import { PriceListsPage } from '@/features/pricing/price-lists-page';
 import { StockItemsPage } from '@/features/masters/stock-items-page';
 import { StockItemPage } from '@/features/masters/item-page';
 import { PartyPage } from '@/features/masters/party-page';
@@ -153,6 +154,8 @@ export default function App() {
               <Route path="masters/items" element={<StockItemsPage />} />
               <Route path="masters/items/:id" element={<StockItemPage />} />
               <Route path="masters/price-lists" element={<PriceListsPage />} />
+              <Route path="masters/price-lists/new" element={<PriceListPage />} />
+              <Route path="masters/price-lists/:id" element={<PriceListPage />} />
               <Route path="masters/vouchers" element={<VouchersPage />} />
               <Route path="masters/vouchers/:id" element={<VouchersPage />} />
               <Route path="masters/vouchers/:id/paper" element={<VoucherPaperPage />} />

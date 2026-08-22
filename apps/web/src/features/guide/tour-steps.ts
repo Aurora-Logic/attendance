@@ -423,7 +423,7 @@ const TRADING_INTROS: GuideStep[] = [
     anchor: ANCHORS.screenHeader,
     permission: PERMISSIONS.MASTERS_TALLY_VIEW,
     title: 'Price lists',
-    body: 'Where the company maintains them in Tally, they pull per party group and are what a document prices against.',
+    body: "Vyuha's own price lists: versioned, approved into force, and the floor on every sales line. The simulator beside them answers \"why this rate\" for any party and item.",
   },
   {
     id: 'screen.masters-vouchers',
