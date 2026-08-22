@@ -378,7 +378,11 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
     ['value', { label: 'Share' }],
     ...points.map((p, index) => [`s${String(index)}`, { label: p.label, color: SHARE_FILLS[index % SHARE_FILLS.length] }]),
   ]) as ChartConfig;
-  const data = points.map((p, index) => ({ name: p.label, value: p.share, fill: `var(--color-s${String(index)})` }));
+  /* `slice` is the config's own key. ChartLegendContent looks the label up by
+     nameKey and renders `itemConfig?.label` with no fallback, so pointing it
+     at `name` -- a party name that is not a config key -- printed a swatch
+     with nothing beside it. The tooltip keeps `name`, which does fall back. */
+  const data = points.map((p, index) => ({ name: p.label, slice: `s${String(index)}`, value: p.share, fill: `var(--color-s${String(index)})` }));
   return (
     <Frame title={title} insight={`${points[0]?.label ?? ''} holds ${String(points[0]?.share ?? 0)}% of what this page shows.`}>
       <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
@@ -389,7 +393,7 @@ export function ShareRadialChart({ rows, labelKey, valueKey, title, animate }: {
                 by hovering. */}
             <LabelList dataKey="value" position="insideStart" className="fill-background" fontSize={10} formatter={sharePercent} />
           </RadialBar>
-          <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+          <ChartLegend content={<ChartLegendContent nameKey="slice" className="w-full flex-wrap justify-center gap-x-4 gap-y-1" />} />
         </RadialBarChart>
       </ChartContainer>
     </Frame>
@@ -651,7 +655,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
     ['value', { label: headers.get(spec.series[0] ?? '') ?? 'Value' }],
     ...points.map((p, index) => [`slice${String(index)}`, { label: String(p.category), color: index < 5 ? SHARE_FILLS[index] : 'var(--muted-foreground)' }]),
   ]) as ChartConfig;
-  const data = points.map((p, index) => ({ name: String(p.category), value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
+  const data = points.map((p, index) => ({ name: String(p.category), slice: `slice${String(index)}`, value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
     <Frame title="Composition" insight={null}>
       <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
@@ -674,7 +678,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
               onDrill?.({ categoryKey: spec.category, category: entry.name, rowId: null });
             }}
           />
-          <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+          <ChartLegend content={<ChartLegendContent nameKey="slice" className="w-full flex-wrap justify-center gap-x-4 gap-y-1" />} />
         </PieChart>
       </ChartContainer>
     </Frame>
@@ -689,13 +693,13 @@ export function CompositionDonut({ rows, labelKey, valueKey, animate }: { rows: 
     ['value', { label: 'Value' }],
     ...points.map((p, index) => [`slice${String(index)}`, { label: String(p.category), color: index < 5 ? SHARE_FILLS[index] : 'var(--muted-foreground)' }]),
   ]) as ChartConfig;
-  const data = points.map((p, index) => ({ name: String(p.category), value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
+  const data = points.map((p, index) => ({ name: String(p.category), slice: `slice${String(index)}`, value: Number(p.value ?? 0), fill: `var(--color-slice${String(index)})` }));
   return (
     <ChartContainer config={config} className="mx-auto h-72 w-full overflow-hidden">
       <PieChart>
         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="name" />} />
         <Pie data={data} dataKey="value" nameKey="name" innerRadius={56} strokeWidth={2} label={pieLabel} labelLine={{ stroke: 'var(--border)' }} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
-        <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+        <ChartLegend content={<ChartLegendContent nameKey="slice" className="w-full flex-wrap justify-center gap-x-4 gap-y-1" />} />
       </PieChart>
     </ChartContainer>
   );

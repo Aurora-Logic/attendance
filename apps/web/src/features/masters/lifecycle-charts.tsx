@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Bar, BarChart, CartesianGrid, Label, LabelList, Line, LineChart, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart, XAxis, YAxis } from 'recharts';
 
-import { compactCount } from '@/components/shared/chart-labels';
+import { compactCount, endpointLabel } from '@/components/shared/chart-labels';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { CHART_INTRO_MS, useChartIntro } from '@/components/shared/use-chart-motion';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
@@ -68,8 +68,15 @@ export function TrendChart({
           <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
           <YAxis tickLine={false} axisLine={false} width={56} tickFormatter={(value: number) => (axisFormat ?? compactCount)(value)} />
           <ChartTooltip cursor={false} content={<ChartTooltipContent formatter={(value) => format(Number(value))} />} />
-          <Line dataKey="a" type="monotone" stroke="var(--color-a)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
-          <Line dataKey="b" type="monotone" stroke="var(--color-b)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+          {/* The endpoint only. A figure beside every dot on four lines is
+              chaos and goes unread; where the series got to is the number the
+              reader is after, and it was reachable only by hovering. */}
+          <Line dataKey="a" type="monotone" stroke="var(--color-a)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
+            <LabelList {...endpointLabel('a', points, axisFormat ?? compactCount)} />
+          </Line>
+          <Line dataKey="b" type="monotone" stroke="var(--color-b)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS}>
+            <LabelList {...endpointLabel('b', points, axisFormat ?? compactCount)} />
+          </Line>
           {compareLabel !== null ? (
             <>
               <Line dataKey="aPrev" type="monotone" stroke="var(--color-aPrev)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
