@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { CalendarBlankIcon, ArrowLeftIcon, BooksIcon, CheckIcon, CubeIcon, FloppyDiskIcon, GitBranchIcon, PaperPlaneTiltIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react';
+import { CalendarBlankIcon, BooksIcon, CheckIcon, CubeIcon, GitBranchIcon, PaperPlaneTiltIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react';
+
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
@@ -189,12 +190,12 @@ function Editor({ detail, canManage, canApprove, onSaved }: { detail: PriceListD
         action={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" nativeButton={false} render={<Link to="/masters/price-lists" />}>
-              <ArrowLeftIcon data-icon="inline-start" />
+              <ACTION_ICONS.back data-icon="inline-start" />
               All lists
             </Button>
             {editable ? (
               <Button size="sm" disabled={busy} onClick={save}>
-                {create.isPending || update.isPending ? <Spinner data-icon="inline-start" /> : <FloppyDiskIcon data-icon="inline-start" />}
+                {create.isPending || update.isPending ? <Spinner data-icon="inline-start" /> : <ACTION_ICONS.save data-icon="inline-start" />}
                 Save draft
               </Button>
             ) : null}

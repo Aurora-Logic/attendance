@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BooksIcon, HandshakeIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { BooksIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
@@ -214,10 +214,11 @@ function PromiseForm({ partyId, onDone, onCancel }: { partyId: string | null; on
       <ResponsiveDialogActions>
         <Button variant="outline" onClick={onCancel}>
           <ACTION_ICONS.cancel data-icon="inline-start" />
+          <ACTION_ICONS.cancel data-icon="inline-start" />
           Cancel
         </Button>
         <Button disabled={take.isPending} onClick={submit}>
-          {take.isPending ? <Spinner data-icon="inline-start" /> : <HandshakeIcon data-icon="inline-start" />}
+          {take.isPending ? <Spinner data-icon="inline-start" /> : <ACTION_ICONS.save data-icon="inline-start" />}
           Record the promise
         </Button>
       </ResponsiveDialogActions>

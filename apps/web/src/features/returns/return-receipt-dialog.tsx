@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ArrowUUpLeftIcon, BooksIcon, TrashIcon } from '@phosphor-icons/react';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { PhotoPicker } from '@/components/shared/photo-picker';
 import { type PreparedPhoto } from '@/components/shared/prepare-photo';
 import { RecordPicker, type PickerOption } from '@/components/shared/record-picker';
@@ -447,6 +448,7 @@ export function ReturnReceiptDialog({ open, onOpenChange }: { open: boolean; onO
             onOpenChange(false);
           }}
         >
+          <ACTION_ICONS.cancel data-icon="inline-start" />
           Cancel
         </Button>
         <Button
@@ -455,7 +457,7 @@ export function ReturnReceiptDialog({ open, onOpenChange }: { open: boolean; onO
             void save();
           }}
         >
-          {create.isPending ? <Spinner data-icon="inline-start" /> : null}
+          {create.isPending ? <Spinner data-icon="inline-start" /> : <ACTION_ICONS.save data-icon="inline-start" />}
           Receive
         </Button>
       </ResponsiveDialogActions>

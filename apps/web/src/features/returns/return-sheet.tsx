@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowUUpLeftIcon, ReceiptIcon, TruckIcon, WarningIcon } from '@phosphor-icons/react';
 import { Link } from 'react-router';
 
+import { ACTION_ICONS } from '@/components/shared/action-icons';
 import { RecordTable, type RecordColumn } from '@/components/shared/record-table';
 import { SectionHeading } from '@/components/shared/section-heading';
 import { Badge } from '@/components/ui/badge';
@@ -298,6 +299,7 @@ export function ReturnSheet({ returnId, onOpenChange }: { returnId: string | nul
               onOpenChange(false);
             }}
           >
+            <ACTION_ICONS.close data-icon="inline-start" />
             Close
           </Button>
         </SheetFooter>
