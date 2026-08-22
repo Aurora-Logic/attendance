@@ -23,7 +23,7 @@ import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
 import { useParties } from '@/features/masters/use-parties';
 import { useStockItems } from '@/features/masters/use-stock-items';
-import { EMPTY_VALUE, formatDate } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, PRICE_BASES, PRICE_BASIS_LABELS, PRICE_LIST_STATE_LABELS, type PriceBasis, type PriceListDetail, type PriceListDiffLine } from '@vyuha/shared';
 
@@ -43,7 +43,7 @@ const DIFF_COLUMNS: RecordColumn<PriceListDiffLine>[] = [
   { key: 'what', header: 'Item or group', cell: (row) => <span className="font-medium">{row.itemName ?? row.itemGroup ?? EMPTY_VALUE}</span> },
   { key: 'slab', header: 'Quantity', cell: (row) => row.slab, secondary: true },
   { key: 'basis', header: 'Basis', cell: (row) => PRICE_BASIS_LABELS[row.basis] },
-  { key: 'rate', header: 'Rate', cell: (row) => row.rate ?? EMPTY_VALUE, numeric: true },
+  { key: 'rate', header: 'Rate', cell: (row) => formatMoney(row.rate), numeric: true },
   { key: 'discount', header: 'Off', cell: (row) => (row.discountPct === null ? EMPTY_VALUE : `${row.discountPct}%`), numeric: true },
 ];
 
@@ -56,9 +56,9 @@ const CHANGE_COLUMNS: RecordColumn<Change>[] = [
 ];
 
 function describe(line: PriceListDiffLine): string {
-  if (line.basis === 'rate') return line.rate ?? EMPTY_VALUE;
+  if (line.basis === 'rate') return formatMoney(line.rate);
   if (line.basis === 'discount_pct') return `${line.discountPct ?? '0'}% off`;
-  return `${line.rate ?? EMPTY_VALUE} less ${line.discountPct ?? '0'}%`;
+  return `${formatMoney(line.rate)} less ${line.discountPct ?? '0'}%`;
 }
 
 export function PriceListPage() {

@@ -1,5 +1,5 @@
 import { heatGridOf, heatmapStep, type HeatGrid } from '@/components/shared/heat-grid';
-import { currencySymbol, formatCount } from '@/lib/format';
+import { formatCount, formatMoney } from '@/lib/format';
 import type { ReportCellValue, ReportColumnSpec, ReportDefinition, ReportKey } from '@vyuha/shared';
 
 /**
@@ -35,11 +35,6 @@ function num(value: ReportCellValue | undefined): number {
 
 function text(value: ReportCellValue | undefined): string {
   return typeof value === 'string' ? value : '';
-}
-
-/** A headline figure, grouped the way the workspace writes numbers (lib/format). */
-export function inr(value: number): string {
-  return formatCount(value);
 }
 
 // ---------------------------------------------------------------- sales analysis
@@ -94,9 +89,9 @@ export function movementSeries(rows: readonly ChartRow[]): { points: MovementPoi
   const net = last.inward - last.outward;
   const insight =
     net > 0
-      ? `${last.month}: stock built up by ${inr(net)} units — more came in than went out.`
+      ? `${last.month}: stock built up by ${formatCount(net)} units — more came in than went out.`
       : net < 0
-        ? `${last.month}: stock drained by ${inr(-net)} units — sales outran purchases.`
+        ? `${last.month}: stock drained by ${formatCount(-net)} units — sales outran purchases.`
         : `${last.month}: inward and outward balanced exactly.`;
   return { points, insight };
 }
@@ -188,7 +183,7 @@ export function lapseSeries(rows: readonly ChartRow[]): { points: LapsePoint[]; 
   const lapsed = points.filter((p) => p.state === 'LAPSED').length;
   return {
     points,
-    insight: `${currencySymbol()}${inr(atRisk)} of last year's revenue is going quiet — ${String(lapsed)} of these ${String(points.length)} customers have fully lapsed.`,
+    insight: `${formatMoney(atRisk)} of last year's revenue is going quiet — ${String(lapsed)} of these ${String(points.length)} customers have fully lapsed.`,
   };
 }
 

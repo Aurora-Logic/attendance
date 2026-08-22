@@ -3,6 +3,7 @@ import { ArrowDownIcon, TagIcon } from '@phosphor-icons/react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatMoney } from '@/lib/format';
 import { RATE_SOURCE_LABELS } from '@vyuha/shared';
 
 import { useRateSimulation } from './use-pricing';
@@ -53,8 +54,8 @@ export function ResolvedRateHint({
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" title={resolved.explanation}>
         <TagIcon className="shrink-0" />
         <span className="tabular-nums">
-          {source}: {resolved.rate}
-          {resolved.discountPct !== null && resolved.source !== 'tally' ? ` (${resolved.discountPct}% off${resolved.tallyRate !== null ? ` ${resolved.tallyRate}` : ''})` : ''}
+          {source}: {formatMoney(resolved.rate)}
+          {resolved.discountPct !== null && resolved.source !== 'tally' ? ` (${resolved.discountPct}% off${resolved.tallyRate !== null ? ` ${formatMoney(resolved.tallyRate)}` : ''})` : ''}
         </span>
         {below ? (
           <Badge variant="destructive" className="gap-1">
@@ -72,7 +73,7 @@ export function ResolvedRateHint({
               onUseRate(resolved.rate ?? '');
             }}
           >
-            Use {resolved.rate}
+            Use {formatMoney(resolved.rate)}
           </Button>
         ) : null}
       </div>

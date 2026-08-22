@@ -43,6 +43,44 @@ export function formatAmount(value: string | null): string {
   return `${negative ? '−' : ''}${groupDigits(whole, locale.numberFormat)}.${decimals}`;
 }
 
+/**
+ * A figure that is money, with the workspace's currency symbol in front of it.
+ *
+ * Separate from `formatAmount` because not every grouped decimal is money -- a
+ * quantity, a rate percentage and a day count all go through the same grouping
+ * and none of them wants a rupee sign. Anything the reader should understand as
+ * an amount of money calls this one, so the symbol is never a string a screen
+ * pastes in front of a number itself.
+ */
+export function formatMoney(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return EMPTY_VALUE;
+  const text = typeof value === 'number' ? (Number.isFinite(value) ? value.toFixed(2) : null) : value;
+  if (text === null) return EMPTY_VALUE;
+  const amount = formatAmount(text);
+  if (amount === EMPTY_VALUE) return EMPTY_VALUE;
+  // The minus goes outside the symbol -- "−₹1,200.00" is what a ledger writes,
+  // not "₹−1,200.00".
+  return amount.startsWith('−')
+    ? `−${locale.currencySymbol}${amount.slice(1)}`
+    : `${locale.currencySymbol}${amount}`;
+}
+
+/**
+ * Money short enough for a bar cap or an axis tick: the Indian short scale,
+ * with the symbol. A chart label has no room for "₹9,33,103.00".
+ */
+export function formatMoneyShort(value: number): string {
+  if (!Number.isFinite(value)) return EMPTY_VALUE;
+  const n = Math.abs(value);
+  const sign = value < 0 ? '−' : '';
+  const trim = (v: number): string => v.toFixed(1).replace(/\.0$/u, '');
+  const symbol = locale.currencySymbol;
+  if (n >= 10_000_000) return `${sign}${symbol}${trim(n / 10_000_000)}Cr`;
+  if (n >= 100_000) return `${sign}${symbol}${trim(n / 100_000)}L`;
+  if (n >= 1_000) return `${sign}${symbol}${trim(n / 1_000)}k`;
+  return `${sign}${symbol}${groupDigits(String(Math.round(n)), locale.numberFormat)}`;
+}
+
 /** A whole number for a headline: grouped, no decimals. */
 export function formatCount(value: number): string {
   const rounded = Math.round(Math.abs(value));

@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { currencySymbol, formatAmount, formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS } from '@vyuha/shared';
 
@@ -35,8 +35,7 @@ export function BrokenPromiseNote({ partyId }: { partyId: string | null }) {
       </AlertTitle>
       <AlertDescription>
         <p className="tabular-nums">
-          {currencySymbol()}
-          {formatAmount(short.toFixed(2))} still to arrive{worst === undefined ? '' : `, the oldest promised for ${formatDate(worst.promisedDate)}`}. This is a flag, not a block — the order goes through.
+          {formatMoney(short)} still to arrive{worst === undefined ? '' : `, the oldest promised for ${formatDate(worst.promisedDate)}`}. This is a flag, not a block — the order goes through.
         </p>
       </AlertDescription>
       <AlertAction>

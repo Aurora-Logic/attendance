@@ -16,7 +16,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
 import { actionErrorCopy } from '@/features/leave/api-error-copy';
-import { currencySymbol, formatAmount, formatDate } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, RETURN_STATE_LABELS, type SalesReturnSummary, type ReturnState, type UnlinkedCreditNote } from '@vyuha/shared';
 
@@ -248,7 +248,7 @@ function UnlinkedCreditNotes({ onLinked }: { onLinked: (returnId: string) => voi
     { key: 'voucher', header: 'Credit note', cell: (row) => <span className="font-medium">{row.voucherNumber}</span> },
     { key: 'date', header: 'Date', cell: (row) => formatDate(row.date) },
     { key: 'party', header: 'Customer', cell: (row) => row.partyName },
-    { key: 'amount', header: 'Amount', cell: (row) => <span className="tabular-nums">{currencySymbol()}{formatAmount(row.amount)}</span> },
+    { key: 'amount', header: 'Amount', cell: (row) => <span className="tabular-nums">{formatMoney(row.amount)}</span> },
     { key: 'narration', header: 'Narration', cell: (row) => <span className="text-muted-foreground">{row.narration ?? '—'}</span>, secondary: true },
     {
       key: 'link',
@@ -314,7 +314,7 @@ function UnlinkedCreditNotes({ onLinked }: { onLinked: (returnId: string) => voi
         rows={[...unlinked.data]}
         rowKey={(row) => row.voucherId}
         mobilePrimary={(row) => `${row.voucherNumber} · ${row.partyName}`}
-        mobileSupporting={(row) => `${formatDate(row.date)} · ${currencySymbol()}${formatAmount(row.amount)}`}
+        mobileSupporting={(row) => `${formatDate(row.date)} · ${formatMoney(row.amount)}`}
       />
     </section>
   );

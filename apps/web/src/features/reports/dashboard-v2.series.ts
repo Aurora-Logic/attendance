@@ -1,0 +1,440 @@
+import type { ReportRowView } from './types';
+
+/**
+ * Every series the second reports dashboard draws, and the sentence that goes
+ * under each one.
+ *
+ * Pure functions over report rows, in their own module because a Recharts chart
+ * cannot be rendered in jsdom -- the only way to prove a bar is the right height
+ * or an insight says the right thing is to call the function that produces it.
+ * Every threshold an insight turns on is named here and covered by a test.
+ *
+ * The first version of this dashboard built its series inline and shipped three
+ * faults nobody could have caught: months ordered by size on a time axis, an
+ * axis label that read "202", and a part-month compared against a whole one.
+ */
+
+export interface Point {
+  readonly label: string;
+  readonly value: number;
+}
+
+/** What a card shows when the period has too little in it to say anything. */
+export interface Series<T> {
+  readonly points: readonly T[];
+  /** One sentence, or null when the data does not support one. */
+  readonly insight: string | null;
+}
+
+const text = (row: ReportRowView, key: string): string => {
+  const cell = row.cells[key];
+  return typeof cell === 'string' ? cell : typeof cell === 'number' ? String(cell) : '';
+};
+
+const num = (row: ReportRowView, key: string): number => {
+  const cell = row.cells[key];
+  const parsed = typeof cell === 'number' ? cell : typeof cell === 'string' ? Number(cell) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const sum = (values: readonly number[]): number => values.reduce((a, b) => a + b, 0);
+const pct = (part: number, whole: number): number =>
+  whole === 0 ? 0 : Math.round((part / whole) * 1000) / 10;
+
+// ---------------------------------------------------------------- thresholds
+
+/** Below this many finished months a direction is noise, not a trend. */
+export const MONTHS_FOR_A_TREND = 3;
+/** A month-on-month move smaller than this is not worth a sentence. */
+export const MOVEMENT_WORTH_SAYING_PCT = 2;
+/** One customer above this share of revenue is a concentration risk. */
+export const CONCENTRATION_WORRY_PCT = 25;
+/** Paying this many days past agreed terms is worth naming. */
+export const SLIPPAGE_WORRY_DAYS = 15;
+/** Below this fill rate an order book is not being served. */
+export const FILL_RATE_WORRY_PCT = 85;
+/** Stock sitting longer than this is the tail worth reporting. */
+export const STOCK_STALE_DAYS = 90;
+
+// ------------------------------------------------------------ 1. by month
+
+export interface MonthlySeries extends Series<Point> {
+  readonly total: number;
+  readonly movementPct: number | null;
+  readonly comparedFrom: string | null;
+  readonly comparedTo: string | null;
+}
+
+/**
+ * Invoiced value per calendar month.
+ *
+ * Sorted by key, never left in the order the API sent: every report carries its
+ * own default sort and this one is "-value", which on a time axis draws the
+ * months in order of size.
+ */
+export function monthlyInvoiced(rows: readonly ReportRowView[], thisMonth: string): MonthlySeries {
+  const points = rows
+    .map((row) => ({ label: text(row, 'label'), value: num(row, 'value') }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const total = sum(points.map((p) => p.value));
+
+  // The month in progress is a part-month and would read as a collapse against
+  // a whole one, so the comparison is between the last two that finished.
+  const finished = points.filter((p) => p.label !== thisMonth);
+  const last = finished.at(-1);
+  const previous = finished.at(-2);
+  const movementPct =
+    last !== undefined && previous !== undefined && previous.value > 0
+      ? Math.round(((last.value - previous.value) / previous.value) * 1000) / 10
+      : null;
+
+  let insight: string | null = null;
+  if (finished.length < MONTHS_FOR_A_TREND) {
+    insight = 'Not enough finished months in this period to read a direction.';
+  } else if (movementPct !== null && Math.abs(movementPct) >= MOVEMENT_WORTH_SAYING_PCT) {
+    insight = `${movementPct >= 0 ? 'Up' : 'Down'} ${String(Math.abs(movementPct))}% on the month before.`;
+  } else if (movementPct !== null) {
+    insight = 'Flat on the month before.';
+  }
+
+  return {
+    points,
+    total,
+    movementPct,
+    comparedFrom: previous?.label ?? null,
+    comparedTo: last?.label ?? null,
+    insight,
+  };
+}
+
+// --------------------------------------------------------- 2. top customers
+
+export interface TopCustomers extends Series<Point> {
+  readonly tailValue: number;
+  readonly tailCount: number;
+  readonly total: number;
+}
+
+/** The top `keep` by value, with everyone else folded into a tail figure. */
+export function topCustomers(rows: readonly ReportRowView[], keep = 5): TopCustomers {
+  const all = rows
+    .map((row) => ({ label: text(row, 'label'), value: num(row, 'value') }))
+    .sort((a, b) => b.value - a.value);
+  const points = all.slice(0, keep);
+  const rest = all.slice(keep);
+  const total = sum(all.map((p) => p.value));
+  const leader = points[0];
+
+  const share = leader === undefined ? 0 : pct(leader.value, total);
+  const insight =
+    leader === undefined
+      ? null
+      : share >= CONCENTRATION_WORRY_PCT
+        ? `${leader.label} alone is ${String(share)}% of the period — losing them would be felt.`
+        : `${leader.label} leads at ${String(share)}% of the period.`;
+
+  return { points, tailValue: sum(rest.map((p) => p.value)), tailCount: rest.length, total, insight };
+}
+
+// ------------------------------------------------------------- 3. ageing
+
+export interface AgeingSlice {
+  readonly bucket: string;
+  readonly value: number;
+  readonly fill: string;
+}
+export interface AgeingSeries extends Series<AgeingSlice> {
+  readonly overdue: number;
+  readonly total: number;
+}
+
+export const AGE_BUCKETS = ['0-30', '31-60', '61-90', '90+'] as const;
+
+/** Outstanding by age of bill. Buckets are ordered, so the ramp is a ramp. */
+export function ageingByBucket(rows: readonly ReportRowView[]): AgeingSeries {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const bucket = text(row, 'bucket');
+    if (bucket === '') continue;
+    totals.set(bucket, (totals.get(bucket) ?? 0) + num(row, 'outstanding'));
+  }
+  const points = AGE_BUCKETS.filter((b) => totals.has(b)).map((bucket, index) => ({
+    bucket,
+    value: totals.get(bucket) ?? 0,
+    fill: `var(--chart-${String(index + 1)})`,
+  }));
+  const total = sum(points.map((p) => p.value));
+  const overdue = sum(points.filter((p) => p.bucket !== '0-30').map((p) => p.value));
+  const share = pct(overdue, total);
+
+  return {
+    points,
+    overdue,
+    total,
+    insight:
+      points.length === 0
+        ? null
+        : share === 0
+          ? 'Everything owed is inside thirty days.'
+          : `${String(share)}% of what is owed is already past thirty days.`,
+  };
+}
+
+// -------------------------------------------------------- 4. new vs repeat
+
+export interface NewVsRepeatPoint {
+  readonly label: string;
+  readonly newRevenue: number;
+  readonly repeatRevenue: number;
+}
+
+/** Where the month's money came from: someone new, or someone who came back. */
+export function newVsRepeat(rows: readonly ReportRowView[]): Series<NewVsRepeatPoint> {
+  const points = rows
+    .map((row) => ({
+      label: text(row, 'month'),
+      newRevenue: num(row, 'newRevenue'),
+      repeatRevenue: num(row, 'repeatRevenue'),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const fresh = sum(points.map((p) => p.newRevenue));
+  const repeat = sum(points.map((p) => p.repeatRevenue));
+  const share = pct(fresh, fresh + repeat);
+
+  return {
+    points,
+    insight:
+      points.length === 0
+        ? null
+        : `${String(share)}% of the period's revenue came from customers billed for the first time.`,
+  };
+}
+
+// ------------------------------------------------------------- 5. AOV trend
+
+/** Average invoice value per month — is the basket growing or splitting? */
+export function averageOrderValue(rows: readonly ReportRowView[]): Series<Point> {
+  const points = rows
+    .map((row) => ({ label: text(row, 'month'), value: num(row, 'aov') }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  if (points.length < MONTHS_FOR_A_TREND) {
+    return { points, insight: 'Not enough months here to read the basket.' };
+  }
+  const first = points[0]?.value ?? 0;
+  const last = points.at(-1)?.value ?? 0;
+  const move = first === 0 ? null : Math.round(((last - first) / first) * 1000) / 10;
+
+  return {
+    points,
+    insight:
+      move === null
+        ? null
+        : `The average invoice is ${move >= 0 ? 'up' : 'down'} ${String(Math.abs(move))}% across the period.`,
+  };
+}
+
+// --------------------------------------------------------- 6. concentration
+
+export interface ConcentrationPoint extends Point {
+  readonly cumulative: number;
+}
+
+/** How few customers make up the book. */
+export function concentration(rows: readonly ReportRowView[]): Series<ConcentrationPoint> {
+  const points = rows
+    .map((row) => ({
+      label: text(row, 'partyName'),
+      value: num(row, 'sharePct'),
+      cumulative: num(row, 'cumulativePct'),
+    }))
+    .sort((a, b) => a.cumulative - b.cumulative);
+
+  // How many customers it takes to reach half the revenue -- the number people
+  // actually repeat back to each other.
+  const half = points.findIndex((p) => p.cumulative >= 50);
+  return {
+    points,
+    insight:
+      half === -1
+        ? points.length === 0
+          ? null
+          : 'No single group of customers reaches half the revenue in this period.'
+        : `${String(half + 1)} of ${String(points.length)} customers make up half the revenue.`,
+  };
+}
+
+// ------------------------------------------------------ 7. payment behaviour
+
+export interface SlippagePoint extends Point {
+  readonly creditDays: number;
+}
+
+/** Days beyond agreed terms, worst first. */
+export function paymentSlippage(rows: readonly ReportRowView[], keep = 6): Series<SlippagePoint> {
+  const all = rows
+    .map((row) => ({
+      label: text(row, 'partyName'),
+      value: num(row, 'slippage'),
+      creditDays: num(row, 'creditDays'),
+    }))
+    .filter((p) => p.label !== '')
+    .sort((a, b) => b.value - a.value);
+  const points = all.slice(0, keep);
+  const late = all.filter((p) => p.value >= SLIPPAGE_WORRY_DAYS);
+
+  return {
+    points,
+    insight:
+      all.length === 0
+        ? null
+        : late.length === 0
+          ? 'Everyone is paying inside their agreed terms.'
+          : `${String(late.length)} of ${String(all.length)} customers run more than ${String(SLIPPAGE_WORRY_DAYS)} days past terms.`,
+  };
+}
+
+// ----------------------------------------------------------- 8. fill rate
+
+/** How much of what was ordered actually went out. */
+export function fillRate(rows: readonly ReportRowView[], keep = 6): Series<Point> {
+  const all = rows
+    .map((row) => ({ label: text(row, 'partyName'), value: num(row, 'fillPct') }))
+    .filter((p) => p.label !== '')
+    .sort((a, b) => a.value - b.value);
+  const points = all.slice(0, keep);
+  const short = all.filter((p) => p.value < FILL_RATE_WORRY_PCT);
+
+  return {
+    points,
+    insight:
+      all.length === 0
+        ? null
+        : short.length === 0
+          ? `Every customer's orders are at least ${String(FILL_RATE_WORRY_PCT)}% filled.`
+          : `${String(short.length)} of ${String(all.length)} customers have orders under ${String(FILL_RATE_WORRY_PCT)}% filled.`,
+  };
+}
+
+// ------------------------------------------------- 9. pending dispatch by age
+
+/** Open order lines, grouped by how long they have been waiting. */
+export function pendingByAge(rows: readonly ReportRowView[]): Series<Point> {
+  const bands: { label: string; upto: number }[] = [
+    { label: '0-30', upto: 30 },
+    { label: '31-60', upto: 60 },
+    { label: '61-90', upto: 90 },
+    { label: '90+', upto: Number.POSITIVE_INFINITY },
+  ];
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const age = num(row, 'ageDays');
+    const band = bands.find((b) => age <= b.upto);
+    if (band === undefined) continue;
+    counts.set(band.label, (counts.get(band.label) ?? 0) + 1);
+  }
+  const points = bands
+    .filter((b) => counts.has(b.label))
+    .map((b) => ({ label: b.label, value: counts.get(b.label) ?? 0 }));
+  const stale = sum(points.filter((p) => p.label === '90+').map((p) => p.value));
+  const total = sum(points.map((p) => p.value));
+
+  return {
+    points,
+    insight:
+      total === 0
+        ? 'Nothing is waiting to go out.'
+        : stale === 0
+          ? `${String(total)} lines waiting, none of them older than ninety days.`
+          : `${String(stale)} of ${String(total)} waiting lines have been open more than ninety days.`,
+  };
+}
+
+// ----------------------------------------------------------- 10. stock ageing
+
+/** Value locked in stock, by how long it has sat. */
+export function stockAgeing(rows: readonly ReportRowView[]): Series<Point> {
+  const buckets: { label: string; key: string }[] = [
+    { label: '0-30', key: 'bucket0' },
+    { label: '31-60', key: 'bucket31' },
+    { label: '61-90', key: 'bucket61' },
+    { label: '90+', key: 'bucket90' },
+  ];
+  const points = buckets.map((b) => ({
+    label: b.label,
+    value: sum(rows.map((row) => num(row, b.key))),
+  }));
+  const total = sum(points.map((p) => p.value));
+  const stale = points.at(-1)?.value ?? 0;
+  const share = pct(stale, total);
+
+  return {
+    points: points.filter((p) => p.value > 0),
+    insight:
+      total === 0
+        ? null
+        : `${String(share)}% of the quantity on the shelf has been there over ${String(STOCK_STALE_DAYS)} days.`,
+  };
+}
+
+// -------------------------------------------------------- 11. revenue at risk
+
+export interface LapseSplit {
+  readonly label: string;
+  readonly value: number;
+}
+
+/** Last year's revenue whose customer has gone quiet. */
+export function revenueAtRisk(rows: readonly ReportRowView[]): Series<LapseSplit> {
+  const lapsed = rows.filter((row) => text(row, 'state') === 'LAPSED');
+  const atRisk = rows.filter((row) => text(row, 'state') !== 'LAPSED');
+  const points = [
+    { label: 'Lapsed', value: sum(lapsed.map((row) => num(row, 'revenue12m'))) },
+    { label: 'At risk', value: sum(atRisk.map((row) => num(row, 'revenue12m'))) },
+  ].filter((p) => p.value > 0);
+
+  return {
+    points,
+    insight:
+      rows.length === 0
+        ? 'No customer has gone quiet in this period.'
+        : `${String(lapsed.length)} of ${String(rows.length)} quiet customers have stopped buying altogether.`,
+  };
+}
+
+// ------------------------------------------------------- 12. credit headroom
+
+export interface HeadroomPoint extends Point {
+  readonly exposure: number;
+  readonly overLimit: boolean;
+}
+
+/** How much of each customer's credit line is used. */
+export function creditHeadroom(rows: readonly ReportRowView[], keep = 6): Series<HeadroomPoint> {
+  const all = rows
+    .map((row) => {
+      const limit = num(row, 'creditLimit');
+      const exposure = num(row, 'exposure');
+      return {
+        label: text(row, 'partyName'),
+        value: limit === 0 ? 0 : Math.round((exposure / limit) * 1000) / 10,
+        exposure,
+        overLimit: text(row, 'overLimit') === 'true',
+      };
+    })
+    .filter((p) => p.label !== '')
+    .sort((a, b) => b.value - a.value);
+  const points = all.slice(0, keep);
+  const breached = all.filter((p) => p.overLimit || p.value > 100);
+
+  return {
+    points,
+    insight:
+      all.length === 0
+        ? null
+        : breached.length === 0
+          ? 'Every customer is inside their credit limit.'
+          : `${String(breached.length)} of ${String(all.length)} customers are over their credit limit.`,
+  };
+}

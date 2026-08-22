@@ -15,14 +15,13 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { formatDate, EMPTY_VALUE } from '@/lib/format';
+import { formatDate, formatMoney, EMPTY_VALUE } from '@/lib/format';
 import { useShortcut } from '@/lib/keyboard/registry';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, SALES_DOCUMENT_STATUS_LABELS, SALES_ORDER_STATUSES, SYNC_STATES, SYNC_STATE_LABELS, type DocumentSyncState, type SalesOrderStatus } from '@vyuha/shared';
 
 import { SyncStateBadge } from './sales-order-sheet';
 import { FulfilmentBadge } from './fulfilment-badge';
-import { formatMoney } from './money';
 import type { EstimateSummary } from './types';
 import { useSalesOrders } from './use-estimates';
 

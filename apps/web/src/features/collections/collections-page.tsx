@@ -17,7 +17,7 @@ import { toast } from '@/components/ui/toast';
 import { fromDateParam, toDateParam } from '@/features/attendance/format';
 import { DateRangeField } from '@/features/attendance/pickers';
 import { QueryErrorAlert } from '@/features/attendance/query-error';
-import { EMPTY_VALUE, currencySymbol, formatAmount, formatDate, formatRelativeAge } from '@/lib/format';
+import { EMPTY_VALUE, formatDate, formatMoney, formatRelativeAge } from '@/lib/format';
 import { periodForGranularity } from '@/lib/period-compare';
 import { usePermission } from '@/lib/session/permissions';
 import { PERMISSIONS, PROMISE_STATES, PROMISE_STATE_LABELS, type CollectorDashboardRow, type PromiseState, type PromiseView } from '@vyuha/shared';
@@ -45,10 +45,6 @@ const STATE_VARIANT: Record<PromiseState, 'default' | 'secondary' | 'outline' | 
 };
 
 const ANY = 'any';
-
-function money(value: string): string {
-  return `${currencySymbol()}${formatAmount(value)}`;
-}
 
 export function CollectionsPage() {
   const canViewSelf = usePermission(PERMISSIONS.COLLECTIONS_VIEW_SELF);
@@ -175,13 +171,13 @@ function tiles(board: NonNullable<ReturnType<typeof useCollectorDashboard>['data
   const collected = Number(board.collectedThisPeriod);
   return [
     { label: 'Parties assigned', value: String(board.assignedParties), note: board.collector === null ? 'across every collector' : board.collector.name },
-    { label: 'Outstanding', value: money(board.totalOutstanding), note: 'open bills, now' },
-    { label: 'Overdue', value: money(board.overdue), note: 'past the bill’s own date' },
-    { label: 'Collected', value: money(board.collectedThisPeriod), note: target === null ? 'in the period' : `${String(Math.round((collected / Math.max(target, 1)) * 100))}% of ${money(board.target ?? '0')}` },
+    { label: 'Outstanding', value: formatMoney(board.totalOutstanding), note: 'open bills, now' },
+    { label: 'Overdue', value: formatMoney(board.overdue), note: 'past the bill’s own date' },
+    { label: 'Collected', value: formatMoney(board.collectedThisPeriod), note: target === null ? 'in the period' : `${String(Math.round((collected / Math.max(target, 1)) * 100))}% of ${formatMoney(board.target ?? '0')}` },
     { label: 'Promises open', value: String(board.promisesOpen), note: 'not yet due' },
     { label: 'Due today', value: String(board.promisesDueToday), note: 'call before the day ends' },
     { label: 'Broken', value: String(board.promisesBroken), note: 'came due with nothing' },
-    { label: 'Target', value: board.target === null ? EMPTY_VALUE : money(board.target), note: 'for the period' },
+    { label: 'Target', value: board.target === null ? EMPTY_VALUE : formatMoney(board.target), note: 'for the period' },
   ];
 }
 
@@ -199,11 +195,11 @@ function Board({ rows, tiles: kpis, canManage, onPromise }: { rows: readonly Col
         </Link>
       ),
     },
-    { key: 'outstanding', header: 'Outstanding', cell: (row) => money(row.outstanding), numeric: true },
+    { key: 'outstanding', header: 'Outstanding', cell: (row) => formatMoney(row.outstanding), numeric: true },
     {
       key: 'overdue',
       header: 'Overdue',
-      cell: (row) => (Number(row.overdue) > 0 ? <span className="text-destructive">{money(row.overdue)}</span> : EMPTY_VALUE),
+      cell: (row) => (Number(row.overdue) > 0 ? <span className="text-destructive">{formatMoney(row.overdue)}</span> : EMPTY_VALUE),
       numeric: true,
     },
     {
@@ -216,7 +212,7 @@ function Board({ rows, tiles: kpis, canManage, onPromise }: { rows: readonly Col
         ) : (
           <span className="flex items-center justify-end gap-1">
             <WarningDiamondIcon className="text-destructive" weight="fill" />
-            {money(row.clusterOutstanding)}
+            {formatMoney(row.clusterOutstanding)}
           </span>
         ),
       numeric: true,
@@ -271,7 +267,7 @@ function Board({ rows, tiles: kpis, canManage, onPromise }: { rows: readonly Col
                           toast.add({
                             type: email?.status === 'sent' ? 'success' : 'error',
                             title: email?.status === 'sent' ? `Statement sent to ${row.partyName}` : `Could not send to ${row.partyName}`,
-                            description: email?.status === 'sent' ? `${money(email.outstandingAtSend)} as of ${formatDate(email.statementAsOf)}.` : (email?.error ?? 'The party master carries no email address.'),
+                            description: email?.status === 'sent' ? `${formatMoney(email.outstandingAtSend)} as of ${formatDate(email.statementAsOf)}.` : (email?.error ?? 'The party master carries no email address.'),
                           });
                         },
                         onError: (error) => {
@@ -314,7 +310,7 @@ function Board({ rows, tiles: kpis, canManage, onPromise }: { rows: readonly Col
             rowKey={(row) => row.partyId}
             mobilePrimary={(row) => row.partyName}
             mobileStatus={(row) => (row.brokenPromises > 0 ? <Badge variant="destructive">{row.brokenPromises} broken</Badge> : Number(row.overdue) > 0 ? <Badge variant="outline">Overdue</Badge> : null)}
-            mobileSupporting={(row) => `${money(row.outstanding)} open · ${Number(row.overdue) > 0 ? `${money(row.overdue)} overdue` : 'nothing overdue'}${row.nextPromiseDate === null ? '' : ` · promised ${formatDate(row.nextPromiseDate)}`}`}
+            mobileSupporting={(row) => `${formatMoney(row.outstanding)} open · ${Number(row.overdue) > 0 ? `${formatMoney(row.overdue)} overdue` : 'nothing overdue'}${row.nextPromiseDate === null ? '' : ` · promised ${formatDate(row.nextPromiseDate)}`}`}
           />
         )}
       </section>
@@ -339,8 +335,8 @@ function PromisesTab({ from, to, canView }: { from: string; to: string; canView:
         </Link>
       ),
     },
-    { key: 'amount', header: 'Promised', cell: (row) => money(row.amount), numeric: true },
-    { key: 'received', header: 'Received', cell: (row) => money(row.receivedAmount), numeric: true },
+    { key: 'amount', header: 'Promised', cell: (row) => formatMoney(row.amount), numeric: true },
+    { key: 'received', header: 'Received', cell: (row) => formatMoney(row.receivedAmount), numeric: true },
     { key: 'date', header: 'By', cell: (row) => formatDate(row.promisedDate), className: 'tabular-nums' },
     { key: 'state', header: 'State', cell: (row) => <Badge variant={STATE_VARIANT[row.state]}>{PROMISE_STATE_LABELS[row.state]}</Badge> },
     { key: 'bills', header: 'Against', cell: (row) => (row.bills.length === 0 ? 'any receipt' : row.bills.join(', ')), secondary: true },
@@ -408,7 +404,7 @@ function PromisesTab({ from, to, canView }: { from: string; to: string; canView:
           rowKey={(row) => row.id}
           mobilePrimary={(row) => row.partyName}
           mobileStatus={(row) => <Badge variant={STATE_VARIANT[row.state]}>{PROMISE_STATE_LABELS[row.state]}</Badge>}
-          mobileSupporting={(row) => `${money(row.amount)} by ${formatDate(row.promisedDate)} · ${money(row.receivedAmount)} received`}
+          mobileSupporting={(row) => `${formatMoney(row.amount)} by ${formatDate(row.promisedDate)} · ${formatMoney(row.receivedAmount)} received`}
         />
       ) : null}
     </div>
