@@ -55,18 +55,9 @@ function ModuleSwitcher({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              // The sidebar's head, not one more row: the module's glyph on a
-              // solid tile, the name in a heavier weight, a second line that
-              // says what the control is. At the icon-only width the tile is
-              // what remains.
-              <SidebarMenuButton size="lg" aria-label="Switch module">
-                <span className="bg-primary text-primary-foreground flex size-8 shrink-0 items-center justify-center">
-                  <current.icon className="size-4" />
-                </span>
-                <span className="flex min-w-0 flex-col leading-tight">
-                  <span className="truncate font-semibold">{current.label}</span>
-                  <span className="text-muted-foreground truncate text-[0.6875rem]">Module</span>
-                </span>
+              <SidebarMenuButton aria-label="Switch module">
+                <current.icon />
+                <span className="font-medium">{current.label}</span>
                 <CaretUpDownIcon className="ml-auto size-4 opacity-60" />
               </SidebarMenuButton>
             }

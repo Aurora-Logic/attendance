@@ -117,11 +117,9 @@ export function MobileBottomNav() {
                   // measured 52.5px beside the 56px More button and every icon
                   // sat 2px higher than its neighbour. Filling the stretched
                   // row centres all five identically.
-                  'relative flex h-full min-h-14 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[0.6875rem]',
-                  // The same dot the sidebar's active row carries, here under
-                  // the label: colour alone is the weakest signal on a phone.
+                  'flex h-full min-h-14 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[0.6875rem]',
                   location.pathname === item.to
-                    ? 'text-primary font-medium after:absolute after:bottom-0.5 after:left-1/2 after:size-1 after:-translate-x-1/2 after:rounded-full after:bg-primary'
+                    ? 'text-primary font-medium'
                     : 'text-muted-foreground',
                 )}
               >
