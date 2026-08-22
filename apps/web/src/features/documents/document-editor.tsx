@@ -141,7 +141,14 @@ export function DocumentEditor(props: DocumentEditorProps) {
   return (
     <>
       <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100dvh-3.5rem)] flex-col md:-mx-6 md:-mt-6 md:-mb-6">
-        <div className="bg-background/85 supports-[backdrop-filter]:bg-background/70 flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 backdrop-blur md:px-6">
+        <div
+          // The guide's anchor for every document screen. This toolbar is the
+          // one thing all seven of them share — four editors and three paper
+          // views all render DocumentEditor — and none of them renders the
+          // PageHeader the rest of the product is anchored on.
+          data-guide="screen.document"
+          className="bg-background/85 supports-[backdrop-filter]:bg-background/70 flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 backdrop-blur md:px-6"
+        >
           <Button variant="ghost" size="sm" nativeButton={false} render={<Link to={backTo} />}>
             <ArrowLeftIcon data-icon="inline-start" />
             {backLabel}
