@@ -20,6 +20,7 @@ import {
   YAxis,
 } from 'recharts';
 
+import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import {
@@ -111,64 +112,6 @@ const withShades = <T,>(points: readonly T[]): (T & { fill: string })[] =>
 const SHARP = 0;
 /** A bar is a measurement, not a block of colour. */
 const BAR = 16;
-
-/**
- * A headline figure.
- *
- * A Card with a number in it and nothing nested inside -- the six of these sit
- * in their own grid above the charts, which is the shape the reports dashboard
- * has always had and the part people read first.
- */
-function Kpi({
-  label,
-  value,
-  hint,
-  report,
-  query,
-  pending,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  report: ReportKey;
-  query?: string;
-  pending: boolean;
-}) {
-  const navigate = useNavigate();
-  return (
-    <Card
-      className="hover:bg-accent/40 focus-visible:ring-ring cursor-pointer gap-0 px-3 py-2.5 outline-none focus-visible:ring-2"
-      tabIndex={0}
-      role="link"
-      onClick={() => {
-        void navigate(`/reports?report=${report}${query ?? ''}`);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          void navigate(`/reports?report=${report}${query ?? ''}`);
-        }
-      }}
-    >
-      {/*
-        A headline figure needs a label, the number and a line of context, and
-        the Card's own padding on top of the header's and the content's made
-        each of those a block of air. The parts are stacked directly here
-        instead, and the figure is sized to the six-across row rather than to
-        a card of its own.
-      */}
-      <CardHeader className="gap-0 border-b-0 p-0">
-        <CardDescription className="text-xs leading-tight">{label}</CardDescription>
-        <CardTitle className="text-xl leading-tight font-semibold tabular-nums">
-          {pending ? <Skeleton className="h-6 w-20" /> : value}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        <p className="text-muted-foreground text-[11px] leading-tight">{hint}</p>
-      </CardContent>
-    </Card>
-  );
-}
 
 function ChartSkeleton() {
   return <Skeleton className="aspect-video w-full" />;
@@ -290,6 +233,7 @@ const RISK_CONFIG = {
 } satisfies ChartConfig;
 
 export function ReportsDashboardV2() {
+  const navigate = useNavigate();
   const canView = usePermission(PERMISSIONS.RECEIVABLES_VIEW);
   const [range, setRange] = useState<DateRange>(defaultRange);
   const [basketMeasure, setBasketMeasure] = useState<'revenue' | 'aov'>('revenue');
@@ -319,6 +263,10 @@ export function ReportsDashboardV2() {
   if (!canView) {
     return <PageHeader description="This dashboard needs permission to see receivables." />;
   }
+
+  const open = (query: string): void => {
+    void navigate(`/reports?${query}`);
+  };
 
   const thisMonth = asApiDate(new Date()).slice(0, 7);
   const monthRows = byMonth.data?.data ?? [];
@@ -383,51 +331,16 @@ export function ReportsDashboardV2() {
       {/* Three across, not six. Six in a row made a wall of figures nobody
           reads left to right, and each tile was too narrow for a rupee amount
           without wrapping. */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <Kpi
-          label="Invoiced this period"
-          value={formatMoney(invoiced.total)}
-          hint={`Across ${String(invoiced.points.length)} month${invoiced.points.length === 1 ? '' : 's'}`}
-          report="sales-analysis"
-          query="&groupBy=month"
-          pending={byMonth.isPending}
-        />
-        <Kpi
-          label="Receivables exposure"
-          value={formatMoney(totalExposure)}
-          hint={`${String(credit.data?.meta.total ?? 0)} debtors, from the credit cycle`}
-          report="credit-cycle"
-          pending={credit.isPending}
-        />
-        <Kpi
-          label="Over the credit limit"
-          value={formatCount(breaches.data?.meta.total ?? 0)}
-          hint="Parties past their limit right now"
-          report="credit-breaches"
-          pending={breaches.isPending}
-        />
-        <Kpi
-          label="Revenue going quiet"
-          value={formatMoney(quietRevenue)}
-          hint="Last twelve months from lapsed and at-risk customers"
-          report="customer-lapse"
-          pending={quiet.isPending}
-        />
-        <Kpi
-          label="Dead stock value"
-          value={formatMoney(deadValue)}
-          hint={`${formatCount(dead.data?.meta.total ?? 0)} items with no sale in ninety days`}
-          report="dead-stock"
-          pending={dead.isPending}
-        />
-        <Kpi
-          label="Below reorder level"
-          value={formatCount(lowStock.data?.meta.total ?? 0)}
-          hint="Items at or under reorder, net of open purchase orders"
-          report="low-stock"
-          pending={lowStock.isPending}
-        />
-      </div>
+      <KpiGrid
+        tiles={[
+          { label: 'Invoiced this period', value: formatMoney(invoiced.total), note: `Across ${String(invoiced.points.length)} month${invoiced.points.length === 1 ? '' : 's'}`, onOpen: () => { open('report=sales-analysis&groupBy=month'); } },
+          { label: 'Receivables exposure', value: formatMoney(totalExposure), note: `${formatCount(credit.data?.meta.total ?? 0)} debtors, from the credit cycle`, onOpen: () => { open('report=credit-cycle'); } },
+          { label: 'Over the credit limit', value: formatCount(breaches.data?.meta.total ?? 0), note: 'Parties past their limit right now', onOpen: () => { open('report=credit-breaches'); } },
+          { label: 'Revenue going quiet', value: formatMoney(quietRevenue), note: 'Last twelve months from lapsed and at-risk customers', onOpen: () => { open('report=customer-lapse'); } },
+          { label: 'Dead stock value', value: formatMoney(deadValue), note: `${formatCount(dead.data?.meta.total ?? 0)} items with no sale in ninety days`, onOpen: () => { open('report=dead-stock'); } },
+          { label: 'Below reorder level', value: formatCount(lowStock.data?.meta.total ?? 0), note: 'Items at or under reorder, net of open purchase orders', onOpen: () => { open('report=low-stock'); } },
+        ]}
+      />
 
       {/* Interactive line, full width: two measures over the same months, one
           at a time, with the period's totals as the switch. */}

@@ -504,7 +504,7 @@ function FormChart({ spec, definition, rows, animate, compare, onDrill }: { spec
             {/* The two lines a reader actually looks for. */}
             <ReferenceLine y={50} stroke="var(--muted-foreground)" strokeDasharray="3 3" strokeOpacity={0.6} />
             <ReferenceLine y={80} stroke="var(--muted-foreground)" strokeDasharray="3 3" strokeOpacity={0.6} />
-            <Bar dataKey="sharePct" fill="var(--color-sharePct)" radius={[4, 4, 0, 0]} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
+            <Bar dataKey="sharePct" fill="var(--color-sharePct)" maxBarSize={16} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
             <Line dataKey="cumulativePct" stroke="var(--color-cumulativePct)" strokeWidth={2} dot={false} isAnimationActive={animate} animationDuration={CHART_INTRO_MS} />
           </ComposedChart>
         </ChartContainer>

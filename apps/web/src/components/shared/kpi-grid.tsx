@@ -1,15 +1,21 @@
+import type React from 'react';
 import type { ReactNode } from 'react';
 import { ArrowDownRightIcon, ArrowUpRightIcon, MinusIcon } from '@phosphor-icons/react';
 
 import { deltaOf } from '@/lib/period-compare';
+import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 /**
- * A strip of figures for a record or a dashboard: label over value, the
- * change against the comparison period beneath it when one is shown
- * (absolute and percent, or "new" when the base was zero — never an
- * infinite percent), one border around the set. Two across on a phone,
- * four on a desk. A tile with no comparison shows no delta.
+ * The figures a record or a dashboard opens with: label over value, and
+ * beneath it either the change against the comparison period (absolute and
+ * percent, or "new" when the base was zero -- never an infinite percent) or a
+ * line of context.
+ *
+ * A Card each, three across, matching every chart on the page. It used to be
+ * one bordered strip divided into cells, which was a second card pattern in a
+ * product that has one, and at six across a rupee amount wrapped inside its
+ * own cell.
  */
 
 export interface KpiTileProps {
@@ -24,11 +30,19 @@ export interface KpiTileProps {
   lowerIsBetter?: boolean;
   /** A word under the value: "approx.", "now", the period. */
   note?: string;
+  /** Where the figure comes from. A tile with one is a link. */
+  onOpen?: () => void;
 }
 
-export function KpiGrid({ tiles, columns = 4, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4; className?: string }) {
+export function KpiGrid({ tiles, columns = 3, className }: { tiles: readonly KpiTileProps[]; columns?: 3 | 4; className?: string }) {
   return (
-    <dl className={cn('divide-border grid grid-cols-2 divide-x divide-y border', columns === 3 ? 'sm:grid-cols-3 sm:[&>*:nth-child(n+4)]:border-t' : 'sm:grid-cols-4 sm:[&>*:nth-child(n+5)]:border-t', 'sm:divide-y-0', className)}>
+    <dl
+      className={cn(
+        'grid grid-cols-1 gap-3 sm:grid-cols-2',
+        columns === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3',
+        className,
+      )}
+    >
       {tiles.map((tile) => (
         <KpiTile key={tile.label} {...tile} />
       ))}
@@ -36,13 +50,31 @@ export function KpiGrid({ tiles, columns = 4, className }: { tiles: readonly Kpi
   );
 }
 
-export function KpiTile({ label, value, current, previous, format, lowerIsBetter = false, note }: KpiTileProps) {
+export function KpiTile({ label, value, current, previous, format, lowerIsBetter = false, note, onOpen }: KpiTileProps) {
   const delta = current !== undefined && previous !== undefined && previous !== null ? deltaOf(current, previous) : null;
   const good = delta === null ? null : delta.direction === 'flat' ? null : (delta.direction === 'up') !== lowerIsBetter;
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 px-3 py-2">
-      <dt className="text-muted-foreground truncate text-[0.6875rem]">{label}</dt>
-      <dd className="truncate text-base font-medium tabular-nums">{value}</dd>
+    <Card
+      className={cn(
+        'min-w-0 gap-0.5 px-3 py-2.5',
+        onOpen !== undefined && 'hover:bg-accent/40 focus-visible:ring-ring cursor-pointer outline-none focus-visible:ring-2',
+      )}
+      {...(onOpen === undefined
+        ? {}
+        : {
+            role: 'link',
+            tabIndex: 0,
+            onClick: onOpen,
+            onKeyDown: (event: React.KeyboardEvent) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onOpen();
+              }
+            },
+          })}
+    >
+      <dt className="text-muted-foreground truncate text-xs leading-tight">{label}</dt>
+      <dd className="truncate text-xl leading-tight font-semibold tabular-nums">{value}</dd>
       {delta !== null ? (
         <dd
           className={cn('flex items-center gap-1 text-[0.6875rem] tabular-nums', good === null ? 'text-muted-foreground' : good ? 'text-success' : 'text-destructive')}
@@ -52,9 +84,9 @@ export function KpiTile({ label, value, current, previous, format, lowerIsBetter
           {deltaText(delta.absolute, delta.pct, delta.label, format)}
         </dd>
       ) : note ? (
-        <dd className="text-muted-foreground text-[0.6875rem]">{note}</dd>
+        <dd className="text-muted-foreground text-[0.6875rem] leading-tight">{note}</dd>
       ) : null}
-    </div>
+    </Card>
   );
 }
 

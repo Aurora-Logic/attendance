@@ -7,17 +7,11 @@ import { PERMISSIONS } from '@vyuha/shared';
 import type { DateRange } from 'react-day-picker';
 
 import { ChartCard } from '@/components/shared/chart-card';
+import { KpiGrid } from '@/components/shared/kpi-grid';
 import { PageHeader } from '@/components/shared/page-header';
 import { ShortcutHint } from '@/components/shared/shortcut-hint';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import {
   Empty,
   EmptyDescription,
@@ -25,7 +19,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { toDateParam } from '@/features/attendance/format';
 import { formatCount } from '@/lib/format';
 import { DateRangeField } from '@/features/attendance/pickers';
@@ -75,29 +68,6 @@ import { useChartIntro } from './use-chart-motion';
  */
 
 /** Label, value, and optionally the glyph the figure's subject wears elsewhere (the flag). */
-/**
- * A headline figure, the same shape the reports dashboard uses.
- *
- * A Card with nothing nested in it: the label, the number, one line of
- * context. The old FigureStrip drew its own grid of bordered cells, which is
- * a second card pattern in a product that has one.
- */
-function Figure({ label, value, hint, pending }: { label: string; value: string; hint: string; pending: boolean }) {
-  return (
-    <Card className="gap-0 px-3 py-2.5">
-      <CardHeader className="gap-0 border-b-0 p-0">
-        <CardDescription className="text-xs leading-tight">{label}</CardDescription>
-        <CardTitle className="text-xl leading-tight font-semibold tabular-nums">
-          {pending ? <Skeleton className="h-6 w-12" /> : value}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        <p className="text-muted-foreground text-[11px] leading-tight">{hint}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
 
 /**
  * The strip's own shape, to the pixel that matters.
@@ -244,15 +214,16 @@ export function DashboardPage() {
             </Button>
           </div>
 
-          {/* Three across, matching the reports dashboard. */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Figure label="At work today" value={formatCount(atWorkToday)} hint="Present, half day or on duty" pending={orgToday.isPending} />
-            <Figure label="On leave today" value={formatCount(orgTodayTotals.leave)} hint="Approved leave for today" pending={orgToday.isPending} />
-            <Figure label="Absent today" value={formatCount(orgTodayTotals.absent)} hint="Due in, with no punch" pending={orgToday.isPending} />
-            <Figure label="Flagged today" value={formatCount(orgTodayTotals.flagged)} hint="Days carrying at least one flag" pending={orgToday.isPending} />
-            <Figure label="Late arrivals" value={formatCount(rangeTotals.lateDays)} hint="Across the period" pending={orgRange.isPending} />
-            <Figure label="Days at work" value={formatCount(atWorkRange)} hint="Across the period" pending={orgRange.isPending} />
-          </div>
+          <KpiGrid
+            tiles={[
+              { label: 'At work today', value: formatCount(atWorkToday), note: 'Present, half day or on duty' },
+              { label: 'On leave today', value: formatCount(orgTodayTotals.leave), note: 'Approved leave for today' },
+              { label: 'Absent today', value: formatCount(orgTodayTotals.absent), note: 'Due in, with no punch' },
+              { label: 'Flagged today', value: formatCount(orgTodayTotals.flagged), note: 'Days carrying at least one flag' },
+              { label: 'Late arrivals', value: formatCount(rangeTotals.lateDays), note: 'Across the period' },
+              { label: 'Days at work', value: formatCount(atWorkRange), note: 'Across the period' },
+            ]}
+          />
 
           {orgRange.isError ? (
             <QueryErrorAlert
