@@ -56,7 +56,7 @@ const BUILT_ROUTES = new Set([
 ]);
 
 
-// D-48/P-23: every page is its own chunk, loaded on navigation. The shell
+// P-23: every page is its own chunk, loaded on navigation. The shell
 // ships in the entry bundle; a route's code arrives when the route does.
 const EmployeeDetailPage = lazy(() => import('@/features/employees').then((m) => ({ default: m.EmployeeDetailPage })));
 const EmployeesPage = lazy(() => import('@/features/employees').then((m) => ({ default: m.EmployeesPage })));
@@ -67,9 +67,9 @@ const HolidaysPage = lazy(() => import('@/features/holidays').then((m) => ({ def
 const LeaveTypesPage = lazy(() => import('@/features/leave').then((m) => ({ default: m.LeaveTypesPage })));
 const MyLeavePage = lazy(() => import('@/features/leave').then((m) => ({ default: m.MyLeavePage })));
 const TeamLeavePage = lazy(() => import('@/features/leave').then((m) => ({ default: m.TeamLeavePage })));
-const RegularizationsPage = lazy(() => import('@/features/regularization').then((m) => ({ default: m.RegularizationsPage })));
 const PatternsPage = lazy(() => import('@/features/patterns/patterns-page').then((m) => ({ default: m.PatternsPage })));
 const PunchPage = lazy(() => import('@/features/punch').then((m) => ({ default: m.PunchPage })));
+const RegularizationsPage = lazy(() => import('@/features/regularization').then((m) => ({ default: m.RegularizationsPage })));
 const ShiftsPage = lazy(() => import('@/features/shifts').then((m) => ({ default: m.ShiftsPage })));
 const AnalyticsPage = lazy(() => import('@/features/analytics').then((m) => ({ default: m.AnalyticsPage })));
 const AuditLogPage = lazy(() => import('@/features/audit').then((m) => ({ default: m.AuditLogPage })));
@@ -223,9 +223,8 @@ export default function App() {
               <Route path="period-lock" element={<PeriodLockPage />} />
               <Route path="reports" element={<ReportsPage />} />
               <Route path="reports/dashboard" element={<ReportsDashboardPage />} />
-              {/* A second version, so the two can be compared before either
-                  is kept. Vanilla shadcn charts and cards, no project chart
-                  layer. */}
+              {/* A second version, so the two can be compared before either is
+                  kept. Vanilla shadcn charts and cards, no project chart layer. */}
               <Route path="reports/dashboard/v2" element={<ReportsDashboardV2 />} />
               <Route path="administration" element={<AdministrationScreen />} />
               <Route path="downloads" element={<DownloadsPage />} />

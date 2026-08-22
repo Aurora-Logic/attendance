@@ -209,15 +209,22 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
   }
 
   const partyIds = new Map<string, string>();
-  for (const [index, name] of [...CUSTOMERS, ...VENDORS].entries()) {
+  /*
+   * Guarded like every other section rather than left to ON CONFLICT. There is
+   * no unique index on (org_id, name) -- parties are a Tally projection and the
+   * sync engine keys them by its own identifier -- so an unqualified ON CONFLICT
+   * DO NOTHING had nothing to conflict against and every run inserted a second
+   * Godavari Electricals under a fresh id. Four runs left 75 rows for 21 names.
+   */
+  const seedParties = !(await already('parties'));
+  for (const [index, name] of seedParties ? [...CUSTOMERS, ...VENDORS].entries() : []) {
     const isCustomer = index < CUSTOMERS.length;
     const id = randomUUID();
     partyIds.set(name, id);
     await db.query(
       `INSERT INTO parties (id, org_id, connection_id, name, parent_group, gstin, address,
          credit_limit, credit_days, opening_balance, email, phone, last_pulled_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())
-       ON CONFLICT DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())`,
       [
         id, orgId, connectionId, name,
         isCustomer ? 'Sundry Debtors' : 'Sundry Creditors',
@@ -237,21 +244,21 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
 
   for (const row of (
     await db.query<{ id: string; name: string }>(
-      `SELECT id, name FROM parties WHERE org_id = $1`, [orgId],
+      `SELECT id, name FROM parties WHERE org_id = $1 ORDER BY created_at`, [orgId],
     )
   ).rows) {
     partyIds.set(row.name, row.id);
   }
 
   const itemIds = new Map<string, string>();
-  for (const [name, group, unit, gst, sale, cost] of ITEMS) {
+  const seedItems = !(await already('stock_items'));
+  for (const [name, group, unit, gst, sale, cost] of seedItems ? ITEMS : []) {
     const id = randomUUID();
     itemIds.set(name, id);
     await db.query(
       `INSERT INTO stock_items (id, org_id, connection_id, name, unit, parent_group, gst_rate,
          closing_qty, sale_price, cost_price, last_pulled_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
-       ON CONFLICT DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())`,
       [id, orgId, connectionId, name, unit, group, gst, between(0, 400), sale, cost],
     );
     bump('stock_items');
@@ -259,7 +266,7 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
 
   for (const row of (
     await db.query<{ id: string; name: string }>(
-      `SELECT id, name FROM stock_items WHERE org_id = $1`, [orgId],
+      `SELECT id, name FROM stock_items WHERE org_id = $1 ORDER BY created_at`, [orgId],
     )
   ).rows) {
     itemIds.set(row.name, row.id);
@@ -508,7 +515,11 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
     }
   }
 
-  for (const [index, title] of TASK_TITLES.entries()) {
+  // Guarded for the same reason the masters are: nothing here has a unique key
+  // to conflict against, so an ungated re-run stacks a second copy of every
+  // task on the board.
+  const seedTasks = !(await already('tasks'));
+  for (const [index, title] of seedTasks ? TASK_TITLES.entries() : []) {
     const columnIndex = index % columnIds.length;
     const done = (
       await db.query<{ is_done: boolean }>(
@@ -683,7 +694,11 @@ async function fill(db: PoolClient, orgId: string): Promise<DemoReport> {
   ).rows[0]?.id ?? null;
 
   const DAYS_OF_MUSTER = 60;
-  for (const [personIndex, employeeId] of staff.entries()) {
+  // `attendance_days` has a unique key and quietly skips a re-run, but the
+  // punches and leave requests hanging off it do not -- so the section is
+  // gated as a whole rather than relying on the one table that is protected.
+  const seedMuster = !(await already('attendance_days'));
+  for (const [personIndex, employeeId] of seedMuster ? staff.entries() : []) {
     for (let back = 1; back <= DAYS_OF_MUSTER; back += 1) {
       const date = daysAgo(back);
       if (holidayDates.has(date)) continue;
